@@ -95,11 +95,11 @@ class KalmanDenoiser:
         # Get stack array dimensions
         nframes, width, height = stack.shape
 
-        logger.info(f'filtering {nframes}-frames stack with {self}')
-
         # Optional: add initial padding to allow for initial variance fitting
         if self.npad > 0:
             stack = np.concatenate((get_stack_baseline(stack, self.npad), stack))
+
+        logger.info(f'filtering {nframes}-frames stack with {self}')
              
         # Initialization
         filtered_stack = np.zeros_like(stack)  # Initialize output array
@@ -146,4 +146,5 @@ if __name__ == '__main__':
     stack = np.random.rand(3, 4, 2)
     print(stack)
     kd = KalmanDenoiser(variance=0.05, gain=0.08)
-    kd.filter(stack)
+    filtered_stack = kd.filter(stack)
+    print(filtered_stack)

@@ -1,5 +1,8 @@
 numpy
-ipywidgets
-numpy_image_widget
-tifffile
+matplotlib
 colorlog
+tqdm
+numpy_image_widget
+imagecodecs
+ipywidgets
+tifffile

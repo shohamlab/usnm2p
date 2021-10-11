@@ -1,4 +1,5 @@
 import numpy as np
+from logger import logger
 
 def get_stack_baseline(stack: np.array, n: int, noisefactor: float=1.) -> np.array:
     '''
@@ -10,7 +11,8 @@ def get_stack_baseline(stack: np.array, n: int, noisefactor: float=1.) -> np.arr
     :return: generated baseline stack
     '''
     # Extract frame dimensions from stack
-    _, *framedims = stack.shape
+    nframes, *framedims = stack.shape
+    logger.info(f'constructing {n}-frames baseline from {nframes}-frames stack...')
     # Estimate median and standard deviation of each pixel across the images of the stack
     pixel_med, pixel_std = np.median(stack, axis=0), np.std(stack, axis=0)
     # Tile both matrices along the required number of baseline frames
