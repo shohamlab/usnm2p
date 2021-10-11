@@ -89,7 +89,9 @@ class KalmanDenoiser:
         '''
         assert len(stack) != 0, 'Stack is empty.'
         assert len(stack) != 1, 'Stack must contain more than one element.'
-        # Default cast to float64 for increased precision
+
+        # Cast to float64 for increased precision
+        input_type = stack.dtype
         stack = stack.astype(np.float64)
         
         # Get stack array dimensions
@@ -119,6 +121,9 @@ class KalmanDenoiser:
 
         # Remove padding output if present
         filtered_stack = filtered_stack[self.npad:]
+
+        # Cast from floating point to input type (usually 16-bit integer
+        filtered_stack = filtered_stack.astype(input_type) 
 
         # Return
         if full_output:

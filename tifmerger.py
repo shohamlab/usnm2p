@@ -4,9 +4,9 @@ import os
 import warnings
 import logging
 import numpy as np
-from tifffile import imread, imsave
 
 from logger import logger
+from utils import loadtif, savetif, get_output_equivalent
 
 TIF_PATTERN = re.compile('.*tif')
 REF_NFRAMES = 1600
@@ -46,12 +46,14 @@ def mergetifs(tifdir):
     # Cast tifdir to absolute path
     tifdir = os.path.abspath(tifdir)
     # Get output file name and check that id does not already exist
-    stack_fname = f'{tifdir}_stack.tif'
-    if os.path.exists(stack_fname):
-        logger.warning(f'Output stack file "{stack_fname}" already exists')
-        answer = input('Overwrite (y/n)?:')
+    pardir, dirname = os.path.split(tifdir)
+    outdir = get_output_equivalent(pardir, 'raw', 'stacked')
+    stack_fpath = os.path.join(outdir, f'{dirname}.tif')
+    if os.path.exists(stack_fpath):
+        logger.warning(f'output stack file "{stack_fpath}" already exists')
+        answer = input('overwrite (y/n)?:')
         if answer not in ['y', 'yes', 'Y', 'Yes']:
-            return None
+            return stack_fpath
     # Get tif files list
     try:
         fnames = get_sorted_tif_list(tifdir)
@@ -64,31 +66,29 @@ def mergetifs(tifdir):
     for i, fname in enumerate(fnames):
         # Load corresponding image while tunring off warnings
         with warnings.catch_warnings(record=True):
-            image = imread(os.path.join(tifdir, fname))
+            image = loadtif(os.path.join(tifdir, fname))
         # Implement fix for first file that contains 10 frames (a mystery) -> we just take the last one.
         if image.ndim > 2:
             nframes = image.shape[0]
-            logger.warning(f'Image {i} ("{fname}") is corrupted (shape = {image.shape}) -> ommitting first {nframes - 1} frames')
+            logger.warning(f'image {i} ("{fname}") is corrupted (shape = {image.shape}) -> ommitting first {nframes - 1} frames')
             image = image[-1]
         # Assign reference image shape or ensure match of current image with reference
         if refshape is None:
             refshape = image.shape
         else:
-            assert image.shape == refshape, 'Image {i} shape {image.shape} does not match reference {refshape}'
+            assert image.shape == refshape, 'image {i} shape {image.shape} does not match reference {refshape}'
         # Append image to stack
         stack.append(image)
     # Check that final stack size is correct
     nframes = len(stack)
     if nframes != REF_NFRAMES:
-        logger.warning(f'Final stack size = {nframes} frames, seems suspicious...')
-    logger.info(f'Generated {nframes}-frames image stack')
+        logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
+    logger.info(f'generated {nframes}-frames image stack')
     # Convert stack to numpy array
     stack = np.stack(stack)
     # Save stack as single file
-    stack_fname = f'{tifdir}_stack.tif'
-    imsave(stack_fname, stack)
-    logger.info(f'Saved {stack.shape} {stack.dtype} stack as "{stack_fname}"')
-    return stack_fname
+    savetif(stack_fpath, stack)
+    return stack_fpath
 
 
 def get_data_folders(basedir, datafolders=[]):
