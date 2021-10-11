@@ -1,0 +1,5 @@
+numpy
+ipywidgets
+numpy_image_widget
+tifffile
+colorlog

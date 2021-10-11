@@ -1,0 +1,108 @@
+from multiprocessing import Value
+import re
+import os
+import warnings
+import logging
+import numpy as np
+from tifffile import imread, imsave
+
+from logger import logger
+
+TIF_PATTERN = re.compile('.*tif')
+REF_NFRAMES = 1600
+
+
+def get_sorted_tif_list(dir):
+    ''' Get the list of TIF files contained in a directory (in alphabetical order). '''
+    if not os.path.isdir(dir):
+        raise ValueError('"{dir}" is not a directory')
+    # List directory files in alphabetical order
+    fnames = sorted(os.listdir(dir))
+    if len(fnames) == 0:
+        raise ValueError(f'"{dir}" folder is empty')
+    # Clean list of anything which is not .tif
+    fnames = list(filter(TIF_PATTERN.match, fnames)) 
+    if len(fnames) == 0:
+        raise ValueError(f'"{dir}" folder does not contain any tifs')
+    return fnames
+
+
+def is_tif_dir(dir):
+    ''' Assess whether or not a directory contains any TIF files. '''
+    try:
+        get_sorted_tif_list(dir)
+        return True
+    except ValueError:
+        return False
+
+
+def mergetifs(tifdir):
+    '''
+    Merge individual tif files into a tif stack.
+
+    :param tifdir: absolute path to directory containing the tif images
+    :return: filepath to the created tif stack
+    '''
+    # Cast tifdir to absolute path
+    tifdir = os.path.abspath(tifdir)
+    # Get output file name and check that id does not already exist
+    stack_fname = f'{tifdir}_stack.tif'
+    if os.path.exists(stack_fname):
+        logger.warning(f'Output stack file "{stack_fname}" already exists')
+        answer = input('Overwrite (y/n)?:')
+        if answer not in ['y', 'yes', 'Y', 'Yes']:
+            return None
+    # Get tif files list
+    try:
+        fnames = get_sorted_tif_list(tifdir)
+    except ValueError:
+        return None
+    # Initialize stack array
+    stack = []
+    refshape = None
+    # For eaach filename
+    for i, fname in enumerate(fnames):
+        # Load corresponding image while tunring off warnings
+        with warnings.catch_warnings(record=True):
+            image = imread(os.path.join(tifdir, fname))
+        # Implement fix for first file that contains 10 frames (a mystery) -> we just take the last one.
+        if image.ndim > 2:
+            nframes = image.shape[0]
+            logger.warning(f'Image {i} ("{fname}") is corrupted (shape = {image.shape}) -> ommitting first {nframes - 1} frames')
+            image = image[-1]
+        # Assign reference image shape or ensure match of current image with reference
+        if refshape is None:
+            refshape = image.shape
+        else:
+            assert image.shape == refshape, 'Image {i} shape {image.shape} does not match reference {refshape}'
+        # Append image to stack
+        stack.append(image)
+    # Check that final stack size is correct
+    nframes = len(stack)
+    if nframes != REF_NFRAMES:
+        logger.warning(f'Final stack size = {nframes} frames, seems suspicious...')
+    logger.info(f'Generated {nframes}-frames image stack')
+    # Convert stack to numpy array
+    stack = np.stack(stack)
+    # Save stack as single file
+    stack_fname = f'{tifdir}_stack.tif'
+    imsave(stack_fname, stack)
+    logger.info(f'Saved {stack.shape} {stack.dtype} stack as "{stack_fname}"')
+    return stack_fname
+
+
+def get_data_folders(basedir, datafolders=[]):
+    '''
+    Get data folders by searching recursively throughout a tree-like folder architecture.
+
+    :param basedir: base directory from which the search is initiated.
+    :return: list of data folders
+    '''
+    logger.debug(f'Searching through {basedir}')
+    for item in os.listdir(basedir):
+        absitem = os.path.join(basedir, item)
+        if is_tif_dir(absitem):
+            datafolders.append(absitem)
+        if os.path.isdir(absitem):
+            get_data_folders(absitem, datafolders=datafolders)
+    return datafolders
