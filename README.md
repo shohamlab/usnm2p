@@ -30,11 +30,11 @@ The stimulus is therefore delivered concurrently with the acquisition of the 10t
 
 The TIF images from a given run are all stored in a single folder, which is named according to a specific pattern depending on the specimen, stimulation and acquisitation parameters:
 
-foldername = <mouse_line>_<nframes_per_trial>frames_<???>Hz_<stim_duration>ms_<sampling_rate>Hz_<stim_amplitude>MPA_<stim_DC>DC-<run_ID>
+`foldername = <mouse_line>_<nframes_per_trial>frames_<???>Hz_<stim_duration>ms_<sampling_rate>Hz_<stim_amplitude>MPA_<stim_DC>DC-<run_ID>`
 
 Inside this folder, individual files are named using this same pattern, together with unique cycle and frame identifers:
 
-filename = <foldername>_Cycle<cycle_number>_Ch2_<frame_number>.ome.tif
+`filename = <foldername>_Cycle<cycle_number>_Ch2_<frame_number>.ome.tif`
 
 This rich nomenclature is used as a way to store metadata associated with each experimental run.
 
@@ -46,12 +46,12 @@ The raw data is typically processed in different successive steps, described bel
 2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a Kalman filter with specific parameters (TO COMPLETE).
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
-    a. conversion from TIF to binary data
-    b. motion correction (parametrized, rigid / non-rigid registration using FFTs)
-    c. denoising using principal component analysis (optional)
-    d.non-negative matrix factorization to find relevant regions (neurons, axonal processes, neuropil artefacts…), optimizing and removing z-artefacts
-    e. naïve Bayesian classification (using model trained on cortical data) to identify cells based on parameters (shape of neuron, size, shape of activity, etc)
-    f. spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
+    - conversion from TIF to binary data
+    - motion correction (parametrized, rigid / non-rigid registration using FFTs)
+    - denoising using principal component analysis (optional)
+    - non-negative matrix factorization to find relevant regions (neurons, axonal processes, neuropil artefacts…), optimizing and removing z-artefacts
+    - naïve Bayesian classification (using model trained on cortical data) to identify cells based on parameters (shape of neuron, size, shape of activity, etc)
+    - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
 Upon completion, a */suite2p/plane0/* folder is created for each input stack that typically contains the following output files:
     - `data.bin`: the input stack converted to binary format ???
     - `F.npy`: 2D numpy array with fluorescence timeseries for each identified cell
@@ -62,23 +62,26 @@ Upon completion, a */suite2p/plane0/* folder is created for each input stack tha
     - `stat.npy`: 2D numpy array with quantified features for each identified cell
 
 4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
-    a. subtraction cell – neuropil
-	b. stim onset artefact removing
-    c. baseline normalization -> df/f
-    d. removing outliers (discards cells above dff_outlier threshold)
-    e. classify by response type
-    f. pandas data cleaning / re-organizing
-    g. plot across trials / cells (time series & summary plots) 
-
+    - subtraction cell – neuropil
+	- stim onset artefact removing
+    - baseline normalization -> df/f
+    - removing outliers (discards cells above dff_outlier threshold)
+    - classify by response type
+    - pandas data cleaning / re-organizing
+    - plot across trials / cells (time series & summary plots) 
 
 TO COMPLETE
 
 ## Authors & constributors
 
 This code base has received contributions from many people, including
-- Diego Asua (original author)
-- Theo Lemaire (current maintainer)
+- Diego Asua: original author???
+- Theo Lemaire (theo.lemaire@nyulangone.org): current contributor
+
+TO COMPLETE
 
 ## References
 
 - Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
+
+TO COMPLETE
