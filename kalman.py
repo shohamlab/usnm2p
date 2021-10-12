@@ -76,7 +76,6 @@ class KalmanDenoiser:
         x_post = self.gain * x_prior + (1.0 - self.gain) * x_obs + k * (x_obs - x_prior)
         ex_post = ex_prior * (1.0 - k)
         return x_post, ex_post
-    
 
     # TODO: Speed up with numba???
     def filter(self, stack: np.array, full_output: bool=False):
