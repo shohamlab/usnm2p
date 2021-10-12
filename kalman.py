@@ -7,50 +7,73 @@ from logger import logger
 
 class KalmanDenoiser:
     '''
-    Main interface to Kalman filtering denoiser. 
+    Main interface to Kalman filtering denoiser.
+
     Based on ImageJ plugin written by Christopher Philip Mauer (https://imagej.nih.gov/ij/plugins/kalman.html).
 
     This plugin implements a recursive prediction/correction algorithm which is based on the Kalman Filter
-    (commonly used for robotic vision and navigation) to remove high gain noise from time lapse image streams.
-    These filters remove camera/detector noise while recovering faint image detail.
+    (Piovoso and Laplante, 2003) commonly used for robotic vision and navigation to remove high gain noise
+    from time lapse image streams. These filters remove camera/detector noise while recovering faint image detail.
+
+    This method extends the original Kalman filter by introducing an additional filter gain G in the algorithm
+    (Khmou and Safi, 2013). This gain is used at each iteration to compute a modified Kalman gain K2 = K + 1 - G,
+    which is then used to compute the new posterior estimate:
+
+    X_estim = K2 * X_measured + (1 - K2) * X_pred
+
+    The formula then reduces to:
+
+    X_estim = G * X_pred + (1 − G) * X_measured + K * (X_pred − X_measured)
+
+    Additionally, the posterior variance estimate is calculated assuming a neutral transition process, with
+    a unit diagonal transition matrix and zero noise. Under these assumptions, the posterior variance estimate becomes:
+
+    EX_estim = EX_pred * (1 - K)
+
+    The main advantages of this extension are:
+    (1) wrong guesses of the initial variance will not prevent noise estimation but merely delay the fitting process.
+    (2) values for the filter gain G renders the output less sensitive to momentary fluctuations and therefore adapted
+    for the processing of recordings containing calcium transients.
+    
+    References:
+    - Piovoso, M., and Laplante, P.A. (2003). Kalman filter recipes for real-time image processing. Real-Time Imaging 9, 433–439.
+    - Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
     '''
 
-    def __init__(self, gain=0.8, variance=0.05, npad=10):
+    def __init__(self, G=0.8, V=0.05, npad: np.uint8=10):
         '''
         Initialization
 
-        :param gain: filter gain level (0-1). High filter gain renders the output less sensitive 
-            to momentary fluctuations.
-        :param variance: estimate of noise variance level (0-1). Wrong guesses for the initial variance
-            will not prevent noise estimation, but merely delay the fitting process.
-        :param npad: number of frames from which to construct initial baseline padding
+        :param G: filter gain (0-1).
+        :param V: variance (i.e. noise) estimate (0-1).
+        :param npad: baseline padding length (number of frames) to absorb initial errors.
         '''
-        self.gain = gain
-        self.variance = variance
+        self.G = G
+        self.V = V
         self.npad = npad
 
     def __str__(self) -> str:
-        return f'{self.__class__.__name__}(gain={self.gain}, var={self.variance}, npad={self.npad})'
+        return f'{self.__class__.__name__}(gain={self.G}, var={self.V}, npad={self.npad})'
 
     @property
-    def gain(self):
-        return self._gain
+    def G(self):
+        return self._G
 
-    @gain.setter
-    def gain(self, value):
+    @G.setter
+    def G(self, value):
         if not 0 < value <= 1:
-            raise ValueError("Gain must be between 0 and 1.")
-        self._gain = value
+            raise ValueError('Gain must be between 0 and 1.')
+        self._G = value
 
     @property
-    def variance(self):
-        return self._variance
+    def V(self):
+        return self._V
 
-    @variance.setter
-    def variance(self, value):
+    @V.setter
+    def V(self, value):
         if not 0 < value <= 1:
-            raise ValueError("Variance must be between 0 and 1.")
-        self._variance = value
+            raise ValueError('Variance must be between 0 and 1.')
+        self._V = value
 
     @property
     def npad(self):
@@ -72,9 +95,9 @@ class KalmanDenoiser:
         :param x_obs: observed variable
         :return: 2-tuple of a posteriori (i.e. corrected) variable estimate and variance.
         '''
-        k = ex_prior / (ex_prior + self.variance)
-        x_post = self.gain * x_prior + (1.0 - self.gain) * x_obs + k * (x_obs - x_prior)
-        ex_post = ex_prior * (1.0 - k)
+        K = ex_prior / (ex_prior + self.V)  # Kalman gain = ratio of estimate variance / total variance
+        x_post = self.G * x_prior + (1.0 - self.G) * x_obs + K * (x_obs - x_prior)  # posterior estimate
+        ex_post = ex_prior * (1.0 - K)  # posterior variance estimate
         return x_post, ex_post
 
     # TODO: Speed up with numba???
@@ -98,15 +121,15 @@ class KalmanDenoiser:
 
         # Optional: add initial padding to allow for initial variance fitting
         if self.npad > 0:
-            stack = np.concatenate((get_stack_baseline(stack, self.npad), stack))
+            stack = np.concatenate((get_stack_baseline(stack[:min(nframes, 100)], self.npad), stack))
 
         logger.info(f'filtering {nframes}-frames stack with {self}')
              
         # Initialization
         filtered_stack = np.zeros_like(stack)  # Initialize output array
-        ex_history = [self.variance]  # Keep track of variance estimates
+        ex_history = [self.V]  # Keep track of variance estimates
         x = stack[0]  # Use first frame as the state variable prediction seed
-        ex = np.ones((width, height)) * self.variance  # Use the variance estimate as the state error seed
+        ex = np.ones((width, height)) * self.V  # Use the variance estimate as the state error seed
         filtered_stack[0] = x
 
         # Recursive algorithm for each subsequent frame
@@ -138,7 +161,7 @@ class KalmanDenoiser:
         ax.set_ylabel('mean variance estimate (%)')
         inds = np.arange(ex_history.size)
         ax.plot(inds, ex_history * 1e2, c='C0')
-        ax.axhline(self.variance * 1e2, c='k', ls='--', label='initial variance')
+        ax.axhline(self.V * 1e2, c='k', ls='--', label='initial variance')
         if self.npad > 0:
             ax.axvspan(0, self.npad, fc='dimgray', ec='none', alpha=0.5, label='padding region')
         ax.legend(frameon=False)

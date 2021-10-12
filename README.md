@@ -11,7 +11,7 @@ This repository hosts the code base to process and analyze 2-photon calcium imag
 
 ### Instructions
 
-- Download and install the suite2p functional segmentation pipeline in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html
+- Download and install the suite2p functional segmentation pipeline [1] in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html
 - While in that environment, install the remaining package dependencies: `pip install -r requirements.txt`
 - You're all set!
 
@@ -43,7 +43,7 @@ This rich nomenclature is used as a way to store metadata associated with each e
 The raw data is typically processed in different successive steps, described below.
 1. **Stacking**: raw TIF images are assembled into stacked TIF files containing all the frames of an entire run. Each resulting stacked TIF file should contain a 1600x256x256 uint16 array and is named after the directory containing the corresponding individual TIF files.
 
-2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a Kalman filter with specific parameters (TO COMPLETE).
+2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a modified implementation of the Kalman filter [2] with specific parameters (TO COMPLETE).
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
     - conversion from TIF to binary data
@@ -82,6 +82,9 @@ TO COMPLETE
 
 ## References
 
-- Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
+[1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
+[2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
+
+- Kalman filter recipes for real-time image processing
 
 TO COMPLETE
