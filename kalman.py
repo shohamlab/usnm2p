@@ -2,8 +2,10 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+from constants import NMAX_FRAMES_BASELINE_ESTIMATE
 from utils import get_stack_baseline
 from logger import logger
+
 
 class KalmanDenoiser:
     '''
@@ -121,7 +123,9 @@ class KalmanDenoiser:
 
         # Optional: add initial padding to allow for initial variance fitting
         if self.npad > 0:
-            stack = np.concatenate((get_stack_baseline(stack[:min(nframes, 100)], self.npad), stack))
+            stack = np.concatenate((
+                get_stack_baseline(stack[:min(nframes, NMAX_FRAMES_BASELINE_ESTIMATE)], self.npad),
+                stack))
 
         logger.info(f'filtering {nframes}-frames stack with {self}')
              
@@ -166,12 +170,3 @@ class KalmanDenoiser:
             ax.axvspan(0, self.npad, fc='dimgray', ec='none', alpha=0.5, label='padding region')
         ax.legend(frameon=False)
         return fig
-
-
-if __name__ == '__main__':
-    
-    stack = np.random.rand(3, 4, 2)
-    print(stack)
-    kd = KalmanDenoiser(variance=0.05, gain=0.08)
-    filtered_stack = kd.filter(stack)
-    print(filtered_stack)

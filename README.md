@@ -30,7 +30,7 @@ The stimulus is therefore delivered concurrently with the acquisition of the 10t
 
 The TIF images from a given run are all stored in a single folder, which is named according to a specific pattern depending on the specimen, stimulation and acquisitation parameters:
 
-`foldername = <mouse_line>_<nframes_per_trial>frames_<???>Hz_<stim_duration>ms_<sampling_rate>Hz_<stim_amplitude>MPA_<stim_DC>DC-<run_ID>`
+`foldername = <mouse_line>_<nframes_per_trial>frames_<PRF>Hz_<stim_duration>ms_<sampling_rate>Hz_<stim_amplitude>MPA_<stim_DC>DC-<run_ID>`
 
 Inside this folder, individual files are named using this same pattern, together with unique cycle and frame identifers:
 
@@ -47,19 +47,20 @@ The raw data is typically processed in different successive steps, described bel
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
     - conversion from TIF to binary data
-    - motion correction (parametrized, rigid / non-rigid registration using FFTs)
-    - denoising using principal component analysis (optional)
-    - non-negative matrix factorization to find relevant regions (neurons, axonal processes, neuropil artefacts…), optimizing and removing z-artefacts
-    - naïve Bayesian classification (using model trained on cortical data) to identify cells based on parameters (shape of neuron, size, shape of activity, etc)
+    - motion correction & image registration (parametrized, rigid vs. non-rigid)
+    - denoising using principal component analysis (optional) ???
+    - regions of interest (ROIs) detection over contaminating signals originating from the surrounding neuropil (i.e. axons & dendrites located outside of the plane of interest but in the acquisition volume)
+    - ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
+    - extraction of ROI's calcium fluorescence timecourse
     - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
 Upon completion, a */suite2p/plane0/* folder is created for each input stack that typically contains the following output files:
-    - `data.bin`: the input stack converted to binary format ???
-    - `F.npy`: 2D numpy array with fluorescence timeseries for each identified cell
-    - `Fneu.npy`: 2D numpy array with fluorescence timeseries for each identified neuropil
-    - `iscell.npy`: 2D numpy array with ???
-    - `ops.npy`: options suite2p was run with
-    - `spks.npy`: 2D numpy array with attempted deconvoluted spike info for each identified cell
-    - `stat.npy`: 2D numpy array with quantified features for each identified cell
+- `F.npy`: array of fluorescence traces (ROIs by timepoints)
+- `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
+- `spks.npy`: array of deconvolved traces (ROIs by timepoints)
+- `stat.npy`: array of statistics computed for each cell (ROIs by 1)
+- `ops.npy`: options and intermediate outputs (identical to the output of the run_s2p function)
+- `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
+- `data.bin` (optional): registered image stack in binary format format
 
 4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
     - subtraction cell – neuropil
@@ -72,7 +73,7 @@ Upon completion, a */suite2p/plane0/* folder is created for each input stack tha
 
 TO COMPLETE
 
-## Authors & constributors
+## Authors & contributors
 
 This code base has received contributions from many people, including
 - Diego Asua: original author???
@@ -82,9 +83,7 @@ TO COMPLETE
 
 ## References
 
-[1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
-[2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
-
-- Kalman filter recipes for real-time image processing
+- [1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
+- [2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
 
 TO COMPLETE

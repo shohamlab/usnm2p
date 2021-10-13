@@ -1,28 +1,12 @@
 import numpy as np
 import numpy_image_widget as niw
 from ipywidgets import IntSlider, VBox, HBox, Text, HTML
-import matplotlib.pyplot as plt
 
 from logger import logger
 
 ''' Notebook image stacks viewing utilities, inspired from Robert Haase's
     stackview package (https://github.com/haesleinhuepf/stackview/).
 '''
-
-def plot_summary(stack, cmap='gray'):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    fig.patch.set_facecolor('w')
-    axes[0].set_title('Median value')
-    sm1 = axes[0].imshow(np.median(stack, axis=0), cmap=cmap)
-    fig.colorbar(sm1, ax=axes[0])
-    axes[1].set_title('Standard deviation')
-    sm2 = axes[1].imshow(np.std(stack, axis=0), cmap=cmap)
-    fig.colorbar(sm2, ax=axes[1])
-    for ax in [axes[0], axes[1]]:
-        ax.set_xticks([])
-        ax.set_yticks([])
-    return fig
-
 
 class StackViewer:
     ''' Class implementing single stack viewer. '''

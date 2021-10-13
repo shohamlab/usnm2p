@@ -5,11 +5,9 @@ import warnings
 import logging
 import numpy as np
 
+from constants import *
 from logger import logger
-from utils import loadtif, savetif, get_output_equivalent
-
-TIF_PATTERN = re.compile('.*tif')
-REF_NFRAMES = 1600
+from utils import loadtif, savetif, get_output_equivalent, check_for_existence
 
 
 def get_sorted_tif_list(dir):
@@ -36,24 +34,25 @@ def is_tif_dir(dir):
         return False
 
 
-def mergetifs(tifdir):
+def mergetifs(tifdir, overwrite='?'):
     '''
     Merge individual tif files into a tif stack.
 
     :param tifdir: absolute path to directory containing the tif images
+    :param overwrite: one of (True, False, '?') defining what to do if output stack file already exists 
     :return: filepath to the created tif stack
     '''
     # Cast tifdir to absolute path
     tifdir = os.path.abspath(tifdir)
-    # Get output file name and check that id does not already exist
+    # Get output file name
     pardir, dirname = os.path.split(tifdir)
     outdir = get_output_equivalent(pardir, 'raw', 'stacked')
     stack_fpath = os.path.join(outdir, f'{dirname}.tif')
-    if os.path.exists(stack_fpath):
-        logger.warning(f'output stack file "{stack_fpath}" already exists')
-        answer = input('overwrite (y/n)?:')
-        if answer not in ['y', 'yes', 'Y', 'Yes']:
-            return stack_fpath
+    # Check for file existence and decide whether to move fowrard or not
+    move_forward = check_for_existence(stack_fpath, overwrite)
+    if not move_forward:
+        return stack_fpath
+
     # Get tif files list
     try:
         fnames = get_sorted_tif_list(tifdir)
@@ -91,18 +90,30 @@ def mergetifs(tifdir):
     return stack_fpath
 
 
-def get_data_folders(basedir, datafolders=[]):
+def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[]):
     '''
-    Get data folders by searching recursively throughout a tree-like folder architecture.
+    Get data folders inside a root directory by searching (recursively or not) throughout
+    a tree-like folder architecture.
 
     :param basedir: base directory from which the search is initiated.
+    :param recursive: whether to search recursively or not.
+    :param exclude_patterns: list of exclusion patterns (any folder paths containing any of these patterns are excluded)
+    :param include_patterns: list of inclusion patterns (only folder paths containing all of these patterns are included) 
     :return: list of data folders
     '''
     logger.debug(f'Searching through {basedir}')
+    # Populate folder list
+    datafolders = []
     for item in os.listdir(basedir):
         absitem = os.path.join(basedir, item)
         if is_tif_dir(absitem):
             datafolders.append(absitem)
-        if os.path.isdir(absitem):
-            get_data_folders(absitem, datafolders=datafolders)
+        if recursive and os.path.isdir(absitem):
+            datafolders += get_data_folders(absitem)
+    # Filter out excluded folders
+    for k in exclude_patterns:
+        datafolders = list(filter(lambda x: k not in x, datafolders))
+    # Restrict to included patterns
+    for k in include_patterns:
+        datafolders = list(filter(lambda x: k in x, datafolders))
     return datafolders
