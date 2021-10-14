@@ -1,13 +1,53 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2021-10-04 17:44:51
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2021-10-14 18:54:51
+
+import abc
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from constants import NMAX_FRAMES_BASELINE_ESTIMATE
-from utils import get_stack_baseline
 from logger import logger
 
+''' Collection of filtering utilities. '''
 
-class KalmanDenoiser:
+
+class StackFilter(metaclass=abc.ABCMeta):
+
+    @staticmethod
+    def get_baseline(stack: np.array, n: int, noisefactor: float=1.) -> np.array:
+        '''
+        Construct baseline stack from stack.
+        
+        :param stack: 3D image stack
+        :param n: number of frames to put in the baseline
+        :param noisefactor: uniform multiplying factor applied to the noise matrix to construct the baseline
+        :return: generated baseline stack
+        '''
+        # Extract frame dimensions from stack
+        nframes, *framedims = stack.shape
+        logger.info(f'constructing {n}-frames baseline from {nframes}-frames stack...')
+        # Construct noise matrix spanning [-noisefactor, noisefactor] and matching the required baseline stack dimensions
+        noise = noisefactor * (2 * np.random.rand(n, *framedims) - 1)
+        # Estimate median and standard deviation of each pixel across the images of the stack
+        pixel_med, pixel_std = np.median(stack, axis=0), np.std(stack, axis=0)
+        # Add axis to both matrices to allow broadcasting with noise matrix
+        pixel_med, pixel_std = [np.expand_dims(x, axis=0) for x in [pixel_med, pixel_std]]
+        # Construct baseline stack by summing up median and std-scaled noise matrices
+        baseline = pixel_med + noise * pixel_std
+        # Bound to [0, MAX] interval and return
+        return np.clip(baseline, 0, np.amax(stack))
+
+    @abc.abstractmethod
+    def filter(self):
+        ''' Abstract filter method. '''
+        raise NotImplementedError
+
+
+class KalmanDenoiser(StackFilter):
     '''
     Main interface to Kalman filtering denoiser.
 
@@ -53,6 +93,7 @@ class KalmanDenoiser:
         self.G = G
         self.V = V
         self.npad = npad
+        super().__init__()
 
     def __str__(self) -> str:
         return f'{self.__class__.__name__}(gain={self.G}, var={self.V}, npad={self.npad})'
@@ -124,7 +165,7 @@ class KalmanDenoiser:
         # Optional: add initial padding to allow for initial variance fitting
         if self.npad > 0:
             stack = np.concatenate((
-                get_stack_baseline(stack[:min(nframes, NMAX_FRAMES_BASELINE_ESTIMATE)], self.npad),
+                self.get_baseline(stack[:min(nframes, NMAX_FRAMES_BASELINE_ESTIMATE)], self.npad),
                 stack))
 
         logger.info(f'filtering {nframes}-frames stack with {self}')

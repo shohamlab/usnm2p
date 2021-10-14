@@ -1,10 +1,16 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2021-10-05 17:56:34
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2021-10-14 19:32:08
+
 import numpy as np
 import numpy_image_widget as niw
-from ipywidgets import IntSlider, VBox, HBox, Text, HTML
+from ipywidgets import IntSlider, VBox, HBox, HTML
 
 from logger import logger
 
-''' Notebook image stacks viewing utilities, inspired from Robert Haase's
+''' Notebook image viewing utilities, inspired from Robert Haase's
     stackview package (https://github.com/haesleinhuepf/stackview/).
 '''
 

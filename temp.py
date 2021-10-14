@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2021-10-12 16:46:18
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2021-10-14 18:22:37
+
 import os
 import numpy as np
 

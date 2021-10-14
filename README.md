@@ -54,22 +54,22 @@ The raw data is typically processed in different successive steps, described bel
     - extraction of ROI's calcium fluorescence timecourse
     - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
 Upon completion, a */suite2p/plane0/* folder is created for each input stack that typically contains the following output files:
-- `F.npy`: array of fluorescence traces (ROIs by timepoints)
-- `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
-- `spks.npy`: array of deconvolved traces (ROIs by timepoints)
-- `stat.npy`: array of statistics computed for each cell (ROIs by 1)
-- `ops.npy`: options and intermediate outputs (identical to the output of the run_s2p function)
-- `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
-- `data.bin` (optional): registered image stack in binary format format
+    - `F.npy`: array of fluorescence traces (ROIs by timepoints)
+    - `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
+    - `spks.npy`: array of deconvolved traces (ROIs by timepoints)
+    - `stat.npy`: array of statistics computed for each cell (ROIs by 1)
+    - `ops.npy`: options and intermediate outputs (identical to the output of the run_s2p function)
+    - `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
+    - `data.bin` (optional): registered image stack in binary format format
 
 4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
     - subtraction cell – neuropil
-	- stim onset artefact removing
+	- (stim onset artefact removing)
     - baseline normalization -> df/f
     - removing outliers (discards cells above dff_outlier threshold)
     - classify by response type
     - pandas data cleaning / re-organizing
-    - plot across trials / cells (time series & summary plots) 
+    - plot across trials / cells (time series & summary plots)
 
 TO COMPLETE
 
