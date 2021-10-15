@@ -2,14 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 18:54:51
+# @Last Modified time: 2021-10-15 09:51:08
 
 import abc
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from constants import NMAX_FRAMES_BASELINE_ESTIMATE
 from logger import logger
 
 ''' Collection of filtering utilities. '''
@@ -82,7 +81,7 @@ class KalmanDenoiser(StackFilter):
     - Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
     '''
 
-    def __init__(self, G=0.8, V=0.05, npad: np.uint8=10):
+    def __init__(self, G=0.5, V=0.05, npad: np.uint8=10):
         '''
         Initialization
 
@@ -165,7 +164,7 @@ class KalmanDenoiser(StackFilter):
         # Optional: add initial padding to allow for initial variance fitting
         if self.npad > 0:
             stack = np.concatenate((
-                self.get_baseline(stack[:min(nframes, NMAX_FRAMES_BASELINE_ESTIMATE)], self.npad),
+                self.get_baseline(stack[:min(nframes, 100)], self.npad),
                 stack))
 
         logger.info(f'filtering {nframes}-frames stack with {self}')

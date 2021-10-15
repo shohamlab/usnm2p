@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 19:35:48
+# @Last Modified time: 2021-10-15 09:04:41
 
 import os
+import glob
 from tifffile import imread, imsave
 
-from constants import TIF_PATTERN
+from parsers import P_TIFFILE
 from logger import logger
 
 ''' Collection of utilities for operations on files and directories. '''
@@ -53,7 +54,7 @@ def get_sorted_filelist(dir, pattern=None):
 def is_tif_dir(dir):
     ''' Assess whether or not a directory contains any TIF files. '''
     try:
-        get_sorted_filelist(dir, TIF_PATTERN)
+        get_sorted_filelist(dir, P_TIFFILE)
         return True
     except ValueError:
         return False

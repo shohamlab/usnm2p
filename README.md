@@ -43,7 +43,7 @@ This rich nomenclature is used as a way to store metadata associated with each e
 The raw data is typically processed in different successive steps, described below.
 1. **Stacking**: raw TIF images are assembled into stacked TIF files containing all the frames of an entire run. Each resulting stacked TIF file should contain a 1600x256x256 uint16 array and is named after the directory containing the corresponding individual TIF files.
 
-2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a modified implementation of the Kalman filter [2] with specific parameters (TO COMPLETE).
+2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a modified implementation of the Kalman filter [2]. The main parameter influencing the outcome of this processing step is the *specified filter gain* (`G`). From collective experience, it seems that values around 0.5 work well when using GCaMP6s as a fluorescence reporter.
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
     - conversion from TIF to binary data
@@ -53,7 +53,7 @@ The raw data is typically processed in different successive steps, described bel
     - ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
     - extraction of ROI's calcium fluorescence timecourse
     - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
-Upon completion, a */suite2p/plane0/* folder is created for each input stack that typically contains the following output files:
+Upon completion, a `/suite2p/plane0/` folder is created for each input stack that typically contains the following output files:
     - `F.npy`: array of fluorescence traces (ROIs by timepoints)
     - `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
     - `spks.npy`: array of deconvolved traces (ROIs by timepoints)
@@ -63,13 +63,13 @@ Upon completion, a */suite2p/plane0/* folder is created for each input stack tha
     - `data.bin` (optional): registered image stack in binary format format
 
 4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
-    - subtraction cell – neuropil
-	- (stim onset artefact removing)
-    - baseline normalization -> df/f
-    - removing outliers (discards cells above dff_outlier threshold)
-    - classify by response type
-    - pandas data cleaning / re-organizing
-    - plot across trials / cells (time series & summary plots)
+    - subtraction of cell and associated neuropil fluorescence traces (with an constant neuropil factor `k = 0.7`).
+	- *(stim onset artefact removing)*
+    - baseline normalization on a per trial basis to obtain relative fluorescence traces (`dF/F0`)
+    - removal of outlier cells which exhibit abnormally high peaks of relative fluorescence activity
+    - classification of cells by response type (positively responding, negatively responding, and neutral)
+    - data cleaning and re-organization
+    - visualization of the results across trials / cells (time series & summary plots)
 
 TO COMPLETE
 

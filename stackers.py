@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 19:41:45
+# @Last Modified time: 2021-10-15 09:05:58
 
 import abc
 import os
@@ -13,6 +13,7 @@ import numpy as np
 from constants import *
 from logger import logger
 from fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence
+from parsers import P_TIFFILE
 
 
 ''' Collection of image stacking utilities. '''
@@ -95,12 +96,13 @@ class TifStacker(ImageStacker):
             logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
 
 
-def stack_tifs(inputdir, **kwargs):
+def stack_tifs(inputdir, pattern=P_TIFFILE, **kwargs):
         '''
         high-level function to merge individual TIF files into an TIF stack.
 
         :param inputdir: absolute path to directory containing the input images
-        :param overwrite: one of (True, False, '?') defining what to do if output stack file already exists 
+        :param overwrite: one of (True, False, '?') defining what to do if output stack file already exists
+        :param pattern: filename matching pattern 
         :return: filepath to the created tif stack
         '''
         # Cast inputdir to absolute path
@@ -111,7 +113,7 @@ def stack_tifs(inputdir, **kwargs):
         output_fpath = os.path.join(outdir, f'{dirname}.tif')
         # Get tif files list
         try:
-            fnames = get_sorted_filelist(inputdir, pattern=TIF_PATTERN)
+            fnames = get_sorted_filelist(inputdir, pattern=pattern)
         except ValueError:
             return None
         fpaths = [os.path.join(inputdir, fname) for fname in fnames]

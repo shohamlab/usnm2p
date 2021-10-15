@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 19:32:08
+# @Last Modified time: 2021-10-15 17:35:21
 
 import numpy as np
 import numpy_image_widget as niw
@@ -62,6 +62,7 @@ class StackViewer:
     def update(self, event):
         ''' Event handler: update view upon change in slider index. '''
         self.view.data = self.stack[self.slider.value]
+        print(self.view.data[0])
 
     def render(self, stack: np.array, title=None) -> VBox:
         ''' Render stack.

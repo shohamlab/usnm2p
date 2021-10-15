@@ -2,12 +2,19 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 19:45:09
+# @Last Modified time: 2021-10-15 18:07:07
 
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from suite2p import run_s2p
+from suite2p.io import BinaryFile
+from colorsys import hsv_to_rgb
 
+from ipywidgets import interact, interactive, fixed, interact_manual
+import ipywidgets as widgets
+
+from constants import *
 from logger import logger
 from fileops import parse_overwrite
 
@@ -36,28 +43,45 @@ def run_suite2p(*args, overwrite=True, **kwargs):
     return run_s2p(*args, **kwargs)
 
 
-def get_suite2p_data(dirpath, cells_only=True, withops=False):
+def get_suite2p_data(dirpath, cells_only=False, withops=False):
     '''
     Locate suite2p output files given a specific output directory, and load them into a dictionary.
     
-    :param dirpath: full path to the output directory (must contain a suite2p subdirectory).
+    :param dirpath: full path to the output directory containing the suite2p data files.
     :param cells_only: boolean stating whether to filter out non-cell entities from dataset.
     :param withops: whether include a dictionary of options and intermediate outputs.
     :return: suite2p output dictionary.
     '''
     if not os.path.isdir(dirpath):
         raise ValueError(f'"{dirpath}" directory does not exist')
-    for subdir in ['suite2p', 'plane0']:
-        dirpath = os.path.join(dirpath, subdir)
-        if not os.path.isdir(dirpath):
-            raise ValueError(f'"{dirpath}" directory does not exist')
     keys = ['iscell', 'stat', 'F', 'Fneu', 'spks']
     data = {k : np.load(os.path.join(dirpath, f'{k}.npy'), allow_pickle=True) for k in keys} 
-    iscell = data.pop('iscell')[:, 0]  # the full "iscell" has a second column with the probability of being a cell
     # If specified, restrict dataset to cells only
     if cells_only:
+        iscell = data.pop('iscell')[:, 0]  # the full "iscell" has a second column with the probability of being a cell
         cell_idx = np.array(iscell.nonzero()).reshape(-1)
         data = {k : v[cell_idx] for k, v in data.items()}
     if withops:
         data['ops'] = np.load(os.path.join(dirpath, f'ops.npy'), allow_pickle=True).item()
     return data
+
+
+def view_registered_stack(output_ops):
+    widget = widgets.IntSlider(
+        value=7,
+        min=0,
+        max=10,
+        step=1,
+        description='Test:',
+        disabled=False,
+        continuous_update=False,
+        orientation='horizontal',
+        readout=True,
+        readout_format='d'
+    )
+
+    def plot_frame(t):
+        with BinaryFile(Ly=REF_LY, Lx=REF_LX, read_filename=output_ops['reg_file']) as f:
+            plt.imshow(f[t][0])
+
+    interact(plot_frame, t=(0, REF_NFRAMES, 1))
