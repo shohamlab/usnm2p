@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 13:23:55
+# @Last Modified time: 2021-10-17 17:24:00
 
 import re
 
@@ -24,8 +24,9 @@ P_RUN = '([0-9]+)'
 P_CYCLE = 'Cycle([0-9]+)'
 P_CHANNEL = 'Ch([0-9])'
 P_FRAME = '([0-9]+)'
-P_EXPFOLDER = re.compile(f'^{P_LINE}_{P_TRIAL_LENGTH}_{P_FREQ}_{P_DUR}_{P_FREQ}_{P_MPA}_{P_DC}-{P_RUN}$', re.IGNORECASE)
-P_EXPFILE = re.compile(f'{P_EXPFOLDER.pattern[:-1]}_{P_CYCLE}_{P_CHANNEL}_{P_FRAME}.ome.tif$', re.IGNORECASE)
+P_RAWFOLDER = re.compile(f'^{P_LINE}_{P_TRIAL_LENGTH}_{P_FREQ}_{P_DUR}_{P_FREQ}_{P_MPA}_{P_DC}-{P_RUN}$', re.IGNORECASE)
+P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{P_CYCLE}_{P_CHANNEL}_{P_FRAME}.ome.tif$', re.IGNORECASE)
+P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 
 
 def parse_experiment_parameters(name):
@@ -36,12 +37,16 @@ def parse_experiment_parameters(name):
     :return: dictionary of extracted parameters
     '''
     # Try first with folder pattern
-    isfile = False
-    mo = P_EXPFOLDER.match(name)
+    israwfile = False
+    mo = P_RAWFOLDER.match(name)
     # If no match detected, try with file pattern
     if mo is None:
-        isfile = True
-        mo = P_EXPFILE.match(name)
+        israwfile = True
+        mo = P_RAWFILE.match(name)
+    # If still no match, try with stack file pattern
+    if mo is None:
+        israwfile = False
+        mo = P_STACKFILE.match(name)
     # If still no match, throw error
     if mo is None:
         raise ValueError(f'"{name}" does not match the experiment naming pattern')
@@ -52,15 +57,15 @@ def parse_experiment_parameters(name):
         '???': float(mo.group(3)),
         'duration': float(mo.group(4)) * 1e-3,  # s
         'fps': float(mo.group(5)),  
-        'P': float(mo.group(6)),  # MPa
+        'P': mo.group(6),  # MPa
         'DC': float(mo.group(7)),  # %
         'run': int(mo.group(8))
     }
-    # Fix for pressure (in case no decimal dot included in the file/folder name)
-    while params['P'] > 1:
-        params['P'] /= 10.
+    # Fix for pressure (replacing first zero by decimal dot)
+    if '.' not in params['P']:
+        params['P'] = float(f'.{params["P"][1:]}')
     # If file, add file-level parameters
-    if isfile:
+    if israwfile:
         params.update({
             'cycle': int(mo.group(9)),
             'channel': int(mo.group(10)),

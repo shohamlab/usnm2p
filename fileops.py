@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 09:04:41
+# @Last Modified time: 2021-10-18 11:19:42
 
 import os
 import glob
@@ -10,6 +10,7 @@ from tifffile import imread, imsave
 
 from parsers import P_TIFFILE
 from logger import logger
+from utils import is_iterable
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -147,6 +148,34 @@ def savetif(fpath, stack, overwrite=True):
     if stack.ndim > 2:
         logger.info(f'saving {stack.shape} {stack.dtype} stack as "{fpath}"...')
     imsave(fpath, stack)
+
+
+def filter_and_save(filter, input_fpath, overwrite=False):
+    '''
+    Load input stack file, apply filter and save output stack in specific directory.
+    
+    :param filter: filter object
+    :param input_fpath: absolute filepath to the input TIF stack (or list of TIF stacks).
+    :return: absolute filepath to the output (filtered) TIF stack (or list of TIF stacks).
+    :param overwrite: one of (True, False, '?') defining what to do if file already exists.
+    '''
+    # If list of filepaths provided as input -> apply function to all of them
+    if is_iterable(input_fpath):
+        return [filter_and_save(filter, x) for x in input_fpath]
+    # Get output filepath
+    output_fpath = get_output_equivalent(input_fpath, 'stacked', f'filtered/{filter.code}')
+    # If already existing, act according to overwrite parameter
+    if os.path.isfile(output_fpath):
+        logger.warning(f'"{output_fpath}" already exists')
+        overwrite = parse_overwrite(overwrite)
+        if not overwrite:
+            return output_fpath
+    # Load input, filter stack, and save output
+    stack = loadtif(input_fpath)
+    filtered_stack = filter.filter(stack)
+    savetif(output_fpath, filtered_stack, overwrite=overwrite)
+    # Return output filepath
+    return output_fpath
 
 
 def parse_overwrite(overwrite):

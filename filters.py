@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 09:51:08
+# @Last Modified time: 2021-10-18 11:09:31
 
 import abc
 import numpy as np
@@ -43,6 +43,12 @@ class StackFilter(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def filter(self):
         ''' Abstract filter method. '''
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def code(self):
+        ''' Abstract code attribute. '''
         raise NotImplementedError
 
 
@@ -96,6 +102,10 @@ class KalmanDenoiser(StackFilter):
 
     def __str__(self) -> str:
         return f'{self.__class__.__name__}(gain={self.G}, var={self.V}, npad={self.npad})'
+
+    @property
+    def code(self):
+        return f'kd_G{self.G}_V{self.V}_npad{self.npad}'
 
     @property
     def G(self):

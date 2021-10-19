@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 18:07:07
+# @Last Modified time: 2021-10-18 11:50:57
 
 import os
 import numpy as np
@@ -31,10 +31,9 @@ def run_suite2p(*args, overwrite=True, **kwargs):
     for inputdir in kwargs['db']['data_path']:
         # Check for existence of suite2p subdirectory
         suite2pdir = os.path.join(inputdir, 'suite2p', 'plane0')
-        print(suite2pdir)
         if os.path.isdir(suite2pdir):
             # Check for existence of any suite2p output file
-            if any(os.path.isfile(os.path.join(suite2pdir, f'{k}.npy')) for k in suite2p_keys):
+            if all(os.path.isfile(os.path.join(suite2pdir, f'{k}.npy')) for k in suite2p_keys):
                 # Warn user if any exists, and act according to defined overwrite behavior
                 logger.warning(f'suite2p output files already exist in "{suite2pdir}"')
                 if not parse_overwrite(overwrite):

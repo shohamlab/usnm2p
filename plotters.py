@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 18:14:07
+# @Last Modified time: 2021-10-18 22:33:52
 
 from multiprocessing import Value
 import numpy as np
@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from colorsys import hsv_to_rgb
 
 from constants import *
-from utils import isIterable
+from utils import is_iterable
 
 ''' Collection of plotting utilities. '''
 
@@ -95,13 +95,13 @@ def plot_x(ax, x, fs, toffset=0., tbounds=None, color=None, label=None, alpha=1,
             alpha = 0.5
             label = None
     # Adapt plotting parameters to 2D case
-    if not isIterable(label):
+    if not is_iterable(label):
         if label is None:
             legend = False
         label = [label] * nsignals
-    if not isIterable(color):
+    if not is_iterable(color):
         color = [color] * nsignals
-    if not isIterable(alpha):
+    if not is_iterable(alpha):
         alpha = [alpha] * nsignals
     # Define time vector
     t = np.arange(nsamples) / fs - toffset
@@ -236,7 +236,6 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     '''
     iscell = data['iscell'][:, 0].astype(int)
     stats = data['stat']
-    n_cells = len(stats)
 
     # Generate ncells random points
     h = np.random.rand(len(iscell))
@@ -265,12 +264,34 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     # Cells ROIs
     ax = axes[1]
     ax.imshow(rgbs[1])
-    ax.set_title('Cell ROIs')
+    ax.set_title(f'Cell ROIs ({np.sum(iscell == 1)})')
     
     # Non-cell ROIs
     ax = axes[2]
     ax.imshow(rgbs[0])
-    ax.set_title('Non-cell ROIs')
+    ax.set_title(f'Non-cell ROIs ({np.sum(iscell == 0)})')
 
     fig.tight_layout()
+    return fig
+
+
+def plot_zscore_distributions(zmin, zmax):
+    '''
+    Plot distribution of identified min and max z-scores per cell type.
+    
+    :param zmin: distribution of minimum z-score negative peak on average response trace per cell 
+    :param zmax: distribution of maximum z-score positive peak on average response trace per cell 
+    :return: figure handle
+    '''
+    fig, ax = plt.subplots()
+    hide_spines_top_right(ax)
+    ax.set_title('average trial response - peak z-scores distributions across cell and conditions')
+    ax.set_xlabel('z-score')
+    ax.set_ylabel('frequency')
+    ax.hist(zmin, label='min peak', fc='C0', ec='k', alpha=0.5)
+    ax.hist(zmax, label='max peak', color='C1', ec='k', alpha=0.5)
+    ax.axvline(ZSCORE_THR_NEGATIVE, ls='--', c='C0', label='negative thr')
+    ax.axvline(ZSCORE_THR_POSITIVE, ls='--', c='C1', label='positive thr')
+    ax.set_xlim(-1.5, 1.5)
+    ax.legend(frameon=False)
     return fig

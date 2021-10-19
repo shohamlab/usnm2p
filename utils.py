@@ -13,7 +13,7 @@ from logger import logger
 ''' Collection of generic utilities. '''
 
 
-def isIterable(x):
+def is_iterable(x):
     for t in [list, tuple, np.ndarray]:
         if isinstance(x, t):
             return True
@@ -26,7 +26,7 @@ sorted_si_prefixes = sorted(si_prefixes.items(), key=operator.itemgetter(1))
 
 def getSIpair(x, scale='lin', unit_dim=1):
     ''' Get the correct SI factor and prefix for a floating point number. '''
-    if isIterable(x):
+    if is_iterable(x):
         # If iterable, get a representative number of the distribution
         x = np.asarray(x)
         x = x.prod()**(1.0 / x.size) if scale == 'log' else np.mean(x)

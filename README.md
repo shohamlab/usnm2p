@@ -53,6 +53,9 @@ The raw data is typically processed in different successive steps, described bel
     - ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
     - extraction of ROI's calcium fluorescence timecourse
     - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
+
+**Important**: if multiple stacked TIF files are provided as input, suite2p will **stack them sequentially (in which order???) prior to processing**. Therefore, **all stacked TIF files in the input folder must correspond to the same brain region**.
+
 Upon completion, a `/suite2p/plane0/` folder is created for each input stack that typically contains the following output files:
     - `F.npy`: array of fluorescence traces (ROIs by timepoints)
     - `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
