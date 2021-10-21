@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-20 10:35:38
+# @Last Modified time: 2021-10-21 11:43:14
 
 import os
 import glob
@@ -90,9 +90,14 @@ def get_output_equivalent(inpath, basein, baseout):
         pardir, dirname = os.path.split(pardir)
         subdirs.append(dirname)
     logger.debug(f'found "{basein}" in "{pardir}"')
-    subdirs = subdirs[::-1]
-    subdirs[0] = baseout
     logger.debug(f'moving down the file tree in "{baseout}"')
+    baseout, end = os.path.split(baseout)
+    first_subdirs = []
+    while len(baseout) > 0:
+        first_subdirs.append(end)
+        baseout, end = os.path.split(baseout)
+    first_subdirs.append(end)
+    subdirs = first_subdirs[::-1] + subdirs[::-1][1:]
     outpath = pardir
     for subdir in subdirs:
         outpath = os.path.join(outpath, subdir)

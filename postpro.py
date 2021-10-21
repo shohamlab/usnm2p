@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-20 21:38:44
+# @Last Modified time: 2021-10-21 18:00:08
 
 import numpy as np
 from scipy.stats import zscore
@@ -58,11 +58,11 @@ def add_cells_to_table(df, cell_ROI_idx):
     '''
     if is_in_dataframe(df, 'cell'):
         return df
-    df = expand_along(df, 'cell', cell_ROI_idx, index_key='cell')
+    df = expand_along(df, 'roi', cell_ROI_idx, index_key='cell')
     return df.reorder_levels(['cell', 'run']).sort_index()
 
 
-def add_trials_to_table(df):
+def add_trials_to_table(df, ntrials=None):
     '''
     Add trials info to table.
 
@@ -71,34 +71,9 @@ def add_trials_to_table(df):
     '''
     if is_in_dataframe(df, 'trial'):
         return df
-    ntrials = get_singleton(df, 'ntrials')
+    if ntrials is None:
+        ntrials = get_singleton(df, 'ntrials')
     return expand_along(df, 'trial', np.arange(ntrials), index_key='trial')
-
-
-# def get_info_table(cell_ROI_idx, pdicts, ntrials):
-#     '''
-#     Format (cell, run, trial) info and associated experimental parameters into an info table.
-    
-#     :param cell_ROI_idx: list of ROI indexes corresponding to each cell
-#     :param pdicts: list of run-specific parameter dictionaries
-#     :param ntrials: number of trials per run
-#     :return: pandas dataframe containing a summary information about each trial 
-#     '''
-#     # Extract number of cells and runs from inputs
-#     ncells, nruns = len(cell_ROI_idx), len(pdicts)
-#     # Create index array along each dimension
-#     icells, iruns, itrials = np.arange(ncells), np.arange(nruns), np.arange(ntrials)
-#     # Create pandas multi-level index from the cartesian product of indexes in each dimension.
-#     index = pd.MultiIndex.from_product([icells, iruns, itrials], names=['cell', 'run', 'trial'])
-#     icells, iruns = index.get_level_values('cell'), index.get_level_values('run')
-#     # Create data dictionary containing ROI index corresponding to each cell index
-#     data = {'roi': cell_ROI_idx[icells]}
-#     # Add info about parsed parameters (knowing that they have been parsed on a per-run basis)
-#     for k in pdicts[0].keys():
-#         if k != UNKNOWN:
-#             data[k] = np.array([p[k] for p in pdicts])[iruns]
-#     # Aggregate info into a multi-index pandas dataframe and return
-#     return pd.DataFrame(index=index, data=data)
 
 
 def add_signal_to_table(df, key, y, index_key='frame'):
@@ -141,25 +116,20 @@ def add_time_to_table(df, key=TIME_LABEL):
     return df
 
 
-def bound_in_time(x, fs, tbounds):
+def array_to_dataframe(x, key):
     '''
-    Restrict suite2p data array to a specific time interval per trial.
-    
-    :param x: 4D (ncells, nruns, ntrials, npertrial) data array
-    :param fs: sampling frequency
-    :param tbounds: time limits (in s, relative to the stimulus onset)
-    :return: 4D (ncells, nruns, ntrials, npertrial) data array, restricted along the time dimension
+    Convert a (nsignals, npersignal) 2D array into a timeseries dataframe
+
+    :param x: input array
+    :param key: variable name to give to the signal
+    :return dataframe object
     '''
-    # If only single 3D array provided, add extra "run" dimension
-    if x.ndim == 3:
-        x = np.expand_dims(x, axis=1)
-    # Convert time bounds to frame index bounds (adding stimulus onset)
-    ibounds = np.asarray(tbounds) * fs + STIM_FRAME_INDEX
-    # Compute valid indexes along time dimension of x array
-    indexes = np.arange(x.shape[-1])
-    isvalid = np.logical_and(indexes >= ibounds[0], indexes <= ibounds[1])
-    # Restrict data array to valid indexes along time dimension, and return
-    return x[:, :, :, isvalid]
+    ntrials, npertrial = x.shape
+    df = pd.DataFrame({FPS_LABEL: [FPS], NPERTRIAL_LABEL: [npertrial]})
+    df = add_trials_to_table(df, ntrials=ntrials)
+    df = add_signal_to_table(df, key, x)
+    df = add_time_to_table(df)
+    return df
 
 
 def get_relative_fluorescence_change(F, ibaseline):
@@ -237,19 +207,3 @@ def classify_by_response_type(dFF, full_output=False):
         return resp_types, (z_resp_min_per_cell, z_resp_max_per_cell)
     else:
         return resp_types 
-
-
-def exponential_kernel(t, tau=1, pad=True):
-    '''
-    Generate exponential kernel.
-
-    :param t: 1D array of time points
-    :param tau: time constant for exponential decay of the indicator
-    :param pad: whether to pad kernel at init with length = len(t)
-    :return: a kernel or generative decaying exponenial function
-    '''
-    hemi_kernel = 1 / tau * np.exp(-t / tau)
-    if pad:
-        len_pad = len(hemi_kernel)
-        hemi_kernel = np.pad(hemi_kernel, (len_pad, 0))
-    return hemi_kernel

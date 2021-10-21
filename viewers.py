@@ -2,11 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 17:35:21
+# @Last Modified time: 2021-10-21 18:26:50
 
 import numpy as np
+import matplotlib.pyplot as plt
 import numpy_image_widget as niw
-from ipywidgets import IntSlider, VBox, HBox, HTML
+from ipywidgets import IntSlider, VBox, HBox, HTML, interact
+from suite2p.io import BinaryFile
 
 from logger import logger
 
@@ -88,75 +90,78 @@ class StackViewer:
         return VBox([view, self.slider])
 
 
-def view(stack, *args, **kwargs):
+def viewstack(stack, *args, **kwargs):
     ''' Interface function for single stack viewing. '''
     title = kwargs.pop('title', None)
     viewer = StackViewer(*args, **kwargs)
     return viewer.render(stack, title=title)
 
 
-class DualStackViewer(StackViewer):
-    ''' Class implementing dual stack viewer. '''
+class StacksViewer(StackViewer):
+    ''' Class implementing multiple stacks viewer. '''
 
-    def __init__(self, *args, view_diff=False, **kwargs):
+    def __init__(self, *args, **kwargs):
         ''' Initialization. '''
         super().__init__(*args, **kwargs)
-        self.view_diff = view_diff
-
-    def get_diff(self, iframe):
-        ''' Get differential view between the two stacks for a given frame index. '''
-        return self.stack2[iframe] - self.stack1[iframe]
 
     def update(self, event):
         ''' Event handler: update views upon change in slider index. '''
-        self.view1.data = self.stack1[self.slider.value]
-        self.view2.data = self.stack2[self.slider.value]
-        if self.view_diff:
-            self.view3.data = self.get_diff(self.slider.value)
+        for i in range(len(self.stacks)):
+            self.views[i].data = self.stacks[i][self.slider.value]
 
-    def render(self, stack1: np.array, stack2: np.array, title1=None, title2=None, suptitle=None):
+    def render(self, stacks_dict, suptitle=None):
         ''' Render stacks.
             
-            :param stack1: 3D numpy array containing the 1st image stack
-            :param stack2: 3D numpy array containing the 2nd image stack
-            :param title1: optional title to render above the 1st image
-            :param title2: optional title to render above the 2nd image
+            :param stacks_dict: dictionary of 3D stacks
             :param suptitle: optional super-title to render above the 2 images
             :return: ipywidget VBox object dynamically rendering the stack
         '''
-        assert stack1.shape == stack2.shape, ''' Stacks are of different sizes '''
-        logger.info(f'stack size: {stack1.shape}')
-        assert (title1 is None and title2 is None) or (title1 is not None and title2 is not None), ''' Labels cannot be partially provided '''
+        titles = list(stacks_dict.keys())
+        dims = stacks_dict[titles[0]].shape
+        assert all(x.shape == dims for x in stacks_dict.values()), ''' Stacks are of different sizes '''
+        logger.info(f'stack size: {dims}')
         logger.info('rendering stacks view...')
-        titles = [title1, title2]
-        self.stack1, self.stack2 = stack1, stack2
-        nframes, width, height = self.stack1.shape
+        self.stacks = list(stacks_dict.values())
+        nframes, width, height = dims
         # Initialize views
-        self.view1 = self.init_view(self.stack1[self.iframe])
-        self.view2 = self.init_view(self.stack2[self.iframe])
-        if self.view_diff:
-            self.view3 = self.init_view(self.get_diff(self.iframe))
+        self.views = []
+        for stack in self.stacks:
+            self.views.append(self.init_view(stack[self.iframe]))
         # Set up slider control to change frame
         self.slider = self.init_slider(self.iframe, nframes)
         # Connect slider to image view
         self.slider.observe(self.update)
         # Return ipywidget
-        views = [self.view1, self.view2]
-        if self.view_diff:
-            views.append(self.view3)
-            titles.append('Diff')
-        if title1 is not None:
-            views = [VBox([self.init_title(title), x]) for title, x in zip(titles, views)]
-        views = HBox(views)
+        container = HBox([VBox([self.init_title(title), x]) for title, x in zip(titles, self.views)])
         if suptitle is not None:
-            views = HBox([VBox([self.init_title(suptitle), views])])
-        return VBox([views, self.slider])
+            container = HBox([VBox([self.init_title(suptitle), container])])
+        return VBox([container, self.slider])
 
 
-def dualview(stack1, stack2, *args, **kwargs):
-    ''' Interface function for dual stack viewing '''
-    title1 = kwargs.pop('title1', None)
-    title2 = kwargs.pop('title2', None)
+
+def viewstacks(stacks_dict, *args, **kwargs):
+    ''' Interface function for multiple stack viewing '''
     suptitle = kwargs.pop('suptitle', None)
-    viewer = DualStackViewer(*args, **kwargs)
-    return viewer.render(stack1, stack2, title1=title1, title2=title2, suptitle=suptitle)
+    viewer = StacksViewer(*args, **kwargs)
+    return viewer.render(stacks_dict, suptitle=suptitle)
+
+
+
+def plot_registered_frame(iframe, ops):
+    '''
+    Plot a specific frame of a suite2p registered stack file.
+    
+    :param iframe: frame index
+    :param ops: suite2p output options dictionary
+    '''
+    with BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file']) as f:
+        plt.imshow(f[iframe][0])
+
+
+def view_registered_stack(ops):
+    '''
+    Initiate an interactive view for the suite2p registered stack.
+    
+    :param ops: suite2p output options dictionary
+    '''
+    interact(lambda frame: plot_registered_frame(frame, ops), frame=(0, ops['nframes'] -1, 1))

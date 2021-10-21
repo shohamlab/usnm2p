@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-20 21:37:12
+# @Last Modified time: 2021-10-21 17:55:19
 
 import numpy as np
 import operator
@@ -64,26 +64,35 @@ def get_singleton(df, key, delete=False):
     :param key: column from which to extract the singleton.
     :return: singleton value
     '''
-    if key not in df:
-        raise ValueError(f'"{key}" is not a table column')
-    values = list(set(df[key]))
-    if len(values) > 1:
-        raise ValueError(f'multiple "{key}" values: {values}')
+    if is_iterable(key):
+        return [get_singleton(df, k) for k in key]
+    try:
+        values = df[key]
+    except KeyError as e:
+        values = df.index.get_level_values(key)
+    uniques = list(set(values))
+    if len(uniques) > 1:
+        raise ValueError(f'multiple "{key}" values: {uniques}')
     if delete:
         del df[key]
-    return values[0]
+    return uniques[0]
 
 
-def is_in_dataframe(df, key):
+def is_in_dataframe(df, key, raise_error=False):
     '''
     Check if key already exists as a dataframe column or index.
     
     :param df: dataframe object
     :param key: key
+    :param raise_error (optional): whether to raise an error if key found in dataframe
     :return: boolean stating whether the key has been found
     '''
     if key in df.columns or key in df.index.names:
-        logger.warning(f'"{key}" is already present in dataframe -> ignoring')
+        errstr = f'"{key}" is already present in dataframe'
+        if raise_error:
+            raise ValueError(errstr)
+        else:
+            logger.warning(f'{errstr} -> ignoring')
         return True
     return False
 

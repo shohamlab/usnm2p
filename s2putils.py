@@ -2,17 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-18 11:50:57
+# @Last Modified time: 2021-10-21 18:25:08
 
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from suite2p import run_s2p
-from suite2p.io import BinaryFile
-from colorsys import hsv_to_rgb
-
-from ipywidgets import interact, interactive, fixed, interact_manual
-import ipywidgets as widgets
 
 from constants import *
 from logger import logger
@@ -63,24 +58,3 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False):
     if withops:
         data['ops'] = np.load(os.path.join(dirpath, f'ops.npy'), allow_pickle=True).item()
     return data
-
-
-def view_registered_stack(output_ops):
-    widget = widgets.IntSlider(
-        value=7,
-        min=0,
-        max=10,
-        step=1,
-        description='Test:',
-        disabled=False,
-        continuous_update=False,
-        orientation='horizontal',
-        readout=True,
-        readout_format='d'
-    )
-
-    def plot_frame(t):
-        with BinaryFile(Ly=REF_LY, Lx=REF_LX, read_filename=output_ops['reg_file']) as f:
-            plt.imshow(f[t][0])
-
-    interact(plot_frame, t=(0, REF_NFRAMES, 1))
