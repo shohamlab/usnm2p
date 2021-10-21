@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 10:16:29
+# @Last Modified time: 2021-10-20 21:37:12
 
 import numpy as np
 import operator
@@ -54,3 +54,89 @@ def si_format(x, precision=0, space=' ', **kwargs):
         return [si_format(float(item), precision, space) for item in x]
     else:
         raise ValueError(f'cannot si_format {type(x)} objects')
+
+
+def get_singleton(df, key, delete=False):
+    '''
+    Extract a singleton from a dataframe column, after checking that it only takes 1 value.
+    
+    :param df: dataframe object.
+    :param key: column from which to extract the singleton.
+    :return: singleton value
+    '''
+    if key not in df:
+        raise ValueError(f'"{key}" is not a table column')
+    values = list(set(df[key]))
+    if len(values) > 1:
+        raise ValueError(f'multiple "{key}" values: {values}')
+    if delete:
+        del df[key]
+    return values[0]
+
+
+def is_in_dataframe(df, key):
+    '''
+    Check if key already exists as a dataframe column or index.
+    
+    :param df: dataframe object
+    :param key: key
+    :return: boolean stating whether the key has been found
+    '''
+    if key in df.columns or key in df.index.names:
+        logger.warning(f'"{key}" is already present in dataframe -> ignoring')
+        return True
+    return False
+
+def expand_along(df, key, y, nref=None, index_key=None):
+    '''
+    Add 2D numpy array as a new column into a dataframe, and expand along
+    
+    :param df: input dataframe
+    :param key: name of new column in which array is unraveled
+    :param y: 2D array
+    :param nref (optional) reference size of expected signal length
+    :param index_key (optional): name of new index level to add to dataframe upon expansion
+    :return: expanded dataframe
+    '''
+    # Check that dataframe does not already contain the signal key
+    if is_in_dataframe(df, key):
+        return df
+    # If y does not have 2 dimensions -> reshape into 2D array
+    if y.ndim != 2:
+        y = y.reshape(-1, y.shape[-1])
+    # Extract input dimensions
+    nsignals, npersignal = y.shape
+    nrecords = len(df)
+    if nsignals == 1:
+        y = np.tile(y, (nrecords, 1))
+        nsignals, npersignal = y.shape
+    # Compare signal size to reference, if any
+    if nref is not None:
+        if nref != npersignal:
+            raise ValueError(f'signal length ({npersignal}) does not match reference length ({nref})')
+    # Create copy so as to not modify original dataframe
+    df_exp = df.copy()
+    # Check compatibility between input dataframe and signal array
+    if nrecords == nsignals:
+        # If dataframe length matches number of signals -> add signals and expand
+        logger.debug('adding and expanding')
+        df_exp[key] = y.tolist()
+        df_exp = df_exp.explode(key)
+    elif nrecords == nsignals * npersignal:
+        # If dataframe length matches number of elements in signal array -> reshape array and add
+        logger.debug('reshaping and adding')
+        df_exp[key] = np.reshape(y, nsignals * npersignal)
+    else:
+        # Otherwise throw incompatibility error
+        raise ValueError(
+            f'signal array dimensions ({y.shape}) incompatible with dataframe length ({nrecords})')
+    # If index key provided -> add it as extra index dimension
+    if index_key is not None:
+        if index_key in df.index.names:
+            logger.warning(f'"{index_key}" key already present in index -> ignoring')
+        else:
+            inds = np.arange(npersignal)  # fundamental set of signal indexes
+            df_exp[index_key] = np.tile(inds, nsignals)  # repeat for each signal and add to expanded dataframe
+            df_exp = df_exp.set_index(index_key, append=True)  # set signal index column as new index level
+    # Return dataframe containing signals
+    return df_exp

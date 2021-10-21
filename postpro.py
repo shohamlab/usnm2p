@@ -2,24 +2,17 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-18 22:38:27
+# @Last Modified time: 2021-10-20 21:38:44
 
 import numpy as np
 from scipy.stats import zscore
+import pandas as pd
 
 from constants import *
 from logger import logger
-from plotters import plot_zscore_distributions
-
+from utils import get_singleton, expand_along, is_in_dataframe
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
-
-
-def moving_average(x, n=5):
-    ''' Apply a monving average on a signal. '''
-    if n % 2 == 0:
-        raise ValueError('you must specify an odd MAV window length')
-    return np.convolve(np.pad(x, n // 2, mode='symmetric'), np.ones(n), 'valid') / n
 
 
 def separate_runs(x, nruns):
@@ -55,6 +48,99 @@ def separate_trials(x, ntrials):
     return x.reshape(x.shape[:-1] + (ntrials, npertrial))
 
 
+def add_cells_to_table(df, cell_ROI_idx):
+    '''
+    Add cells info to table.
+
+    :param df: dataframe contanining all the info about the experiment.
+    :param cell_ROI_idx: list of ROI indexes corresponding to each cell.
+    :return: expanded pandas dataframe with cell info
+    '''
+    if is_in_dataframe(df, 'cell'):
+        return df
+    df = expand_along(df, 'cell', cell_ROI_idx, index_key='cell')
+    return df.reorder_levels(['cell', 'run']).sort_index()
+
+
+def add_trials_to_table(df):
+    '''
+    Add trials info to table.
+
+    :param df: dataframe contanining all the info about the experiment.
+    :return: expanded pandas dataframe with cell info
+    '''
+    if is_in_dataframe(df, 'trial'):
+        return df
+    ntrials = get_singleton(df, 'ntrials')
+    return expand_along(df, 'trial', np.arange(ntrials), index_key='trial')
+
+
+# def get_info_table(cell_ROI_idx, pdicts, ntrials):
+#     '''
+#     Format (cell, run, trial) info and associated experimental parameters into an info table.
+    
+#     :param cell_ROI_idx: list of ROI indexes corresponding to each cell
+#     :param pdicts: list of run-specific parameter dictionaries
+#     :param ntrials: number of trials per run
+#     :return: pandas dataframe containing a summary information about each trial 
+#     '''
+#     # Extract number of cells and runs from inputs
+#     ncells, nruns = len(cell_ROI_idx), len(pdicts)
+#     # Create index array along each dimension
+#     icells, iruns, itrials = np.arange(ncells), np.arange(nruns), np.arange(ntrials)
+#     # Create pandas multi-level index from the cartesian product of indexes in each dimension.
+#     index = pd.MultiIndex.from_product([icells, iruns, itrials], names=['cell', 'run', 'trial'])
+#     icells, iruns = index.get_level_values('cell'), index.get_level_values('run')
+#     # Create data dictionary containing ROI index corresponding to each cell index
+#     data = {'roi': cell_ROI_idx[icells]}
+#     # Add info about parsed parameters (knowing that they have been parsed on a per-run basis)
+#     for k in pdicts[0].keys():
+#         if k != UNKNOWN:
+#             data[k] = np.array([p[k] for p in pdicts])[iruns]
+#     # Aggregate info into a multi-index pandas dataframe and return
+#     return pd.DataFrame(index=index, data=data)
+
+
+def add_signal_to_table(df, key, y, index_key='frame'):
+    '''
+    Add signal to info table.
+
+    :param df: dataframe contanining all the info about the experiment.
+    :param key: name of the column that will hold the new data
+    :param y: array of signals (signals timecourse must be evolving along last array axis)
+    :param index_key (optional): name of new index level to add to dataframe upon expansion
+    :return: modified info table
+    '''
+    # Extract trial length from dataframe
+    if index_key is not None and index_key in df.index.names:
+        npertrial = len(set(df.index.get_level_values(index_key)))
+    else: 
+        npertrial = get_singleton(df, NPERTRIAL_LABEL, delete=True)
+    return expand_along(df, key, y, nref=npertrial, index_key=index_key)
+
+
+def add_time_to_table(df, key=TIME_LABEL):
+    '''
+    Add time information to info table
+    
+    :param df: dataframe contanining all the info about the experiment.
+    :param key: name of the time column in the new info table
+    :param index_key (optional): name of index level to use as reference to compute the time vector 
+    :return: modified info table
+    '''
+    if key in df:
+        logger.warning(f'"{key}" column is already present in dataframe -> ignoring')
+        return df
+    # Extract sampling frequency
+    fps = get_singleton(df, FPS_LABEL)
+    # Extract frame indexes
+    iframes = df.index.get_level_values('frame')
+    # Add time column and remove fps column
+    df[key] = (iframes - STIM_FRAME_INDEX) / fps
+    del df[FPS_LABEL]
+    return df
+
+
 def bound_in_time(x, fs, tbounds):
     '''
     Restrict suite2p data array to a specific time interval per trial.
@@ -78,7 +164,7 @@ def bound_in_time(x, fs, tbounds):
 
 def get_relative_fluorescence_change(F, ibaseline):
     '''
-    Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F0).
+    Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F).
     The signal baseline is calculated on a per-trial basis as the average of a specified
     pre-stimiulus interval.
 
@@ -116,13 +202,14 @@ def compute_z_scores(x):
     return z.reshape((ncells, nruns, ntrials, npertrial))
 
 
-def classify_by_response_type(dFF):
+def classify_by_response_type(dFF, full_output=False):
     '''
     Classify cells by response type, based on analysis of z-score distributions of
     relative fluorescence change signals.
 
     :param dFF: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
-    :return: list of response class (-1: negative, 0: neutral, +1: positive) for each cell
+    :param full_output (optional): whether to return also the distribution of identified peak z-scores per cell.
+    :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
     '''
     # Compute z-scores on a per-run basis
     logger.info('computing z-score distributions')
@@ -132,11 +219,9 @@ def classify_by_response_type(dFF):
     # Average across trials to obtain mean response z-score timecourse per cell and run
     logger.info('averaging')
     z_resp_run_avg = z_resp.mean(axis=2)
-    print(z_resp_run_avg.shape)
     # Compute min and max z-score across response AND across runs for each given cell
     z_resp_min_per_cell = z_resp_run_avg.min(axis=-1).min(axis=-1)
     z_resp_max_per_cell = z_resp_run_avg.max(axis=-1).max(axis=-1)
-    fig = plot_zscore_distributions(z_resp_min_per_cell, z_resp_max_per_cell)
     # Classify cells according to their max and min z-scores
     is_positive = z_resp_max_per_cell >= ZSCORE_THR_POSITIVE
     is_negative = np.logical_and(~is_positive, z_resp_min_per_cell <= ZSCORE_THR_NEGATIVE)
@@ -145,8 +230,13 @@ def classify_by_response_type(dFF):
     is_positive, is_negative, is_neutral = [x.astype(int) for x in [is_positive, is_negative, is_neutral]] 
     # Make sure response categories have mutually exclusive populations
     assert all(is_positive + is_negative + is_neutral == 1.), 'error'
-    # Return vector of response type class per cell
-    return is_positive - is_negative
+    # Compute vector of response type per cell
+    resp_types = is_positive - is_negative
+    # Return response types vector and optional z-distributions
+    if full_output:
+        return resp_types, (z_resp_min_per_cell, z_resp_max_per_cell)
+    else:
+        return resp_types 
 
 
 def exponential_kernel(t, tau=1, pad=True):

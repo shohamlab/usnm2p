@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-18 11:19:42
+# @Last Modified time: 2021-10-20 10:35:38
 
 import os
 import glob
+import pprint
 from tifffile import imread, imsave
 
 from parsers import P_TIFFILE
@@ -130,6 +131,22 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     for k in include_patterns:
         datafolders = list(filter(lambda x: k in x, datafolders))
     return datafolders
+
+
+def sort_folders_by_runID(datafolders, pdicts):
+    '''
+    Sort folders by runID
+    
+    :param datafolders: list of full paths to data folders
+    :param pdicts: list of parsed parameters dictionaries for each datafolder
+    '''
+    # Check that all data folders are from the same parent
+    pardirs = [os.path.split(x)[0] for x in datafolders]
+    assert pardirs.count(pardirs[0]) == len(pardirs), 'Data folders have different parrents'
+    # Sort folders once asserted that they belong to the same parent
+    datafolders, pdicts = zip(*sorted(zip(datafolders, pdicts), key=lambda x: x[1]['runID']))
+    logger.info(f'Sorted data folders:\n{pprint.pformat(datafolders)}')
+    return datafolders, pdicts
 
 
 def loadtif(fpath):

@@ -46,33 +46,89 @@ The raw data is typically processed in different successive steps, described bel
 2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a modified implementation of the Kalman filter [2]. The main parameter influencing the outcome of this processing step is the *specified filter gain* (`G`). From collective experience, it seems that values around 0.5 work well when using GCaMP6s as a fluorescence reporter.
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
-    - conversion from TIF to binary data
-    - motion correction & image registration (parametrized, rigid vs. non-rigid)
-    - denoising using principal component analysis (optional) ???
-    - regions of interest (ROIs) detection over contaminating signals originating from the surrounding neuropil (i.e. axons & dendrites located outside of the plane of interest but in the acquisition volume)
-    - ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
-    - extraction of ROI's calcium fluorescence timecourse
-    - spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
+#- conversion from TIF to binary data
+#- motion correction & image registration (parametrized, rigid vs. non-rigid)
+#- denoising using principal component analysis (optional) ???
+#- regions of interest (ROIs) detection over contaminating signals originating from the surrounding neuropil (i.e. axons & dendrites located outside of the plane of interest but in the acquisition volume)
+#- ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
+#- extraction of ROI's calcium fluorescence timecourse
+#- spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
 
 **Important**: if multiple stacked TIF files are provided as input, suite2p will **stack them sequentially (in which order???) prior to processing**. Therefore, **all stacked TIF files in the input folder must correspond to the same brain region**.
 
 Upon completion, a `/suite2p/plane0/` folder is created for each input stack that typically contains the following output files:
-    - `F.npy`: array of fluorescence traces (ROIs by timepoints)
-    - `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
-    - `spks.npy`: array of deconvolved traces (ROIs by timepoints)
-    - `stat.npy`: array of statistics computed for each cell (ROIs by 1)
-    - `ops.npy`: options and intermediate outputs (identical to the output of the run_s2p function)
-    - `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
-    - `data.bin` (optional): registered image stack in binary format format
+#- `F.npy`: array of fluorescence traces (ROIs by timepoints)
+#- `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
+#- `spks.npy`: array of deconvolved traces (ROIs by timepoints)
+#- `stat.npy`: array of statistics computed for each cell (ROIs by 1)
+#- `ops.npy`: options and intermediate outputs (identical to the output of the run_s2p function)
+#- `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
+#- `data.bin` (optional): registered image stack in binary format format
 
 4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
-    - subtraction of cell and associated neuropil fluorescence traces (with an constant neuropil factor `k = 0.7`).
+#- subtraction of cell and associated neuropil fluorescence traces (with an constant neuropil factor `k = 0.7`).
 	- *(stim onset artefact removing)*
-    - baseline normalization on a per trial basis to obtain relative fluorescence traces (`dF/F0`)
-    - removal of outlier cells which exhibit abnormally high peaks of relative fluorescence activity
-    - classification of cells by response type (positively responding, negatively responding, and neutral)
-    - data cleaning and re-organization
-    - visualization of the results across trials / cells (time series & summary plots)
+#- baseline normalization on a per trial basis to obtain relative fluorescence traces (`dF/F0`)
+#- removal of outlier cells which exhibit abnormally high peaks of relative fluorescence activity
+#- classification of cells by response type (positively responding, negatively responding, and neutral)
+#- data cleaning and re-organization
+#- visualization of the results across trials / cells (time series & summary plots)
+
+TO COMPLETE
+
+## Dataset organization
+
+.
+├── raw
+│   └── <dataset>
+│       └── <date>
+│           └── <mouse>
+│               └── <region>
+│                   ├── <run 1>
+│                   │   ├── <tif 1>
+│                   │   ├── ...
+│                   │   ├── ...
+│                   │   ├── ...
+│                   │   ├── ...
+│                   │   └── <tif m>
+│                   ├── ...
+│                   ├── ...
+│                   └── <run n>
+│                       ├── < frame 1>.tif
+│                       ├── ...
+│                       ├── ...
+│                       ├── ...
+│                       ├── ...
+│                       └── <frame m>.tif
+├── stacked
+│   └── <dataset>
+│       └── <date>
+│           └── <mouse>
+│               └── <region>
+│                   ├── <run 1 stack>.tif
+│                   ├── ...
+│                   ├── ...
+│                   └── <run n stack>.tif
+└── filtered
+    └── <filter properties>
+        └── <dataset>
+            └── <date>
+                └── <mouse>
+                    └── <region>
+                        ├── <run 1 filtered stack>.tif
+                        ├── ...
+                        ├── ...
+                        ├── <run n filtered stack>.tif
+                        └── suite2p
+                            └── plane0
+                                ├── data.bin
+                                ├── F.npy
+                                ├── Fneu.npy
+                                ├── iscell.npy
+                                ├── ops.npy
+                                ├── spks.npy
+                                └── stat.npy
+
 
 TO COMPLETE
 

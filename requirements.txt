@@ -6,3 +6,4 @@ numpy_image_widget
 imagecodecs
 ipywidgets
 tifffile
+seaborn
