@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 17:08:50
+# @Last Modified time: 2021-10-22 18:00:59
 
 import numpy as np
 from scipy.stats import zscore
@@ -72,7 +72,8 @@ def add_trials_to_table(data, ntrials=None):
     if is_in_dataframe(data, 'trial'):
         return data
     if ntrials is None:
-        ntrials = get_singleton(data, 'ntrials')
+        ntrials = get_singleton(data, NTRIALS_LABEL)
+        del data[NTRIALS_LABEL]
     return expand_along(data, 'trial', np.arange(ntrials), index_key='trial')
 
 
@@ -220,24 +221,24 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
     :param P (optional): pressure amplitude value(s) (MPa)
     :param DC (optional): duty cycle value(s) (%)
     :param tbounds (optional): time limits
-    :param full_output (optional): whether to return also a list of filter labels.
-    :return: filtered dataframe (and potential filters list)
+    :param full_output (optional): whether to return also a dictionary of filter labels.
+    :return: filtered dataframe (and potential filters dictionary)
     '''
-    # Initialize empty filters list 
-    filters = []    
+    # Initialize empty filters dictionary
+    filters = {}    
     # Filter data based on provided cell, run and trial indexes
     logger.info('sub-indexing data...')
     subindex = [slice(None)] * 3
     plural = lambda x: 's' if is_iterable(x) else ''
     if icell is not None:
         subindex[0] = icell
-        filters.append(f'cell{plural(icell)} {icell}')
+        filters['cell'] = f'cell{plural(icell)} {icell}'
     if irun is not None:
         subindex[1] = irun
-        filters.append(f'run{plural(irun)} {irun}')
+        filters['run'] = f'run{plural(irun)} {irun}'
     if itrial is not None:
         subindex[2] = itrial
-        filters.append(f'trial{plural(itrial)} {itrial}')
+        filters['trial'] = f'trial{plural(itrial)} {itrial}'
     data = data.loc[tuple(subindex)]
 
     logger.info('filtering data...')
@@ -248,19 +249,35 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
         if icell is not None:  # cannot filter on response type if cell index is provided
             raise ValueError(f'only 1 of "icell" and "rtype" can be provided')
         include = include & (data[RESP_LABEL] == rtype)
-        filters.append(f'{LABEL_BY_TYPE[rtype]} cells')
+        filters[RESP_LABEL] = f'{LABEL_BY_TYPE[rtype]} cells'
     # Refine inclusion criterion based on stimulation parameters
     if P is not None:
         include = include & (data[P_LABEL] == P)
-        filters.append(f'P = {P} MPa')
+        filters[P_LABEL] = (f'P = {P} MPa')
     if DC is not None:
         include = include & (data[DC_LABEL] == DC)
-        filters.append(f'DC = {DC} %')
-    # Refine inclusion criterion based on time range
+        filters[DC_LABEL] = f'DC = {DC} %'
+    # Refine inclusion criterion based on time range (not added to filters list because obvious)
     if tbounds is not None:
         include = include & (data[TIME_LABEL] >= tbounds[0]) & (data[TIME_LABEL] <= tbounds[1])
     # Slice data according to filters
     data = data[include]
+
+    # Complete labels based on selected data
+    # Cell(s) selected -> indicate response type(s) 
+    if icell is not None and rtype is None:
+        parsed_rtype = data.groupby('cell').first()[RESP_LABEL][icell]
+        rcode = [LABEL_BY_TYPE[x] for x in parsed_rtype] if is_iterable(parsed_rtype) else [LABEL_BY_TYPE[parsed_rtype]]
+        filters['cell'] += f' ({", ".join(list(set(rcode)))})'
+        # Single run selected -> indicate corresponding stimulation parameters
+        if irun is not None and P is None and DC is None:
+            parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
+            filters['run'] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
+    # No cell selected -> indicate number of cells
+    if icell is None:
+        ncells = len(set(data.index.get_level_values('cell')))
+        filters['ncells'] = f'({ncells} cells)'
+
     # Set filters to None if not filter was applied 
     if len(filters) == 0:
         filters = None

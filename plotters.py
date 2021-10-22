@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 17:05:09
+# @Last Modified time: 2021-10-22 18:06:01
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -359,51 +359,6 @@ def plot_experiment_heatmap(data, key='dF/F0', title=None, ykey='roi', show_ylab
     return cg
 
 
-def plot_trial_response(data, ax=None, title=None, tbounds=None, ykey='dF/F0', tstim=None, aggkeys=None):
-    '''
-    Plot signal of trial response(s) to stimulus for a given cell and condition.
-
-    :param data: dataframe continaing the specific trials to plot (or optionally a 2D array).
-    :param ax (optional): figure axis
-    :param title (optional): axis title
-    :param tbounds (optional): time limits
-    :param ykey: key indicating the specific signals to plot on the y-axis
-    :param tstim (optional): stimulus duration (s)
-    :return: figure handle
-    '''
-    # If input is a 2D array -> create corresponding dataframe on the fly 
-    if isinstance(data, np.ndarray):
-        data = array_to_dataframe(data, ykey)
-    if aggkeys is None:
-        aggkeys = ['trial']
-    # Create figure backbone
-    if ax is not None:
-        fig = ax.get_figure()
-    else: 
-        fig, ax = plt.subplots()
-    hide_spines(ax)
-    ax.set_ylabel(ykey)
-    # Parse title
-    title = '' if title is None else f'{title} - '
-    # Add stimulus mark
-    if tstim is None:
-        tstim = get_singleton(data, DUR_LABEL)
-    ax.axvspan(0, tstim, ec=None, fc='C0', alpha=0.3)
-    # Restrict data to specific time interval (if provided)
-    if tbounds is not None:
-        data = data[(data[TIME_LABEL] >= tbounds[0]) & (data[TIME_LABEL] <= tbounds[1])]
-        ax.set_xlim(*tbounds)
-    # Generate (time, trials) table
-    table = data.pivot_table(index=TIME_LABEL, columns=aggkeys, values=ykey)
-    # Plot signals from each trial
-    for i, x in enumerate(table):
-        table[x].plot(ax=ax, c='silver')
-    ax.set_title(f'{title}{i + 1} traces')
-    # Plot average signal
-    table.mean(axis=1).plot(ax=ax, c='k')
-    return fig
-
-
 def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean', ci=CI,
                    ax=None, mark_stim=True, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
@@ -416,17 +371,13 @@ def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean
     :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None) 
     :param ax (optional): figure axis on which to plot
     :param mark_stim (optional): whether to add a stimulus mark on the plot
+    :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
     '''
-    # Quick fix: if input is a 2D array -> create corresponding dataframe on the fly 
-    if isinstance(data, np.ndarray):
-        data = array_to_dataframe(data, ykey)
-        data[DUR_LABEL] = STIM_DUR
     # Quick fix for aggfunc
     if aggfunc == 'traces':
-        aggfunc = None
-        
+        aggfunc = None        
     # Create figure if needed
     if ax is None:
         fig, ax = plt.subplots()
@@ -435,13 +386,11 @@ def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean
     hide_spines(ax)
     # Filter data 
     filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
-    # Plot stimulus mark if specified
-    if mark_stim:
-        ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
     if groupby is None and aggfunc is None:
         # If only 1 condition and all traces must be plotted -> use custom code
         # to plot all traces and mean
         logger.info('plotting...')
+        ax.set_ylabel(ykey)
         aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
         table = filtered_data.pivot_table(
             index=TIME_LABEL,
@@ -475,14 +424,17 @@ def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean
             sort=True,  # sort
             legend='full'  # legend
         )
+    # Plot stimulus mark if specified
+    if mark_stim:
+        ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
     # Adjust time axis if specified
     if tbounds is not None:
         ax.set_xlim(*tbounds)
     # Add title and legend
     if title is None:
         if filters is None:
-            filters = ['all responses']
-        title = ' - '.join(filters)
+            filters = {'misc': 'all responses'}
+        title = ' - '.join(filters.values())
     ax.set_title(title)
     if groupby is not None:
         ax.legend(bbox_to_anchor=(1.05, 1), loc=2, title=groupby)
