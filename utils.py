@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-21 17:55:19
+# @Last Modified time: 2021-10-22 16:42:18
 
 import numpy as np
 import operator
@@ -95,6 +95,7 @@ def is_in_dataframe(df, key, raise_error=False):
             logger.warning(f'{errstr} -> ignoring')
         return True
     return False
+
 
 def expand_along(df, key, y, nref=None, index_key=None):
     '''

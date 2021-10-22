@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-21 18:00:08
+# @Last Modified time: 2021-10-22 17:08:50
 
 import numpy as np
 from scipy.stats import zscore
@@ -10,7 +10,7 @@ import pandas as pd
 
 from constants import *
 from logger import logger
-from utils import get_singleton, expand_along, is_in_dataframe
+from utils import get_singleton, expand_along, is_in_dataframe, is_iterable
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -48,72 +48,72 @@ def separate_trials(x, ntrials):
     return x.reshape(x.shape[:-1] + (ntrials, npertrial))
 
 
-def add_cells_to_table(df, cell_ROI_idx):
+def add_cells_to_table(data, cell_ROI_idx):
     '''
     Add cells info to table.
 
-    :param df: dataframe contanining all the info about the experiment.
+    :param data: dataframe contanining all the info about the experiment.
     :param cell_ROI_idx: list of ROI indexes corresponding to each cell.
     :return: expanded pandas dataframe with cell info
     '''
-    if is_in_dataframe(df, 'cell'):
-        return df
-    df = expand_along(df, 'roi', cell_ROI_idx, index_key='cell')
-    return df.reorder_levels(['cell', 'run']).sort_index()
+    if is_in_dataframe(data, 'cell'):
+        return data
+    data = expand_along(data, 'roi', cell_ROI_idx, index_key='cell')
+    return data.reorder_levels(['cell', 'run']).sort_index()
 
 
-def add_trials_to_table(df, ntrials=None):
+def add_trials_to_table(data, ntrials=None):
     '''
     Add trials info to table.
 
-    :param df: dataframe contanining all the info about the experiment.
+    :param data: dataframe contanining all the info about the experiment.
     :return: expanded pandas dataframe with cell info
     '''
-    if is_in_dataframe(df, 'trial'):
-        return df
+    if is_in_dataframe(data, 'trial'):
+        return data
     if ntrials is None:
-        ntrials = get_singleton(df, 'ntrials')
-    return expand_along(df, 'trial', np.arange(ntrials), index_key='trial')
+        ntrials = get_singleton(data, 'ntrials')
+    return expand_along(data, 'trial', np.arange(ntrials), index_key='trial')
 
 
-def add_signal_to_table(df, key, y, index_key='frame'):
+def add_signal_to_table(data, key, y, index_key='frame'):
     '''
     Add signal to info table.
 
-    :param df: dataframe contanining all the info about the experiment.
+    :param data: dataframe contanining all the info about the experiment.
     :param key: name of the column that will hold the new data
     :param y: array of signals (signals timecourse must be evolving along last array axis)
     :param index_key (optional): name of new index level to add to dataframe upon expansion
     :return: modified info table
     '''
     # Extract trial length from dataframe
-    if index_key is not None and index_key in df.index.names:
-        npertrial = len(set(df.index.get_level_values(index_key)))
+    if index_key is not None and index_key in data.index.names:
+        npertrial = len(set(data.index.get_level_values(index_key)))
     else: 
-        npertrial = get_singleton(df, NPERTRIAL_LABEL, delete=True)
-    return expand_along(df, key, y, nref=npertrial, index_key=index_key)
+        npertrial = get_singleton(data, NPERTRIAL_LABEL, delete=True)
+    return expand_along(data, key, y, nref=npertrial, index_key=index_key)
 
 
-def add_time_to_table(df, key=TIME_LABEL):
+def add_time_to_table(data, key=TIME_LABEL):
     '''
     Add time information to info table
     
-    :param df: dataframe contanining all the info about the experiment.
+    :param data: dataframe contanining all the info about the experiment.
     :param key: name of the time column in the new info table
     :param index_key (optional): name of index level to use as reference to compute the time vector 
     :return: modified info table
     '''
-    if key in df:
+    if key in data:
         logger.warning(f'"{key}" column is already present in dataframe -> ignoring')
-        return df
+        return data
     # Extract sampling frequency
-    fps = get_singleton(df, FPS_LABEL)
+    fps = get_singleton(data, FPS_LABEL)
     # Extract frame indexes
-    iframes = df.index.get_level_values('frame')
+    iframes = data.index.get_level_values('frame')
     # Add time column and remove fps column
-    df[key] = (iframes - STIM_FRAME_INDEX) / fps
-    del df[FPS_LABEL]
-    return df
+    data[key] = (iframes - STIM_FRAME_INDEX) / fps
+    del data[FPS_LABEL]
+    return data
 
 
 def array_to_dataframe(x, key):
@@ -125,11 +125,11 @@ def array_to_dataframe(x, key):
     :return dataframe object
     '''
     ntrials, npertrial = x.shape
-    df = pd.DataFrame({FPS_LABEL: [FPS], NPERTRIAL_LABEL: [npertrial]})
-    df = add_trials_to_table(df, ntrials=ntrials)
-    df = add_signal_to_table(df, key, x)
-    df = add_time_to_table(df)
-    return df
+    data = pd.DataFrame({FPS_LABEL: [FPS], NPERTRIAL_LABEL: [npertrial]})
+    data = add_trials_to_table(data, ntrials=ntrials)
+    data = add_signal_to_table(data, key, x)
+    data = add_time_to_table(data)
+    return data
 
 
 def get_relative_fluorescence_change(F, ibaseline):
@@ -207,3 +207,67 @@ def classify_by_response_type(dFF, full_output=False):
         return resp_types, (z_resp_min_per_cell, z_resp_max_per_cell)
     else:
         return resp_types 
+
+
+def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
+    ''' Filter data according to specific criteria.
+    
+    :param data: experiment dataframe
+    :param icell (optional): cell index(es)
+    :param irun: run index(es)
+    :param itrial: trial index(es)
+    :param rtype (optional): response type code(s), within (-1, 0, 1)
+    :param P (optional): pressure amplitude value(s) (MPa)
+    :param DC (optional): duty cycle value(s) (%)
+    :param tbounds (optional): time limits
+    :param full_output (optional): whether to return also a list of filter labels.
+    :return: filtered dataframe (and potential filters list)
+    '''
+    # Initialize empty filters list 
+    filters = []    
+    # Filter data based on provided cell, run and trial indexes
+    logger.info('sub-indexing data...')
+    subindex = [slice(None)] * 3
+    plural = lambda x: 's' if is_iterable(x) else ''
+    if icell is not None:
+        subindex[0] = icell
+        filters.append(f'cell{plural(icell)} {icell}')
+    if irun is not None:
+        subindex[1] = irun
+        filters.append(f'run{plural(irun)} {irun}')
+    if itrial is not None:
+        subindex[2] = itrial
+        filters.append(f'trial{plural(itrial)} {itrial}')
+    data = data.loc[tuple(subindex)]
+
+    logger.info('filtering data...')
+    # Initialize global inclusion criterion
+    include = np.ones(len(data)).astype(bool)
+    # Refine inclusion criterion based on response type
+    if rtype is not None:
+        if icell is not None:  # cannot filter on response type if cell index is provided
+            raise ValueError(f'only 1 of "icell" and "rtype" can be provided')
+        include = include & (data[RESP_LABEL] == rtype)
+        filters.append(f'{LABEL_BY_TYPE[rtype]} cells')
+    # Refine inclusion criterion based on stimulation parameters
+    if P is not None:
+        include = include & (data[P_LABEL] == P)
+        filters.append(f'P = {P} MPa')
+    if DC is not None:
+        include = include & (data[DC_LABEL] == DC)
+        filters.append(f'DC = {DC} %')
+    # Refine inclusion criterion based on time range
+    if tbounds is not None:
+        include = include & (data[TIME_LABEL] >= tbounds[0]) & (data[TIME_LABEL] <= tbounds[1])
+    # Slice data according to filters
+    data = data[include]
+    # Set filters to None if not filter was applied 
+    if len(filters) == 0:
+        filters = None
+    
+    # Conditional return
+    if full_output:
+        return data, filters
+    else:
+        return data
+    

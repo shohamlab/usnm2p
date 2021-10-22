@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-20 21:23:01
+# @Last Modified time: 2021-10-22 16:41:07
 
 
 ''' Collection of constants used throughout the code base. '''
@@ -17,9 +17,11 @@ REF_LX = 256  # number of pixels in the x direction
 REF_LY = 256  # number of pixels in the y direction
 NTRIALS_PER_RUN = 16  # default number of trials per run
 STIM_FRAME_INDEX = 10  # index of the frame coinciding with the US stimulus in each trial
+STIM_DUR = 0.2  # reference stimulus duration (s)
 
 # Stimulation
-DC_REF = 50.  # reference duty cycle value (in %) used to perform intensity sweeps
+DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
+P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
 # Processing
 TAU_GCAMP6_DECAY = 1.25  # exponential decay time constant for Calcium transients (s) 
@@ -29,8 +31,9 @@ I_RESPONSE = slice(STIM_FRAME_INDEX + 1, STIM_FRAME_INDEX + 8)  # indexes used f
 ZSCORE_THR_POSITIVE = 1.  # threshold absolute z-score value used to classify cell as "positively responding". 1.5 is default, 1 seems to work better for parvalbumin
 ZSCORE_THR_NEGATIVE = -ZSCORE_THR_POSITIVE / 2  # threshold absolute z-score value used to classify cell as "negatively responding". Set to half the positive cutoff since negative responses are typically weaker than positive ones. 
 LABEL_BY_TYPE = {-1: 'negative', 0: 'neutral', 1: 'positive'}  # mapping of response labels to specific integer codes
-RGB_BY_TYPE = {-1: [1, 0, 0], 0: [1, 1, 1], 1: [0, 1, 0]}  # mapping of RGB colors to specific integer codes 
+RGB_BY_TYPE = {-1: [1, 0, 0], 0: [.5, .5, .5], 1: [0, 1, 0]}  # mapping of RGB colors to specific integer codes 
 DFF_OUTLIER = 0.3  # upper bound threshold for df/f (cells with traces above this threshold get discarded). 0.8 works well for line3
+ROI_KEY = 'iROIs'  # key used to access list of ROIs from suite2p output dictionaries
 
 # SI units prefixes
 SI_POWERS = {
@@ -79,3 +82,8 @@ FRAME_LABEL = 'frame'
 CH_LABEL = 'channel'
 TIME_LABEL = 'time (s)'
 RESP_LABEL = 'response type'
+
+
+# Plotting
+TBOUNDS = (-2., 8.)
+CI = 95  # confidence interval for bootstrapping (float, 'std' or None)

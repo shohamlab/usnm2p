@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-21 18:26:50
+# @Last Modified time: 2021-10-22 13:03:47
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -64,7 +64,6 @@ class StackViewer:
     def update(self, event):
         ''' Event handler: update view upon change in slider index. '''
         self.view.data = self.stack[self.slider.value]
-        print(self.view.data[0])
 
     def render(self, stack: np.array, title=None) -> VBox:
         ''' Render stack.
@@ -155,6 +154,7 @@ def plot_registered_frame(iframe, ops):
     :param ops: suite2p output options dictionary
     '''
     with BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file']) as f:
+        plt.figure(figsize=(10, 10))
         plt.imshow(f[iframe][0])
 
 

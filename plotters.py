@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-21 17:55:05
+# @Last Modified time: 2021-10-22 17:05:09
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,9 +11,10 @@ from matplotlib.colors import ListedColormap
 import seaborn as sns
 from colorsys import hsv_to_rgb
 
+from logger import logger
 from constants import *
 from utils import get_singleton
-from postpro import array_to_dataframe
+from postpro import array_to_dataframe, filter_data
 
 ''' Collection of plotting utilities. '''
 
@@ -72,79 +73,6 @@ def plot_stack_summary(stack, cmap='gray'):
         # cbarax = fig.add_axes([pos.x1 + 0.01, pos.y0, 0.02, pos.height])
         # cbar = plt.colorbar(sm, cax=cbarax)
     return fig
-
-
-def plot_raw_traces(F, title, delimiters=None, ylabel='F (a.u.)'):
-    '''
-    Plot raw fluorescence traces
-    
-    :param F: (ntraces, nframes) fluorescence matrix
-    :param title: figure title
-    :param delimiters (optional): temporal delimitations (shown as vertical lines)
-    :param ylabel (optional): y axis label
-    :return: figure handle
-    '''
-    # Create figure
-    fig, ax = plt.subplots(figsize=(12, 4))
-    hide_spines(ax)
-    ax.set_title(f'raw fluorescence traces across {title} - all {F.shape[0]} cells')
-    ax.set_xlabel('frames')
-    ax.set_ylabel(ylabel)
-    # Plot each trace
-    for trace in F:
-        ax.plot(trace)
-    # Plot delimiters, if any
-    if delimiters is not None:
-        for iframe in delimiters:
-            ax.axvline(iframe, color='k', linestyle='--')
-    # Return
-    return fig
-
-
-def plot_trial_response(df, ax=None, title=None, tbounds=(-2., 8.), ykey='dF/F0', tstim=None, aggkeys=None):
-    '''
-    Plot signal of trial response(s) to stimulus for a given cell and condition.
-
-    :param df: dataframe continaing the specific trials to plot (or optionally a 2D array).
-    :param ax (optional): figure axis
-    :param title (optional): axis title
-    :param tbounds (optional): time limits
-    :param ykey: key indicating the specific signals to plot on the y-axis
-    :param tstim (optional): stimulus duration (s)
-    :return: figure handle
-    '''
-    # If input is a 2D array -> create corresponding dataframe on the fly 
-    if isinstance(df, np.ndarray):
-        df = array_to_dataframe(df, ykey)
-    if aggkeys is None:
-        aggkeys = ['trial']
-    # Create figure backbone
-    if ax is not None:
-        fig = ax.get_figure()
-    else: 
-        fig, ax = plt.subplots()
-    hide_spines(ax)
-    ax.set_ylabel(ykey)
-    # Parse title
-    title = '' if title is None else f'{title} - '
-    # Add stimulus mark
-    if tstim is None:
-        tstim = get_singleton(df, DUR_LABEL)
-    ax.axvspan(0, tstim, ec=None, fc='C0', alpha=0.3)
-    # Restrict data to specific time interval (if provided)
-    if tbounds is not None:
-        df = df[(df[TIME_LABEL] >= tbounds[0]) & (df[TIME_LABEL] <= tbounds[1])]
-        ax.set_xlim(*tbounds)
-    # Generate (time, trials) table
-    table = df.pivot_table(index=TIME_LABEL, columns=aggkeys, values=ykey)
-    # Plot signals from each trial
-    for i, x in enumerate(table):
-        table[x].plot(ax=ax, c='silver')
-    ax.set_title(f'{title}{i + 1} traces')
-    # Plot average signal
-    table.mean(axis=1).plot(ax=ax, c='k')
-    return fig
-
 
 def plot_suite2p_registration_images(output_ops, title=None):
     ''' Plot summary registration images from suite2p processing output.
@@ -246,6 +174,78 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     # Tighten and return
     fig.tight_layout()
     return fig
+    
+
+def plot_parameter_distributions(stats, pkeys, zthr=None):
+    '''
+    Plot distributions of several morphological parameters (extracted from suite2p output)
+    across cells.
+    
+    :param stats: suite2p output stats dictionary
+    :param pkeys: list of parameters to considers
+    :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
+    :return: figure handle, optionally with list of identified outliers indexes
+    '''
+    # Determine figure gird organization based on number of parameters
+    ncols = min(len(pkeys), 4)
+    nrows = int(np.ceil(len(pkeys) / ncols))
+    # Create figure
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
+    axes = axes.flatten()
+    fig.suptitle('Morphological parameters - distribution across cells')
+    # For each output stats parameter
+    is_outlier = np.zeros(len(stats)).astype(bool)
+    for ax, pkey in zip(axes, pkeys):
+        # Plot histogram distribution
+        hide_spines(ax, mode='trl')
+        ax.set_xlabel(pkey)
+        ax.set_yticks([])
+        d = np.array([x[pkey] for x in stats])
+        ax.hist(d, bins=20, ec='k', alpha=0.7)
+        # If z/score threshold if provided, compute z-score distribution and identify outliers
+        if zthr is not None:
+            mu, std = d.mean(), d.std()
+            lims = [mu + k * zthr * std for k in [-1, 1]]
+            for l in lims:
+                ax.axvline(l, ls='--', c='silver')
+            is_outlier += np.logical_or(d < lims[0], d > lims[1])
+    # Hide unused axes
+    for ax in axes[len(pkeys):]:
+        hide_spines(ax, mode='all')
+        ax.set_xticks([])
+        ax.set_yticks([])
+    # Conditional return
+    if zthr is None:
+        return fig
+    else:
+        return fig, is_outlier
+
+
+def plot_raw_traces(F, title, delimiters=None, ylabel='F (a.u.)'):
+    '''
+    Simple function to plot fluorescence traces from a fluorescnece data matrix
+    
+    :param F: (ntraces, nframes) fluorescence matrix
+    :param title: figure title
+    :param delimiters (optional): temporal delimitations (shown as vertical lines)
+    :param ylabel (optional): y axis label
+    :return: figure handle
+    '''
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 4))
+    hide_spines(ax)
+    ax.set_title(f'raw fluorescence traces across {title} - all {F.shape[0]} cells')
+    ax.set_xlabel('frames')
+    ax.set_ylabel(ylabel)
+    # Plot each trace
+    for trace in F:
+        ax.plot(trace)
+    # Plot delimiters, if any
+    if delimiters is not None:
+        for iframe in delimiters:
+            ax.axvline(iframe, color='k', linestyle='--')
+    # Return
+    return fig
 
 
 def plot_zscore_distributions(zmin, zmax):
@@ -270,81 +270,6 @@ def plot_zscore_distributions(zmin, zmax):
     return fig
 
 
-def plot_cell_map(stats, resp_types, title=None):
-    ''' Plot spatial distribution of cells (per response type) on the recording plane.
-
-        :param stats: suite2p output stats dictionary
-        :param resp_types: array of response types per cell.
-        :param title (optional): figure title
-        :return: figure handle
-    '''
-    # Initialize an RGB image matrix
-    im = np.zeros((REF_LY, REF_LX, 3), dtype=np.float32)
-    # Assign response-type-dependent color to the pixels of each cell
-    for i, (stat, rtype) in enumerate(zip(stats, resp_types)):
-        im[stat['ypix'], stat['xpix'], :] = RGB_BY_TYPE[rtype]
-    # Render image on figure
-    fig, ax = plt.subplots()
-    if title is not None:
-        ax.set_title(title)
-    ax.imshow(im)
-    # Add legend
-    leg_items = [Line2D(
-        [0], [0], label=f'{LABEL_BY_TYPE[k]} ({sum(resp_types == k)})',
-        c='none', marker='o', mfc=v, mec='k', ms=10)
-        for k, v in RGB_BY_TYPE.items()]
-    ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
-
-    return fig
-
-
-def plot_parameter_distributions(stats, pkeys, zthr=None):
-    '''
-    Plot distributions of several morphological parameters (extracted from suite2p output)
-    across cells.
-    
-    :param stats: suite2p output stats dictionary
-    :param pkeys: list of parameters to considers
-    :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
-    :return: figure handle, optionally with list of identified outliers indexes
-    '''
-    # Determine figure gird organization based on number of parameters
-    ncols = min(len(pkeys), 4)
-    nrows = int(np.ceil(len(pkeys) / ncols))
-    # Create figure
-    fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 4 * nrows))
-    axes = axes.flatten()
-    fig.suptitle('Morphological parameters - distribution across cells')
-    # For each output stats parameter
-    ioutliers = []
-    for ax, pkey in zip(axes, pkeys):
-        # Plot histogram distribution
-        hide_spines(ax, mode='trl')
-        ax.set_xlabel(pkey)
-        ax.set_yticks([])
-        d = np.array([x[pkey] for x in stats])
-        ax.hist(d, bins=30)
-        # If z/score threshold if provided, compute z-score distribution and identify outliers
-        if zthr is not None:
-            mu, std = d.mean(), d.std()
-            lims = [mu + k * zthr * std for k in [-1, 1]]
-            for l in lims:
-                ax.axvline(l, ls='--', c='silver')
-            is_outlier = np.logical_or(d < lims[0], d > lims[1])
-            new_out = is_outlier.nonzero()[0].tolist()
-            ioutliers += is_outlier.nonzero()[0].tolist()
-    # Hide unused axes
-    for ax in axes[len(pkeys):]:
-        hide_spines(ax, mode='all')
-        ax.set_xticks([])
-        ax.set_yticks([])
-    # Conditional return
-    if zthr is None:
-        return fig
-    else:
-        return fig, list(set(ioutliers))
-
-
 def plot_types_sequence(rtypes):
     '''
     Plot a line showing color-coded response type per cell.
@@ -358,22 +283,51 @@ def plot_types_sequence(rtypes):
         cmap=ListedColormap(list(RGB_BY_TYPE.values())))
     ax.set_aspect('auto')
     return fig
+    
+
+def plot_cell_map(data, s2p_data, title=None):
+    ''' Plot spatial distribution of cells (per response type) on the recording plane.
+
+        :param data: experiment dataframe.
+        :param s2p_data: suite2p output dictionary
+        :param resp_types: array of response types per cell.
+        :param title (optional): figure title
+        :return: figure handle
+    '''
+    rtypes = data.groupby('cell').first()[RESP_LABEL]
+    # Initialize an RGB image matrix
+    im = np.ones((REF_LY, REF_LX, 3), dtype=np.float32)
+    # Assign response-type-dependent color to the pixels of each cell
+    for i, (stat, rtype) in enumerate(zip(s2p_data['stat'], rtypes)):
+        im[stat['ypix'], stat['xpix'], :] = RGB_BY_TYPE[rtype]
+    # Render image on figure
+    fig, ax = plt.subplots()
+    if title is not None:
+        ax.set_title(title)
+    ax.imshow(im)
+    # Add legend
+    leg_items = [Line2D(
+        [0], [0], label=f'{LABEL_BY_TYPE[k]} ({sum(rtypes == k)})',
+        c='none', marker='o', mfc=v, mec='k', ms=10)
+        for k, v in RGB_BY_TYPE.items()]
+    ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+    return fig
 
 
-def plot_experiment_heatmap(df, key='dF/F0', title=None, ykey='roi', show_ylabel=True):
+def plot_experiment_heatmap(data, key='dF/F0', title=None, ykey='roi', show_ylabel=True):
     '''
     Plot experiment heatmap (average response over time of each cell, culstered by similarity).
     
-    :param df: dataframe contanining all the info about the experiment.
+    :param data: experiment dataframe.
     :param ykey: one of ('roi', 'cell'), specifying which index to use on the yaxis
     :return: figure handle
     '''
     # Determine rows color labels from response types per cell
-    resp_types = df.groupby(ykey).first()[RESP_LABEL].values
-    row_colors = [RGB_BY_TYPE[rtype] for rtype in resp_types]
+    rtypes = data.groupby(ykey).first()[RESP_LABEL].values
+    row_colors = [RGB_BY_TYPE[rtype] for rtype in rtypes]
     # Generate 2D table of average dF/F0 response per cell (using roi as index),
     # across runs and trials
-    avg_resp_per_cell = df.pivot_table(
+    avg_resp_per_cell = data.pivot_table(
         index=ykey, columns=TIME_LABEL, values=key, aggfunc=np.mean)
     # Generate cluster map of trial 
     # use Voor Hees (complete) algorithm to cluster based on max distance to force
@@ -403,3 +357,134 @@ def plot_experiment_heatmap(df, key='dF/F0', title=None, ykey='roi', show_ylabel
     if title is not None:
         cg.ax_heatmap.set_title(title)
     return cg
+
+
+def plot_trial_response(data, ax=None, title=None, tbounds=None, ykey='dF/F0', tstim=None, aggkeys=None):
+    '''
+    Plot signal of trial response(s) to stimulus for a given cell and condition.
+
+    :param data: dataframe continaing the specific trials to plot (or optionally a 2D array).
+    :param ax (optional): figure axis
+    :param title (optional): axis title
+    :param tbounds (optional): time limits
+    :param ykey: key indicating the specific signals to plot on the y-axis
+    :param tstim (optional): stimulus duration (s)
+    :return: figure handle
+    '''
+    # If input is a 2D array -> create corresponding dataframe on the fly 
+    if isinstance(data, np.ndarray):
+        data = array_to_dataframe(data, ykey)
+    if aggkeys is None:
+        aggkeys = ['trial']
+    # Create figure backbone
+    if ax is not None:
+        fig = ax.get_figure()
+    else: 
+        fig, ax = plt.subplots()
+    hide_spines(ax)
+    ax.set_ylabel(ykey)
+    # Parse title
+    title = '' if title is None else f'{title} - '
+    # Add stimulus mark
+    if tstim is None:
+        tstim = get_singleton(data, DUR_LABEL)
+    ax.axvspan(0, tstim, ec=None, fc='C0', alpha=0.3)
+    # Restrict data to specific time interval (if provided)
+    if tbounds is not None:
+        data = data[(data[TIME_LABEL] >= tbounds[0]) & (data[TIME_LABEL] <= tbounds[1])]
+        ax.set_xlim(*tbounds)
+    # Generate (time, trials) table
+    table = data.pivot_table(index=TIME_LABEL, columns=aggkeys, values=ykey)
+    # Plot signals from each trial
+    for i, x in enumerate(table):
+        table[x].plot(ax=ax, c='silver')
+    ax.set_title(f'{title}{i + 1} traces')
+    # Plot average signal
+    table.mean(axis=1).plot(ax=ax, c='k')
+    return fig
+
+
+def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean', ci=CI,
+                   ax=None, mark_stim=True, title=None, **kwargs):
+    ''' Plot trial responses of specific sub-datasets.
+    
+    :param data: experiment dataframe
+    :param tbounds (optional): time limits for plot
+    :param ykey (optional): key indicating the specific signals to plot on the y-axis
+    :param groupby (optional): grouping variable that will produce lines with different colors.
+    :param aggfunc (optional): method for aggregating across multiple observations within group. If None, all observations will be drawn.
+    :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None) 
+    :param ax (optional): figure axis on which to plot
+    :param mark_stim (optional): whether to add a stimulus mark on the plot
+    :param kwargs: keyword parameters that are passed to the filter_data function
+    :return: figure handle
+    '''
+    # Quick fix: if input is a 2D array -> create corresponding dataframe on the fly 
+    if isinstance(data, np.ndarray):
+        data = array_to_dataframe(data, ykey)
+        data[DUR_LABEL] = STIM_DUR
+    # Quick fix for aggfunc
+    if aggfunc == 'traces':
+        aggfunc = None
+        
+    # Create figure if needed
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    hide_spines(ax)
+    # Filter data 
+    filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
+    # Plot stimulus mark if specified
+    if mark_stim:
+        ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
+    if groupby is None and aggfunc is None:
+        # If only 1 condition and all traces must be plotted -> use custom code
+        # to plot all traces and mean
+        logger.info('plotting...')
+        aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
+        table = filtered_data.pivot_table(
+            index=TIME_LABEL,
+            columns=aggkeys,
+            values=ykey)
+        for i, x in enumerate(table):
+            table[x].plot(ax=ax, c='silver')
+        table.mean(axis=1).plot(ax=ax, c='k')
+    else:
+        # Otherwise seaborn's lineplot function does the job pretty well
+        # Log info on plot sub-processes
+        s = []
+        if groupby is not None:
+            s.append(f'grouping by {groupby}')
+        if aggfunc is not None:
+            s.append('averaging')
+        if ci is not None:
+            s.append('estimating confidence intervals')
+        s = f'{", ".join(s)} and ' if len(s) > 0 else ''
+        logger.info(f'{s}plotting...')
+        # Plot
+        sns.lineplot(
+            data=filtered_data,  # data
+            x=TIME_LABEL,  # x-axis
+            y=ykey,  # y-axis
+            hue=groupby,  # grouping variable
+            estimator=aggfunc,  # aggregating function
+            ci=ci,  # confidence interval estimator
+            ax=ax,  # axis object
+            palette='flare',  # color palette
+            sort=True,  # sort
+            legend='full'  # legend
+        )
+    # Adjust time axis if specified
+    if tbounds is not None:
+        ax.set_xlim(*tbounds)
+    # Add title and legend
+    if title is None:
+        if filters is None:
+            filters = ['all responses']
+        title = ' - '.join(filters)
+    ax.set_title(title)
+    if groupby is not None:
+        ax.legend(bbox_to_anchor=(1.05, 1), loc=2, title=groupby)
+    # Return figure
+    return fig
