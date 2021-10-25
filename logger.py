@@ -2,14 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 13:30:15
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-14 18:34:49
+# @Last Modified time: 2021-10-25 09:59:15
+
+''' Collection of logging utilities. '''
 
 import sys
 import colorlog
 import logging
 import tqdm
-
-''' Collection of logging utilities. '''
 
 my_log_formatter = colorlog.ColoredFormatter(
     '%(log_color)s %(asctime)s %(message)s',

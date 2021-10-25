@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 18:06:01
+# @Last Modified time: 2021-10-25 13:28:51
+
+''' Collection of plotting utilities. '''
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,9 +16,8 @@ from colorsys import hsv_to_rgb
 from logger import logger
 from constants import *
 from utils import get_singleton
-from postpro import array_to_dataframe, filter_data
+from postpro import filter_data
 
-''' Collection of plotting utilities. '''
 
 def hide_spines(ax, mode='tr'):
     '''
@@ -48,7 +49,7 @@ def hide_ticks(ax, mode='xy'):
         ax.set_yticks([])
 
 
-def plot_stack_summary(stack, cmap='gray'):
+def plot_stack_summary(stack, cmap='viridis', title=None):
     '''
     Plot summary imges from a TIF stack.
     :param stack: TIF stack
@@ -56,25 +57,25 @@ def plot_stack_summary(stack, cmap='gray'):
     :return: figure handle
     '''
     plotfuncs = {
-        'Median': np.median,
+        # 'Median': np.median,
         'Mean': np.mean,
         'Standard deviation': np.std,
         'Max. projection': np.max
     }
     fig, axes = plt.subplots(1, len(plotfuncs), figsize=(5 * len(plotfuncs), 5))
+    if title is not None:
+        fig.suptitle(title)
     fig.subplots_adjust(hspace=10)
     fig.patch.set_facecolor('w')
     for ax, (title, func) in zip(axes, plotfuncs.items()):
         ax.set_title(title)
-        sm = ax.imshow(func(stack, axis=0), cmap=cmap)
+        ax.imshow(func(stack, axis=0), cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
-        # pos = ax.get_position()
-        # cbarax = fig.add_axes([pos.x1 + 0.01, pos.y0, 0.02, pos.height])
-        # cbar = plt.colorbar(sm, cax=cbarax)
     return fig
 
-def plot_suite2p_registration_images(output_ops, title=None):
+
+def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis'):
     ''' Plot summary registration images from suite2p processing output.
 
         :param output_ops: suite2p output
@@ -85,19 +86,19 @@ def plot_suite2p_registration_images(output_ops, title=None):
         fig.suptitle(title)
     # Reference image for registration 
     ax = axes[0]
-    ax.imshow(output_ops['refImg'], cmap='gray')
+    ax.imshow(output_ops['refImg'], cmap=cmap)
     ax.set_title('Reference Image for Registration')
     # Maximum of recording over time
     ax = axes[1]
-    ax.imshow(output_ops['max_proj'], cmap='gray')
+    ax.imshow(output_ops['max_proj'], cmap=cmap)
     ax.set_title("Registered Image, Max Projection")
     # Mean registered image
     ax = axes[2]
-    ax.imshow(output_ops['meanImg'], cmap='gray')
+    ax.imshow(output_ops['meanImg'], cmap=cmap)
     ax.set_title("Mean registered image")
     # High-pass filtered mean regitered image
     ax = axes[3]
-    ax.imshow(output_ops['meanImgE'], cmap='gray')
+    ax.imshow(output_ops['meanImgE'], cmap=cmap)
     ax.set_title("High-pass filtered Mean registered image")
     return fig
 
@@ -221,7 +222,7 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
         return fig, is_outlier
 
 
-def plot_raw_traces(F, title, delimiters=None, ylabel='F (a.u.)'):
+def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
     
@@ -314,7 +315,7 @@ def plot_cell_map(data, s2p_data, title=None):
     return fig
 
 
-def plot_experiment_heatmap(data, key='dF/F0', title=None, ykey='roi', show_ylabel=True):
+def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi', show_ylabel=True):
     '''
     Plot experiment heatmap (average response over time of each cell, culstered by similarity).
     
@@ -359,7 +360,7 @@ def plot_experiment_heatmap(data, key='dF/F0', title=None, ykey='roi', show_ylab
     return cg
 
 
-def plot_responses(data, tbounds=None, ykey='dF/F0', groupby=None, aggfunc='mean', ci=CI,
+def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, groupby=None, aggfunc='mean', ci=CI,
                    ax=None, mark_stim=True, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     

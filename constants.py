@@ -2,8 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 16:41:07
-
+# @Last Modified time: 2021-10-25 09:58:25
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -82,6 +81,8 @@ FRAME_LABEL = 'frame'
 CH_LABEL = 'channel'
 TIME_LABEL = 'time (s)'
 RESP_LABEL = 'response type'
+F_LABEL = 'F (a.u.)'
+REL_F_CHANGE_LABEL = 'dF/F0'
 
 
 # Plotting

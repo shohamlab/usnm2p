@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-15 09:05:58
+# @Last Modified time: 2021-10-25 10:01:39
+
+''' Collection of image stacking utilities. '''
 
 import abc
 import os
@@ -14,9 +16,6 @@ from constants import *
 from logger import logger
 from fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence
 from parsers import P_TIFFILE
-
-
-''' Collection of image stacking utilities. '''
 
 
 class ImageStacker(metaclass=abc.ABCMeta):

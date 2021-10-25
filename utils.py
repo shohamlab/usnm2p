@@ -2,15 +2,15 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 16:42:18
+# @Last Modified time: 2021-10-25 10:01:52
+
+''' Collection of generic utilities. '''
 
 import numpy as np
 import operator
 
 from constants import SI_POWERS
 from logger import logger
-
-''' Collection of generic utilities. '''
 
 
 def is_iterable(x):

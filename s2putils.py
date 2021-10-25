@@ -2,7 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 12:30:42
+# @Last Modified time: 2021-10-25 10:01:23
+
+''' 
+Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
+outputs according to specific criteria.     
+'''
 
 import os
 import numpy as np
@@ -12,8 +17,6 @@ from suite2p import run_s2p
 from constants import *
 from logger import logger
 from fileops import parse_overwrite
-
-''' Collection of utilities related to Suite2P operations. '''
 
 
 def run_suite2p(*args, overwrite=True, **kwargs):

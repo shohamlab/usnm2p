@@ -2,14 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-20 18:39:11
+# @Last Modified time: 2021-10-25 09:59:24
+
+''' Collection of parsing utilities. '''
 
 import re
 import os
 import pandas as pd
 from constants import *
-
-''' Collection of parsing utilities. '''
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')

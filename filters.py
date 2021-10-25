@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-19 14:23:03
+# @Last Modified time: 2021-10-25 09:58:59
+
+''' Collection of filtering utilities. '''
 
 import abc
 import numpy as np
@@ -10,8 +12,6 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from logger import logger
-
-''' Collection of filtering utilities. '''
 
 
 class StackFilter(metaclass=abc.ABCMeta):

@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-22 18:00:59
+# @Last Modified time: 2021-10-25 10:00:00
+
+''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
 from scipy.stats import zscore
@@ -11,8 +13,6 @@ import pandas as pd
 from constants import *
 from logger import logger
 from utils import get_singleton, expand_along, is_in_dataframe, is_iterable
-
-''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 
 def separate_runs(x, nruns):

@@ -2,18 +2,20 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-21 11:43:14
+# @Last Modified time: 2021-10-25 14:04:01
+
+''' Collection of utilities for operations on files and directories. '''
 
 import os
 import glob
 import pprint
+import datetime
 from tifffile import imread, imsave
 
 from parsers import P_TIFFILE
 from logger import logger
 from utils import is_iterable
 
-''' Collection of utilities for operations on files and directories. '''
 
 def check_for_existence(fpath, overwrite):
     '''
@@ -220,6 +222,19 @@ def parse_overwrite(overwrite):
         raise ValueError('"overwrite" argument must be one of ("y", "n")')
         # Parse response into True/False and return boolean
     return {'y': True, 'n': False}[overwrite]
+
+
+def save_figs(figsroot, figs, ext='png'):
+    ''' Save figures dictionary in specific directory. '''
+    figsroot = os.path.abspath(figsroot)
+    if not os.path.isdir(figsroot):
+        os.mkdir(figsroot)
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    figsdir = os.path.join(figsroot, today)
+    if not os.path.isdir(figsdir):
+        os.mkdir(figsdir)
+    for k, v in figs.items():
+        v.savefig(os.path.join(figsdir, f'{k}.{ext}'), transparent=True)
 
 
 def locate_datafiles(line, layer, filter_key=None):
