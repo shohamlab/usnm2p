@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 13:28:51
+# @Last Modified time: 2021-10-26 19:19:58
 
 ''' Collection of plotting utilities. '''
 
@@ -16,7 +16,8 @@ from colorsys import hsv_to_rgb
 from logger import logger
 from constants import *
 from utils import get_singleton
-from postpro import filter_data
+from postpro import filter_data, get_response_types_per_cell
+from viewers import get_stack_viewer
 
 
 def hide_spines(ax, mode='tr'):
@@ -235,7 +236,8 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL):
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 4))
     hide_spines(ax)
-    ax.set_title(f'raw fluorescence traces across {title} - all {F.shape[0]} cells')
+    s = {F_LABEL: 'raw fluorescence', REL_F_CHANGE_LABEL: 'normalized fluorescence change'}[ylabel]
+    ax.set_title(f'{s} traces across {title} - all {F.shape[0]} cells')
     ax.set_xlabel('frames')
     ax.set_ylabel(ylabel)
     # Plot each trace
@@ -295,7 +297,7 @@ def plot_cell_map(data, s2p_data, title=None):
         :param title (optional): figure title
         :return: figure handle
     '''
-    rtypes = data.groupby('cell').first()[RESP_LABEL]
+    rtypes = get_response_types_per_cell(data)
     # Initialize an RGB image matrix
     im = np.ones((REF_LY, REF_LX, 3), dtype=np.float32)
     # Assign response-type-dependent color to the pixels of each cell
@@ -324,16 +326,18 @@ def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi'
     :return: figure handle
     '''
     # Determine rows color labels from response types per cell
-    rtypes = data.groupby(ykey).first()[RESP_LABEL].values
+    rtypes = get_response_types_per_cell(data).values
     row_colors = [RGB_BY_TYPE[rtype] for rtype in rtypes]
     # Generate 2D table of average dF/F0 response per cell (using roi as index),
     # across runs and trials
+    logger.info(f'generating ({ykey} x time) {key} pivot table...')
     avg_resp_per_cell = data.pivot_table(
         index=ykey, columns=TIME_LABEL, values=key, aggfunc=np.mean)
     # Generate cluster map of trial 
     # use Voor Hees (complete) algorithm to cluster based on max distance to force
     # cluster around peak of activity
     # Chebyshev distance just happens to give better resutls than euclidean
+    logger.info(f'generating {key} cluster map...')
     cg = sns.clustermap(
         avg_resp_per_cell, method='complete', metric='chebyshev', cmap='viridis',
         row_cluster=True, col_cluster=False, row_colors=row_colors)
@@ -438,6 +442,32 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, groupby=None, ag
         title = ' - '.join(filters.values())
     ax.set_title(title)
     if groupby is not None:
-        ax.legend(bbox_to_anchor=(1.05, 1), loc=2, title=groupby)
+        ax.legend(bbox_to_anchor=(1.05, 1), loc=2, title=groupby, frameon=False)
     # Return figure
+    return fig
+
+
+def plot_mean_evolution(*args, **kwargs):
+    ''' Plot the mean-corrected evolution of the average frame intensity '''
+    norm = kwargs.pop('norm', True)
+    cmap = kwargs.pop('cmap', 'viridis')
+    bounds = kwargs.pop('bounds', None)
+    ilabels = kwargs.pop('ilabels', None)
+    ax = kwargs.pop('ax', None)
+    viewer = get_stack_viewer(*args, **kwargs)
+    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+    if ax is None:
+        fig, ax = plt.subplots()
+        hide_spines(ax)
+        ax.set_xlabel('frames')
+        ax.set_ylabel('mean corrected mean frame intensity')
+        leg = False
+    else:
+        fig = ax.get_figure()
+        leg = True
+    for header, fobj in zip(viewer.headers, viewer.fobjs):
+        mu = viewer.get_mean_evolution(fobj, viewer.frange)
+        ax.plot(mu - mu.mean(), label=header)
+    if leg:
+        ax.legend()
     return fig

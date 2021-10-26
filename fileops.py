@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 14:04:01
+# @Last Modified time: 2021-10-26 18:35:52
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -15,6 +15,8 @@ from tifffile import imread, imsave
 from parsers import P_TIFFILE
 from logger import logger
 from utils import is_iterable
+from viewers import get_stack_viewer
+from constants import *
 
 
 def check_for_existence(fpath, overwrite):
@@ -93,19 +95,9 @@ def get_output_equivalent(inpath, basein, baseout):
         subdirs.append(dirname)
     logger.debug(f'found "{basein}" in "{pardir}"')
     logger.debug(f'moving down the file tree in "{baseout}"')
-    baseout, end = os.path.split(baseout)
-    first_subdirs = []
-    while len(baseout) > 0:
-        first_subdirs.append(end)
-        baseout, end = os.path.split(baseout)
-    first_subdirs.append(end)
-    subdirs = first_subdirs[::-1] + subdirs[::-1][1:]
-    outpath = pardir
-    for subdir in subdirs:
-        outpath = os.path.join(outpath, subdir)
-        if not os.path.isdir(outpath):
-            logger.info(f'creating "{outpath}" directory')
-            os.mkdir(outpath)
+    outpath = os.path.join(pardir, baseout, *subdirs[::-1][1:])
+    if not os.path.isdir(outpath):
+        os.makedirs(outpath)
     if fname is not None:
         outpath = os.path.join(outpath, fname)
     return outpath
@@ -224,17 +216,35 @@ def parse_overwrite(overwrite):
     return {'y': True, 'n': False}[overwrite]
 
 
-def save_figs(figsroot, figs, ext='png'):
-    ''' Save figures dictionary in specific directory. '''
+def get_figdir(figsroot):
     figsroot = os.path.abspath(figsroot)
-    if not os.path.isdir(figsroot):
-        os.mkdir(figsroot)
     today = datetime.date.today().strftime('%Y-%m-%d')
     figsdir = os.path.join(figsroot, today)
     if not os.path.isdir(figsdir):
-        os.mkdir(figsdir)
+        os.makekdirs(figsdir)
+    return figsdir
+
+
+def save_figs(figsroot, figs, ext='png'):
+    ''' Save figures dictionary in specific directory. '''
+    figsdir = get_figdir(figsroot)
     for k, v in figs.items():
-        v.savefig(os.path.join(figsdir, f'{k}.{ext}'), transparent=True)
+        fname = f'{k}.{ext}'
+        logger.info(f'saving "{fname}"')
+        v.savefig(os.path.join(figsdir, fname), transparent=True, bbox_inches='tight')
+
+
+def save_stack_to_gif(figsroot, *args, **kwargs):
+    ''' High level function to save stacks to gifs. '''
+    figsdir = get_figdir(figsroot)
+    fps = kwargs.pop('fps', FPS)
+    norm = kwargs.pop('norm', True)
+    cmap = kwargs.pop('cmap', 'viridis')
+    bounds = kwargs.pop('bounds', None)
+    ilabels = kwargs.pop('ilabels', None)
+    viewer = get_stack_viewer(*args, **kwargs)
+    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+    viewer.save_as_gif(figsdir, fps)
 
 
 def locate_datafiles(line, layer, filter_key=None):

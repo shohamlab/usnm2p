@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 10:00:00
+# @Last Modified time: 2021-10-26 09:44:46
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -183,19 +183,20 @@ def classify_by_response_type(dFF, full_output=False):
     :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
     '''
     # Compute z-scores on a per-run basis
-    logger.info('computing z-score distributions')
+    logger.info('computing per-run z-score distributions')
     z = compute_z_scores(dFF)
-    # Restrict analysis to z-scores within the "response interval"
-    z_resp = z[:, :, :, I_RESPONSE]
     # Average across trials to obtain mean response z-score timecourse per cell and run
-    logger.info('averaging')
-    z_resp_run_avg = z_resp.mean(axis=2)
-    # Compute min and max z-score across response AND across runs for each given cell
-    z_resp_min_per_cell = z_resp_run_avg.min(axis=-1).min(axis=-1)
-    z_resp_max_per_cell = z_resp_run_avg.max(axis=-1).max(axis=-1)
+    logger.info('averaging across trials')
+    zavg = z.mean(axis=2)
+    # Restrict analysis to z-scores within the "response interval"
+    logger.info('restricting analysis to response interval')
+    zavg = zavg[:, :, I_RESPONSE]
+    # Compute min and max z-score across response interval AND across runs for each given cell
+    zmin = zavg.min(axis=-1).min(axis=-1)
+    zmax = zavg.max(axis=-1).max(axis=-1)
     # Classify cells according to their max and min z-scores
-    is_positive = z_resp_max_per_cell >= ZSCORE_THR_POSITIVE
-    is_negative = np.logical_and(~is_positive, z_resp_min_per_cell <= ZSCORE_THR_NEGATIVE)
+    is_positive = zmax >= ZSCORE_THR_POSITIVE
+    is_negative = np.logical_and(~is_positive, zmin <= ZSCORE_THR_NEGATIVE)
     is_neutral = np.logical_and(~is_positive, ~is_negative)
     # Cast bool -> int
     is_positive, is_negative, is_neutral = [x.astype(int) for x in [is_positive, is_negative, is_neutral]] 
@@ -205,9 +206,20 @@ def classify_by_response_type(dFF, full_output=False):
     resp_types = is_positive - is_negative
     # Return response types vector and optional z-distributions
     if full_output:
-        return resp_types, (z_resp_min_per_cell, z_resp_max_per_cell)
+        return resp_types, (zmin, zmax)
     else:
         return resp_types 
+
+
+def get_response_types_per_cell(data):
+    '''
+    Extract the response type per cell from exoeriment dataframe.
+
+    :param data: experiment dataframe
+    :return: pandas Series of response types per cell
+    '''
+    logger.info('extracting responses types per cell...')
+    return data.groupby('cell').first()[RESP_LABEL]
 
 
 def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
@@ -266,7 +278,7 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
     # Complete labels based on selected data
     # Cell(s) selected -> indicate response type(s) 
     if icell is not None and rtype is None:
-        parsed_rtype = data.groupby('cell').first()[RESP_LABEL][icell]
+        parsed_rtype = get_response_types_per_cell(data)[icell]
         rcode = [LABEL_BY_TYPE[x] for x in parsed_rtype] if is_iterable(parsed_rtype) else [LABEL_BY_TYPE[parsed_rtype]]
         filters['cell'] += f' ({", ".join(list(set(rcode)))})'
         # Single run selected -> indicate corresponding stimulation parameters

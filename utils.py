@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 10:01:52
+# @Last Modified time: 2021-10-26 10:09:05
 
 ''' Collection of generic utilities. '''
 
@@ -150,3 +150,8 @@ def expand_along(df, key, y, nref=None, index_key=None):
             df_exp = df_exp.set_index(index_key, append=True)  # set signal index column as new index level
     # Return dataframe containing signals
     return df_exp
+
+
+def float_to_uint8(arr):
+    ''' Transform a floating point (0 to 1) array to an 8-bit unsigned integer (0 to 255) array. '''
+    return (arr * 255).astype(np.uint8)

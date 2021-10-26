@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 09:59:24
+# @Last Modified time: 2021-10-26 18:42:28
 
 ''' Collection of parsing utilities. '''
 
@@ -78,7 +78,7 @@ def get_info_table(folders, index_key='run', ntrials_per_run=None, discard_unkno
     basenames = [os.path.basename(x) for x in folders]
     pdicts = [parse_experiment_parameters(x) for x in basenames]
     info_table = pd.DataFrame(pdicts)
-    info_table['code'] = basenames
+    info_table['code'] = [os.path.splitext(x)[0] for x in basenames]
     if index_key is not None:
         info_table.index.name = index_key
     if ntrials_per_run is not None:
