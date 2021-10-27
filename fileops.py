@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 18:35:52
+# @Last Modified time: 2021-10-27 15:45:39
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -15,8 +15,20 @@ from tifffile import imread, imsave
 from parsers import P_TIFFILE
 from logger import logger
 from utils import is_iterable
+from filters import StackFilter, NoFilter
 from viewers import get_stack_viewer
 from constants import *
+
+
+def get_data_root():
+    ''' Get the root directory for the raw data to analyze '''
+    try:
+        from config import dataroot
+    except ModuleNotFoundError:
+        raise ValueError(f'user-specific "config.py" file is missing')
+    if not os.path.isdir(dataroot):
+        raise ValueError(f'data root directory "{dataroot}" does not exist')
+    return dataroot
 
 
 def check_for_existence(fpath, overwrite):
@@ -178,6 +190,12 @@ def filter_and_save(filter, input_fpath, overwrite=False):
     # If list of filepaths provided as input -> apply function to all of them
     if is_iterable(input_fpath):
         return [filter_and_save(filter, x) for x in input_fpath]
+    # Check that filter instance is a known class type
+    if not isinstance(filter, StackFilter):
+        raise ValueError(f'unknown filter type: {filter}')
+    # If NoFilter object provided -> do nothing and return input file path
+    if isinstance(filter, NoFilter):
+        return input_fpath
     # Get output filepath
     output_fpath = get_output_equivalent(input_fpath, 'stacked', f'filtered/{filter.code}')
     # If already existing, act according to overwrite parameter
@@ -221,7 +239,7 @@ def get_figdir(figsroot):
     today = datetime.date.today().strftime('%Y-%m-%d')
     figsdir = os.path.join(figsroot, today)
     if not os.path.isdir(figsdir):
-        os.makekdirs(figsdir)
+        os.makedirs(figsdir)
     return figsdir
 
 

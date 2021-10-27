@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 19:19:58
+# @Last Modified time: 2021-10-27 16:03:25
 
 ''' Collection of plotting utilities. '''
 
@@ -81,7 +81,8 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis'):
 
         :param output_ops: suite2p output
         :return: figure handle    
-    '''    
+    '''
+    logger.info('plotting suite2p registered images...')    
     fig, axes = plt.subplots(1, 4, figsize=(18, 4))
     if title is not None:
         fig.suptitle(title)
@@ -110,6 +111,7 @@ def plot_suite2p_registration_offsets(output_ops, title=None):
         :param output_ops: suite2p output
         :return: figure handle    
     '''    
+    logger.info('plotting suite2p registration offsets...')
     fig, axes = plt.subplots(4, 1, figsize=(18, 8))
     if title is not None:
         fig.suptitle(title)
@@ -143,6 +145,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
         :param output_ops: dictionary of outputed suite2p options
         :return: figure handle
     '''
+    logger.info('plotting suite2p identified ROIs...')
     iscell = data['iscell'][:, 0].astype(int)
     stats = data['stat']
     # Generate ncells random points
@@ -233,6 +236,7 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL):
     :param ylabel (optional): y axis label
     :return: figure handle
     '''
+    logger.info(f'plotting {F.shape[0]} fluorescence traces...')
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 4))
     hide_spines(ax)
@@ -298,6 +302,7 @@ def plot_cell_map(data, s2p_data, title=None):
         :return: figure handle
     '''
     rtypes = get_response_types_per_cell(data)
+    logger.info('plotting cells map color-coded by response type...')
     # Initialize an RGB image matrix
     im = np.ones((REF_LY, REF_LX, 3), dtype=np.float32)
     # Assign response-type-dependent color to the pixels of each cell

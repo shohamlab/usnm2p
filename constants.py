@@ -2,25 +2,31 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 09:58:25
+# @Last Modified time: 2021-10-27 16:49:33
 
 ''' Collection of constants used throughout the code base. '''
+
+import numpy as np
 
 # Miscellaneous
 UNKNOWN = '???'  # unknown key
 
-# Acquisition
-FPS = 3.56   # sampling rate (FPS)
-REF_NFRAMES = 1600  # reference number of frames in any given experimental run
-REF_LX = 256  # number of pixels in the x direction
-REF_LY = 256  # number of pixels in the y direction
-NTRIALS_PER_RUN = 16  # default number of trials per run
-STIM_FRAME_INDEX = 10  # index of the frame coinciding with the US stimulus in each trial
-STIM_DUR = 0.2  # reference stimulus duration (s)
-
 # Stimulation
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
+STIM_DUR = 0.2  # reference stimulus duration (s)
+
+# Acquisition
+FPS = 3.56   # sampling rate (FPS)
+REF_LX = 256  # number of pixels in the x direction
+REF_LY = 256  # number of pixels in the y direction
+REF_NFRAMES = 1600  # reference number of frames in any given experimental run
+NTRIALS_PER_RUN = 16  # default number of trials per run
+STIM_FRAME_INDEX = 10  # index of the frame coinciding with the US stimulus in each trial
+I_STIM_FRAMES_RUN = np.arange(NTRIALS_PER_RUN) * REF_NFRAMES // NTRIALS_PER_RUN + STIM_FRAME_INDEX  # indexes of stimulation frames for a run
+
+# Suite2p
+REWRITTEN_S2P_KEYS = {'fast_disk', 'save_path0', 'save_folder', 'bidi_corrected', 'block_size'}  # set of suite2p options ckeys tha are rewritten upon suite2p processing
 
 # Processing
 TAU_GCAMP6_DECAY = 1.25  # exponential decay time constant for Calcium transients (s) 

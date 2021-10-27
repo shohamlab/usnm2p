@@ -12,7 +12,9 @@ This repository hosts the code base to process and analyze 2-photon calcium imag
 ### Instructions
 
 - Download and install the suite2p functional segmentation pipeline [1] in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html
-- While in that environment, install the remaining package dependencies: `pip install -r requirements.txt`
+- Clone this repository and open a terminal at its root directory 
+- While in the suite2p conda environment, install remaining package dependencies: `pip install -r requirements.txt`
+- Create a user configuration file called `config.py`, and define in it a variable called `dataroot` indicating the root directory for the raw data to be analyzed. Save the file inthe repository top folder.
 - You're all set!
 
 ## Usage
@@ -74,63 +76,7 @@ Upon completion, a `/suite2p/plane0/` folder is created for each input stack tha
 #- data cleaning and re-organization
 #- visualization of the results across trials / cells (time series & summary plots)
 
-TO COMPLETE
-
-## Dataset organization
-
-.
-├── raw
-│   └── <dataset>
-│       └── <date>
-│           └── <mouse>
-│               └── <region>
-│                   ├── <run 1>
-│                   │   ├── <tif 1>
-│                   │   ├── ...
-│                   │   ├── ...
-│                   │   ├── ...
-│                   │   ├── ...
-│                   │   └── <tif m>
-│                   ├── ...
-│                   ├── ...
-│                   └── <run n>
-│                       ├── < frame 1>.tif
-│                       ├── ...
-│                       ├── ...
-│                       ├── ...
-│                       ├── ...
-│                       └── <frame m>.tif
-├── stacked
-│   └── <dataset>
-│       └── <date>
-│           └── <mouse>
-│               └── <region>
-│                   ├── <run 1 stack>.tif
-│                   ├── ...
-│                   ├── ...
-│                   └── <run n stack>.tif
-└── filtered
-    └── <filter properties>
-        └── <dataset>
-            └── <date>
-                └── <mouse>
-                    └── <region>
-                        ├── <run 1 filtered stack>.tif
-                        ├── ...
-                        ├── ...
-                        ├── <run n filtered stack>.tif
-                        └── suite2p
-                            └── plane0
-                                ├── data.bin
-                                ├── F.npy
-                                ├── Fneu.npy
-                                ├── iscell.npy
-                                ├── ops.npy
-                                ├── spks.npy
-                                └── stat.npy
-
-
-TO COMPLETE
+<span style="color:red">TO COMPLETE</span>
 
 ## Authors & contributors
 
@@ -138,11 +84,11 @@ This code base has received contributions from many people, including
 - Diego Asua: original author???
 - Theo Lemaire (theo.lemaire@nyulangone.org): current contributor
 
-TO COMPLETE
+<span style="color:red">TO COMPLETE</span>
 
 ## References
 
 - [1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
 - [2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
 
-TO COMPLETE
+<span style="color:red">TO COMPLETE</span>

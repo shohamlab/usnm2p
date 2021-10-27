@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 09:44:46
+# @Last Modified time: 2021-10-27 16:02:03
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -23,6 +23,7 @@ def separate_runs(x, nruns):
     :param nruns: number of runs
     :return: 3D (ncells, nruns, nperrun) data array
     '''
+    logger.info('splitting fluorescence array into separate runs...')
     # If only single run, add extra "run" dimension
     if nruns == 1:
         return np.expand_dims(x, axis=1)
@@ -39,6 +40,7 @@ def separate_trials(x, ntrials):
     :param ntrials: number of trials
     :return: 4D (ncells, nruns, ntrials, npertrial) data array
     '''
+    logger.info('splitting fluorescence array into separate trials...')
     # If only single 2D array provided, add extra "run" dimension
     if x.ndim == 2:
         x = np.expand_dims(x, axis=1)
@@ -58,6 +60,7 @@ def add_cells_to_table(data, cell_ROI_idx):
     '''
     if is_in_dataframe(data, 'cell'):
         return data
+    logger.info('adding cells info to table...')
     data = expand_along(data, 'roi', cell_ROI_idx, index_key='cell')
     return data.reorder_levels(['cell', 'run']).sort_index()
 
@@ -71,6 +74,7 @@ def add_trials_to_table(data, ntrials=None):
     '''
     if is_in_dataframe(data, 'trial'):
         return data
+    logger.info('adding trials info to table...')
     if ntrials is None:
         ntrials = get_singleton(data, NTRIALS_LABEL)
         del data[NTRIALS_LABEL]
@@ -87,6 +91,7 @@ def add_signal_to_table(data, key, y, index_key='frame'):
     :param index_key (optional): name of new index level to add to dataframe upon expansion
     :return: modified info table
     '''
+    logger.info(f'adding {key} signals to table...')
     # Extract trial length from dataframe
     if index_key is not None and index_key in data.index.names:
         npertrial = len(set(data.index.get_level_values(index_key)))
@@ -107,6 +112,7 @@ def add_time_to_table(data, key=TIME_LABEL):
     if key in data:
         logger.warning(f'"{key}" column is already present in dataframe -> ignoring')
         return data
+    logger.info('adding time info to table...')
     # Extract sampling frequency
     fps = get_singleton(data, FPS_LABEL)
     # Extract frame indexes
@@ -143,6 +149,7 @@ def get_relative_fluorescence_change(F, ibaseline):
     :param ibaseline: baseline evaluation indexes
     :return: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
     '''
+    logger.info('computing relative fluorescence change...')
     # If only single 3D array provided, add extra "run" dimension
     if F.ndim == 3:
         F = np.expand_dims(F, axis=1)

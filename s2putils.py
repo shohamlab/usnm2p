@@ -2,16 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 10:01:23
+# @Last Modified time: 2021-10-27 15:11:49
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
 outputs according to specific criteria.     
 '''
 
+import pprint
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from suite2p import run_s2p
 
 from constants import *
@@ -24,7 +26,7 @@ def run_suite2p(*args, overwrite=True, **kwargs):
     Wrapper around run_s2p function that first checks for existence of suite2p output files
     and runs only if files are absent or if user allowed overwrite.
     '''
-    suite2p_keys = ['iscell', 'stat', 'F', 'Fneu', 'spks']
+    suite2p_keys = ['iscell', 'stat', 'F', 'Fneu', 'spks', 'ops']
     # For each input directory
     for inputdir in kwargs['db']['data_path']:
         # Check for existence of suite2p subdirectory
@@ -33,8 +35,29 @@ def run_suite2p(*args, overwrite=True, **kwargs):
             # Check for existence of any suite2p output file
             if all(os.path.isfile(os.path.join(suite2pdir, f'{k}.npy')) for k in suite2p_keys):
                 # Warn user if any exists, and act according to defined overwrite behavior
-                logger.warning(f'suite2p output files already exist in "{suite2pdir}"')
-                if not parse_overwrite(overwrite):
+                logger.info(f'found suite2p output files in "{suite2pdir}"')
+                # Extract input and output options dictionaries
+                opsin = kwargs['ops']
+                opsout = np.load(os.path.join(suite2pdir, 'ops.npy'), allow_pickle=True).item()
+                # Check that all input keys are in the output options dict
+                diffkeys = opsin.keys() - opsout.keys()
+                if len(diffkeys) > 0:
+                    raise ValueError(f'the following input keys are not found in the output options: {pprint.pformat(diffkeys)}')
+                # Compare input and output values for matching keys
+                comparekeys = opsin.keys() - REWRITTEN_S2P_KEYS
+                difftuples = [(k, opsin[k], opsout[k]) for k in comparekeys if opsout[k] != opsin[k]]
+                # If differing values are found, that means suite2p is intended to be run
+                # with different options -> overwrite warning
+                if len(difftuples) > 0:
+                    diffkeys, invals, outvals = zip(*difftuples)
+                    diffdata = pd.DataFrame(
+                        {'current value': invals, 'value on disk': outvals}, index=diffkeys)
+                    logger.warning(f'the following suite2p run options differ from those found in suite2p output directory":\n{diffdata}')
+                    if not parse_overwrite(overwrite):
+                        return
+                # otherwise return
+                else:
+                    logger.info('run options match 100% -> ignoring')
                     return
     # If execution was not canceled, run the standard function
     return run_s2p(*args, **kwargs)

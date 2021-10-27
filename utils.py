@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 10:09:05
+# @Last Modified time: 2021-10-27 15:25:46
 
 ''' Collection of generic utilities. '''
 
@@ -14,6 +14,7 @@ from logger import logger
 
 
 def is_iterable(x):
+    ''' Check if an object is iterbale (i.e. a list, tuple or numpy array '''
     for t in [list, tuple, np.ndarray]:
         if isinstance(x, t):
             return True

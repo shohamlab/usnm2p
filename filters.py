@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 09:58:59
+# @Last Modified time: 2021-10-27 08:36:46
 
 ''' Collection of filtering utilities. '''
 
@@ -41,7 +41,7 @@ class StackFilter(metaclass=abc.ABCMeta):
         return np.clip(baseline, 0, np.amax(stack))
 
     @abc.abstractmethod
-    def filter(self):
+    def filter(self, stack: np.array):
         ''' Abstract filter method. '''
         raise NotImplementedError
 
@@ -50,6 +50,20 @@ class StackFilter(metaclass=abc.ABCMeta):
     def code(self):
         ''' Abstract code attribute. '''
         raise NotImplementedError
+
+
+class NoFilter(StackFilter):
+    ''' No filter instance to substitute in the code in case no filtering is wanted '''
+
+    def filter(self, stack: np.array):
+        raise NotImplementedError
+
+    def __str__(self) -> str:
+        return 'no filter'
+
+    @property
+    def code(self):
+        return 'no_filter'
 
 
 class KalmanDenoiser(StackFilter):
