@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 15:11:49
+# @Last Modified time: 2021-10-28 09:38:02
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -23,8 +23,13 @@ from fileops import parse_overwrite
 
 def run_suite2p(*args, overwrite=True, **kwargs):
     '''
-    Wrapper around run_s2p function that first checks for existence of suite2p output files
-    and runs only if files are absent or if user allowed overwrite.
+    Wrapper around run_s2p function that performs several additional features:
+    1. checks for existence of suite2p output files in the targeted directory
+    2. if these files exist, the output options dictionary is loaded and compared to the one passed as input
+    3. if these run options do not match exaclty, ask the user whether the suite2p data should be overwritten. 
+    
+    The suite2p function is then run only if (1) no output files are present or (2) the run options 
+    differ from the previous ones and the user allowed overwrite.
     '''
     suite2p_keys = ['iscell', 'stat', 'F', 'Fneu', 'spks', 'ops']
     # For each input directory
@@ -92,7 +97,8 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False):
 
 def filter_suite2p_data(data, ROI_idx, criterion_key):
     '''
-    Small utility function to filter suite2p data.
+    Small utility function to filter suite2p data, and make sure that each filtering criterion
+    is applied only once (comes in handy when running the code in an interactive environment).
     
     :param data: suite2p outuput dictionary
     :param ROI_idx: list of indexes of the ROIs to be conserved
