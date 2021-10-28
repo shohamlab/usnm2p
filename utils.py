@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 15:25:46
+# @Last Modified time: 2021-10-28 09:27:59
 
 ''' Collection of generic utilities. '''
 
@@ -98,59 +98,61 @@ def is_in_dataframe(df, key, raise_error=False):
     return False
 
 
-def expand_along(df, key, y, nref=None, index_key=None):
+def add_array_to_dataframe(df, key, y, nref=None, index_key=None):
     '''
-    Add 2D numpy array as a new column into a dataframe, and expand along
+    Add 2D data array as a new column into a dataframe,
+    potentially "expanding" the dataframe along the array's last dimension.
     
     :param df: input dataframe
-    :param key: name of new column in which array is unraveled
-    :param y: 2D array
-    :param nref (optional) reference size of expected signal length
-    :param index_key (optional): name of new index level to add to dataframe upon expansion
-    :return: expanded dataframe
+    :param key: name of new column in which array is inserted
+    :param y: 2D (nvecs, npervec) data array
+    :param nref (optional): expected vector length (i.e. value for npervec)
+    :param index_key (optional): name of new index level to add to dataframe upon expansion, if any
+    :return: dataframe containing the new array (and potentially expanded)
     '''
-    # Check that dataframe does not already contain the signal key
+    # Check that dataframe does not already contain the new key
     if is_in_dataframe(df, key):
         return df
     # If y does not have 2 dimensions -> reshape into 2D array
     if y.ndim != 2:
         y = y.reshape(-1, y.shape[-1])
-    # Extract input dimensions
-    nsignals, npersignal = y.shape
+    # Extract input dimensions from array and dataframe
+    nvecs, npervec = y.shape
     nrecords = len(df)
-    if nsignals == 1:
+    # If only 1 vector provided, assume it is valid for every record of the dataframe -> tile 
+    if nvecs == 1:
         y = np.tile(y, (nrecords, 1))
-        nsignals, npersignal = y.shape
-    # Compare signal size to reference, if any
+        nvecs, npervec = y.shape
+    # Compare vector length to provided reference, if any
     if nref is not None:
-        if nref != npersignal:
-            raise ValueError(f'signal length ({npersignal}) does not match reference length ({nref})')
+        if nref != npervec:
+            raise ValueError(f'vector length ({npervec}) does not match reference length ({nref})')
     # Create copy so as to not modify original dataframe
-    df_exp = df.copy()
-    # Check compatibility between input dataframe and signal array
-    if nrecords == nsignals:
-        # If dataframe length matches number of signals -> add signals and expand
-        logger.debug('adding and expanding')
-        df_exp[key] = y.tolist()
-        df_exp = df_exp.explode(key)
-    elif nrecords == nsignals * npersignal:
-        # If dataframe length matches number of elements in signal array -> reshape array and add
-        logger.debug('reshaping and adding')
-        df_exp[key] = np.reshape(y, nsignals * npersignal)
+    newdf = df.copy()
+    # Check compatibility between input dataframe and data array
+    if nrecords == nvecs:
+        # Case 1: dataframe length matches number of vectors -> insert data arrray and expand upon vector dimension
+        logger.debug('inserting and expanding')
+        newdf[key] = y.tolist()
+        newdf = newdf.explode(key)
+    elif nrecords == nvecs * npervec:
+        # Case 2: dataframe length matches number of elements in data array -> flatten data array and insert
+        logger.debug('flattening and inserting')
+        newdf[key] = np.reshape(y, nvecs * npervec)
     else:
         # Otherwise throw incompatibility error
         raise ValueError(
-            f'signal array dimensions ({y.shape}) incompatible with dataframe length ({nrecords})')
+            f'data array dimensions ({y.shape}) incompatible with dataframe length ({nrecords})')
     # If index key provided -> add it as extra index dimension
     if index_key is not None:
         if index_key in df.index.names:
             logger.warning(f'"{index_key}" key already present in index -> ignoring')
         else:
-            inds = np.arange(npersignal)  # fundamental set of signal indexes
-            df_exp[index_key] = np.tile(inds, nsignals)  # repeat for each signal and add to expanded dataframe
-            df_exp = df_exp.set_index(index_key, append=True)  # set signal index column as new index level
-    # Return dataframe containing signals
-    return df_exp
+            inds = np.arange(npervec)  # fundamental set of vector indexes
+            newdf[index_key] = np.tile(inds, nvecs)  # repeat for each vector and add to expanded dataframe
+            newdf = newdf.set_index(index_key, append=True)  # set vector index column as new index level
+    # Return dataframe containing new data
+    return newdf
 
 
 def float_to_uint8(arr):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 16:02:03
+# @Last Modified time: 2021-10-28 09:28:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -12,7 +12,7 @@ import pandas as pd
 
 from constants import *
 from logger import logger
-from utils import get_singleton, expand_along, is_in_dataframe, is_iterable
+from utils import add_array_to_dataframe, get_singleton, is_in_dataframe, is_iterable
 
 
 def separate_runs(x, nruns):
@@ -61,7 +61,7 @@ def add_cells_to_table(data, cell_ROI_idx):
     if is_in_dataframe(data, 'cell'):
         return data
     logger.info('adding cells info to table...')
-    data = expand_along(data, 'roi', cell_ROI_idx, index_key='cell')
+    data = add_array_to_dataframe(data, 'roi', cell_ROI_idx, index_key='cell')
     return data.reorder_levels(['cell', 'run']).sort_index()
 
 
@@ -78,7 +78,7 @@ def add_trials_to_table(data, ntrials=None):
     if ntrials is None:
         ntrials = get_singleton(data, NTRIALS_LABEL)
         del data[NTRIALS_LABEL]
-    return expand_along(data, 'trial', np.arange(ntrials), index_key='trial')
+    return add_array_to_dataframe(data, 'trial', np.arange(ntrials), index_key='trial')
 
 
 def add_signal_to_table(data, key, y, index_key='frame'):
@@ -97,7 +97,7 @@ def add_signal_to_table(data, key, y, index_key='frame'):
         npertrial = len(set(data.index.get_level_values(index_key)))
     else: 
         npertrial = get_singleton(data, NPERTRIAL_LABEL, delete=True)
-    return expand_along(data, key, y, nref=npertrial, index_key=index_key)
+    return add_array_to_dataframe(data, key, y, nref=npertrial, index_key=index_key)
 
 
 def add_time_to_table(data, key=TIME_LABEL):
