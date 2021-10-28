@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 09:28:43
+# @Last Modified time: 2021-10-28 15:05:40
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -31,6 +31,83 @@ def separate_runs(x, nruns):
     ncells, nframes = x.shape
     return x.reshape((ncells, nruns, -1))
 
+
+def moving_average(x, n=5):
+    ''' Apply a monving average on a signal. '''
+    if n % 2 == 0:
+        raise ValueError('you must specify an odd MAV window length')
+    return np.convolve(np.pad(x, n // 2, mode='symmetric'), np.ones(n), 'valid') / n
+
+
+def get_F_baseline(x, w):
+    '''
+    Compute the baseline of a signal. This function assumes that time
+    is the last dimension of the signal array.
+    '''
+    if x.ndim == 1:
+        return moving_average(x, n=w)
+    else:
+        return np.apply_along_axis(lambda a: moving_average(a, n=w), -1, x, )
+
+
+# TODO:
+# - remove events by thresholding the fluorescence signal to keep only the lowest 5-10% of its values
+# - pad the array (circular? random?, mirror?)
+# - apply NaN-insensitive moving median filter with wide enough window to remove remaining events
+
+
+# def get_baseline(x, binsize, npercentile):
+#     return moving_average(x, binsize)
+
+#     # x = np.pad(x, binsize // 2, mode='symmetric')
+#     # print(x)
+#     # x = pd.Series(x).rolling(binsize).mean().values
+#     # print(x)
+#     # return x
+
+#     # Bin data into different analysis intervals
+#     x = x.reshape(-1, binsize)
+#     print(x.shape)
+#     # Inside each interval, keep only the n-th lowest percentile of values
+#     percentiles = np.percentile(x, npercentile, axis=1)
+#     x_ceiled = []
+#     for xx, p in zip(x, percentiles):
+#         xx_ceiled = np.where(xx <= p, xx, np.nan)
+#         print(xx)
+#         print(xx_ceiled)
+#         x_ceiled.append(xx_ceiled)
+#     x = np.array(x_ceiled)
+#     # x = x.min(axis=1)
+#     print(x.shape)
+#     # x = np.tile(x, (binsize, 1)).T
+#     # print(x.shape)
+#     x = x.reshape(-1)
+#     return x
+
+
+def get_relative_fluorescence_change(F, ibaseline):
+    '''
+    Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F).
+    The signal baseline is calculated on a per-trial basis as the average of a specified
+    pre-stimiulus interval.
+
+    :param x: 4D (ncells, nruns, ntrials, npertrial) array of absolute fluorescence signals
+    :param ibaseline: baseline evaluation indexes
+    :return: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
+    '''
+    logger.info('computing relative fluorescence change...')
+    # If only single 3D array provided, add extra "run" dimension
+    if F.ndim == 3:
+        F = np.expand_dims(F, axis=1)
+    # Extract F dimensions
+    ncells, nruns, ntrials, npertrial = F.shape
+    # Extract baseline fluoresence signals and average across time for each cell and trial 
+    F0 = F[:, :, :, ibaseline].mean(axis=-1)  # (ncells, nruns, ntrials) array
+    # Add 4th axis (of dim 1) to F0 to enable broadcasting with F
+    F0 = np.expand_dims(F0, axis=3)
+    # Return relative change in fluorescence
+    return (F - F0) / F0
+    
 
 def separate_trials(x, ntrials):
     '''
@@ -139,28 +216,7 @@ def array_to_dataframe(x, key):
     return data
 
 
-def get_relative_fluorescence_change(F, ibaseline):
-    '''
-    Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F).
-    The signal baseline is calculated on a per-trial basis as the average of a specified
-    pre-stimiulus interval.
 
-    :param x: 4D (ncells, nruns, ntrials, npertrial) array of absolute fluorescence signals
-    :param ibaseline: baseline evaluation indexes
-    :return: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
-    '''
-    logger.info('computing relative fluorescence change...')
-    # If only single 3D array provided, add extra "run" dimension
-    if F.ndim == 3:
-        F = np.expand_dims(F, axis=1)
-    # Extract F dimensions
-    ncells, nruns, ntrials, npertrial = F.shape
-    # Extract baseline fluoresence signals and average across time for each cell and trial 
-    F0 = F[:, :, :, ibaseline].mean(axis=-1)  # (ncells, nruns, ntrials) array
-    # Add 4th axis (of dim 1) to F0 to enable broadcasting with F
-    F0 = np.expand_dims(F0, axis=3)
-    # Return relative change in fluorescence
-    return (F - F0) / F0
 
 
 def compute_z_scores(x):

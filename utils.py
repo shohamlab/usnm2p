@@ -2,15 +2,59 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 09:27:59
+# @Last Modified time: 2021-10-28 17:16:56
 
 ''' Collection of generic utilities. '''
 
 import numpy as np
 import operator
+import abc
 
 from constants import SI_POWERS
 from logger import logger
+
+
+class StackProcessor(metaclass=abc.ABCMeta):
+    ''' Generic intrface for processor objects '''
+
+    @abc.abstractmethod
+    def run(self, stack: np.array) -> np.ndarray:
+        ''' Abstract run method. '''
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def code(self):
+        ''' Abstract code attribute. '''
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def rootcode(self):
+        ''' Abstract root code attribute '''
+        raise NotImplementedError
+
+
+class NoProcessor(StackProcessor):
+    ''' Dummy class for no-processor objects '''
+
+    def run(self, stack: np.array, iframes):
+        raise NotImplementedError
+
+    @property
+    def ptype(self):
+        return self.__class__.__name__[2:].lower()
+
+    def __str__(self) -> str:
+        return f'no {self.ptype}'
+
+    @property
+    def code(self):
+        return f'no_{self.ptype}'
+    
+    @property
+    def rootcode(self):
+        raise NotImplementedError
 
 
 def is_iterable(x):

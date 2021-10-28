@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 16:49:33
+# @Last Modified time: 2021-10-28 16:11:20
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -89,7 +89,7 @@ TIME_LABEL = 'time (s)'
 RESP_LABEL = 'response type'
 F_LABEL = 'F (a.u.)'
 REL_F_CHANGE_LABEL = 'dF/F0'
-
+STACK_AVG_INT_LABEL = 'Iavg (a.u.)'
 
 # Plotting
 TBOUNDS = (-2., 8.)

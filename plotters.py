@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 16:03:25
+# @Last Modified time: 2021-10-28 18:16:06
 
 ''' Collection of plotting utilities. '''
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.colors import ListedColormap
@@ -73,6 +74,27 @@ def plot_stack_summary(stack, cmap='viridis', title=None):
         ax.imshow(func(stack, axis=0), cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
+    return fig
+
+
+def plot_stack_timecourse(stack, func='mean', ax=None, title=None, label=None):
+    func_obj = {
+        'mean': np.mean,
+        'median': np.median,
+        'min': np.min,
+        'max': np.max
+    }[func]
+    return func_obj(stack, axis=(-2, -1))
+    if ax is None:
+        fig, ax = plt.subplots()
+        title = '' if title is None else f'{title} - '
+        ax.set_title(f'{title} timecourse')
+        ax.set_xlabel('frames')
+        ax.set_ylabel(f'{func} frame intensity')
+        hide_spines(ax)
+    else:
+        fig = ax.get_figure()
+    ax.plot(func_obj(stack, axis=(-2, -1)), label=label)
     return fig
 
 
@@ -189,7 +211,7 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
     :param stats: suite2p output stats dictionary
     :param pkeys: list of parameters to considers
     :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
-    :return: figure handle, optionally with list of identified outliers indexes
+    :return: figure handle, optionally with a dataframe summarizing identified outliers
     '''
     # Determine figure gird organization based on number of parameters
     ncols = min(len(pkeys), 4)
@@ -198,8 +220,8 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
     fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
     axes = axes.flatten()
     fig.suptitle('Morphological parameters - distribution across cells')
+    is_outlier = {}
     # For each output stats parameter
-    is_outlier = np.zeros(len(stats)).astype(bool)
     for ax, pkey in zip(axes, pkeys):
         # Plot histogram distribution
         hide_spines(ax, mode='trl')
@@ -207,13 +229,13 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
         ax.set_yticks([])
         d = np.array([x[pkey] for x in stats])
         ax.hist(d, bins=20, ec='k', alpha=0.7)
-        # If z/score threshold if provided, compute z-score distribution and identify outliers
+        # If z-score threshold if provided, compute z-score distribution and identify outliers
         if zthr is not None:
             mu, std = d.mean(), d.std()
             lims = [mu + k * zthr * std for k in [-1, 1]]
             for l in lims:
                 ax.axvline(l, ls='--', c='silver')
-            is_outlier += np.logical_or(d < lims[0], d > lims[1])
+            is_outlier[pkey] = np.logical_or(d < lims[0], d > lims[1])
     # Hide unused axes
     for ax in axes[len(pkeys):]:
         hide_spines(ax, mode='all')
@@ -223,10 +245,12 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
     if zthr is None:
         return fig
     else:
-        return fig, is_outlier
+        df_outliers = pd.DataFrame(is_outlier)
+        df_outliers = df_outliers[df_outliers.sum(axis=1) == 1]
+        return fig, df_outliers
 
 
-def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL):
+def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1.):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
     
@@ -236,19 +260,33 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL):
     :param ylabel (optional): y axis label
     :return: figure handle
     '''
-    logger.info(f'plotting {F.shape[0]} fluorescence traces...')
+    if F.ndim == 1:
+        F = np.atleast_2d(F)
+    logger.info(f'plotting {F.shape[0]} fluorescence trace(s)...')
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 4))
     hide_spines(ax)
-    s = {F_LABEL: 'raw fluorescence', REL_F_CHANGE_LABEL: 'normalized fluorescence change'}[ylabel]
-    ax.set_title(f'{s} traces across {title} - all {F.shape[0]} cells')
+    s = {
+        F_LABEL: 'raw fluorescence',
+        REL_F_CHANGE_LABEL: 'normalized fluorescence change',
+        STACK_AVG_INT_LABEL: 'average stack intensity'
+    }[ylabel]
+    ax.set_title(f'{s} trace(s) across {title} - all {F.shape[0]} cells')
     ax.set_xlabel('frames')
     ax.set_ylabel(ylabel)
     # Plot each trace
-    for trace in F:
-        ax.plot(trace)
+    leg = True
+    if labels is None:
+        labels = [None] * F.shape[0]
+        leg = False
+    for trace, label in zip(F, labels):
+        ax.plot(trace, label=label, alpha=alpha)
+    # Add legend if labels were provided
+    if leg:
+        ax.legend(frameon=False)
     # Plot delimiters, if any
     if delimiters is not None:
+        logger.info(f'adding {len(delimiters)} delimiters')
         for iframe in delimiters:
             ax.axvline(iframe, color='k', linestyle='--')
     # Return

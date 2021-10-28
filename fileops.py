@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 15:45:39
+# @Last Modified time: 2021-10-28 18:59:38
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -14,8 +14,7 @@ from tifffile import imread, imsave
 
 from parsers import P_TIFFILE
 from logger import logger
-from utils import is_iterable
-from filters import StackFilter, NoFilter
+from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
 
@@ -178,36 +177,41 @@ def savetif(fpath, stack, overwrite=True):
     imsave(fpath, stack)
 
 
-def filter_and_save(filter, input_fpath, overwrite=False):
+def process_and_save(processor, input_fpath, input_root, *args, overwrite=False, **kwargs):
     '''
-    Load input stack file, apply filter and save output stack in specific directory.
+    Load input stack file, apply processing function and save output stack in specific directory.
     
-    :param filter: filter object
+    :param processor: processor object
     :param input_fpath: absolute filepath to the input TIF stack (or list of TIF stacks).
-    :return: absolute filepath to the output (filtered) TIF stack (or list of TIF stacks).
+    :param input_root: name of the directory that constitutes the root level of the input filepath
     :param overwrite: one of (True, False, '?') defining what to do if file already exists.
+    :return: absolute filepath to the output TIF stack (or list of TIF stacks).
     '''
     # If list of filepaths provided as input -> apply function to all of them
     if is_iterable(input_fpath):
-        return [filter_and_save(filter, x) for x in input_fpath]
-    # Check that filter instance is a known class type
-    if not isinstance(filter, StackFilter):
-        raise ValueError(f'unknown filter type: {filter}')
-    # If NoFilter object provided -> do nothing and return input file path
-    if isinstance(filter, NoFilter):
+        return [process_and_save(processor, x, input_root, *args, overwrite=overwrite, **kwargs) for x in input_fpath]
+    # Check that input root is indeed found in input filepath
+    if input_root not in input_fpath:
+        raise ValueError(f'input root "{input_root}" not found in input file path "{input_fpath}"')
+    # Check that processor instance is a known class type
+    if not isinstance(processor, StackProcessor):
+        raise ValueError(f'unknown processor type: {processor}')
+    # If NoProcessor object provided -> do nothing and return input file path
+    if isinstance(processor, NoProcessor):
         return input_fpath
     # Get output filepath
-    output_fpath = get_output_equivalent(input_fpath, 'stacked', f'filtered/{filter.code}')
+    output_fpath = get_output_equivalent(
+        input_fpath, input_root, f'{processor.rootcode}/{processor.code}')
     # If already existing, act according to overwrite parameter
     if os.path.isfile(output_fpath):
         logger.warning(f'"{output_fpath}" already exists')
         overwrite = parse_overwrite(overwrite)
         if not overwrite:
             return output_fpath
-    # Load input, filter stack, and save output
-    stack = loadtif(input_fpath)
-    filtered_stack = filter.filter(stack)
-    savetif(output_fpath, filtered_stack, overwrite=overwrite)
+    # Load input, process stack, and save output
+    input_stack = loadtif(input_fpath)
+    output_stack = processor.run(input_stack, *args, **kwargs)
+    savetif(output_fpath, output_stack, overwrite=overwrite)
     # Return output filepath
     return output_fpath
 

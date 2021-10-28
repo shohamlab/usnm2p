@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-27 08:36:46
+# @Last Modified time: 2021-10-28 18:45:29
 
 ''' Collection of filtering utilities. '''
 
@@ -12,9 +12,10 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from logger import logger
+from utils import StackProcessor, NoProcessor
 
 
-class StackFilter(metaclass=abc.ABCMeta):
+class StackFilter(StackProcessor):
 
     @staticmethod
     def get_baseline(stack: np.array, n: int, noisefactor: float=1.) -> np.array:
@@ -40,30 +41,14 @@ class StackFilter(metaclass=abc.ABCMeta):
         # Bound to [0, MAX] interval and return
         return np.clip(baseline, 0, np.amax(stack))
 
-    @abc.abstractmethod
-    def filter(self, stack: np.array):
-        ''' Abstract filter method. '''
-        raise NotImplementedError
-
     @property
-    @abc.abstractmethod
-    def code(self):
-        ''' Abstract code attribute. '''
-        raise NotImplementedError
+    def rootcode(self):
+        return 'filtered'
 
 
-class NoFilter(StackFilter):
+class NoFilter(NoProcessor):
     ''' No filter instance to substitute in the code in case no filtering is wanted '''
-
-    def filter(self, stack: np.array):
-        raise NotImplementedError
-
-    def __str__(self) -> str:
-        return 'no filter'
-
-    @property
-    def code(self):
-        return 'no_filter'
+    pass
 
 
 class KalmanDenoiser(StackFilter):
@@ -166,8 +151,7 @@ class KalmanDenoiser(StackFilter):
         ex_post = ex_prior * (1.0 - K)  # posterior variance estimate
         return x_post, ex_post
 
-    # TODO: Speed up with numba???
-    def filter(self, stack: np.array, full_output: bool=False):
+    def run(self, stack: np.array, full_output: bool=False):
         '''
         Performs Kalman denoising of a 3D image stack
     
