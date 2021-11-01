@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 17:16:56
+# @Last Modified time: 2021-10-29 12:45:36
 
 ''' Collection of generic utilities. '''
 
 import numpy as np
+import pandas as pd
 import operator
 import abc
 
@@ -202,3 +203,35 @@ def add_array_to_dataframe(df, key, y, nref=None, index_key=None):
 def float_to_uint8(arr):
     ''' Transform a floating point (0 to 1) array to an 8-bit unsigned integer (0 to 255) array. '''
     return (arr * 255).astype(np.uint8)
+
+
+def apply_rolling_window(x, w, func=None, warn_oversize=True):
+    '''
+    Generate a rolling window over an array an apply a specific function to the result.
+    Defaults to a moving average.
+    
+    :param x: input array
+    :param w: window size (number of array samples used to apply the function)
+    :param func (optional): function to apply to the rolling window result
+    :return: output array of equal size to the input array, with the rolling window and function applied.
+    '''
+    # If more than 1 dimension -> reshape to 2D, apply on each row, and reshape back to original shape
+    if x.ndim > 1:
+        dims = x.shape
+        x = x.reshape(-1, dims[-1])
+        x = np.array([apply_rolling_window(xx, w, func=func, warn_oversize=False) for xx in x])
+        return x.reshape(*dims)
+    # Check that window size is valid
+    if w % 2 == 0:
+        raise ValueError('window size must be an odd number')
+    if w > x.size and warn_oversize:
+        logger.warning(f'window size ({w}) is larger than array length ({x.size})')
+    # If function not provided, apply mean by default
+    if func is None:
+        func = lambda x: x.mean()
+    # Pad input array on both sides
+    x = np.pad(x, w // 2, mode='symmetric')
+    # Generate rolling window over array
+    roll = pd.Series(x).rolling(w, center=True)
+    # Apply function over rolling window object, drop NaNs and extract output array 
+    return func(roll).dropna().values

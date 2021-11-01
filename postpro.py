@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 15:05:40
+# @Last Modified time: 2021-11-01 12:56:54
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -12,7 +12,7 @@ import pandas as pd
 
 from constants import *
 from logger import logger
-from utils import add_array_to_dataframe, get_singleton, is_in_dataframe, is_iterable
+from utils import add_array_to_dataframe, get_singleton, is_in_dataframe, is_iterable, apply_rolling_window
 
 
 def separate_runs(x, nruns):
@@ -23,7 +23,7 @@ def separate_runs(x, nruns):
     :param nruns: number of runs
     :return: 3D (ncells, nruns, nperrun) data array
     '''
-    logger.info('splitting fluorescence array into separate runs...')
+    logger.info(f'splitting fluorescence array into {nruns} separate runs...')
     # If only single run, add extra "run" dimension
     if nruns == 1:
         return np.expand_dims(x, axis=1)
@@ -32,57 +32,58 @@ def separate_runs(x, nruns):
     return x.reshape((ncells, nruns, -1))
 
 
-def moving_average(x, n=5):
-    ''' Apply a monving average on a signal. '''
-    if n % 2 == 0:
-        raise ValueError('you must specify an odd MAV window length')
-    return np.convolve(np.pad(x, n // 2, mode='symmetric'), np.ones(n), 'valid') / n
-
-
-def get_F_baseline(x, w):
+def separate_trials(x, ntrials):
     '''
-    Compute the baseline of a signal. This function assumes that time
+    Split suite2p data array into separate trials.
+    
+    :param x: 3D (ncells, nruns, nperrun) data array
+    :param ntrials: number of trials
+    :return: 4D (ncells, nruns, ntrials, npertrial) data array
+    '''
+    logger.info(f'splitting fluorescence array into {ntrials} separate trials...')
+    # If only single 2D array provided, add extra "run" dimension
+    if x.ndim == 2:
+        x = np.expand_dims(x, axis=1)
+    # Extract dimensions and reshape
+    ncells, nruns, nperrun = x.shape
+    npertrial = nperrun // ntrials
+    return x.reshape(x.shape[:-1] + (ntrials, npertrial))
+
+
+def get_fluorescence_baseline(F, fps, wlen=BASELINE_WINDOW_SIZE, quantile=BASELINE_QUANTILE):
+    '''
+    Compute the baseline of a fluorescence signal. This function assumes that time
     is the last dimension of the signal array.
+
+    :param F: fluorescence signal array. Can be multi-dimensional (in that case, baseline evaluation
+        is applied last dimension of the array)
+    :param fps: frame rate of the signal (in fps)
+    :param wlen: window length (in s) to compute the fluorescence baseline
+    :param quantile: quantile used for the computation of the fluorescence baseline 
+    :return: fluorescence baseline array 
     '''
-    if x.ndim == 1:
-        return moving_average(x, n=w)
+    # Compute window size (in number of frames) from window length and fps
+    w = int(np.round(wlen * fps))
+    # Adjust to odd number if needed
+    if w % 2 == 0:
+        w += 1
+    wstr = f'{wlen:.1f}s ({w} frames) rolling window'
+    if quantile == 'mean':
+        func = lambda x: x.mean()
+        qstr = quantile
     else:
-        return np.apply_along_axis(lambda a: moving_average(a, n=w), -1, x, )
+        func = lambda x: x.quantile(quantile)
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(np.round(quantile * 1e2) % 10, 'th')
+        qstr = f'{quantile * 1e2:.0f}{suffix} percentile'
+    logger.info(f'computing fluorescence baseline as {qstr} of {wstr}')
+    # Apply rolling window with percentile evluation function
+    return apply_rolling_window(F, w, func=func)
 
 
-# TODO:
+# NOTE: alternative to find baseline (from Justin):
 # - remove events by thresholding the fluorescence signal to keep only the lowest 5-10% of its values
 # - pad the array (circular? random?, mirror?)
 # - apply NaN-insensitive moving median filter with wide enough window to remove remaining events
-
-
-# def get_baseline(x, binsize, npercentile):
-#     return moving_average(x, binsize)
-
-#     # x = np.pad(x, binsize // 2, mode='symmetric')
-#     # print(x)
-#     # x = pd.Series(x).rolling(binsize).mean().values
-#     # print(x)
-#     # return x
-
-#     # Bin data into different analysis intervals
-#     x = x.reshape(-1, binsize)
-#     print(x.shape)
-#     # Inside each interval, keep only the n-th lowest percentile of values
-#     percentiles = np.percentile(x, npercentile, axis=1)
-#     x_ceiled = []
-#     for xx, p in zip(x, percentiles):
-#         xx_ceiled = np.where(xx <= p, xx, np.nan)
-#         print(xx)
-#         print(xx_ceiled)
-#         x_ceiled.append(xx_ceiled)
-#     x = np.array(x_ceiled)
-#     # x = x.min(axis=1)
-#     print(x.shape)
-#     # x = np.tile(x, (binsize, 1)).T
-#     # print(x.shape)
-#     x = x.reshape(-1)
-#     return x
 
 
 def get_relative_fluorescence_change(F, ibaseline):
@@ -109,22 +110,86 @@ def get_relative_fluorescence_change(F, ibaseline):
     return (F - F0) / F0
     
 
-def separate_trials(x, ntrials):
+def get_outliers_from_dFF_activity(dFF, thr=DFF_OUTLIER):
     '''
-    Split suite2p data array into separate trials.
+    Remove outlier cells from fluorescence matrix.
     
-    :param x: 3D (ncells, nruns, nperrun) data array
-    :param ntrials: number of trials
-    :return: 4D (ncells, nruns, ntrials, npertrial) data array
+    :param dFF: trial-averaged relative fluorescence change array
+    :param thr: threshold of peak absolute dFF activity above which a cell should be discarded 
+    :return: index array of cells identified as outliers
     '''
-    logger.info('splitting fluorescence array into separate trials...')
-    # If only single 2D array provided, add extra "run" dimension
-    if x.ndim == 2:
-        x = np.expand_dims(x, axis=1)
-    # Extract dimensions and reshape
-    ncells, nruns, nperrun = x.shape
-    npertrial = nperrun // ntrials
-    return x.reshape(x.shape[:-1] + (ntrials, npertrial))
+    # If more than 2 dimensions provided, flatten along the non-cell dimensions
+    if dFF.ndim > 2:
+        dFF = dFF.reshape(dFF.shape[0], -1)
+    # Compute maximum dFF absolute value along time course for each cell
+    max_abs_dFF = np.abs(dFF).max(axis=-1)
+    # Identify outliers as cells whose maximum absolute dFF crosses absolute threshold
+    is_outlier = max_abs_dFF > thr
+    # Return dataframe identifying outliers
+    label = f'|dFF| > {thr}'
+    df_outliers = pd.DataFrame({'peak |dFF|': max_abs_dFF, label: is_outlier})
+    return df_outliers[df_outliers[label] == 1]
+    
+
+def compute_z_scores(x):
+    '''
+    Compute z-scores (i.e. number of standard deviations from the mean) of a signal array on a per-run basis.
+
+    :param x: multidimensional signal array
+    :return: multidimensional array of z-scores
+    '''
+    # Get array dimensions
+    dims = x.shape
+    # If more than 3 dimensions provided, stack trials that belong to the same run sequentially
+    if x.ndim > 3:
+        x = x.reshape(dims[0], dims[1], -1)
+    # Compute z-scores along last axis (time)
+    z = zscore(x, axis=-1)
+    # Reshape to original dimensions and return
+    return z.reshape(dims)
+
+
+def classify_by_response_type(dFF, zthr=ZSCORE_THR, full_output=False):
+    '''
+    Classify cells by response type, based on analysis of z-score distributions of
+    relative fluorescence change signals.
+
+    :param dFF: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
+    :param full_output (optional): whether to return also the distribution of identified peak z-scores per cell.
+    :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
+    '''
+    # Compute z-scores on trial-averaged data
+    logger.info('computing z-score distributions on trial-averaged data')
+    zavg = compute_z_scores(dFF.mean(axis=-2))
+
+    # Compute z-scores on a per-run basis
+    # # Average across trials to obtain mean response z-score timecourse per cell and run
+    # logger.info('averaging across trials')
+    # zavg = z.mean(axis=2)
+
+    # Restrict analysis to z-scores within the "response interval"
+    logger.info('restricting analysis to response interval')
+    zavg = zavg[:, :, I_RESPONSE]
+
+    # Compute min and max z-score across response interval AND across runs for each given cell
+    zmin = zavg.min(axis=-1).min(axis=-1)
+    zmax = zavg.max(axis=-1).max(axis=-1)
+
+    # Classify cells according to their max and min z-scores
+    is_positive = zmax >= zthr
+    is_negative = np.logical_and(~is_positive, zmin <= -zthr)
+    is_neutral = np.logical_and(~is_positive, ~is_negative)
+    # Cast bool -> int
+    is_positive, is_negative, is_neutral = [x.astype(int) for x in [is_positive, is_negative, is_neutral]] 
+    # Make sure response categories have mutually exclusive populations
+    assert all(is_positive + is_negative + is_neutral == 1.), 'error'
+    # Compute vector of response type per cell
+    resp_types = is_positive - is_negative
+    # Return response types vector and optional z-distributions
+    if full_output:
+        return resp_types, (zmin, zmax)
+    else:
+        return resp_types 
 
 
 def add_cells_to_table(data, cell_ROI_idx):
@@ -137,7 +202,7 @@ def add_cells_to_table(data, cell_ROI_idx):
     '''
     if is_in_dataframe(data, 'cell'):
         return data
-    logger.info('adding cells info to table...')
+    logger.info(f'adding {len(cell_ROI_idx)} cells info to table...')
     data = add_array_to_dataframe(data, 'roi', cell_ROI_idx, index_key='cell')
     return data.reorder_levels(['cell', 'run']).sort_index()
 
@@ -151,10 +216,10 @@ def add_trials_to_table(data, ntrials=None):
     '''
     if is_in_dataframe(data, 'trial'):
         return data
-    logger.info('adding trials info to table...')
     if ntrials is None:
         ntrials = get_singleton(data, NTRIALS_LABEL)
         del data[NTRIALS_LABEL]
+    logger.info(f'adding {ntrials} trials info to table...')
     return add_array_to_dataframe(data, 'trial', np.arange(ntrials), index_key='trial')
 
 
@@ -168,7 +233,7 @@ def add_signal_to_table(data, key, y, index_key='frame'):
     :param index_key (optional): name of new index level to add to dataframe upon expansion
     :return: modified info table
     '''
-    logger.info(f'adding {key} signals to table...')
+    logger.info(f'adding {" x ".join([str(x) for x in y.shape])} {key} signal array to table...')
     # Extract trial length from dataframe
     if index_key is not None and index_key in data.index.names:
         npertrial = len(set(data.index.get_level_values(index_key)))
@@ -214,64 +279,6 @@ def array_to_dataframe(x, key):
     data = add_signal_to_table(data, key, x)
     data = add_time_to_table(data)
     return data
-
-
-
-
-
-def compute_z_scores(x):
-    '''
-    Compute z-scores (i.e. number of standard deviations from the mean) of a signal array on a per-run basis.
-
-    :param x: 4D (ncells, nruns, ntrials, npertrial) signal array
-    :return: 4D (ncells, nruns, ntrials, npertrial) array of z-scores
-    '''
-    # Get array dimensions
-    ncells, nruns, ntrials, npertrial = x.shape
-    # Stack trials that belong to the same run sequentially
-    x = x.reshape((ncells, nruns, ntrials * npertrial))
-    # Compute z-scores along entire runs
-    z = zscore(x, axis=-1)
-    # Separate trials in resulting z-score distribution
-    return z.reshape((ncells, nruns, ntrials, npertrial))
-
-
-def classify_by_response_type(dFF, full_output=False):
-    '''
-    Classify cells by response type, based on analysis of z-score distributions of
-    relative fluorescence change signals.
-
-    :param dFF: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
-    :param full_output (optional): whether to return also the distribution of identified peak z-scores per cell.
-    :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
-    '''
-    # Compute z-scores on a per-run basis
-    logger.info('computing per-run z-score distributions')
-    z = compute_z_scores(dFF)
-    # Average across trials to obtain mean response z-score timecourse per cell and run
-    logger.info('averaging across trials')
-    zavg = z.mean(axis=2)
-    # Restrict analysis to z-scores within the "response interval"
-    logger.info('restricting analysis to response interval')
-    zavg = zavg[:, :, I_RESPONSE]
-    # Compute min and max z-score across response interval AND across runs for each given cell
-    zmin = zavg.min(axis=-1).min(axis=-1)
-    zmax = zavg.max(axis=-1).max(axis=-1)
-    # Classify cells according to their max and min z-scores
-    is_positive = zmax >= ZSCORE_THR_POSITIVE
-    is_negative = np.logical_and(~is_positive, zmin <= ZSCORE_THR_NEGATIVE)
-    is_neutral = np.logical_and(~is_positive, ~is_negative)
-    # Cast bool -> int
-    is_positive, is_negative, is_neutral = [x.astype(int) for x in [is_positive, is_negative, is_neutral]] 
-    # Make sure response categories have mutually exclusive populations
-    assert all(is_positive + is_negative + is_neutral == 1.), 'error'
-    # Compute vector of response type per cell
-    resp_types = is_positive - is_negative
-    # Return response types vector and optional z-distributions
-    if full_output:
-        return resp_types, (zmin, zmax)
-    else:
-        return resp_types 
 
 
 def get_response_types_per_cell(data):

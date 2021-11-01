@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-28 16:29:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 18:36:55
+# @Last Modified time: 2021-10-28 19:33:56
 
 ''' Collection of stack interpolators utilities. '''
 

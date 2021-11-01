@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 18:16:06
+# @Last Modified time: 2021-11-01 17:48:12
 
 ''' Collection of plotting utilities. '''
 
@@ -203,12 +203,12 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     return fig
     
 
-def plot_parameter_distributions(stats, pkeys, zthr=None):
+def plot_parameter_distributions(data, pkeys, zthr=None):
     '''
     Plot distributions of several morphological parameters (extracted from suite2p output)
     across cells.
     
-    :param stats: suite2p output stats dictionary
+    :param data: suite2p output dictionary
     :param pkeys: list of parameters to considers
     :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
     :return: figure handle, optionally with a dataframe summarizing identified outliers
@@ -220,14 +220,21 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
     fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
     axes = axes.flatten()
     fig.suptitle('Morphological parameters - distribution across cells')
-    is_outlier = {}
+    # Get cells IDs from s2p data
+    is_cell = data['iscell'][:, 0]
+    icells = is_cell.nonzero()[0]
+    cellIDs = data[ROI_KEY][icells]
+    # Initialize outliers dataframe with cells ROI IDs
+    df_outliers = pd.DataFrame({ROI_KEY: cellIDs})
+    # Fetch stats dictionary for cells only
+    cell_stats = data['stat'][cellIDs]
     # For each output stats parameter
     for ax, pkey in zip(axes, pkeys):
         # Plot histogram distribution
         hide_spines(ax, mode='trl')
         ax.set_xlabel(pkey)
         ax.set_yticks([])
-        d = np.array([x[pkey] for x in stats])
+        d = np.array([x[pkey] for x in cell_stats])
         ax.hist(d, bins=20, ec='k', alpha=0.7)
         # If z-score threshold if provided, compute z-score distribution and identify outliers
         if zthr is not None:
@@ -235,7 +242,7 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
             lims = [mu + k * zthr * std for k in [-1, 1]]
             for l in lims:
                 ax.axvline(l, ls='--', c='silver')
-            is_outlier[pkey] = np.logical_or(d < lims[0], d > lims[1])
+            df_outliers[pkey] = np.logical_or(d < lims[0], d > lims[1])
     # Hide unused axes
     for ax in axes[len(pkeys):]:
         hide_spines(ax, mode='all')
@@ -245,8 +252,10 @@ def plot_parameter_distributions(stats, pkeys, zthr=None):
     if zthr is None:
         return fig
     else:
-        df_outliers = pd.DataFrame(is_outlier)
-        df_outliers = df_outliers[df_outliers.sum(axis=1) == 1]
+        # Set ROI IDs as dataframe index
+        df_outliers = df_outliers.set_index(ROI_KEY)
+        # Reduce dataframe to only outliers cells
+        df_outliers = df_outliers[df_outliers[pkeys].sum(axis=1) == 1]
         return fig, df_outliers
 
 
@@ -271,14 +280,15 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
         REL_F_CHANGE_LABEL: 'normalized fluorescence change',
         STACK_AVG_INT_LABEL: 'average stack intensity'
     }[ylabel]
-    ax.set_title(f'{s} trace(s) across {title} - all {F.shape[0]} cells')
-    ax.set_xlabel('frames')
-    ax.set_ylabel(ylabel)
-    # Plot each trace
     leg = True
     if labels is None:
         labels = [None] * F.shape[0]
         leg = False
+        title = f'{title} - all {F.shape[0]} cells'
+    ax.set_title(f'{s} trace(s) across {title}')
+    ax.set_xlabel('frames')
+    ax.set_ylabel(ylabel)
+    # Plot each trace
     for trace, label in zip(F, labels):
         ax.plot(trace, label=label, alpha=alpha)
     # Add legend if labels were provided
@@ -293,26 +303,29 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     return fig
 
 
-def plot_zscore_distributions(zmin, zmax):
+def plot_zscore_distributions(zmin, zmax, rtypes, zthr=ZSCORE_THR):
     '''
     Plot distribution of identified min and max z-scores per cell type.
     
     :param zmin: distribution of minimum z-score negative peak on average response trace per cell 
     :param zmax: distribution of maximum z-score positive peak on average response trace per cell 
+    :param rtypes: list of response type per cell
     :return: figure handle
     '''
-    fig, ax = plt.subplots()
-    hide_spines(ax)
-    ax.set_title('average trial response - peak z-scores distributions across cell and conditions')
-    ax.set_xlabel('z-score')
-    ax.set_ylabel('# cells')
-    ax.hist(zmin, label='min peak', fc='C0', ec='k', alpha=0.5)
-    ax.hist(zmax, label='max peak', color='C1', ec='k', alpha=0.5)
-    ax.axvline(ZSCORE_THR_NEGATIVE, ls='--', c='C0', label='negative thr')
-    ax.axvline(ZSCORE_THR_POSITIVE, ls='--', c='C1', label='positive thr')
-    ax.set_xlim(-1.5, 1.5)
-    ax.legend(frameon=False)
-    return fig
+    data = pd.DataFrame({
+        'min z-score': zmin,
+        'max z-score': zmax,
+        'response type': [LABEL_BY_TYPE[rt] for rt in rtypes]
+    })
+    zabsmax = 1.05 * max(-zmin.min(), zmax.max())
+    jgrid = sns.jointplot(
+        data=data, x='min z-score', y='max z-score', hue='response type',
+        xlim=[-zabsmax, 0], ylim=[0, zabsmax])
+    jgrid.ax_joint.axhline(zthr, ls='--', c='k')
+    jgrid.ax_joint.axvline(-zthr, ls='--', c='k')
+    jgrid.ax_marg_x.axvline(-zthr, ls='--', c='k')
+    jgrid.ax_marg_y.axhline(zthr, ls='--', c='k')
+    return jgrid
 
 
 def plot_types_sequence(rtypes):
@@ -407,87 +420,127 @@ def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi'
     return cg
 
 
-def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, groupby=None, aggfunc='mean', ci=CI,
-                   ax=None, mark_stim=True, title=None, **kwargs):
+def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, aggfunc='mean', ci=CI,
+                   alltraces=False, hue=None, col=None, mark_stim=True, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
     :param tbounds (optional): time limits for plot
     :param ykey (optional): key indicating the specific signals to plot on the y-axis
-    :param groupby (optional): grouping variable that will produce lines with different colors.
+    :param ybounds (optional): y-axis limits for plot
     :param aggfunc (optional): method for aggregating across multiple observations within group. If None, all observations will be drawn.
     :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None) 
-    :param ax (optional): figure axis on which to plot
+    :param alltraces (optional): whether to plot all individual traces
+    :param hue (optional): grouping variable that will produce lines with different colors.
+    :param col (optional): grouping variable that will produce different axes.
     :param mark_stim (optional): whether to add a stimulus mark on the plot
     :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
     '''
-    # Quick fix for aggfunc
-    if aggfunc == 'traces':
-        aggfunc = None        
-    # Create figure if needed
-    if ax is None:
-        fig, ax = plt.subplots()
-    else:
-        fig = ax.get_figure()
-    hide_spines(ax)
     # Filter data 
     filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
-    if groupby is None and aggfunc is None:
-        # If only 1 condition and all traces must be plotted -> use custom code
-        # to plot all traces and mean
-        logger.info('plotting...')
-        ax.set_ylabel(ykey)
-        aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
-        table = filtered_data.pivot_table(
-            index=TIME_LABEL,
-            columns=aggkeys,
-            values=ykey)
-        for i, x in enumerate(table):
-            table[x].plot(ax=ax, c='silver')
-        table.mean(axis=1).plot(ax=ax, c='k')
+
+    # Use seaborn's lineplot function to do most of the plotting
+    # Log info on plot sub-processes
+    s = []
+    # Determine figure aspect based on col parameters
+    if col is not None:
+        s.append(f'grouping by {col}')
+        col_wrap = min(len(filtered_data.groupby(col)), 5)
+        height = 5.
     else:
-        # Otherwise seaborn's lineplot function does the job pretty well
-        # Log info on plot sub-processes
-        s = []
-        if groupby is not None:
-            s.append(f'grouping by {groupby}')
-        if aggfunc is not None:
-            s.append('averaging')
-        if ci is not None:
-            s.append('estimating confidence intervals')
-        s = f'{", ".join(s)} and ' if len(s) > 0 else ''
-        logger.info(f'{s}plotting...')
-        # Plot
-        sns.lineplot(
-            data=filtered_data,  # data
-            x=TIME_LABEL,  # x-axis
-            y=ykey,  # y-axis
-            hue=groupby,  # grouping variable
-            estimator=aggfunc,  # aggregating function
-            ci=ci,  # confidence interval estimator
-            ax=ax,  # axis object
-            palette='flare',  # color palette
-            sort=True,  # sort
-            legend='full'  # legend
-        )
-    # Plot stimulus mark if specified
-    if mark_stim:
-        ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
-    # Adjust time axis if specified
-    if tbounds is not None:
-        ax.set_xlim(*tbounds)
+        col_wrap = None
+        height = 4.           
+    if hue is not None:
+        s.append(f'grouping by {hue}')
+    if aggfunc is not None:
+        s.append('averaging')
+    if ci is not None:
+        s.append('estimating confidence intervals')
+    s = f'{", ".join(s)} and ' if len(s) > 0 else ''
+    logger.info(f'{s}plotting...')
+    # Determine color palette depending on hue parameter
+    palette = {
+        None: None,
+        P_LABEL: 'flare',
+        DC_LABEL: 'crest'
+    }.get(hue, None)
+    # Plot
+    fg = sns.relplot(
+        kind      =  'line',       # kind of plot
+        height    = height,        # figure height
+        aspect    = 1.5,           # aspect ratio of the figure
+        col_wrap  = col_wrap,      # how many axes per row
+        data      = filtered_data, # data
+        x         = TIME_LABEL,    # x-axis
+        y         = ykey,          # y-axis
+        hue       = hue,           # hue grouping variable
+        col       = col,           # column (i.e. axis) grouping variable
+        estimator = aggfunc,       # aggregating function
+        ci        = ci,            # confidence interval estimator
+        palette   = palette,       # color palette
+        legend    = 'full'         # use all hue entries in the legend
+    )
+    # Remove right and top spines
+    sns.despine()
+    # Add individual traces if specified
+    if alltraces:
+        # Aggregation keys = all index keys that are not "frame" 
+        aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
+        # Group data by col, if provided
+        if col is not None:
+            logger.info(f'grouping by {col}')
+            col_groups = filtered_data.groupby(col)
+        else:
+            col_groups = [('all', filtered_data)]
+        # For each column group
+        for (_, colgr), ax in zip(col_groups, fg.axes.flatten()):
+            # Group data by hue, if provided
+            if hue is not None:
+                logger.info(f'grouping by {hue}')
+                groups = colgr.groupby(hue)
+            else:
+                groups = [('all', colgr)]
+            # For each hue group
+            for l, (_, gr) in zip(ax.get_lines(), groups):
+                logger.info('plotting individual traces...')
+                color = l.get_color()
+                # Generate pivot table
+                table = gr.pivot_table(
+                    index=TIME_LABEL,  # index = time
+                    columns=aggkeys,  # each column = 1 line to plot 
+                    values=ykey)  # values
+                # Plot a line for each entry in the pivot table
+                for i, x in enumerate(table):
+                    ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
+
+    # For each axis
+    for ax in fg.axes.flatten():
+        # Plot stimulus mark if specified
+        if mark_stim:
+            ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
+        # Adjust time axis if specified
+        if tbounds is not None:
+            ax.set_xlim(*tbounds)
+        # Adjust y-axis if specified
+        if ybounds is not None:
+            ax.set_ylim(*ybounds)
+    
     # Add title and legend
     if title is None:
         if filters is None:
             filters = {'misc': 'all responses'}
         title = ' - '.join(filters.values())
-    ax.set_title(title)
-    if groupby is not None:
-        ax.legend(bbox_to_anchor=(1.05, 1), loc=2, title=groupby, frameon=False)
+    if col is None: 
+        # If only 1 axis (i.e. no column grouping) -> add to axis
+        fg.axes.flatten()[0].set_title(title)
+    else:
+        # Otherwise -> add as suptitle
+        fg.figure.subplots_adjust(top=0.8)
+        fg.figure.suptitle(title)
     # Return figure
-    return fig
+    return fg
 
 
 def plot_mean_evolution(*args, **kwargs):
