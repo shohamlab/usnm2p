@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-01 12:56:54
+# @Last Modified time: 2021-11-03 10:30:22
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -50,7 +50,7 @@ def separate_trials(x, ntrials):
     return x.reshape(x.shape[:-1] + (ntrials, npertrial))
 
 
-def get_fluorescence_baseline(F, fps, wlen=BASELINE_WINDOW_SIZE, quantile=BASELINE_QUANTILE):
+def get_fluorescence_baseline(F, fps, wlen=None, quantile=None):
     '''
     Compute the baseline of a fluorescence signal. This function assumes that time
     is the last dimension of the signal array.
@@ -62,6 +62,10 @@ def get_fluorescence_baseline(F, fps, wlen=BASELINE_WINDOW_SIZE, quantile=BASELI
     :param quantile: quantile used for the computation of the fluorescence baseline 
     :return: fluorescence baseline array 
     '''
+    if wlen is None:
+        raise ValueError('"wlen" argument must be provided')
+    if quantile is None:
+        raise ValueError('"quantile" argument must be provided')
     # Compute window size (in number of frames) from window length and fps
     w = int(np.round(wlen * fps))
     # Adjust to odd number if needed
@@ -110,7 +114,7 @@ def get_relative_fluorescence_change(F, ibaseline):
     return (F - F0) / F0
     
 
-def get_outliers_from_dFF_activity(dFF, thr=DFF_OUTLIER):
+def get_outliers_from_dFF_activity(dFF, thr=None):
     '''
     Remove outlier cells from fluorescence matrix.
     
@@ -118,6 +122,8 @@ def get_outliers_from_dFF_activity(dFF, thr=DFF_OUTLIER):
     :param thr: threshold of peak absolute dFF activity above which a cell should be discarded 
     :return: index array of cells identified as outliers
     '''
+    if thr is None:
+        raise ValueError('"thr" argument must be provided')
     # If more than 2 dimensions provided, flatten along the non-cell dimensions
     if dFF.ndim > 2:
         dFF = dFF.reshape(dFF.shape[0], -1)
@@ -158,6 +164,12 @@ def classify_by_response_type(dFF, zthr=ZSCORE_THR, full_output=False):
     :param full_output (optional): whether to return also the distribution of identified peak z-scores per cell.
     :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
     '''
+    # TODO:
+    # - for each trial, compute average dF/F0 within the response analysis window
+    # - average across trials and across a subset of "strong conditions" (high pressure and high DC)
+    # - compute z-score distribution across all 
+    # - 
+
     # Compute z-scores on trial-averaged data
     logger.info('computing z-score distributions on trial-averaged data')
     zavg = compute_z_scores(dFF.mean(axis=-2))
@@ -203,16 +215,17 @@ def add_cells_to_table(data, cell_ROI_idx):
     if is_in_dataframe(data, 'cell'):
         return data
     logger.info(f'adding {len(cell_ROI_idx)} cells info to table...')
-    data = add_array_to_dataframe(data, 'roi', cell_ROI_idx, index_key='cell')
-    return data.reorder_levels(['cell', 'run']).sort_index()
+    old_names = data.index.names
+    data = add_array_to_dataframe(data, ROI_LABEL, cell_ROI_idx, index_key='cell')
+    return data.reorder_levels(['cell'] + old_names).sort_index()
 
 
-def add_trials_to_table(data, ntrials=None):
+def add_trial_indexes_to_table(data, ntrials=None):
     '''
-    Add trials info to table.
+    Add trial indexes to table.
 
     :param data: dataframe contanining all the info about the experiment.
-    :return: expanded pandas dataframe with cell info
+    :return: expanded pandas dataframe with trial indexes
     '''
     if is_in_dataframe(data, 'trial'):
         return data
@@ -236,13 +249,13 @@ def add_signal_to_table(data, key, y, index_key='frame'):
     logger.info(f'adding {" x ".join([str(x) for x in y.shape])} {key} signal array to table...')
     # Extract trial length from dataframe
     if index_key is not None and index_key in data.index.names:
-        npertrial = len(set(data.index.get_level_values(index_key)))
+        npertrial = len(data.index.unique(level=index_key).values)
     else: 
         npertrial = get_singleton(data, NPERTRIAL_LABEL, delete=True)
     return add_array_to_dataframe(data, key, y, nref=npertrial, index_key=index_key)
 
 
-def add_time_to_table(data, key=TIME_LABEL):
+def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):
     '''
     Add time information to info table
     
@@ -260,12 +273,12 @@ def add_time_to_table(data, key=TIME_LABEL):
     # Extract frame indexes
     iframes = data.index.get_level_values('frame')
     # Add time column and remove fps column
-    data[key] = (iframes - STIM_FRAME_INDEX) / fps
+    data[key] = (iframes - frame_offset) / fps
     del data[FPS_LABEL]
     return data
 
 
-def array_to_dataframe(x, key):
+def array_to_dataframe(x, key, fps=10):
     '''
     Convert a (nsignals, npersignal) 2D array into a timeseries dataframe
 
@@ -274,8 +287,8 @@ def array_to_dataframe(x, key):
     :return dataframe object
     '''
     ntrials, npertrial = x.shape
-    data = pd.DataFrame({FPS_LABEL: [FPS], NPERTRIAL_LABEL: [npertrial]})
-    data = add_trials_to_table(data, ntrials=ntrials)
+    data = pd.DataFrame({FPS_LABEL: fps, NPERTRIAL_LABEL: npertrial})
+    data = add_trial_indexes_to_table(data, ntrials=ntrials)
     data = add_signal_to_table(data, key, x)
     data = add_time_to_table(data)
     return data
@@ -322,6 +335,9 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
         subindex[2] = itrial
         filters['trial'] = f'trial{plural(itrial)} {itrial}'
     data = data.loc[tuple(subindex)]
+    if icell is not None and not is_iterable(icell):
+        roi = data[ROI_LABEL].values[0]
+        filters['cell'] += f' (ROI {roi})'
 
     logger.info('filtering data...')
     # Initialize global inclusion criterion
@@ -346,18 +362,23 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
     data = data[include]
 
     # Complete labels based on selected data
-    # Cell(s) selected -> indicate response type(s) 
-    if icell is not None and rtype is None:
+    # Cell(s) selected -> indicate response type(s) if provided
+    if icell is not None and rtype is None and RESP_LABEL in data:
         parsed_rtype = get_response_types_per_cell(data)[icell]
         rcode = [LABEL_BY_TYPE[x] for x in parsed_rtype] if is_iterable(parsed_rtype) else [LABEL_BY_TYPE[parsed_rtype]]
-        filters['cell'] += f' ({", ".join(list(set(rcode)))})'
+        rstr = ", ".join(list(set(rcode)))
+        if filters['cell'].endswith(')'):
+            filters['cell'] = filters['cell'][:-1] + ', '
+        else:
+            filters['cell'] = filters['cell'] + ' ('
+        filters['cell'] += f'{rstr})'
         # Single run selected -> indicate corresponding stimulation parameters
         if irun is not None and P is None and DC is None:
             parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
             filters['run'] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
     # No cell selected -> indicate number of cells
     if icell is None:
-        ncells = len(set(data.index.get_level_values('cell')))
+        ncells = len(data.index.unique(level='cell').values)
         filters['ncells'] = f'({ncells} cells)'
 
     # Set filters to None if not filter was applied 

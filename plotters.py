@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-01 17:48:12
+# @Last Modified time: 2021-11-03 10:26:07
 
 ''' Collection of plotting utilities. '''
 
@@ -172,7 +172,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     stats = data['stat']
     # Generate ncells random points
     h = np.random.rand(len(iscell))
-    hsvs = np.zeros((2, REF_LY, REF_LX, 3), dtype=np.float32)
+    hsvs = np.zeros((2, output_ops['Ly'], output_ops['Lx'], 3), dtype=np.float32)
     # Assign a color to each ROIs coordinates
     for i, stat in enumerate(stats):
         # Get x, y pixels and associated mask values of ROI
@@ -223,9 +223,9 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     # Get cells IDs from s2p data
     is_cell = data['iscell'][:, 0]
     icells = is_cell.nonzero()[0]
-    cellIDs = data[ROI_KEY][icells]
+    cellIDs = data[ROI_LABEL][icells]
     # Initialize outliers dataframe with cells ROI IDs
-    df_outliers = pd.DataFrame({ROI_KEY: cellIDs})
+    df_outliers = pd.DataFrame({ROI_LABEL: cellIDs})
     # Fetch stats dictionary for cells only
     cell_stats = data['stat'][cellIDs]
     # For each output stats parameter
@@ -253,13 +253,13 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
         return fig
     else:
         # Set ROI IDs as dataframe index
-        df_outliers = df_outliers.set_index(ROI_KEY)
+        df_outliers = df_outliers.set_index(ROI_LABEL)
         # Reduce dataframe to only outliers cells
         df_outliers = df_outliers[df_outliers[pkeys].sum(axis=1) == 1]
         return fig, df_outliers
 
 
-def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1.):
+def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1., ybounds=None):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
     
@@ -267,6 +267,8 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     :param title: figure title
     :param delimiters (optional): temporal delimitations (shown as vertical lines)
     :param ylabel (optional): y axis label
+    :param alpha (optional): opacity factor
+    :param ybounds (optional): y-axis limits
     :return: figure handle
     '''
     if F.ndim == 1:
@@ -291,6 +293,9 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     # Plot each trace
     for trace, label in zip(F, labels):
         ax.plot(trace, label=label, alpha=alpha)
+    # Restrict y axis, if needed
+    if ybounds is not None:
+        ax.set_ylim(*ybounds)
     # Add legend if labels were provided
     if leg:
         ax.legend(frameon=False)
@@ -319,7 +324,11 @@ def plot_zscore_distributions(zmin, zmax, rtypes, zthr=ZSCORE_THR):
     })
     zabsmax = 1.05 * max(-zmin.min(), zmax.max())
     jgrid = sns.jointplot(
-        data=data, x='min z-score', y='max z-score', hue='response type',
+        data=data,
+        x='min z-score',
+        y='max z-score',
+        hue='response type',
+        palette={LABEL_BY_TYPE[k]: v for k, v in RGB_BY_TYPE.items()},
         xlim=[-zabsmax, 0], ylim=[0, zabsmax])
     jgrid.ax_joint.axhline(zthr, ls='--', c='k')
     jgrid.ax_joint.axvline(-zthr, ls='--', c='k')
@@ -343,11 +352,12 @@ def plot_types_sequence(rtypes):
     return fig
     
 
-def plot_cell_map(data, s2p_data, title=None):
+def plot_cell_map(data, s2p_data, s2p_ops, title=None):
     ''' Plot spatial distribution of cells (per response type) on the recording plane.
 
         :param data: experiment dataframe.
-        :param s2p_data: suite2p output dictionary
+        :param s2p_data: suite2p output data dictionary
+        :param s2p_ops: suite2p output options dictionary
         :param resp_types: array of response types per cell.
         :param title (optional): figure title
         :return: figure handle
@@ -355,7 +365,7 @@ def plot_cell_map(data, s2p_data, title=None):
     rtypes = get_response_types_per_cell(data)
     logger.info('plotting cells map color-coded by response type...')
     # Initialize an RGB image matrix
-    im = np.ones((REF_LY, REF_LX, 3), dtype=np.float32)
+    im = np.ones((s2p_ops['Ly'], s2p_ops['Lx'], 3), dtype=np.float32)
     # Assign response-type-dependent color to the pixels of each cell
     for i, (stat, rtype) in enumerate(zip(s2p_data['stat'], rtypes)):
         im[stat['ypix'], stat['xpix'], :] = RGB_BY_TYPE[rtype]
@@ -421,7 +431,7 @@ def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi'
 
 
 def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, aggfunc='mean', ci=CI,
-                   alltraces=False, hue=None, col=None, mark_stim=True, title=None, **kwargs):
+                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
@@ -434,6 +444,7 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
     :param hue (optional): grouping variable that will produce lines with different colors.
     :param col (optional): grouping variable that will produce different axes.
     :param mark_stim (optional): whether to add a stimulus mark on the plot
+    :param mark_response (optional): whether to add mark indicating the response analysis interval on the plot
     :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
@@ -454,6 +465,8 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         height = 4.           
     if hue is not None:
         s.append(f'grouping by {hue}')
+        if hue == 'cell':
+            del filters['cell']
     if aggfunc is not None:
         s.append('averaging')
     if ci is not None:
@@ -464,7 +477,9 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
     palette = {
         None: None,
         P_LABEL: 'flare',
-        DC_LABEL: 'crest'
+        DC_LABEL: 'crest',
+        RESP_LABEL: RGB_BY_TYPE,
+        # 'cell': TAB10[:len(filtered_data.index.unique('cell'))]
     }.get(hue, None)
     # Plot
     fg = sns.relplot(
@@ -514,12 +529,22 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
                 # Plot a line for each entry in the pivot table
                 for i, x in enumerate(table):
                     ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
+    
+    # Extract response interval if requested 
+    if mark_response:
+        tresponse = [filtered_data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
+    else:
+        tresponse = None
 
     # For each axis
     for ax in fg.axes.flatten():
         # Plot stimulus mark if specified
         if mark_stim:
             ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
+        # Plot response interval if specified
+        if tresponse is not None:
+            for tr in tresponse:
+                ax.axvline(tr, ls='--', c='k', lw=1.)
         # Adjust time axis if specified
         if tbounds is not None:
             ax.set_xlim(*tbounds)

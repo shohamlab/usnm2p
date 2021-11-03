@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 10:01:39
+# @Last Modified time: 2021-11-03 09:40:25
 
 ''' Collection of image stacking utilities. '''
 
@@ -35,7 +35,7 @@ class ImageStacker(metaclass=abc.ABCMeta):
         ''' Stack integrity checking method. '''
         pass
 
-    def stack(self, input_fpaths, output_fpath, overwrite='?'):
+    def stack(self, input_fpaths, output_fpath, overwrite='?', full_output=False):
         '''
         Merge individual image files into an image stack.
 
@@ -47,8 +47,12 @@ class ImageStacker(metaclass=abc.ABCMeta):
         # Check for output file existence and decide whether to move forward or not
         move_forward = check_for_existence(output_fpath, overwrite)
         if not move_forward:
-            return output_fpath
-
+            if full_output:
+                with warnings.catch_warnings(record=True):
+                    dims = loadtif(output_fpath, verbose=False).shape
+                return output_fpath, dims
+            else:
+                return output_fpath
         # Initialize stack array
         stack = []
         refshape = None
@@ -69,7 +73,11 @@ class ImageStacker(metaclass=abc.ABCMeta):
         logger.info(f'generated {stack.shape[0]}-frames image stack')
         # Save stack as single file and return output filepath
         self.save_stack(output_fpath, stack)
-        return output_fpath
+        # Return
+        if full_output:
+            return output_fpath, stack.shape
+        else: 
+            return output_fpath
 
 
 class TifStacker(ImageStacker):

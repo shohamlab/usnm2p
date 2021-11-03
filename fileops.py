@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 18:59:38
+# @Last Modified time: 2021-11-03 09:39:49
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -159,11 +159,12 @@ def sort_folders_by_runID(datafolders, pdicts):
     return datafolders, pdicts
 
 
-def loadtif(fpath):
+def loadtif(fpath, verbose=True):
     ''' Load stack/image from .tif file '''
     stack = imread(fpath)
     if stack.ndim > 2:
-        logger.info(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
+        func = logger.info if verbose else logger.debug
+        func(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
     return stack
 
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 19:11:20
+# @Last Modified time: 2021-11-02 16:46:27
 
 ''' Notebook image viewing utilities. '''
 
@@ -274,6 +274,7 @@ def get_stack_viewer(fpaths, *args, **kwargs):
         headers, fpaths = zip(*fpaths.items())
         title = kwargs.pop('title', None)
     else:  # single file instance or suite2p output dict 
+        print(fpaths['reg_file'])
         headers, fpaths = [kwargs.pop('title', None)], [fpaths]
         title = None
     return StackViewer(fpaths, headers, *args, title=title, **kwargs)
