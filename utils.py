@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-01 18:45:18
+# @Last Modified time: 2021-11-05 15:57:37
 
 ''' Collection of generic utilities. '''
 
@@ -235,3 +235,22 @@ def apply_rolling_window(x, w, func=None, warn_oversize=True):
     roll = pd.Series(x).rolling(w, center=True)
     # Apply function over rolling window object, drop NaNs and extract output array 
     return func(roll).dropna().values
+
+
+def get_RSD(x, axis=-1):
+    ''' Compute the relative standard distribution of a signal '''
+    return x.std(axis=axis) / np.abs(x.mean(axis=axis))
+
+
+def array_to_pivot(arr, dim_names, vkey):
+    '''
+    Convert a 2D array to a pandas pivot dataframe with row, column and value labels.
+    
+    :param arr: 2D array
+    :param dim_names: names of the array dimensions
+    :param vkey: name of the array values
+    :return: pandas pivot dataframe with the first array axis as the column dimension
+    '''
+    df = pd.DataFrame(arr)
+    df = df.unstack().rename_axis(dim_names).reset_index(name=vkey)
+    return df.pivot(index=dim_names[0], columns=dim_names[1], values=vkey).T

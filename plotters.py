@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 10:26:07
+# @Last Modified time: 2021-11-05 17:08:15
 
 ''' Collection of plotting utilities. '''
 
@@ -13,6 +13,8 @@ from matplotlib.lines import Line2D
 from matplotlib.colors import ListedColormap
 import seaborn as sns
 from colorsys import hsv_to_rgb
+from seaborn.relational import lineplot
+from tqdm import tqdm
 
 from logger import logger
 from constants import *
@@ -259,7 +261,8 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
         return fig, df_outliers
 
 
-def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1., ybounds=None):
+def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1., ybounds=None, cmap=None,
+                    ionset=0):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
     
@@ -290,9 +293,15 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     ax.set_title(f'{s} trace(s) across {title}')
     ax.set_xlabel('frames')
     ax.set_ylabel(ylabel)
+    # Determine traces colors
+    if cmap is not None:
+        colors = plt.get_cmap(cmap)(np.linspace(0, 1, F.shape[0]))
+    else:
+        colors = [None] * F.shape[0]
     # Plot each trace
-    for trace, label in zip(F, labels):
-        ax.plot(trace, label=label, alpha=alpha)
+    inds = np.arange(F.shape[-1]) + ionset
+    for trace, label, color in zip(F, labels, colors):
+        ax.plot(inds, trace, c=color, label=label, alpha=alpha)
     # Restrict y axis, if needed
     if ybounds is not None:
         ax.set_ylim(*ybounds)
@@ -430,7 +439,7 @@ def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi'
     return cg
 
 
-def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, aggfunc='mean', ci=CI,
+def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
                    alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
@@ -449,6 +458,12 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
     '''
+    # Extract response interval (from unfiltered data) if requested 
+    if mark_response:
+        tresponse = [data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
+    else:
+        tresponse = None
+
     # Filter data 
     filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
 
@@ -460,6 +475,8 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         s.append(f'grouping by {col}')
         col_wrap = min(len(filtered_data.groupby(col)), 5)
         height = 5.
+        if ax is not None:
+            raise ValueError(f'cannot sweep over {col} with only 1 axis')
     else:
         col_wrap = None
         height = 4.           
@@ -481,63 +498,76 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         RESP_LABEL: RGB_BY_TYPE,
         # 'cell': TAB10[:len(filtered_data.index.unique('cell'))]
     }.get(hue, None)
-    # Plot
-    fg = sns.relplot(
-        kind      =  'line',       # kind of plot
-        height    = height,        # figure height
-        aspect    = 1.5,           # aspect ratio of the figure
-        col_wrap  = col_wrap,      # how many axes per row
+
+    ###################### Plot ######################
+    # Default plot arguments dictionary
+    plot_kwargs = dict(
         data      = filtered_data, # data
         x         = TIME_LABEL,    # x-axis
         y         = ykey,          # y-axis
         hue       = hue,           # hue grouping variable
-        col       = col,           # column (i.e. axis) grouping variable
         estimator = aggfunc,       # aggregating function
         ci        = ci,            # confidence interval estimator
         palette   = palette,       # color palette
         legend    = 'full'         # use all hue entries in the legend
     )
+    if ax is not None:
+        # If axis object is provided -> add it to the dictionary and call axis-level plotting function
+        plot_kwargs['ax'] = ax
+        sns.lineplot(**plot_kwargs)
+        axlist = [ax]
+        fig = ax.get_figure()
+    else:
+        # Otherwise, add figure-level plotting arguments and call figure-level plotting function
+        plot_kwargs.update(dict(
+            kind     = 'line',   # kind of plot
+            height   = height,   # figure height
+            aspect   = 1.5,      # aspect ratio of the figure
+            col_wrap = col_wrap, # how many axes per row
+            col      = col,      # column (i.e. axis) grouping variable
+        ))
+        fg = sns.relplot(**plot_kwargs)
+        axlist = fg.axes.flatten()
+        fig = fg.figure
+    
     # Remove right and top spines
     sns.despine()
     # Add individual traces if specified
     if alltraces:
-        # Aggregation keys = all index keys that are not "frame" 
-        aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
-        # Group data by col, if provided
-        if col is not None:
-            logger.info(f'grouping by {col}')
-            col_groups = filtered_data.groupby(col)
-        else:
-            col_groups = [('all', filtered_data)]
-        # For each column group
-        for (_, colgr), ax in zip(col_groups, fg.axes.flatten()):
-            # Group data by hue, if provided
-            if hue is not None:
-                logger.info(f'grouping by {hue}')
-                groups = colgr.groupby(hue)
+        logger.info('plotting individual traces...')
+        nconds = len(axlist) * len(axlist[0].get_lines())
+        with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
+            # Aggregation keys = all index keys that are not "frame" 
+            aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
+            # Group data by col, if provided
+            if col is not None:
+                logger.debug(f'grouping by {col}')
+                col_groups = filtered_data.groupby(col)
             else:
-                groups = [('all', colgr)]
-            # For each hue group
-            for l, (_, gr) in zip(ax.get_lines(), groups):
-                logger.info('plotting individual traces...')
-                color = l.get_color()
-                # Generate pivot table
-                table = gr.pivot_table(
-                    index=TIME_LABEL,  # index = time
-                    columns=aggkeys,  # each column = 1 line to plot 
-                    values=ykey)  # values
-                # Plot a line for each entry in the pivot table
-                for i, x in enumerate(table):
-                    ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
-    
-    # Extract response interval if requested 
-    if mark_response:
-        tresponse = [filtered_data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
-    else:
-        tresponse = None
+                col_groups = [('all', filtered_data)]
+            # For each column group
+            for (_, colgr), ax in zip(col_groups, axlist):
+                # Group data by hue, if provided
+                if hue is not None:
+                    logger.debug(f'grouping by {hue}')
+                    groups = colgr.groupby(hue)
+                else:
+                    groups = [('all', colgr)]
+                # For each hue group
+                for l, (_, gr) in zip(ax.get_lines(), groups):
+                    color = l.get_color()
+                    # Generate pivot table
+                    table = gr.pivot_table(
+                        index=TIME_LABEL,  # index = time
+                        columns=aggkeys,  # each column = 1 line to plot 
+                        values=ykey)  # values
+                    # Plot a line for each entry in the pivot table
+                    for i, x in enumerate(table):
+                        ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
+                    pbar.update()
 
     # For each axis
-    for ax in fg.axes.flatten():
+    for ax in axlist:
         # Plot stimulus mark if specified
         if mark_stim:
             ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
@@ -559,13 +589,15 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         title = ' - '.join(filters.values())
     if col is None: 
         # If only 1 axis (i.e. no column grouping) -> add to axis
-        fg.axes.flatten()[0].set_title(title)
+        axlist[0].set_title(title)
     else:
         # Otherwise -> add as suptitle
-        fg.figure.subplots_adjust(top=0.8)
-        fg.figure.suptitle(title)
+        dy = 3  # inches
+        height = fig.get_size_inches()[0]
+        fig.subplots_adjust(top=1 - dy / height)
+        fig.suptitle(title)
     # Return figure
-    return fg
+    return fig
 
 
 def plot_mean_evolution(*args, **kwargs):

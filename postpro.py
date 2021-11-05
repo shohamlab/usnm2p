@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 10:30:22
+# @Last Modified time: 2021-11-05 17:05:30
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.stats import zscore
 import pandas as pd
 
@@ -50,6 +51,19 @@ def separate_trials(x, ntrials):
     return x.reshape(x.shape[:-1] + (ntrials, npertrial))
 
 
+def stack_trials(x):
+    '''
+    Stack trials consecutively in a trial-separated suite2p data array.
+    
+    :param x: 4D (ncells, nruns, ntrials, npertrial) data array
+    :return: 3D (ncells, nruns, nperrun) data array
+    '''
+    # Extract dimensions and reshape
+    *_, ntrials, npertrial = x.shape
+    logger.info(f'stacking {ntrials} trials consecutively in fluorescence array...')
+    return x.reshape((*x.shape[:-2], ntrials * npertrial))
+
+
 def get_fluorescence_baseline(F, fps, wlen=None, quantile=None):
     '''
     Compute the baseline of a fluorescence signal. This function assumes that time
@@ -90,7 +104,15 @@ def get_fluorescence_baseline(F, fps, wlen=None, quantile=None):
 # - apply NaN-insensitive moving median filter with wide enough window to remove remaining events
 
 
-def get_relative_fluorescence_change(F, ibaseline):
+def get_interpolated_baseline(F0, ntrials_per_run, kind='linear'):
+    ''' Return a baseline array interpolated around stim indexes '''
+    all_indexes = np.arange(F0.shape[-1])
+    stim_indexes = np.arange(ntrials_per_run) * NFRAMES_PER_TRIAL + STIM_FRAME_INDEX
+    intrp_indexes = np.hstack(([0], stim_indexes, [all_indexes[-1]]))
+    return interp1d(intrp_indexes, F0[:, :, intrp_indexes], axis=-1, kind=kind)(all_indexes)
+
+
+def get_relative_fluorescence_change(F, Fb, ibaseline):
     '''
     Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F).
     The signal baseline is calculated on a per-trial basis as the average of a specified
@@ -101,17 +123,23 @@ def get_relative_fluorescence_change(F, ibaseline):
     :return: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
     '''
     logger.info('computing relative fluorescence change...')
+    assert F.shape == Fb.shape, 'inconsistent dimensions between signal and baseline'
     # If only single 3D array provided, add extra "run" dimension
     if F.ndim == 3:
         F = np.expand_dims(F, axis=1)
-    # Extract F dimensions
-    ncells, nruns, ntrials, npertrial = F.shape
+        Fb = np.expand_dims(Fb, axis=1)
     # Extract baseline fluoresence signals and average across time for each cell and trial 
-    F0 = F[:, :, :, ibaseline].mean(axis=-1)  # (ncells, nruns, ntrials) array
+    # F0 = Fb[:, :, :, STIM_FRAME_INDEX]  # (ncells, nruns, ntrials) array
+    # F0 = F[:, :, :, ibaseline].mean(axis=-1)  # (ncells, nruns, ntrials) array    
     # Add 4th axis (of dim 1) to F0 to enable broadcasting with F
-    F0 = np.expand_dims(F0, axis=3)
-    # Return relative change in fluorescence
-    return (F - F0) / F0
+    # F0 = np.expand_dims(F0, axis=3)
+    F0 = Fb
+    # compute relative change in fluorescence
+    dFF = (F - F0) / F0
+    # Offset to ensure zero around stimulus frame
+    dFF_stim = dFF[:, :, :, STIM_FRAME_INDEX]
+    dFF -= np.expand_dims(dFF_stim, axis=3)
+    return dFF
     
 
 def get_outliers_from_dFF_activity(dFF, thr=None):
@@ -170,11 +198,12 @@ def classify_by_response_type(dFF, zthr=ZSCORE_THR, full_output=False):
     # - compute z-score distribution across all 
     # - 
 
-    # Compute z-scores on trial-averaged data
-    logger.info('computing z-score distributions on trial-averaged data')
+    # # Compute z-scores on trial-averaged data
+    # logger.info('computing z-score distributions on trial-averaged data')
     zavg = compute_z_scores(dFF.mean(axis=-2))
 
-    # Compute z-scores on a per-run basis
+    # # Compute z-scores on a per-run basis
+    # z = compute_z_scores(dFF)
     # # Average across trials to obtain mean response z-score timecourse per cell and run
     # logger.info('averaging across trials')
     # zavg = z.mean(axis=2)

@@ -2,18 +2,20 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-02 16:46:27
+# @Last Modified time: 2021-11-03 18:29:55
 
 ''' Notebook image viewing utilities. '''
 
 import abc
 import os
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy.lib import real
 from tqdm import tqdm
 import numpy_image_widget as niw
-from ipywidgets import IntSlider, VBox, HBox, HTML, interact
+from ipywidgets import IntSlider, VBox, HBox, HTML, Button, Output
+from IPython.display import display
+
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
 import imageio as iio
@@ -289,3 +291,43 @@ def view_stack(*args, **kwargs):
     return get_stack_viewer(*args, **kwargs).render(
         norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
 
+
+
+class InteractivePlotViewer:
+    ''' Class to plot figure across range of conditions '''
+
+    def __init__(self, pltfunc, n):
+        self.pltfunc = pltfunc
+        self.n = n
+        self.prev_button = Button(description='<', tooltip='Prev')
+        self.next_button = Button(description='>', tooltip='Next')
+        self.prev_button.on_click(self.plot_prev)
+        self.next_button.on_click(self.plot_next)
+        self.out = Output()
+        self.view = VBox([self.out, HBox([self.prev_button, self.next_button])])
+        self.i = 0
+        self.pltwrap()
+        display(self.view)
+
+    def plot_next(self, *args):
+        if self.i < self.n - 1:
+            self.i += 1
+            self.pltwrap()
+
+    def plot_prev(self, *args):
+        if self.i > 0:
+            self.i -= 1
+            self.pltwrap()
+
+    def pltwrap(self):
+        self.out.clear_output()
+        with self.out:
+            lvl = logger.getEffectiveLevel() 
+            logger.setLevel(logging.ERROR)
+            self.pltfunc(self.i)
+            logger.setLevel(lvl)
+            plt.show()
+
+    
+def view_interactive_plot(*args, **kwargs):
+    return InteractivePlotViewer(*args, **kwargs)
