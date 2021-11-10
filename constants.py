@@ -2,17 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 10:31:16
+# @Last Modified time: 2021-11-10 18:14:05
 
 ''' Collection of constants used throughout the code base. '''
 
 import numpy as np
 import seaborn as sns
-
-TAB10 = sns.color_palette('tab10')
+from string import ascii_lowercase
 
 # Miscellaneous
 UNKNOWN = '???'  # unknown key
+IND_LETTERS = list(ascii_lowercase[8:])  # generic index letters
+TAB10 = sns.color_palette('tab10')  # default color palette
 
 # Stimulation
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
@@ -33,8 +34,7 @@ DFF_OUTLIER = 0.3  # upper bound threshold for dF/F0 (cells with absolute traces
 I_BASELINE = slice(STIM_FRAME_INDEX - 7, STIM_FRAME_INDEX)  # indexes used for baseline computation per trial. Considers the last 7 frames (i.e. ca. 2 seconds) preceding the stimulus onset.
 I_RESPONSE = slice(STIM_FRAME_INDEX + 1, STIM_FRAME_INDEX + 8)  # indexes used for response computation per trial. Considers the following 7 frames (i.e. ca. 2 seconds) following the stimulus onset.
 ZSCORE_THR = 1.64  # threshold absolute z-score value
-ZSCORE_THR_POSITIVE = 1.  # threshold absolute z-score value used to classify cell as "positively responding". 1.5 is default, 1 seems to work better for parvalbumin
-ZSCORE_THR_NEGATIVE = -ZSCORE_THR_POSITIVE / 2  # threshold absolute z-score value used to classify cell as "negatively responding". Set to half the positive cutoff since negative responses are typically weaker than positive ones. 
+NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
 
 # SI units prefixes
 SI_POWERS = {
@@ -71,11 +71,13 @@ P_FRAME = '([0-9]+)'
 
 # Labels for input stimulation/acquisition parameters
 ROI_LABEL = 'ROI'
+RUN_LABEL = 'run'
+TRIAL_LABEL = 'trial'
 P_LABEL = 'P (MPa)'
 DC_LABEL = 'DC (%)'
 DUR_LABEL = 'duration (s)'
 FPS_LABEL = 'fps'
-RUN_LABEL = 'run ID'
+RUNID_LABEL = 'run ID'
 LINE_LABEL = 'line'
 NPERTRIAL_LABEL = 'trial_length'
 NTRIALS_LABEL = 'ntrials'
@@ -84,11 +86,15 @@ FRAME_LABEL = 'frame'
 CH_LABEL = 'channel'
 TIME_LABEL = 'time (s)'
 RESP_LABEL = 'response type'
+F_ROI_LABEL = 'F_ROI (a.u.)'
+F_NEU_LABEL = 'F_neu (a.u.)'
 F_LABEL = 'F (a.u.)'
-REL_F_CHANGE_LABEL = 'dF/F0'
+F0_LABEL = 'F0 (a.u.)'
+DFF_LABEL = 'dF/F0'
 STACK_AVG_INT_LABEL = 'Iavg (a.u.)'
 
 # Plotting
+NPOS_CONDS_LABEL = '# positive conditions'
 LABEL_BY_TYPE = {-1: 'negative', 0: 'neutral', 1: 'positive'}  # mapping of response labels to specific integer codes
 RGB_BY_TYPE = {-1: TAB10[1], 0: TAB10[7], 1: TAB10[2]}  # mapping of RGB colors to specific integer codes
 CI = 95  # default confidence interval for bootstrapping

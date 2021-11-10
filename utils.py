@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-05 15:57:37
+# @Last Modified time: 2021-11-10 17:49:26
 
 ''' Collection of generic utilities. '''
 
@@ -11,7 +11,7 @@ import pandas as pd
 import operator
 import abc
 
-from constants import SI_POWERS
+from constants import SI_POWERS, IND_LETTERS
 from logger import logger
 
 
@@ -59,11 +59,16 @@ class NoProcessor(StackProcessor):
 
 
 def is_iterable(x):
-    ''' Check if an object is iterbale (i.e. a list, tuple or numpy array '''
+    ''' Check if an object is iterbale (i.e. a list, tuple or numpy array) '''
     for t in [list, tuple, np.ndarray]:
         if isinstance(x, t):
             return True
     return False
+
+
+def as_iterable(x):
+    ''' Return an iterable of an object if it is not already iterable '''
+    return x if is_iterable(x) else [x]
 
 
 si_prefixes = {k: np.power(10., v) for k, v in SI_POWERS.items()}
@@ -124,82 +129,6 @@ def get_singleton(df, key, delete=False):
     return uniques[0]
 
 
-def is_in_dataframe(df, key, raise_error=False):
-    '''
-    Check if key already exists as a dataframe column or index.
-    
-    :param df: dataframe object
-    :param key: key
-    :param raise_error (optional): whether to raise an error if key found in dataframe
-    :return: boolean stating whether the key has been found
-    '''
-    if key in df.columns or key in df.index.names:
-        errstr = f'"{key}" is already present in dataframe'
-        if raise_error:
-            raise ValueError(errstr)
-        else:
-            logger.warning(f'{errstr} -> ignoring')
-        return True
-    return False
-
-
-def add_array_to_dataframe(df, key, y, nref=None, index_key=None):
-    '''
-    Add 2D data array as a new column into a dataframe,
-    potentially "expanding" the dataframe along the array's last dimension.
-    
-    :param df: input dataframe
-    :param key: name of new column in which array is inserted
-    :param y: 2D (nvecs, npervec) data array
-    :param nref (optional): expected vector length (i.e. value for npervec)
-    :param index_key (optional): name of new index level to add to dataframe upon expansion, if any
-    :return: dataframe containing the new array (and potentially expanded)
-    '''
-    # Check that dataframe does not already contain the new key
-    if is_in_dataframe(df, key):
-        return df
-    # If y does not have 2 dimensions -> reshape into 2D array
-    if y.ndim != 2:
-        y = y.reshape(-1, y.shape[-1])
-    # Extract input dimensions from array and dataframe
-    nvecs, npervec = y.shape
-    nrecords = len(df)
-    # If only 1 vector provided, assume it is valid for every record of the dataframe -> tile 
-    if nvecs == 1:
-        y = np.tile(y, (nrecords, 1))
-        nvecs, npervec = y.shape
-    # Compare vector length to provided reference, if any
-    if nref is not None:
-        if nref != npervec:
-            raise ValueError(f'vector length ({npervec}) does not match reference length ({nref})')
-    # Create copy so as to not modify original dataframe
-    newdf = df.copy()
-    # Check compatibility between input dataframe and data array
-    if nrecords == nvecs:
-        # Case 1: dataframe length matches number of vectors -> insert data arrray and expand upon vector dimension
-        logger.debug('inserting and expanding')
-        newdf[key] = y.tolist()
-        newdf = newdf.explode(key)
-    elif nrecords == nvecs * npervec:
-        # Case 2: dataframe length matches number of elements in data array -> flatten data array and insert
-        logger.debug('flattening and inserting')
-        newdf[key] = np.reshape(y, nvecs * npervec)
-    else:
-        # Otherwise throw incompatibility error
-        raise ValueError(
-            f'data array dimensions ({y.shape}) incompatible with dataframe length ({nrecords})')
-    # If index key provided -> add it as extra index dimension
-    if index_key is not None:
-        if index_key in df.index.names:
-            logger.warning(f'"{index_key}" key already present in index -> ignoring')
-        else:
-            inds = np.arange(npervec)  # fundamental set of vector indexes
-            newdf[index_key] = np.tile(inds, nvecs)  # repeat for each vector and add to expanded dataframe
-            newdf = newdf.set_index(index_key, append=True)  # set vector index column as new index level
-    # Return dataframe containing new data
-    return newdf
-
-
 def float_to_uint8(arr):
     ''' Transform a floating point (0 to 1) array to an 8-bit unsigned integer (0 to 255) array. '''
     return (arr * 255).astype(np.uint8)
@@ -237,20 +166,65 @@ def apply_rolling_window(x, w, func=None, warn_oversize=True):
     return func(roll).dropna().values
 
 
-def get_RSD(x, axis=-1):
-    ''' Compute the relative standard distribution of a signal '''
-    return x.std(axis=axis) / np.abs(x.mean(axis=axis))
-
-
-def array_to_pivot(arr, dim_names, vkey):
+def array_to_dataframe(arr, name, dim_names=None):
     '''
-    Convert a 2D array to a pandas pivot dataframe with row, column and value labels.
+    Convert a multidimensional array into a multi-index linearized dataframe.
     
-    :param arr: 2D array
-    :param dim_names: names of the array dimensions
-    :param vkey: name of the array values
-    :return: pandas pivot dataframe with the first array axis as the column dimension
+    :param arr: multi-dimensional array
+    :param name: name of the variable stored in the array
+    :param dim_names (optional): names of the dimensions of the array
+    :return: multi-index dataframe with linearized array as the only non-index column
     '''
-    df = pd.DataFrame(arr)
-    df = df.unstack().rename_axis(dim_names).reset_index(name=vkey)
-    return df.pivot(index=dim_names[0], columns=dim_names[1], values=vkey).T
+    if dim_names is None:
+        dim_names = IND_LETTERS[:arr.ndim]
+    else:
+        if len(dim_names) != arr.ndim:
+            raise ValueError(f'number of dimensions names {len(dim_names)} do not match number of array dimensions ({arr.shape})')
+    index = pd.MultiIndex.from_product([np.arange(x) for x in arr.shape], names=dim_names)
+    return pd.DataFrame(data=arr.flatten(), columns=[name], index=index)
+
+
+def arrays_to_dataframe(arrs_dict, **kwargs):
+    '''
+    Convert a dictionary of multidimensional arrays into a multi-index linearized dataframe.
+    
+    :param arrs_dict: dictionary of multi-dimensional arrays
+    :return: multi-index dataframe with linearized arrays in different columns
+    '''
+    names, arrs = zip(*arrs_dict.items())
+    assert all(x.shape == arrs[0].shape for x in arrs), 'inconsistent array shapes'
+    df = array_to_dataframe(arrs[0], names[0], **kwargs)
+    for name, arr in zip(names[1:], arrs[1:]):
+        df[name] = arr.flatten()
+    return df
+
+
+def describe_dataframe_index(df):
+    ''' Describe dataframe index '''
+    d = {}
+    for k in df.index.names:
+        l = len(df.index.unique(level=k))
+        key = k
+        if l > 1:
+            key = f'{key}s'
+        d[key] = l
+    return ' x '.join([f'{v} {k}' for k, v in d.items()])
+
+
+def get_integer_suffix(i):
+    ''' Get the suffix corresponding to a given integer '''
+    return {1: 'st', 2: 'nd', 3: 'rd'}.get(int(np.round(i)) % 10, 'th')
+
+
+def repeat_along(df, inds, name):
+    '''
+    Repeat dataframe values along new index level
+    
+    :param df: input dataframe
+    :param inds: values of the new index level
+    :param name: name of the new index level
+    :return: dataframe expanded along the new index dimension
+    '''
+    newdf = df.copy()
+    newdf[name] = [inds.values] * len(df)
+    return newdf.explode(name).set_index(name, append=True)

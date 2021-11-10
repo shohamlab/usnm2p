@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-05 17:08:15
+# @Last Modified time: 2021-11-10 18:13:54
 
 ''' Collection of plotting utilities. '''
 
@@ -11,15 +11,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Rectangle
 import seaborn as sns
 from colorsys import hsv_to_rgb
-from seaborn.relational import lineplot
 from tqdm import tqdm
 
 from logger import logger
 from constants import *
 from utils import get_singleton
-from postpro import filter_data, get_response_types_per_cell
+from postpro import filter_data, get_response_types_per_ROI
 from viewers import get_stack_viewer
 
 
@@ -210,7 +210,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     Plot distributions of several morphological parameters (extracted from suite2p output)
     across cells.
     
-    :param data: suite2p output dictionary
+    :param data: cell-filtered suite2p output dictionary
     :param pkeys: list of parameters to considers
     :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
     :return: figure handle, optionally with a dataframe summarizing identified outliers
@@ -222,21 +222,17 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
     axes = axes.flatten()
     fig.suptitle('Morphological parameters - distribution across cells')
-    # Get cells IDs from s2p data
-    is_cell = data['iscell'][:, 0]
-    icells = is_cell.nonzero()[0]
-    cellIDs = data[ROI_LABEL][icells]
-    # Initialize outliers dataframe with cells ROI IDs
-    df_outliers = pd.DataFrame({ROI_LABEL: cellIDs})
-    # Fetch stats dictionary for cells only
-    cell_stats = data['stat'][cellIDs]
+    # Initialize outliers dictionary
+    is_outlier = {}
+    # Fetch stats dictionary
+    stats = data['stat']
     # For each output stats parameter
     for ax, pkey in zip(axes, pkeys):
         # Plot histogram distribution
         hide_spines(ax, mode='trl')
         ax.set_xlabel(pkey)
         ax.set_yticks([])
-        d = np.array([x[pkey] for x in cell_stats])
+        d = np.array([x[pkey] for x in stats])
         ax.hist(d, bins=20, ec='k', alpha=0.7)
         # If z-score threshold if provided, compute z-score distribution and identify outliers
         if zthr is not None:
@@ -244,7 +240,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
             lims = [mu + k * zthr * std for k in [-1, 1]]
             for l in lims:
                 ax.axvline(l, ls='--', c='silver')
-            df_outliers[pkey] = np.logical_or(d < lims[0], d > lims[1])
+            is_outlier[pkey] = np.logical_or(d < lims[0], d > lims[1])
     # Hide unused axes
     for ax in axes[len(pkeys):]:
         hide_spines(ax, mode='all')
@@ -254,12 +250,10 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     if zthr is None:
         return fig
     else:
-        # Set ROI IDs as dataframe index
-        df_outliers = df_outliers.set_index(ROI_LABEL)
-        # Reduce dataframe to only outliers cells
-        df_outliers = df_outliers[df_outliers[pkeys].sum(axis=1) == 1]
-        return fig, df_outliers
+        # return dataframe of outliers
+        return fig, pd.DataFrame(is_outlier)
 
+        
 
 def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1., ybounds=None, cmap=None,
                     ionset=0):
@@ -282,14 +276,14 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     hide_spines(ax)
     s = {
         F_LABEL: 'raw fluorescence',
-        REL_F_CHANGE_LABEL: 'normalized fluorescence change',
+        DFF_LABEL: 'normalized fluorescence change',
         STACK_AVG_INT_LABEL: 'average stack intensity'
     }[ylabel]
     leg = True
     if labels is None:
         labels = [None] * F.shape[0]
         leg = False
-        title = f'{title} - all {F.shape[0]} cells'
+        title = f'{title} - all {F.shape[0]} ROIs'
     ax.set_title(f'{s} trace(s) across {title}')
     ax.set_xlabel('frames')
     ax.set_ylabel(ylabel)
@@ -317,35 +311,6 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     return fig
 
 
-def plot_zscore_distributions(zmin, zmax, rtypes, zthr=ZSCORE_THR):
-    '''
-    Plot distribution of identified min and max z-scores per cell type.
-    
-    :param zmin: distribution of minimum z-score negative peak on average response trace per cell 
-    :param zmax: distribution of maximum z-score positive peak on average response trace per cell 
-    :param rtypes: list of response type per cell
-    :return: figure handle
-    '''
-    data = pd.DataFrame({
-        'min z-score': zmin,
-        'max z-score': zmax,
-        'response type': [LABEL_BY_TYPE[rt] for rt in rtypes]
-    })
-    zabsmax = 1.05 * max(-zmin.min(), zmax.max())
-    jgrid = sns.jointplot(
-        data=data,
-        x='min z-score',
-        y='max z-score',
-        hue='response type',
-        palette={LABEL_BY_TYPE[k]: v for k, v in RGB_BY_TYPE.items()},
-        xlim=[-zabsmax, 0], ylim=[0, zabsmax])
-    jgrid.ax_joint.axhline(zthr, ls='--', c='k')
-    jgrid.ax_joint.axvline(-zthr, ls='--', c='k')
-    jgrid.ax_marg_x.axvline(-zthr, ls='--', c='k')
-    jgrid.ax_marg_y.axhline(zthr, ls='--', c='k')
-    return jgrid
-
-
 def plot_types_sequence(rtypes):
     '''
     Plot a line showing color-coded response type per cell.
@@ -371,7 +336,7 @@ def plot_cell_map(data, s2p_data, s2p_ops, title=None):
         :param title (optional): figure title
         :return: figure handle
     '''
-    rtypes = get_response_types_per_cell(data)
+    rtypes = get_response_types_per_ROI(data)
     logger.info('plotting cells map color-coded by response type...')
     # Initialize an RGB image matrix
     im = np.ones((s2p_ops['Ly'], s2p_ops['Lx'], 3), dtype=np.float32)
@@ -392,22 +357,21 @@ def plot_cell_map(data, s2p_data, s2p_ops, title=None):
     return fig
 
 
-def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi', show_ylabel=True):
+def plot_experiment_heatmap(data, key=DFF_LABEL, title=None, show_ylabel=True):
     '''
     Plot experiment heatmap (average response over time of each cell, culstered by similarity).
     
     :param data: experiment dataframe.
-    :param ykey: one of ('roi', 'cell'), specifying which index to use on the yaxis
     :return: figure handle
     '''
     # Determine rows color labels from response types per cell
-    rtypes = get_response_types_per_cell(data).values
+    rtypes = get_response_types_per_ROI(data).values
     row_colors = [RGB_BY_TYPE[rtype] for rtype in rtypes]
     # Generate 2D table of average dF/F0 response per cell (using roi as index),
     # across runs and trials
-    logger.info(f'generating ({ykey} x time) {key} pivot table...')
+    logger.info(f'generating (ROI x time) {key} pivot table...')
     avg_resp_per_cell = data.pivot_table(
-        index=ykey, columns=TIME_LABEL, values=key, aggfunc=np.mean)
+        index=ROI_LABEL, columns=TIME_LABEL, values=key, aggfunc=np.mean)
     # Generate cluster map of trial 
     # use Voor Hees (complete) algorithm to cluster based on max distance to force
     # cluster around peak of activity
@@ -439,8 +403,17 @@ def plot_experiment_heatmap(data, key=REL_F_CHANGE_LABEL, title=None, ykey='roi'
     return cg
 
 
-def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
-                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True, title=None, **kwargs):
+def add_color_marker(ax, c, w=0.1):
+    ''' Add a color marker in the top right corner of a plot '''
+    ax.add_patch(Rectangle(
+        (1 - w,  1- w), w, w,
+        transform=ax.transAxes,
+        fc=c, ec=None))
+
+
+def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
+                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True, mark_rtype=True, 
+                   title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
@@ -454,6 +427,7 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
     :param col (optional): grouping variable that will produce different axes.
     :param mark_stim (optional): whether to add a stimulus mark on the plot
     :param mark_response (optional): whether to add mark indicating the response analysis interval on the plot
+    :param mark_rtype (optional): whether to add a mark indicating the response type on the plot (when possible)
     :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
@@ -464,13 +438,24 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
     else:
         tresponse = None
 
-    # Filter data 
-    filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
+    ###################### Filtering ######################
 
-    # Use seaborn's lineplot function to do most of the plotting
-    # Log info on plot sub-processes
+    # Filter data based on selection criteria
+    filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
+    # Get number of ROIs in filtered data
+    nROIs_filtered = len(filtered_data.index.unique(level=ROI_LABEL))
+
+    ###################### Process log ######################
     s = []
     # Determine figure aspect based on col parameters
+
+    # If col set to ROI and only ROI -> remove column assignment 
+    if col == ROI_LABEL and nROIs_filtered == 1:
+        col = None
+    # If col set to ROI -> remove ROI filter info
+    if col == ROI_LABEL and ROI_LABEL in filters:
+        del filters[ROI_LABEL]
+
     if col is not None:
         s.append(f'grouping by {col}')
         col_wrap = min(len(filtered_data.groupby(col)), 5)
@@ -479,11 +464,11 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
             raise ValueError(f'cannot sweep over {col} with only 1 axis')
     else:
         col_wrap = None
-        height = 4.           
+        height = 4.      
     if hue is not None:
         s.append(f'grouping by {hue}')
-        if hue == 'cell':
-            del filters['cell']
+        if hue == ROI_LABEL and ROI_LABEL in filters:
+            del filters[ROI_LABEL]
     if aggfunc is not None:
         s.append('averaging')
     if ci is not None:
@@ -496,10 +481,11 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         P_LABEL: 'flare',
         DC_LABEL: 'crest',
         RESP_LABEL: RGB_BY_TYPE,
-        # 'cell': TAB10[:len(filtered_data.index.unique('cell'))]
+        # ROI_LABEL: TAB10[:len(filtered_data.index.unique(ROI_LABEL))]
     }.get(hue, None)
 
-    ###################### Plot ######################
+    ###################### Mean traces and CIs ######################
+
     # Default plot arguments dictionary
     plot_kwargs = dict(
         data      = filtered_data, # data
@@ -529,16 +515,17 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         fg = sns.relplot(**plot_kwargs)
         axlist = fg.axes.flatten()
         fig = fg.figure
-    
     # Remove right and top spines
     sns.despine()
-    # Add individual traces if specified
+
+    ###################### Individual traces ######################
+    
     if alltraces:
         logger.info('plotting individual traces...')
         nconds = len(axlist) * len(axlist[0].get_lines())
         with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
             # Aggregation keys = all index keys that are not "frame" 
-            aggkeys = list(filter(lambda x: x is not None and x != 'frame', filtered_data.index.names))
+            aggkeys = list(filter(lambda x: x is not None and x != FRAME_LABEL, filtered_data.index.names))
             # Group data by col, if provided
             if col is not None:
                 logger.debug(f'grouping by {col}')
@@ -566,8 +553,16 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
                         ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
                     pbar.update()
 
+    ###################### Markers ######################
+    
+    # Check the number of response types per axis
+    if col is not None:
+        rtypes_per_ax = filtered_data.groupby(col)[RESP_LABEL].unique().values
+    else:
+        rtypes_per_ax = [filtered_data[RESP_LABEL].unique()]
+        
     # For each axis
-    for ax in axlist:
+    for iax, ax in enumerate(axlist):
         # Plot stimulus mark if specified
         if mark_stim:
             ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
@@ -581,8 +576,14 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         # Adjust y-axis if specified
         if ybounds is not None:
             ax.set_ylim(*ybounds)
+        # Add color-coded marker for response type, if specified and possible
+        if mark_rtype:
+            rt = rtypes_per_ax[iax]
+            if len(rt) == 1:
+                add_color_marker(ax, RGB_BY_TYPE[rt[0]])
+
+    ###################### Title & legend ######################
     
-    # Add title and legend
     if title is None:
         if filters is None:
             filters = {'misc': 'all responses'}
@@ -596,6 +597,7 @@ def plot_responses(data, tbounds=None, ykey=REL_F_CHANGE_LABEL, ybounds=None, ag
         height = fig.get_size_inches()[0]
         fig.subplots_adjust(top=1 - dy / height)
         fig.suptitle(title)
+
     # Return figure
     return fig
 

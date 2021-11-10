@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 10:25:14
+# @Last Modified time: 2021-11-08 18:53:08
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -164,9 +164,15 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False, s2p_basedir=None)
                 data['ops'][k] = data['ops'][k].replace('suite2p', s2p_basedir)
     nROIs = len(data['stat'])
     logger.info(f'extracted data contains {nROIs} ROIs')
-    data[ROI_LABEL] = np.arange(nROIs)
-    data[IS_VALID_KEY] = np.ones(nROIs).astype(bool)
+    # data[ROI_LABEL] = np.arange(nROIs)
+    # data[IS_VALID_KEY] = np.ones(nROIs).astype(bool)
     return data
+
+
+
+def filter_s2p_data(data, ivalids):
+    ''' Filter suite2p output dictionary according to list of valid indexes '''
+    return {k: v[ivalids] if isinstance(v, np.ndarray) else v for k, v in data.items()}
 
 
 def update_suite2p_data_validity(data, is_valid):

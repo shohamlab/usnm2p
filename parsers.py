@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-26 18:42:28
+# @Last Modified time: 2021-11-10 18:02:13
 
 ''' Collection of parsing utilities. '''
 
@@ -49,7 +49,7 @@ def parse_experiment_parameters(name):
         FPS_LABEL: float(mo.group(5)),  
         P_LABEL: mo.group(6),  # MPa
         DC_LABEL: float(mo.group(7)),  # %
-        RUN_LABEL: int(mo.group(8))
+        RUNID_LABEL: int(mo.group(8))
     }
     # Fix for pressure (replacing first zero by decimal dot)
     if '.' not in params[P_LABEL]:
@@ -65,7 +65,7 @@ def parse_experiment_parameters(name):
     return params
 
 
-def get_info_table(folders, index_key='run', ntrials_per_run=None, discard_unknown=True):
+def get_info_table(folders, index_key=RUN_LABEL, ntrials_per_run=None, discard_unknown=True):
     '''
     Parse a list of input folders and aggregate extracted parameters into an info table.
     

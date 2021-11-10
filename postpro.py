@@ -2,286 +2,107 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-05 17:05:30
+# @Last Modified time: 2021-11-10 18:03:44
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.stats import zscore
-import pandas as pd
+from tqdm import tqdm
 
 from constants import *
 from logger import logger
-from utils import add_array_to_dataframe, get_singleton, is_in_dataframe, is_iterable, apply_rolling_window
+from utils import *
 
 
-def separate_runs(x, nruns):
+def separate_runs(data, nruns):
     '''
-    Split suite2p data into separate runs.
+    Split fluorescence dataframe into separate runs.
 
-    :param x: 2D (ncells, nframes) suite2p data array
+    :param df: multi-index dataframe with 2D (ROI, frame) index
     :param nruns: number of runs
-    :return: 3D (ncells, nruns, nperrun) data array
+    :return: multi-index dataframe with 3D (ROI, run, frame) index
     '''
-    logger.info(f'splitting fluorescence array into {nruns} separate runs...')
-    # If only single run, add extra "run" dimension
-    if nruns == 1:
-        return np.expand_dims(x, axis=1)
-    # Extract dimensions and reshape
-    ncells, nframes = x.shape
-    return x.reshape((ncells, nruns, -1))
-
-
-def separate_trials(x, ntrials):
-    '''
-    Split suite2p data array into separate trials.
+    if RUN_LABEL in data.index.names:
+        logger.warning('data already split by run -> ignoring')
+        return data
+    logger.info(f'splitting fluorescence data into {nruns} separate runs...')
+    nROIs, nframes_per_ROI = [len(data.index.unique(level=k)) for k in data.index.names]
+    if nframes_per_ROI % nruns != 0:
+        raise ValueError(f'specified number of runs {nruns} incompatible with number of frames per ROI ({nframes_per_ROI})')
+    iruns = np.arange(nruns)
+    nframes_per_run = nframes_per_ROI // nruns
+    data[RUN_LABEL] = np.repeat(np.tile(iruns, (nROIs, 1)), nframes_per_run)
+    iframes_per_run = np.arange(nframes_per_run)
+    iframes_per_run_ext = np.tile(iframes_per_run, (nROIs * nruns, 1)).flatten()
+    data = data.droplevel(FRAME_LABEL)
+    data = data.set_index(RUN_LABEL, append=True)
+    data[FRAME_LABEL] = iframes_per_run_ext
+    data = data.set_index(FRAME_LABEL, append=True)
+    return data
     
-    :param x: 3D (ncells, nruns, nperrun) data array
+
+def separate_trials(data, ntrials):
+    '''
+    Split fluorescence dataframe into separate trials.
+
+    :param df: multi-index dataframe with 3D (ROI, run, frame) index
     :param ntrials: number of trials
-    :return: 4D (ncells, nruns, ntrials, npertrial) data array
+    :return: multi-index dataframe with 4D (ROI, run, trial, frame) index
     '''
-    logger.info(f'splitting fluorescence array into {ntrials} separate trials...')
-    # If only single 2D array provided, add extra "run" dimension
-    if x.ndim == 2:
-        x = np.expand_dims(x, axis=1)
-    # Extract dimensions and reshape
-    ncells, nruns, nperrun = x.shape
-    npertrial = nperrun // ntrials
-    return x.reshape(x.shape[:-1] + (ntrials, npertrial))
+    if TRIAL_LABEL in data.index.names:
+        logger.warning(f'data already split by {TRIAL_LABEL} -> ignoring')
+        return data
+    logger.info(f'splitting fluorescence data into {ntrials} separate trials...')
+    nROIs, nruns, nframes_per_run = [len(data.index.unique(level=k)) for k in data.index.names]
+    if nframes_per_run % ntrials != 0:
+        raise ValueError(f'specified number of trials {ntrials} incompatible with number of frames per run ({nframes_per_run})')
+    itrials = np.arange(ntrials)
+    nframes_per_trial = nframes_per_run // ntrials
+    itrials_ext = np.repeat(np.tile(itrials, (nROIs * nruns, 1)), nframes_per_trial)
+    data[TRIAL_LABEL] = itrials_ext
+    iframes_per_trial = np.arange(nframes_per_trial)
+    iframes_per_trial_ext = np.tile(iframes_per_trial, (nROIs * nruns * ntrials, 1)).flatten()
+    data = data.droplevel(FRAME_LABEL)
+    data = data.set_index(TRIAL_LABEL, append=True)
+    data[FRAME_LABEL] = iframes_per_trial_ext
+    data = data.set_index(FRAME_LABEL, append=True)
+    return data
 
 
-def stack_trials(x):
-    '''
-    Stack trials consecutively in a trial-separated suite2p data array.
-    
-    :param x: 4D (ncells, nruns, ntrials, npertrial) data array
-    :return: 3D (ncells, nruns, nperrun) data array
-    '''
-    # Extract dimensions and reshape
-    *_, ntrials, npertrial = x.shape
-    logger.info(f'stacking {ntrials} trials consecutively in fluorescence array...')
-    return x.reshape((*x.shape[:-2], ntrials * npertrial))
-
-
-def get_fluorescence_baseline(F, fps, wlen=None, quantile=None):
-    '''
-    Compute the baseline of a fluorescence signal. This function assumes that time
-    is the last dimension of the signal array.
-
-    :param F: fluorescence signal array. Can be multi-dimensional (in that case, baseline evaluation
-        is applied last dimension of the array)
-    :param fps: frame rate of the signal (in fps)
-    :param wlen: window length (in s) to compute the fluorescence baseline
-    :param quantile: quantile used for the computation of the fluorescence baseline 
-    :return: fluorescence baseline array 
-    '''
-    if wlen is None:
-        raise ValueError('"wlen" argument must be provided')
-    if quantile is None:
-        raise ValueError('"quantile" argument must be provided')
-    # Compute window size (in number of frames) from window length and fps
+def get_window_size(wlen, fps):
+    ''' Compute window size (in number of frames) from window length (in s) and fps. '''
+    # Convert seconds to number of frames
     w = int(np.round(wlen * fps))
     # Adjust to odd number if needed
     if w % 2 == 0:
         w += 1
-    wstr = f'{wlen:.1f}s ({w} frames) rolling window'
-    if quantile == 'mean':
-        func = lambda x: x.mean()
-        qstr = quantile
-    else:
-        func = lambda x: x.quantile(quantile)
-        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(np.round(quantile * 1e2) % 10, 'th')
-        qstr = f'{quantile * 1e2:.0f}{suffix} percentile'
-    logger.info(f'computing fluorescence baseline as {qstr} of {wstr}')
-    # Apply rolling window with percentile evluation function
-    return apply_rolling_window(F, w, func=func)
+    return w
 
 
-# NOTE: alternative to find baseline (from Justin):
-# - remove events by thresholding the fluorescence signal to keep only the lowest 5-10% of its values
-# - pad the array (circular? random?, mirror?)
-# - apply NaN-insensitive moving median filter with wide enough window to remove remaining events
-
-
-def get_interpolated_baseline(F0, ntrials_per_run, kind='linear'):
-    ''' Return a baseline array interpolated around stim indexes '''
-    all_indexes = np.arange(F0.shape[-1])
-    stim_indexes = np.arange(ntrials_per_run) * NFRAMES_PER_TRIAL + STIM_FRAME_INDEX
-    intrp_indexes = np.hstack(([0], stim_indexes, [all_indexes[-1]]))
-    return interp1d(intrp_indexes, F0[:, :, intrp_indexes], axis=-1, kind=kind)(all_indexes)
-
-
-def get_relative_fluorescence_change(F, Fb, ibaseline):
+def compute_baseline(data, fps, wlen, q):
     '''
-    Calculate relative fluorescence signal (dF/F0) from an absolute fluorescence signal (F).
-    The signal baseline is calculated on a per-trial basis as the average of a specified
-    pre-stimiulus interval.
+    Compute the baseline of a signal.
 
-    :param x: 4D (ncells, nruns, ntrials, npertrial) array of absolute fluorescence signals
-    :param ibaseline: baseline evaluation indexes
-    :return: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
+    :param data: multi-indexed Series object contaning the signal of interest
+    :param fps: frame rate of the signal (in fps)
+    :param wlen: window length (in s) to compute the fluorescence baseline
+    :param q: quantile used for the computation of the fluorescence baseline 
+    :return: fluorescence baseline series
     '''
-    logger.info('computing relative fluorescence change...')
-    assert F.shape == Fb.shape, 'inconsistent dimensions between signal and baseline'
-    # If only single 3D array provided, add extra "run" dimension
-    if F.ndim == 3:
-        F = np.expand_dims(F, axis=1)
-        Fb = np.expand_dims(Fb, axis=1)
-    # Extract baseline fluoresence signals and average across time for each cell and trial 
-    # F0 = Fb[:, :, :, STIM_FRAME_INDEX]  # (ncells, nruns, ntrials) array
-    # F0 = F[:, :, :, ibaseline].mean(axis=-1)  # (ncells, nruns, ntrials) array    
-    # Add 4th axis (of dim 1) to F0 to enable broadcasting with F
-    # F0 = np.expand_dims(F0, axis=3)
-    F0 = Fb
-    # compute relative change in fluorescence
-    dFF = (F - F0) / F0
-    # Offset to ensure zero around stimulus frame
-    dFF_stim = dFF[:, :, :, STIM_FRAME_INDEX]
-    dFF -= np.expand_dims(dFF_stim, axis=3)
-    return dFF
-    
-
-def get_outliers_from_dFF_activity(dFF, thr=None):
-    '''
-    Remove outlier cells from fluorescence matrix.
-    
-    :param dFF: trial-averaged relative fluorescence change array
-    :param thr: threshold of peak absolute dFF activity above which a cell should be discarded 
-    :return: index array of cells identified as outliers
-    '''
-    if thr is None:
-        raise ValueError('"thr" argument must be provided')
-    # If more than 2 dimensions provided, flatten along the non-cell dimensions
-    if dFF.ndim > 2:
-        dFF = dFF.reshape(dFF.shape[0], -1)
-    # Compute maximum dFF absolute value along time course for each cell
-    max_abs_dFF = np.abs(dFF).max(axis=-1)
-    # Identify outliers as cells whose maximum absolute dFF crosses absolute threshold
-    is_outlier = max_abs_dFF > thr
-    # Return dataframe identifying outliers
-    label = f'|dFF| > {thr}'
-    df_outliers = pd.DataFrame({'peak |dFF|': max_abs_dFF, label: is_outlier})
-    return df_outliers[df_outliers[label] == 1]
-    
-
-def compute_z_scores(x):
-    '''
-    Compute z-scores (i.e. number of standard deviations from the mean) of a signal array on a per-run basis.
-
-    :param x: multidimensional signal array
-    :return: multidimensional array of z-scores
-    '''
-    # Get array dimensions
-    dims = x.shape
-    # If more than 3 dimensions provided, stack trials that belong to the same run sequentially
-    if x.ndim > 3:
-        x = x.reshape(dims[0], dims[1], -1)
-    # Compute z-scores along last axis (time)
-    z = zscore(x, axis=-1)
-    # Reshape to original dimensions and return
-    return z.reshape(dims)
-
-
-def classify_by_response_type(dFF, zthr=ZSCORE_THR, full_output=False):
-    '''
-    Classify cells by response type, based on analysis of z-score distributions of
-    relative fluorescence change signals.
-
-    :param dFF: 4D (ncells, nruns, ntrials, npertrial) array of relative change in fluorescence
-    :param full_output (optional): whether to return also the distribution of identified peak z-scores per cell.
-    :return: list of response type (-1: negative, 0: neutral, +1: positive) for each cell
-    '''
-    # TODO:
-    # - for each trial, compute average dF/F0 within the response analysis window
-    # - average across trials and across a subset of "strong conditions" (high pressure and high DC)
-    # - compute z-score distribution across all 
-    # - 
-
-    # # Compute z-scores on trial-averaged data
-    # logger.info('computing z-score distributions on trial-averaged data')
-    zavg = compute_z_scores(dFF.mean(axis=-2))
-
-    # # Compute z-scores on a per-run basis
-    # z = compute_z_scores(dFF)
-    # # Average across trials to obtain mean response z-score timecourse per cell and run
-    # logger.info('averaging across trials')
-    # zavg = z.mean(axis=2)
-
-    # Restrict analysis to z-scores within the "response interval"
-    logger.info('restricting analysis to response interval')
-    zavg = zavg[:, :, I_RESPONSE]
-
-    # Compute min and max z-score across response interval AND across runs for each given cell
-    zmin = zavg.min(axis=-1).min(axis=-1)
-    zmax = zavg.max(axis=-1).max(axis=-1)
-
-    # Classify cells according to their max and min z-scores
-    is_positive = zmax >= zthr
-    is_negative = np.logical_and(~is_positive, zmin <= -zthr)
-    is_neutral = np.logical_and(~is_positive, ~is_negative)
-    # Cast bool -> int
-    is_positive, is_negative, is_neutral = [x.astype(int) for x in [is_positive, is_negative, is_neutral]] 
-    # Make sure response categories have mutually exclusive populations
-    assert all(is_positive + is_negative + is_neutral == 1.), 'error'
-    # Compute vector of response type per cell
-    resp_types = is_positive - is_negative
-    # Return response types vector and optional z-distributions
-    if full_output:
-        return resp_types, (zmin, zmax)
-    else:
-        return resp_types 
-
-
-def add_cells_to_table(data, cell_ROI_idx):
-    '''
-    Add cells info to table.
-
-    :param data: dataframe contanining all the info about the experiment.
-    :param cell_ROI_idx: list of ROI indexes corresponding to each cell.
-    :return: expanded pandas dataframe with cell info
-    '''
-    if is_in_dataframe(data, 'cell'):
-        return data
-    logger.info(f'adding {len(cell_ROI_idx)} cells info to table...')
-    old_names = data.index.names
-    data = add_array_to_dataframe(data, ROI_LABEL, cell_ROI_idx, index_key='cell')
-    return data.reorder_levels(['cell'] + old_names).sort_index()
-
-
-def add_trial_indexes_to_table(data, ntrials=None):
-    '''
-    Add trial indexes to table.
-
-    :param data: dataframe contanining all the info about the experiment.
-    :return: expanded pandas dataframe with trial indexes
-    '''
-    if is_in_dataframe(data, 'trial'):
-        return data
-    if ntrials is None:
-        ntrials = get_singleton(data, NTRIALS_LABEL)
-        del data[NTRIALS_LABEL]
-    logger.info(f'adding {ntrials} trials info to table...')
-    return add_array_to_dataframe(data, 'trial', np.arange(ntrials), index_key='trial')
-
-
-def add_signal_to_table(data, key, y, index_key='frame'):
-    '''
-    Add signal to info table.
-
-    :param data: dataframe contanining all the info about the experiment.
-    :param key: name of the column that will hold the new data
-    :param y: array of signals (signals timecourse must be evolving along last array axis)
-    :param index_key (optional): name of new index level to add to dataframe upon expansion
-    :return: modified info table
-    '''
-    logger.info(f'adding {" x ".join([str(x) for x in y.shape])} {key} signal array to table...')
-    # Extract trial length from dataframe
-    if index_key is not None and index_key in data.index.names:
-        npertrial = len(data.index.unique(level=index_key).values)
-    else: 
-        npertrial = get_singleton(data, NPERTRIAL_LABEL, delete=True)
-    return add_array_to_dataframe(data, key, y, nref=npertrial, index_key=index_key)
+    # Compute window size (in number of frames)
+    w = get_window_size(wlen, fps)
+    # Log process info
+    wstr = (f'{wlen:.1f}s ({w} frames) sliding window')    
+    qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
+    logger.info(f'computing signal baseline as {qstr} of {wstr}')
+    # Group data by ROI and run, and apply sliding window on F to compute baseline fluorescence
+    groupkeys = [ROI_LABEL, RUN_LABEL]
+    nconds = np.prod([len(data.index.unique(level=k)) for k in groupkeys])
+    with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
+        def funcwrap(x):
+            pbar.update()
+            return apply_rolling_window(x.values, w, func=lambda x: x.quantile(q))
+        return data.groupby(groupkeys).transform(funcwrap)
 
 
 def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):
@@ -300,45 +121,29 @@ def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):
     # Extract sampling frequency
     fps = get_singleton(data, FPS_LABEL)
     # Extract frame indexes
-    iframes = data.index.get_level_values('frame')
+    iframes = data.index.get_level_values(FRAME_LABEL)
     # Add time column and remove fps column
     data[key] = (iframes - frame_offset) / fps
     del data[FPS_LABEL]
     return data
 
 
-def array_to_dataframe(x, key, fps=10):
+def get_response_types_per_ROI(data):
     '''
-    Convert a (nsignals, npersignal) 2D array into a timeseries dataframe
-
-    :param x: input array
-    :param key: variable name to give to the signal
-    :return dataframe object
-    '''
-    ntrials, npertrial = x.shape
-    data = pd.DataFrame({FPS_LABEL: fps, NPERTRIAL_LABEL: npertrial})
-    data = add_trial_indexes_to_table(data, ntrials=ntrials)
-    data = add_signal_to_table(data, key, x)
-    data = add_time_to_table(data)
-    return data
-
-
-def get_response_types_per_cell(data):
-    '''
-    Extract the response type per cell from exoeriment dataframe.
+    Extract the response type per ROI from experiment dataframe.
 
     :param data: experiment dataframe
-    :return: pandas Series of response types per cell
+    :return: pandas Series of response types per ROI
     '''
-    logger.info('extracting responses types per cell...')
-    return data.groupby('cell').first()[RESP_LABEL]
+    logger.info('extracting responses types per ROI...')
+    return data.groupby(ROI_LABEL).first()[RESP_LABEL]
 
 
-def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
+def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
     ''' Filter data according to specific criteria.
     
     :param data: experiment dataframe
-    :param icell (optional): cell index(es)
+    :param iROI (optional): ROI index(es)
     :param irun: run index(es)
     :param itrial: trial index(es)
     :param rtype (optional): response type code(s), within (-1, 0, 1)
@@ -349,34 +154,40 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
     :return: filtered dataframe (and potential filters dictionary)
     '''
     # Initialize empty filters dictionary
-    filters = {}    
-    # Filter data based on provided cell, run and trial indexes
+    filters = {}
+
+    ###################### Sub-indexing ######################
     logger.info('sub-indexing data...')
     subindex = [slice(None)] * 3
     plural = lambda x: 's' if is_iterable(x) else ''
-    if icell is not None:
-        subindex[0] = icell
-        filters['cell'] = f'cell{plural(icell)} {icell}'
+    if iROI is not None:
+        subindex[0] = iROI
+        filters[ROI_LABEL] = f'{ROI_LABEL}{plural(iROI)} {iROI}'
     if irun is not None:
         subindex[1] = irun
-        filters['run'] = f'run{plural(irun)} {irun}'
+        filters[RUN_LABEL] = f'{RUN_LABEL}{plural(irun)} {irun}'
     if itrial is not None:
         subindex[2] = itrial
-        filters['trial'] = f'trial{plural(itrial)} {itrial}'
+        filters[TRIAL_LABEL] = f'{TRIAL_LABEL}{plural(itrial)} {itrial}'
+    # Check for each sub-index level that elements are in global index
+    for k, v in zip(data.index.names, subindex):
+        if is_iterable(v) or v != slice(None):
+            subset, globalset = set(as_iterable(v)), set(data.index.unique(level=k))
+            if not subset.issubset(globalset):
+                missings = list(subset - globalset)
+                raise ValueError(f'{k}{plural(missings)} {missings} not found in dataset index')
     data = data.loc[tuple(subindex)]
-    if icell is not None and not is_iterable(icell):
-        roi = data[ROI_LABEL].values[0]
-        filters['cell'] += f' (ROI {roi})'
 
+    ###################### Filtering ######################
     logger.info('filtering data...')
     # Initialize global inclusion criterion
     include = np.ones(len(data)).astype(bool)
     # Refine inclusion criterion based on response type
     if rtype is not None:
-        if icell is not None:  # cannot filter on response type if cell index is provided
-            raise ValueError(f'only 1 of "icell" and "rtype" can be provided')
+        if iROI is not None:  # cannot filter on response type if ROI index is provided
+            raise ValueError(f'only 1 of "iROI" and "rtype" can be provided')
         include = include & (data[RESP_LABEL] == rtype)
-        filters[RESP_LABEL] = f'{LABEL_BY_TYPE[rtype]} cells'
+        filters[RESP_LABEL] = f'{LABEL_BY_TYPE[rtype]} ROIs'
     # Refine inclusion criterion based on stimulation parameters
     if P is not None:
         include = include & (data[P_LABEL] == P)
@@ -390,25 +201,16 @@ def filter_data(data, icell=None, irun=None, itrial=None, rtype=None, P=None, DC
     # Slice data according to filters
     data = data[include]
 
-    # Complete labels based on selected data
-    # Cell(s) selected -> indicate response type(s) if provided
-    if icell is not None and rtype is None and RESP_LABEL in data:
-        parsed_rtype = get_response_types_per_cell(data)[icell]
-        rcode = [LABEL_BY_TYPE[x] for x in parsed_rtype] if is_iterable(parsed_rtype) else [LABEL_BY_TYPE[parsed_rtype]]
-        rstr = ", ".join(list(set(rcode)))
-        if filters['cell'].endswith(')'):
-            filters['cell'] = filters['cell'][:-1] + ', '
-        else:
-            filters['cell'] = filters['cell'] + ' ('
-        filters['cell'] += f'{rstr})'
-        # Single run selected -> indicate corresponding stimulation parameters
-        if irun is not None and P is None and DC is None:
-            parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
-            filters['run'] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
-    # No cell selected -> indicate number of cells
-    if icell is None:
-        ncells = len(data.index.unique(level='cell').values)
-        filters['ncells'] = f'({ncells} cells)'
+    ###################### Filters completion ######################
+    logger.info('cross-checking filters...')
+    # Single run selected -> indicate corresponding stimulation parameters
+    if irun is not None and P is None and DC is None:
+        parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
+        filters[RUN_LABEL] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
+    # No ROI selected -> indicate number of ROIs
+    if iROI is None:
+        nROIs = len(data.index.unique(level=ROI_LABEL).values)
+        filters['nROIs'] = f'({nROIs} ROIs)'
 
     # Set filters to None if not filter was applied 
     if len(filters) == 0:
