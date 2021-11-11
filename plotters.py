@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:13:54
+# @Last Modified time: 2021-11-10 19:09:36
 
 ''' Collection of plotting utilities. '''
 
@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton
+from utils import get_singleton, plural
 from postpro import filter_data, get_response_types_per_ROI
 from viewers import get_stack_viewer
 
@@ -310,6 +310,80 @@ def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alph
     # Return
     return fig
 
+
+def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=F_LABEL,
+                    ybounds=None, cmap=None):
+    '''
+    Simple function to plot fluorescence traces from a fluorescnece data matrix
+    
+    :param data: fluorescence dataframe
+    :param iROI (optional): ROI index
+    :param irun (optional: run index
+    :param itrial (optional): trial index
+    :param delimiters (optional): temporal delimitations (shown as vertical lines)
+    :param ybounds (optional): y-axis limits
+    :return: figure handle
+    '''
+    # Filter data based on selection criteria
+    filtered_data, filters = filter_data(
+        data, iROI=iROI, irun=irun, itrial=itrial, full_output=True)
+    if filters is None:
+        filters = {'misc': 'all responses'}
+
+    # Get data dimensions
+    npersignal, nsignals = filtered_data.shape
+
+    # Get value of first frame index as the x-onset
+    iframes = filtered_data.index.unique(level=FRAME_LABEL).values
+    ionset = iframes[0]
+    # If trials are marked in data -> adjust onset according to 1st trial index
+    if TRIAL_LABEL in filtered_data.index.names:
+        itrials = filtered_data.index.unique(level=TRIAL_LABEL).values
+        ionset += itrials[0] * len(iframes)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 4))
+    sns.despine()
+    ax.set_xlabel('frames')
+    ax.set_ylabel(ylabel)
+    ax.set_title(' - '.join(filters.values()))
+
+    # Get y-axis label
+    s = {
+        F_LABEL: 'raw fluorescence',
+        DFF_LABEL: 'normalized fluorescence change',
+        STACK_AVG_INT_LABEL: 'average stack intensity'
+    }[ylabel]
+
+    # Generate x-axis indexes
+    xinds = np.arange(npersignal) + ionset
+
+    # Determine traces colors
+    if cmap is not None:
+        colors = plt.get_cmap(cmap)(np.linspace(0, 1, nsignals))
+    else:
+        colors = [None] * nsignals
+
+    # Plot traces
+    logger.info(f'plotting {nsignals} fluorescence trace(s)...')
+    for color, col in zip(colors, filtered_data):
+        ax.plot(xinds, filtered_data[col], c=color, label=col)
+
+    # Restrict y axis, if needed
+    if ybounds is not None:
+        ax.set_ylim(*ybounds)
+
+    # Plot delimiters, if any
+    if delimiters is not None:
+        logger.info(f'adding {len(delimiters)} delimiters')
+        for iframe in delimiters:
+            ax.axvline(iframe, color='k', linestyle='--')
+
+    # Add legend
+    ax.legend(frameon=False)
+            
+    return fig
+    
 
 def plot_types_sequence(rtypes):
     '''

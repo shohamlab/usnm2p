@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 17:49:26
+# @Last Modified time: 2021-11-10 18:35:02
 
 ''' Collection of generic utilities. '''
 
@@ -70,6 +70,10 @@ def as_iterable(x):
     ''' Return an iterable of an object if it is not already iterable '''
     return x if is_iterable(x) else [x]
 
+
+def plural(x):
+    return 's' if is_iterable(x) else ''
+    
 
 si_prefixes = {k: np.power(10., v) for k, v in SI_POWERS.items()}
 sorted_si_prefixes = sorted(si_prefixes.items(), key=operator.itemgetter(1))

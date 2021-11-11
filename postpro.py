@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:03:44
+# @Last Modified time: 2021-11-10 18:45:56
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -159,7 +159,6 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
     ###################### Sub-indexing ######################
     logger.info('sub-indexing data...')
     subindex = [slice(None)] * 3
-    plural = lambda x: 's' if is_iterable(x) else ''
     if iROI is not None:
         subindex[0] = iROI
         filters[ROI_LABEL] = f'{ROI_LABEL}{plural(iROI)} {iROI}'
@@ -205,8 +204,9 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
     logger.info('cross-checking filters...')
     # Single run selected -> indicate corresponding stimulation parameters
     if irun is not None and P is None and DC is None:
-        parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
-        filters[RUN_LABEL] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
+        if P_LABEL in data and DC_LABEL in data:
+            parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
+            filters[RUN_LABEL] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
     # No ROI selected -> indicate number of ROIs
     if iROI is None:
         nROIs = len(data.index.unique(level=ROI_LABEL).values)
