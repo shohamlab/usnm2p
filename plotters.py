@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 12:32:45
+# @Last Modified time: 2021-11-11 17:24:19
 
 ''' Collection of plotting utilities. '''
 
@@ -13,13 +13,13 @@ from matplotlib.lines import Line2D
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 import seaborn as sns
-from colorsys import hsv_to_rgb
+from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton, plural
-from postpro import filter_data, get_response_types_per_ROI
+from utils import get_singleton
+from postpro import filter_data, get_response_types_per_ROI, get_trial_averaged
 from viewers import get_stack_viewer
    
 
@@ -389,17 +389,25 @@ def plot_experiment_heatmap(data, key=DFF_LABEL, title=None, show_ylabel=True):
     return cg
 
 
-def add_color_marker(ax, c, w=0.1):
+def add_label_mark(ax, x, cmap=None, w=0.1):
     ''' Add a color marker in the top right corner of a plot '''
-    ax.add_patch(Rectangle(
-        (1 - w,  1- w), w, w,
-        transform=ax.transAxes,
-        fc=c, ec=None))
-
+    if cmap is None:
+        cmap = plt.get_cmap('viridis')
+    if isinstance(cmap, dict):
+        c = cmap[x]
+        s = x
+    else:
+        c = cmap(x)
+        s = f'{x:.2f}'
+    brightness = rgb_to_hsv(*c[:3])[-1]
+    tcolor = 'w' if brightness < 0.7 else 'k'
+    ax.add_patch(Rectangle((1 - w,  1 - w), w, w, transform=ax.transAxes, fc=c, ec=None))
+    ax.text(1 - w / 2,  1 - w / 2, s, transform=ax.transAxes, ha='center', va='center', c=tcolor)
+    
 
 def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
-                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True, mark_rtype=True, 
-                   title=None, **kwargs):
+                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True,
+                   label=None, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
@@ -413,7 +421,7 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
     :param col (optional): grouping variable that will produce different axes.
     :param mark_stim (optional): whether to add a stimulus mark on the plot
     :param mark_response (optional): whether to add mark indicating the response analysis interval on the plot
-    :param mark_rtype (optional): whether to add a mark indicating the response type on the plot (when possible)
+    :param label (optional): add a label indicating a specific field value on the plot (when possible)
     :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
@@ -529,7 +537,7 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
                 # For each hue group
                 for l, (_, gr) in zip(ax.get_lines(), groups):
                     color = l.get_color()
-                    # Generate pivot table
+                    # Generate pivot table for the value
                     table = gr.pivot_table(
                         index=TIME_LABEL,  # index = time
                         columns=aggkeys,  # each column = 1 line to plot 
@@ -540,12 +548,14 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
                     pbar.update()
 
     ###################### Markers ######################
-    
-    # Check the number of response types per axis
-    if col is not None:
-        rtypes_per_ax = filtered_data.groupby(col)[RESP_LABEL].unique().values
-    else:
-        rtypes_per_ax = [filtered_data[RESP_LABEL].unique()]
+
+    # If indicator provided, check number of values per axis
+    if label is not None:
+        label_cmap = RGB_BY_TYPE if label == RESP_LABEL else None
+        if col is not None:
+            label_values_per_ax = filtered_data.groupby(col)[label].unique().values
+        else:
+            label_values_per_ax = [filtered_data[label].unique()]
         
     # For each axis
     for iax, ax in enumerate(axlist):
@@ -562,11 +572,11 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         # Adjust y-axis if specified
         if ybounds is not None:
             ax.set_ylim(*ybounds)
-        # Add color-coded marker for response type, if specified and possible
-        if mark_rtype:
-            rt = rtypes_per_ax[iax]
-            if len(rt) == 1:
-                add_color_marker(ax, RGB_BY_TYPE[rt[0]])
+        # Add label for specific field value, if specified and possible
+        if label is not None:
+            label_values = label_values_per_ax[iax]
+            if len(label_values) == 1:
+                add_label_mark(ax, label_values[0], cmap=label_cmap)
 
     ###################### Title & legend ######################
     
@@ -643,37 +653,86 @@ def plot_mean_evolution(*args, **kwargs):
     return fig
 
 
-def barplot(data, x, y=None, **kwargs):
-    '''wrapper around seaborn barplot function  '''
-    if isinstance(data, pd.Series):
-        y = data.name
-        data = data.to_frame()
-    data = data.reset_index(level=x)
-    ax = kwargs.pop('ax', None)
-    if ax is None:
-        fig, ax = plt.subplots()
-    else:
-        fig = ax.get_figure()
-    ax = sns.barplot(ax=ax, data=data, x=x, y=y, **kwargs)
+def plot_stat_heatmap(data, key, expand=False, **kwargs):
+    '''
+    Plot ROI x run heatmap for some statistics
+    
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
+    :param key: stat column key
+    :param expand (optional): expand figure to clearly see each combination
+    :return figure handle
+    '''
+    s = f'{key} per ROI & run'
+    # Compute trial-averaged data
+    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    # Determine whether stats is a repeated value or a real distribution
+    if not is_repeat:
+        s = f'trial-averaged {s}'
+    logger.info(f'plotting {s}...')
+    nROIs, nruns = [len(trialavg_data.index.unique(level=k)) for k in [ROI_LABEL, RUN_LABEL]]
+    # Determine figure size
+    figsize = (nruns / 2, nROIs / 5) if expand else None
+    # Determine colormap center based on stat range
+    center = 0 if trialavg_data.min() < 0 else None
+    # Create figure and plot trial-averaged stat heatmap
+    fig, ax = plt.subplots(figsize=figsize)
+    ax = sns.heatmap(trialavg_data.unstack(), center=center, **kwargs)
+    # Add title
+    ax.set_title(s)
+    # Return
+    return fig
+
+
+def plot_stat_per_ROI(data, key):
+    '''
+    Plot the distribution of a stat per ROI over all experimental conditions
+    
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
+    :return: figure handle
+    '''
+    s = key
+    # Compute trial-averaged data
+    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    # Determine whether stats is a repeated value or a real distribution
+    if not is_repeat:
+        s = f'trial-averaged {s}'
+    # Group by ROI, get mean and std
+    groups = trialavg_data.groupby(ROI_LABEL)    
+    mu, sigma = groups.mean(), groups.std()
+    x = np.arange(mu.size)
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.set_xlabel('ROIs')
+    ax.set_ylabel(s)
+    ax.set_title(f'{s} per ROI')
+    # Plot mean trace with +/-std shaded area
+    ax.plot(x, mu)
+    ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
     sns.despine(ax=ax)
     return fig
 
 
-def plot_success_rate_per_ROI(data):
+def plot_stat_per_run(data, key):
     '''
-    Plot the success rate per ROI over all experimental conditions
+    Plot the distribution of a stat per run over all ROIs
     
-    :param data: success rate dataset indexed per ROI and condition
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
     :return: figure handle
     '''
-    mu = data.groupby(ROI_LABEL).mean()
-    sigma = data.groupby(ROI_LABEL).std()
-    x = np.arange(mu.size)
-    fig, ax = plt.subplots(figsize=(12, 4))
+    s = key
+    # Compute trial-averaged data
+    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    # Determine whether stats is a repeated value or a real distribution
+    if not is_repeat:
+        s = f'trial-averaged {s}'
+    # Create figure
+    fig, ax = plt.subplots()
+    ax.set_title(f'{s} per run')
     ax.set_xlabel('ROIs')
-    ax.set_ylabel('success rate')
-    ax.plot(x, mu)
-    ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
-    sns.despine()
-    ax.set_title('success rate per ROI')
+    ax.set_ylabel(s)
+    # Bar plot with std error bars
+    trialavg_data = trialavg_data.to_frame()
+    trialavg_data = trialavg_data.reset_index(level=RUN_LABEL)
+    sns.barplot(ax=ax, data=trialavg_data, x=RUN_LABEL, y=key, ci='sd')
+    sns.despine(ax=ax)
     return fig

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 09:43:48
+# @Last Modified time: 2021-11-11 17:16:58
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -142,6 +142,9 @@ def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):
     # Add time column and remove fps column
     data[key] = (iframes - frame_offset) / fps
     del data[FPS_LABEL]
+    # Set time as first column
+    cols = data.columns
+    data = data.reindex(columns=[cols[-1], *cols[:-1]])
     return data
 
 
@@ -154,6 +157,28 @@ def get_response_types_per_ROI(data):
     '''
     logger.info('extracting responses types per ROI...')
     return data.groupby(ROI_LABEL).first()[RESP_LABEL]
+
+
+def get_trial_averaged(data, key, full_output=False):
+    '''
+    Compute trial-averaged statistics
+    
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
+    :param key: stat column key
+    :return: (trialavg_data, is_repeat) tuple
+    '''
+    # Group trials
+    groups = data[key].groupby([ROI_LABEL, RUN_LABEL])
+    # Compute average of stat across trials
+    trialavg_data = groups.mean()
+    if full_output:
+        # Compute std of stat across trials
+        trialstd_data = groups.std()        
+        # Determine whether stats is a repeated value or a real distribution
+        is_repeat = not trialstd_data.max() > 0
+        return trialavg_data, is_repeat
+    else:
+        return trialavg_data
 
 
 def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
@@ -222,8 +247,11 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
     # Single run selected -> indicate corresponding stimulation parameters
     if irun is not None and P is None and DC is None:
         if P_LABEL in data and DC_LABEL in data:
-            parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
-            filters[RUN_LABEL] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
+            try:
+                parsed_P, parsed_DC = get_singleton(data, [P_LABEL, DC_LABEL])
+                filters[RUN_LABEL] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
+            except ValueError as err:
+                logger.warning(err)
     # No ROI selected -> indicate number of ROIs
     if iROI is None:
         nROIs = len(data.index.unique(level=ROI_LABEL).values)
