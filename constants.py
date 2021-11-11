@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:14:05
+# @Last Modified time: 2021-11-11 12:38:33
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -34,6 +34,7 @@ DFF_OUTLIER = 0.3  # upper bound threshold for dF/F0 (cells with absolute traces
 I_BASELINE = slice(STIM_FRAME_INDEX - 7, STIM_FRAME_INDEX)  # indexes used for baseline computation per trial. Considers the last 7 frames (i.e. ca. 2 seconds) preceding the stimulus onset.
 I_RESPONSE = slice(STIM_FRAME_INDEX + 1, STIM_FRAME_INDEX + 8)  # indexes used for response computation per trial. Considers the following 7 frames (i.e. ca. 2 seconds) following the stimulus onset.
 ZSCORE_THR = 1.64  # threshold absolute z-score value
+SUCCESS_RATE_THR = .3  # threshold success rate for a positive response
 NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
 
 # SI units prefixes

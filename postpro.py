@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:45:56
+# @Last Modified time: 2021-11-11 09:43:48
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
 from tqdm import tqdm
+from scipy.signal import find_peaks
 
 from constants import *
 from logger import logger
@@ -103,6 +104,22 @@ def compute_baseline(data, fps, wlen, q):
             pbar.update()
             return apply_rolling_window(x.values, w, func=lambda x: x.quantile(q))
         return data.groupby(groupkeys).transform(funcwrap)
+
+
+def find_response_peak(s):
+    ''' Find the response peak (if any) of a signal '''
+    x = s.values
+    ipeaks, _ = find_peaks(x)
+    if ipeaks.size == 0: # if no peak detected -> return NaN
+        return np.nan
+    else:
+        # Get index of max amplitude peak within the array
+        imax = ipeaks[np.argmax(x[ipeaks])]
+        # Make sure it's not at the signal boundary
+        if imax == 0 or imax == x.size - 1:
+            raise ValueError(f'max peak found at signal boundary (index {imax})')
+        # Return average value of peak and its two neighbors
+        return np.mean(x[imax - 1:imax + 2])
 
 
 def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 09:12:05
+# @Last Modified time: 2021-11-11 12:32:45
 
 ''' Collection of plotting utilities. '''
 
@@ -21,37 +21,7 @@ from constants import *
 from utils import get_singleton, plural
 from postpro import filter_data, get_response_types_per_ROI
 from viewers import get_stack_viewer
-
-
-def hide_spines(ax, mode='tr'):
-    '''
-    Hide specific spines from an axis.
-    
-    :param mode: string code specifying which spines to hide
-    '''
-    codes = {
-        't': 'top',
-        'r': 'right',
-        'b': 'bottom',
-        'l': 'left'
-    }
-    if mode == 'all':
-        mode = 'trbl'
-    for c in mode:
-        ax.spines[codes[c]].set_visible(False)
-    
-
-def hide_ticks(ax, mode='xy'):
-    '''
-    Hide the ticks and tick labels of an axis.
-    
-    :param mode: one of 'x', 'y', or 'xy'
-    '''
-    if 'x' in mode:
-        ax.set_xticks([])
-    if 'y' in mode:
-        ax.set_yticks([])
-
+   
 
 def plot_stack_summary(stack, cmap='viridis', title=None):
     '''
@@ -228,7 +198,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     # For each output stats parameter
     for ax, pkey in zip(axes, pkeys):
         # Plot histogram distribution
-        hide_spines(ax, mode='trl')
+        sns.despine(ax=ax, left=True)
         ax.set_xlabel(pkey)
         ax.set_yticks([])
         d = np.array([x[pkey] for x in stats])
@@ -242,7 +212,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
             is_outlier[pkey] = np.logical_or(d < lims[0], d > lims[1])
     # Hide unused axes
     for ax in axes[len(pkeys):]:
-        hide_spines(ax, mode='all')
+        sns.despine(ax=ax, left=True, bottom=True)
         ax.set_xticks([])
         ax.set_yticks([])
     # Conditional return
@@ -670,4 +640,40 @@ def plot_mean_evolution(*args, **kwargs):
     
     # Add/update legend
     ax.legend(frameon=False)
+    return fig
+
+
+def barplot(data, x, y=None, **kwargs):
+    '''wrapper around seaborn barplot function  '''
+    if isinstance(data, pd.Series):
+        y = data.name
+        data = data.to_frame()
+    data = data.reset_index(level=x)
+    ax = kwargs.pop('ax', None)
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    ax = sns.barplot(ax=ax, data=data, x=x, y=y, **kwargs)
+    sns.despine(ax=ax)
+    return fig
+
+
+def plot_success_rate_per_ROI(data):
+    '''
+    Plot the success rate per ROI over all experimental conditions
+    
+    :param data: success rate dataset indexed per ROI and condition
+    :return: figure handle
+    '''
+    mu = data.groupby(ROI_LABEL).mean()
+    sigma = data.groupby(ROI_LABEL).std()
+    x = np.arange(mu.size)
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.set_xlabel('ROIs')
+    ax.set_ylabel('success rate')
+    ax.plot(x, mu)
+    ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
+    sns.despine()
+    ax.set_title('success rate per ROI')
     return fig

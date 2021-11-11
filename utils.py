@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:35:02
+# @Last Modified time: 2021-11-11 13:00:27
 
 ''' Collection of generic utilities. '''
 
@@ -220,15 +220,33 @@ def get_integer_suffix(i):
     return {1: 'st', 2: 'nd', 3: 'rd'}.get(int(np.round(i)) % 10, 'th')
 
 
-def repeat_along(df, inds, name):
+def repeat_along_new_dim(df, name, inds):
     '''
     Repeat dataframe values along new index level
     
     :param df: input dataframe
-    :param inds: values of the new index level
     :param name: name of the new index level
+    :param inds: values of the new index level
     :return: dataframe expanded along the new index dimension
     '''
     newdf = df.copy()
     newdf[name] = [inds.values] * len(df)
     return newdf.explode(name).set_index(name, append=True)
+
+def repeat_along_new_dims(df, newdims):
+    '''
+    Repeat dataframe values along multiple new index levels
+    
+    :param df: input dataframe
+    :param newdims: dictionary of names and indices for each new index level
+    :return: dataframe expanded along all new index dimensions
+    '''
+    for name, inds in newdims.items():
+        df = repeat_along_new_dim(df, name, inds)
+    return df
+
+def reindex_dataframe_level(df, level=0):
+    ''' Update dataframe index level to a standard integer list '''
+    old_vals = df.index.unique(level=level)
+    new_vals = np.arange(old_vals.size)
+    return df.reindex(new_vals, level=level)
