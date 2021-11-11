@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 19:09:36
+# @Last Modified time: 2021-11-11 09:12:05
 
 ''' Collection of plotting utilities. '''
 
@@ -93,7 +93,7 @@ def plot_stack_timecourse(stack, func='mean', ax=None, title=None, label=None):
         ax.set_title(f'{title} timecourse')
         ax.set_xlabel('frames')
         ax.set_ylabel(f'{func} frame intensity')
-        hide_spines(ax)
+        sns.despine(ax)
     else:
         fig = ax.get_figure()
     ax.plot(func_obj(stack, axis=(-2, -1)), label=label)
@@ -157,8 +157,7 @@ def plot_suite2p_registration_offsets(output_ops, title=None):
     ax.set_ylabel('nonrigid x-offsets')
     ax.set_xlabel('frames')
     # Hide spines and return
-    for ax in axes:
-        hide_spines(ax)
+    sns.despine()
     return fig
 
 
@@ -252,63 +251,6 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     else:
         # return dataframe of outliers
         return fig, pd.DataFrame(is_outlier)
-
-        
-
-def plot_raw_traces(F, title, delimiters=None, ylabel=F_LABEL, labels=None, alpha=1., ybounds=None, cmap=None,
-                    ionset=0):
-    '''
-    Simple function to plot fluorescence traces from a fluorescnece data matrix
-    
-    :param F: (ntraces, nframes) fluorescence matrix
-    :param title: figure title
-    :param delimiters (optional): temporal delimitations (shown as vertical lines)
-    :param ylabel (optional): y axis label
-    :param alpha (optional): opacity factor
-    :param ybounds (optional): y-axis limits
-    :return: figure handle
-    '''
-    if F.ndim == 1:
-        F = np.atleast_2d(F)
-    logger.info(f'plotting {F.shape[0]} fluorescence trace(s)...')
-    # Create figure
-    fig, ax = plt.subplots(figsize=(12, 4))
-    hide_spines(ax)
-    s = {
-        F_LABEL: 'raw fluorescence',
-        DFF_LABEL: 'normalized fluorescence change',
-        STACK_AVG_INT_LABEL: 'average stack intensity'
-    }[ylabel]
-    leg = True
-    if labels is None:
-        labels = [None] * F.shape[0]
-        leg = False
-        title = f'{title} - all {F.shape[0]} ROIs'
-    ax.set_title(f'{s} trace(s) across {title}')
-    ax.set_xlabel('frames')
-    ax.set_ylabel(ylabel)
-    # Determine traces colors
-    if cmap is not None:
-        colors = plt.get_cmap(cmap)(np.linspace(0, 1, F.shape[0]))
-    else:
-        colors = [None] * F.shape[0]
-    # Plot each trace
-    inds = np.arange(F.shape[-1]) + ionset
-    for trace, label, color in zip(F, labels, colors):
-        ax.plot(inds, trace, c=color, label=label, alpha=alpha)
-    # Restrict y axis, if needed
-    if ybounds is not None:
-        ax.set_ylim(*ybounds)
-    # Add legend if labels were provided
-    if leg:
-        ax.legend(frameon=False)
-    # Plot delimiters, if any
-    if delimiters is not None:
-        logger.info(f'adding {len(delimiters)} delimiters')
-        for iframe in delimiters:
-            ax.axvline(iframe, color='k', linestyle='--')
-    # Return
-    return fig
 
 
 def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=F_LABEL,
@@ -677,26 +619,55 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
 
 
 def plot_mean_evolution(*args, **kwargs):
-    ''' Plot the mean-corrected evolution of the average frame intensity '''
-    norm = kwargs.pop('norm', True)
-    cmap = kwargs.pop('cmap', 'viridis')
-    bounds = kwargs.pop('bounds', None)
-    ilabels = kwargs.pop('ilabels', None)
-    ax = kwargs.pop('ax', None)
+    '''
+    Plot the evolution of the average frame intensity over time
+
+    :param correct (optional): whether to mean-correct the signal before plotting it  
+    '''
+    # Actual args of interest 
+    ax = kwargs.pop('ax', None)  # axis
+    correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
+    title = kwargs.get('title', None)  # title
+    
+    # Viewer rendering args
+    ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
+    norm = kwargs.pop('norm', True)  # normalize across frames before rendering
+    cmap = kwargs.pop('cmap', 'viridis')  # colormap
+    bounds = kwargs.pop('bounds', None)  # bounds
+
+    # Initialize viewer and initialize its rendering
     viewer = get_stack_viewer(*args, **kwargs)
     viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+
     if ax is None:
-        fig, ax = plt.subplots()
-        hide_spines(ax)
+        # Create figure if not provided
+        fig, ax = plt.subplots(figsize=(12, 4))
+        sns.despine()
+        if title is not None:
+            ax.set_title(title)
         ax.set_xlabel('frames')
-        ax.set_ylabel('mean corrected mean frame intensity')
-        leg = False
+        ylabel = 'average frame intensity'
+        if correct:
+            ylabel = f'mean corrected {ylabel}'
+        ax.set_ylabel(ylabel)
+        # Plot delimiters, if any
+        if ilabels is not None:
+            logger.info(f'adding {len(ilabels)} delimiters')
+            for iframe in ilabels:
+                ax.axvline(iframe, color='k', linestyle='--')
     else:
         fig = ax.get_figure()
-        leg = True
+    
+    # For each stack file-object provided
     for header, fobj in zip(viewer.headers, viewer.fobjs):
+        # Get mean evolution of the stack
         mu = viewer.get_mean_evolution(fobj, viewer.frange)
-        ax.plot(mu - mu.mean(), label=header)
-    if leg:
-        ax.legend()
+        # Mean-correct the signal if needed
+        if correct:
+            mu -= mu.mean()
+        # Plot the signal with the correct label
+        ax.plot(mu, label=header)
+    
+    # Add/update legend
+    ax.legend(frameon=False)
     return fig

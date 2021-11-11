@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 18:29:55
+# @Last Modified time: 2021-11-11 09:08:05
 
 ''' Notebook image viewing utilities. '''
 
@@ -270,15 +270,27 @@ class StackViewer:
                 self.iter_frames(fobj, self.frange, add_frame)
 
 
+def is_s2p_dict(d):
+    ''' Determine if dictionary is a suite2p output option dictionary '''
+    return isinstance(d, dict) and 'reg_file' in d
+
+
 def get_stack_viewer(fpaths, *args, **kwargs):
     ''' Interface function to instanciate stack(s) viewers. '''
-    if isinstance(fpaths, dict) and 'reg_file' not in fpaths:  # regular dictionary case
+    # If fpaths if a dictionary but not a suite2p options dictionary
+    if isinstance(fpaths, dict) and not is_s2p_dict(fpaths):
+        # Extract headers and filepaths from dictionary items
         headers, fpaths = zip(*fpaths.items())
+        # Get title from input arguments
         title = kwargs.pop('title', None)
-    else:  # single file instance or suite2p output dict 
-        print(fpaths['reg_file'])
+
+    # If fpaths is a single file instance or a suite2p output options dictionary
+    else:
+        # Extract header from title and populate single filepaths list
         headers, fpaths = [kwargs.pop('title', None)], [fpaths]
+        # Set no title (because single view does not need it)
         title = None
+    # Return stack viewer initialized with appropriate fpaths, headers and title
     return StackViewer(fpaths, headers, *args, title=title, **kwargs)
 
 
