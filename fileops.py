@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-03 09:39:49
+# @Last Modified time: 2021-11-12 13:14:20
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -11,6 +11,7 @@ import glob
 import pprint
 import datetime
 from tifffile import imread, imsave
+import matplotlib.backends.backend_pdf
 
 from parsers import P_TIFFILE
 from logger import logger
@@ -246,6 +247,19 @@ def get_figdir(figsroot):
     if not os.path.isdir(figsdir):
         os.makedirs(figsdir)
     return figsdir
+
+
+def save_figs_book(figsroot, figs):
+    ''' Save figures dictionary as consecutive pages in single PDF document. '''
+    now = datetime.datetime.now()
+    s = now.strftime('%Y.%m.%d-%H.%M')
+    fname = f'figs_{s}.pdf'
+    fpath = os.path.join(figsroot, fname)
+    file = matplotlib.backends.backend_pdf.PdfPages(fpath)
+    for i, (k, v) in enumerate(figs.items()):
+        logger.info(f'saving figure "{k}" on page {i}')
+        file.savefig(v, transparent=True, bbox_inches='tight')
+    file.close()
 
 
 def save_figs(figsroot, figs, ext='png'):

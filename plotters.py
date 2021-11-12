@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 12:08:14
+# @Last Modified time: 2021-11-12 14:12:41
 
 ''' Collection of plotting utilities. '''
 
@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton
+from utils import get_singleton, plural
 from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged
 from viewers import get_stack_viewer
    
@@ -37,8 +37,9 @@ def plot_stack_summary(stack, cmap='viridis', title=None):
         'Max. projection': np.max
     }
     fig, axes = plt.subplots(1, len(plotfuncs), figsize=(5 * len(plotfuncs), 5))
-    if title is not None:
-        fig.suptitle(title)
+    if title is None:
+        title = ''
+    fig.suptitle(f'{title} - summary frames')
     fig.subplots_adjust(hspace=10)
     fig.patch.set_facecolor('w')
     for ax, (title, func) in zip(axes, plotfuncs.items()):
@@ -46,27 +47,6 @@ def plot_stack_summary(stack, cmap='viridis', title=None):
         ax.imshow(func(stack, axis=0), cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
-    return fig
-
-
-def plot_stack_timecourse(stack, func='mean', ax=None, title=None, label=None):
-    func_obj = {
-        'mean': np.mean,
-        'median': np.median,
-        'min': np.min,
-        'max': np.max
-    }[func]
-    return func_obj(stack, axis=(-2, -1))
-    if ax is None:
-        fig, ax = plt.subplots()
-        title = '' if title is None else f'{title} - '
-        ax.set_title(f'{title} timecourse')
-        ax.set_xlabel('frames')
-        ax.set_ylabel(f'{func} frame intensity')
-        sns.despine(ax)
-    else:
-        fig = ax.get_figure()
-    ax.plot(func_obj(stack, axis=(-2, -1)), label=label)
     return fig
 
 
@@ -263,7 +243,7 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
             logger.warning('ambiguous y-labeling for more than 1 signal')
         ylabel = filtered_data.columns[0]
     ax.set_ylabel(ylabel)
-    ax.set_title(' - '.join(filters.values()))
+    ax.set_title(' - '.join(filters.values()) + f' trace{plural(nsignals)}')
 
     # Generate x-axis indexes
     xinds = np.arange(npersignal) + ionset
@@ -632,7 +612,6 @@ def plot_mean_evolution(*args, **kwargs):
     ax = kwargs.pop('ax', None)  # axis
     correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
     title = kwargs.get('title', None)  # title
-    
     # Viewer rendering args
     ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
     norm = kwargs.pop('norm', True)  # normalize across frames before rendering
@@ -647,8 +626,9 @@ def plot_mean_evolution(*args, **kwargs):
         # Create figure if not provided
         fig, ax = plt.subplots(figsize=(12, 4))
         sns.despine()
-        if title is not None:
-            ax.set_title(title)
+        if title is None:
+            title = ''
+        ax.set_title(f'{title} spatial average time course')
         ax.set_xlabel('frames')
         ylabel = 'average frame intensity'
         if correct:
@@ -759,4 +739,25 @@ def plot_stat_per_run(data, key):
     trialavg_data = trialavg_data.reset_index(level=RUN_LABEL)
     sns.barplot(ax=ax, data=trialavg_data, x=RUN_LABEL, y=key, ci='sd')
     sns.despine(ax=ax)
+    return fig
+
+
+def plot_positive_runs_hist(n_positive_runs, resp_types, nruns):
+    ''' Plot the histogram of the number of positive conditions for each ROI,
+        per response type.
+    '''
+    fig, ax = plt.subplots()
+    ax = sns.histplot(
+        pd.DataFrame([resp_types, n_positive_runs]).T,
+        x=NPOS_RUNS_LABEL, hue=ROI_RESP_TYPE_LABEL, bins=np.arange(nruns) + 0.5,
+        ax=ax)
+    sns.despine(ax=ax)
+    ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
+    labels = []
+    for k, v in LABEL_BY_TYPE.items():
+        nclass = sum(resp_types == k)
+        if nclass > 0:
+            labels.append(f'{v} (n = {nclass})')
+    ax.legend(title=ROI_RESP_TYPE_LABEL, loc='upper right', labels=['threshold'] + labels[::-1])
+    ax.set_title(f'conditions with success rate above {SUCCESS_RATE_THR * 1e2} %')
     return fig
