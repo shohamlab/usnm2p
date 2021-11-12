@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 17:16:58
+# @Last Modified time: 2021-11-12 10:49:58
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -106,20 +106,31 @@ def compute_baseline(data, fps, wlen, q):
         return data.groupby(groupkeys).transform(funcwrap)
 
 
-def find_response_peak(s):
-    ''' Find the response peak (if any) of a signal '''
+def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
+    '''
+    Find the response peak (if any) of a signal
+    
+    :param s: pandas Series containing the signal
+    :param n_neighbors: number of neighboring elemtns to include on each side
+        to compute average value around the peak
+    :param return_index: whether to also return the index of the peak
+    '''
     x = s.values
     ipeaks, _ = find_peaks(x)
     if ipeaks.size == 0: # if no peak detected -> return NaN
-        return np.nan
+        ipeak, ypeak = np.nan, np.nan
     else:
         # Get index of max amplitude peak within the array
-        imax = ipeaks[np.argmax(x[ipeaks])]
+        ipeak = ipeaks[np.argmax(x[ipeaks])]
         # Make sure it's not at the signal boundary
-        if imax == 0 or imax == x.size - 1:
-            raise ValueError(f'max peak found at signal boundary (index {imax})')
-        # Return average value of peak and its two neighbors
-        return np.mean(x[imax - 1:imax + 2])
+        if ipeak == 0 or ipeak == x.size - 1:
+            raise ValueError(f'max peak found at signal boundary (index {ipeak})')
+        # Compute average value of peak and its neighbors
+        ypeak = np.mean(x[ipeak - n_neighbors:ipeak + n_neighbors + 1])
+    if return_index:
+        return ipeak, ypeak
+    else:
+        return ypeak
 
 
 def add_time_to_table(data, key=TIME_LABEL, frame_offset=STIM_FRAME_INDEX):
@@ -156,7 +167,7 @@ def get_response_types_per_ROI(data):
     :return: pandas Series of response types per ROI
     '''
     logger.info('extracting responses types per ROI...')
-    return data.groupby(ROI_LABEL).first()[RESP_LABEL]
+    return data.groupby(ROI_LABEL).first()[ROI_RESP_TYPE_LABEL]
 
 
 def get_trial_averaged(data, key, full_output=False):
@@ -227,8 +238,8 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
     if rtype is not None:
         if iROI is not None:  # cannot filter on response type if ROI index is provided
             raise ValueError(f'only 1 of "iROI" and "rtype" can be provided')
-        include = include & (data[RESP_LABEL] == rtype)
-        filters[RESP_LABEL] = f'{LABEL_BY_TYPE[rtype]} ROIs'
+        include = include & (data[ROI_RESP_TYPE_LABEL] == rtype)
+        filters[ROI_RESP_TYPE_LABEL] = f'{LABEL_BY_TYPE[rtype]} ROIs'
     # Refine inclusion criterion based on stimulation parameters
     if P is not None:
         include = include & (data[P_LABEL] == P)

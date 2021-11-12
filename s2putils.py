@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-08 18:53:08
+# @Last Modified time: 2021-11-12 08:58:41
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -11,10 +11,7 @@ outputs according to specific criteria.
 
 import pprint
 import os
-import shutil
 import numpy as np
-import matplotlib.pyplot as plt
-from numpy.lib import isin
 import pandas as pd
 from suite2p import run_s2p, default_ops, version
 
@@ -138,7 +135,6 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
     return s2p_basedir
 
 
-
 def get_suite2p_data(dirpath, cells_only=False, withops=False, s2p_basedir=None):
     '''
     Locate suite2p output files given a specific output directory, and load them into a dictionary.
@@ -164,42 +160,9 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False, s2p_basedir=None)
                 data['ops'][k] = data['ops'][k].replace('suite2p', s2p_basedir)
     nROIs = len(data['stat'])
     logger.info(f'extracted data contains {nROIs} ROIs')
-    # data[ROI_LABEL] = np.arange(nROIs)
-    # data[IS_VALID_KEY] = np.ones(nROIs).astype(bool)
     return data
-
 
 
 def filter_s2p_data(data, ivalids):
     ''' Filter suite2p output dictionary according to list of valid indexes '''
     return {k: v[ivalids] if isinstance(v, np.ndarray) else v for k, v in data.items()}
-
-
-def update_suite2p_data_validity(data, is_valid):
-    '''
-    Update the validity of each cell in the suite2p dataset according to a new vector of
-    validity status for each cell.
-    
-    :param data: suite2p output dictionary
-    :param is_valid: boolean array of validity status for each ROI
-    :return: suite2p output with filtered "is_valid" list
-    '''
-    logger.info(f'filtering suite2p data...')
-    is_valid = is_valid.astype(bool)
-    data[IS_VALID_KEY] = data[IS_VALID_KEY] & is_valid
-    logger.info(f'filtered data contains {data[IS_VALID_KEY].sum()} valid ROIs')
-
-
-def get_filtered_suite2p_data(data, is_valid=None):
-    '''
-    Get a filtered version of the suite2p dataset containing only data for valid ROIs
-    
-    :param data: suite2p output dictionary
-    :param is_valid: boolean array of validity status for each ROI
-    :return: filtered suite2p output dictionary containing only valid ROIs
-    '''
-    fdata = data.copy()  # create copy so as to not modify the original
-    if is_valid is None:
-        is_valid = fdata.pop(IS_VALID_KEY)  # extract validity status array
-    ivalids = is_valid.nonzero()[0]  # extract indexes of valid ROIs
-    return {k: v[ivalids] if isinstance(v, np.ndarray) else v for k, v in fdata.items()}

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 17:24:19
+# @Last Modified time: 2021-11-12 12:08:14
 
 ''' Collection of plotting utilities. '''
 
@@ -19,7 +19,7 @@ from tqdm import tqdm
 from logger import logger
 from constants import *
 from utils import get_singleton
-from postpro import filter_data, get_response_types_per_ROI, get_trial_averaged
+from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged
 from viewers import get_stack_viewer
    
 
@@ -223,7 +223,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
         return fig, pd.DataFrame(is_outlier)
 
 
-def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=F_LABEL,
+def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
                     ybounds=None, cmap=None):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
@@ -233,6 +233,7 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     :param irun (optional: run index
     :param itrial (optional): trial index
     :param delimiters (optional): temporal delimitations (shown as vertical lines)
+    :param ylabel: name of the variable to plot
     :param ybounds (optional): y-axis limits
     :return: figure handle
     '''
@@ -257,15 +258,12 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     fig, ax = plt.subplots(figsize=(12, 4))
     sns.despine()
     ax.set_xlabel('frames')
+    if ylabel is None:
+        if nsignals > 1:
+            logger.warning('ambiguous y-labeling for more than 1 signal')
+        ylabel = filtered_data.columns[0]
     ax.set_ylabel(ylabel)
     ax.set_title(' - '.join(filters.values()))
-
-    # Get y-axis label
-    s = {
-        F_LABEL: 'raw fluorescence',
-        DFF_LABEL: 'normalized fluorescence change',
-        STACK_AVG_INT_LABEL: 'average stack intensity'
-    }[ylabel]
 
     # Generate x-axis indexes
     xinds = np.arange(npersignal) + ionset
@@ -292,7 +290,8 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
             ax.axvline(iframe, color='k', linestyle='--')
 
     # Add legend
-    ax.legend(frameon=False)
+    if nsignals > 1:
+        ax.legend(frameon=False)
             
     return fig
     
@@ -377,7 +376,7 @@ def plot_experiment_heatmap(data, key=DFF_LABEL, title=None, show_ylabel=True):
         cg.ax_heatmap.set_ylabel('')
         cg.ax_heatmap.set_yticks([])
     # Set new y axis label on the left
-    cg.ax_row_colors.set_ylabel(RESP_LABEL)
+    cg.ax_row_colors.set_ylabel(ROI_RESP_TYPE_LABEL)
     # Move colobar directly on the right of the heatmap
     pos = cg.ax_heatmap.get_position()
     cg.ax_cbar.set_position([pos.x1 + .1, pos.y0, .05, pos.y1 - pos.y0])
@@ -406,7 +405,8 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
     
 
 def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
-                   alltraces=False, hue=None, col=None, mark_stim=True, mark_response=True,
+                   alltraces=False, hue=None, col=None,
+                   mark_stim=True, mark_analysis_window=True, mark_peaks=False,
                    label=None, title=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
@@ -420,14 +420,15 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
     :param hue (optional): grouping variable that will produce lines with different colors.
     :param col (optional): grouping variable that will produce different axes.
     :param mark_stim (optional): whether to add a stimulus mark on the plot
-    :param mark_response (optional): whether to add mark indicating the response analysis interval on the plot
+    :param mark_analysis_window (optional): whether to add mark indicating the response analysis interval on the plot
+    :param mark_peaks: whether to mark the peaks of each identified response
     :param label (optional): add a label indicating a specific field value on the plot (when possible)
     :param title (optional): figure title (deduced if not provided)
     :param kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
     '''
     # Extract response interval (from unfiltered data) if requested 
-    if mark_response:
+    if mark_analysis_window:
         tresponse = [data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
     else:
         tresponse = None
@@ -474,8 +475,7 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         None: None,
         P_LABEL: 'flare',
         DC_LABEL: 'crest',
-        RESP_LABEL: RGB_BY_TYPE,
-        # ROI_LABEL: TAB10[:len(filtered_data.index.unique(ROI_LABEL))]
+        ROI_RESP_TYPE_LABEL: RGB_BY_TYPE
     }.get(hue, None)
 
     ###################### Mean traces and CIs ######################
@@ -488,6 +488,7 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         hue       = hue,           # hue grouping variable
         estimator = aggfunc,       # aggregating function
         ci        = ci,            # confidence interval estimator
+        lw        = 2.0,           # line width
         palette   = palette,       # color palette
         legend    = 'full'         # use all hue entries in the legend
     )
@@ -535,23 +536,43 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
                 else:
                     groups = [('all', colgr)]
                 # For each hue group
+                use_color_code = len(groups) == 1
                 for l, (_, gr) in zip(ax.get_lines(), groups):
-                    color = l.get_color()
+                    group_color = l.get_color()
+                    group_alpha = 0.2
                     # Generate pivot table for the value
                     table = gr.pivot_table(
                         index=TIME_LABEL,  # index = time
                         columns=aggkeys,  # each column = 1 line to plot 
                         values=ykey)  # values
+                    # Get response classification of each trace
+                    is_resps = gr[IS_RESP_LABEL].groupby(aggkeys).first()                                        
                     # Plot a line for each entry in the pivot table
-                    for i, x in enumerate(table):
-                        ax.plot(table[x].index, table[x].values, c=color, alpha=0.2, zorder=-10)
+                    for i, (x, is_resp) in enumerate(zip(table, is_resps)):
+                        if use_color_code:
+                            color = {True: 'g', False: 'r'}[is_resp]
+                            alpha = {True: .2, False: .2}[is_resp]
+                        else:
+                            color = group_color
+                            alpha = group_alpha
+                        ax.plot(table[x].index, table[x].values, c=color, alpha=alpha, zorder=-10)
+                        # Add detected peak if specified
+                        if mark_peaks:
+                            window_trace = table[x][
+                                (table[x].index >= tresponse[0]) &
+                                (table[x].index <= tresponse[1])]
+                            ipeak, ypeak = find_response_peak(
+                                window_trace, return_index=True)
+                            if not np.isnan(ipeak):
+                                ax.scatter(
+                                    window_trace.index[ipeak], ypeak, color=color, alpha=alpha)
                     pbar.update()
 
     ###################### Markers ######################
 
     # If indicator provided, check number of values per axis
     if label is not None:
-        label_cmap = RGB_BY_TYPE if label == RESP_LABEL else None
+        label_cmap = RGB_BY_TYPE if label == ROI_RESP_TYPE_LABEL else None
         if col is not None:
             label_values_per_ax = filtered_data.groupby(col)[label].unique().values
         else:
@@ -562,6 +583,9 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         # Plot stimulus mark if specified
         if mark_stim:
             ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
+        # Plot noise threshold level if key is z-score
+        if ykey == ZSCORE_LABEL:
+            ax.axhline(ZSCORE_THR, ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
             for tr in tresponse:
