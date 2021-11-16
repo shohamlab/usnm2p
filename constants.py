@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 17:43:02
+# @Last Modified time: 2021-11-16 17:57:55
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -122,7 +122,6 @@ F_NEU_LABEL = 'F_neu (a.u.)'
 F_LABEL = 'F (a.u.)'
 F0_LABEL = 'F0 (a.u.)'
 DFF_LABEL = 'dF/F0'
-# CORRECTED_DFF_LABEL = 'corrected dF/F0'
 
 # Stats
 DFF_NOISE_LABEL = 'dFF noise'
@@ -130,8 +129,8 @@ ZSCORE_LABEL = 'z-score'
 PEAK_ZSCORE_LABEL = 'peak z-score'
 IS_RESP_LABEL = 'trial response?'
 SUCCESS_RATE_LABEL = 'success rate'
-# CORRECTED_ZSCORE_LABEL = 'corrected z-score'
-# CORRECTED_PEAK_ZSCORE_LABEL = 'corrected peak z-score'
+CORRECTED_ZSCORE_LABEL = 'corrected z-score'
+CORRECTED_PEAK_ZSCORE_LABEL = 'corrected peak z-score'
 IS_POSITIVE_RUN_LABEL = 'positive run?'
 NPOS_RUNS_LABEL = '# positive runs'
 ROI_RESP_TYPE_LABEL = 'response type'

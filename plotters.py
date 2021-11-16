@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 17:42:25
+# @Last Modified time: 2021-11-16 18:07:51
 
 ''' Collection of plotting utilities. '''
 
@@ -420,6 +420,10 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
 
     # Filter data based on selection criteria
     filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
+    
+    # Remove problematic trials (i.e. that contain NaN for the column of interest) 
+    filtered_data = filtered_data.dropna(subset=[ykey])
+
     # Get number of ROIs in filtered data
     nROIs_filtered = len(filtered_data.index.unique(level=ROI_LABEL))
 
@@ -567,7 +571,7 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         if mark_stim:
             ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
         # Plot noise threshold level if key is z-score
-        if ykey == ZSCORE_LABEL:
+        if ykey in [ZSCORE_LABEL, CORRECTED_ZSCORE_LABEL]:
             ax.axhline(ZSCORE_THR, ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
