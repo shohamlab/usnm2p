@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 09:08:05
+# @Last Modified time: 2021-11-16 17:12:50
 
 ''' Notebook image viewing utilities. '''
 

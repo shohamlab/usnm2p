@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 14:12:41
+# @Last Modified time: 2021-11-16 17:42:25
 
 ''' Collection of plotting utilities. '''
 
@@ -204,7 +204,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
 
 
 def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
-                    ybounds=None, cmap=None):
+                ybounds=None, cmap=None, title=None):
     '''
     Simple function to plot fluorescence traces from a fluorescnece data matrix
     
@@ -243,7 +243,10 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
             logger.warning('ambiguous y-labeling for more than 1 signal')
         ylabel = filtered_data.columns[0]
     ax.set_ylabel(ylabel)
-    ax.set_title(' - '.join(filters.values()) + f' trace{plural(nsignals)}')
+    parsed_title = ' - '.join(filters.values()) + f' trace{plural(nsignals)}'
+    if title is not None:
+        parsed_title = f'{parsed_title} ({title})' 
+    ax.set_title(parsed_title)
 
     # Generate x-axis indexes
     xinds = np.arange(npersignal) + ionset
@@ -657,7 +660,7 @@ def plot_mean_evolution(*args, **kwargs):
     return fig
 
 
-def plot_stat_heatmap(data, key, expand=False, **kwargs):
+def plot_stat_heatmap(data, key, expand=False, title=None, **kwargs):
     '''
     Plot ROI x run heatmap for some statistics
     
@@ -682,12 +685,14 @@ def plot_stat_heatmap(data, key, expand=False, **kwargs):
     fig, ax = plt.subplots(figsize=figsize)
     ax = sns.heatmap(trialavg_data.unstack(), center=center, **kwargs)
     # Add title
+    if title is not None:
+        s = f'{s} ({title})'
     ax.set_title(s)
     # Return
     return fig
 
 
-def plot_stat_per_ROI(data, key):
+def plot_stat_per_ROI(data, key, title=None):
     '''
     Plot the distribution of a stat per ROI over all experimental conditions
     
@@ -708,7 +713,10 @@ def plot_stat_per_ROI(data, key):
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.set_xlabel('ROIs')
     ax.set_ylabel(s)
-    ax.set_title(f'{s} per ROI')
+    parsed_title = f'{s} per ROI'
+    if title is not None:
+        parsed_title = f'{parsed_title} ({title})'
+    ax.set_title(parsed_title)
     # Plot mean trace with +/-std shaded area
     ax.plot(x, mu)
     ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
@@ -716,7 +724,7 @@ def plot_stat_per_ROI(data, key):
     return fig
 
 
-def plot_stat_per_run(data, key):
+def plot_stat_per_run(data, key, title=None):
     '''
     Plot the distribution of a stat per run over all ROIs
     
@@ -731,7 +739,10 @@ def plot_stat_per_run(data, key):
         s = f'trial-averaged {s}'
     # Create figure
     fig, ax = plt.subplots()
-    ax.set_title(f'{s} per run')
+    parsed_title = f'{s} per run'
+    if title is not None:
+        parsed_title = f'{parsed_title} ({title})'
+    ax.set_title(parsed_title)
     ax.set_xlabel('ROIs')
     ax.set_ylabel(s)
     # Bar plot with std error bars
@@ -742,7 +753,7 @@ def plot_stat_per_run(data, key):
     return fig
 
 
-def plot_positive_runs_hist(n_positive_runs, resp_types, nruns):
+def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     ''' Plot the histogram of the number of positive conditions for each ROI,
         per response type.
     '''
@@ -759,5 +770,8 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns):
         if nclass > 0:
             labels.append(f'{v} (n = {nclass})')
     ax.legend(title=ROI_RESP_TYPE_LABEL, loc='upper right', labels=['threshold'] + labels[::-1])
-    ax.set_title(f'conditions with success rate above {SUCCESS_RATE_THR * 1e2} %')
+    s = 'classification by # positive conditions'
+    if title is not None:
+        s = f'{s} ({title})'
+    ax.set_title(s)
     return fig

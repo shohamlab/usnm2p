@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 13:14:20
+# @Last Modified time: 2021-11-16 15:29:21
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -78,7 +78,42 @@ def is_tif_dir(dir):
         return False
 
 
-def get_output_equivalent(inpath, basein, baseout):
+def split_path_at(in_path, split_dir):
+    '''
+    Split an absolute path at a specific parent directory located somewhere upstream in the filesystem.
+    
+    :param in_path: absolute path to the input file or directory
+    :param split_dir: name of the directory at which to split the path (must contain in_path)
+    :return: 3-tuple with the upstream path, the dplit directory, and the downstream path
+    '''
+    if not os.path.exists(in_path):
+        raise ValueError(f'"{in_path}" does not exist')
+    logger.debug(f'input path: "{in_path}"')
+    # Create empty downstream path list
+    downstream_path = []
+    # Split input path
+    pardir, dirname = os.path.split(in_path)
+    # Add current basename to downstream path list if not empty
+    if dirname:
+        downstream_path.append(dirname)
+    # Move up file-tree until split directory is found
+    logger.debug(f'moving up the file-tree to find "{split_dir}"')
+    while dirname != split_dir:
+        if len(pardir) < 2:  # if gone all the way up to root level without match -> raise error
+            raise ValueError(f'"{split_dir}"" is not a parent of "{split_dir}"')
+        pardir, dirname = os.path.split(pardir)
+        # Add current basename to downstream path list
+        downstream_path.append(dirname)
+    logger.debug(f'found "{split_dir}" in "{pardir}"')
+    # Reverse downstream path list (to match descending order) and isolate split directory
+    found_split_dir, *downstream_path = downstream_path[::-1]
+    # Make sure found split directory matches input
+    assert found_split_dir == split_dir, 'mismatch in path parsing'
+    # Return (upstream path, dplit dir, downstream path) tuple
+    return pardir, split_dir, os.path.join(*downstream_path)
+
+
+def get_output_equivalent(in_path, basein, baseout):
     '''
     Get the "output equivalent" of a given file or directory, i.e. its corresponding path in
     an identified output branch of the file tree structure, while creating the intermediate
@@ -89,30 +124,20 @@ def get_output_equivalent(inpath, basein, baseout):
     :param baseout: name of the base folder containing the output data (must not necessarily exist)
     :return: absolute path to the equivalent output file or directory
     '''
-    if not os.path.exists(inpath):
-        raise ValueError(f'"{inpath}" does not exist')
-    pardir, dirname = os.path.split(inpath)
-    logger.debug(f'input path: "{inpath}"')
-    subdirs = []
-    if os.path.isdir(inpath):
-        subdirs.append(dirname)
-        fname = None
-    else:
-        fname = dirname
-    logger.debug(f'moving up the filetree to find "{basein}"')
-    while dirname != basein:
-        if len(pardir) < 2:
-            raise ValueError(f'"{basein}"" is not a parent of "{inpath}"')
-        pardir, dirname = os.path.split(pardir)
-        subdirs.append(dirname)
-    logger.debug(f'found "{basein}" in "{pardir}"')
+    # Get the upstream and downstream paths according to basein split 
+    upstream_path, _, downstream_path = split_path_at(in_path, basein)
     logger.debug(f'moving down the file tree in "{baseout}"')
-    outpath = os.path.join(pardir, baseout, *subdirs[::-1][1:])
-    if not os.path.isdir(outpath):
-        os.makedirs(outpath)
-    if fname is not None:
-        outpath = os.path.join(outpath, fname)
-    return outpath
+    # Construct output path
+    out_path = os.path.join(upstream_path, baseout, downstream_path)
+    logger.debug(f'output path: "{out_path}"')
+    # Create required subdirectories if output path does not exist
+    if not os.path.exists(out_path):
+        if os.path.isdir(in_path):  # if input path was a directory -> include all elements
+            os.makedirs(out_path)
+        else:  # if input path was a file -> omit last element
+            os.makedirs(os.path.split(out_path)[0])
+    # Return output path
+    return out_path
 
     
 def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[]):
@@ -274,7 +299,7 @@ def save_figs(figsroot, figs, ext='png'):
 def save_stack_to_gif(figsroot, *args, **kwargs):
     ''' High level function to save stacks to gifs. '''
     figsdir = get_figdir(figsroot)
-    fps = kwargs.pop('fps', FPS)
+    fps = kwargs.pop('fps', 10)
     norm = kwargs.pop('norm', True)
     cmap = kwargs.pop('cmap', 'viridis')
     bounds = kwargs.pop('bounds', None)

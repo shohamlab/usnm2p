@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 12:57:45
+# @Last Modified time: 2021-11-16 17:43:02
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -62,7 +62,7 @@ TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s)
 # - small values (around 0) tend to produce smoother dF/F0 traces with less amplitude,
 # - large values (around 1) tend to produce higher amplitude dF/F0 traces with more fluctuations
 # - default is 0.7 (from literature), for PV 0.5 works better, for SST 0.6. But lately it seems that is ok with 0.7 for all regardless of the line 
-ALPHA = .1
+ALPHA = .7
 
 # Baseline computation
 BASELINE_WLEN = 30.  # window length (in s) to compute the fluorescence baseline
@@ -122,7 +122,7 @@ F_NEU_LABEL = 'F_neu (a.u.)'
 F_LABEL = 'F (a.u.)'
 F0_LABEL = 'F0 (a.u.)'
 DFF_LABEL = 'dF/F0'
-CORRECTED_DFF_LABEL = 'corrected dF/F0'
+# CORRECTED_DFF_LABEL = 'corrected dF/F0'
 
 # Stats
 DFF_NOISE_LABEL = 'dFF noise'
@@ -130,7 +130,8 @@ ZSCORE_LABEL = 'z-score'
 PEAK_ZSCORE_LABEL = 'peak z-score'
 IS_RESP_LABEL = 'trial response?'
 SUCCESS_RATE_LABEL = 'success rate'
-CORRECTED_PEAK_ZSCORE_LABEL = 'corrected peak z-score'
+# CORRECTED_ZSCORE_LABEL = 'corrected z-score'
+# CORRECTED_PEAK_ZSCORE_LABEL = 'corrected peak z-score'
 IS_POSITIVE_RUN_LABEL = 'positive run?'
 NPOS_RUNS_LABEL = '# positive runs'
 ROI_RESP_TYPE_LABEL = 'response type'
