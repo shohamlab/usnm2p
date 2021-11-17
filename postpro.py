@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 10:49:58
+# @Last Modified time: 2021-11-17 15:37:35
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
+from pandas.core.frame import DataFrame
 from tqdm import tqdm
 from scipy.signal import find_peaks
 
@@ -170,26 +171,43 @@ def get_response_types_per_ROI(data):
     return data.groupby(ROI_LABEL).first()[ROI_RESP_TYPE_LABEL]
 
 
-def get_trial_averaged(data, key, full_output=False):
+def get_trial_averaged(data, full_output=False):
     '''
     Compute trial-averaged statistics
     
     :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :param key: stat column key
     :return: (trialavg_data, is_repeat) tuple
     '''
     # Group trials
-    groups = data[key].groupby([ROI_LABEL, RUN_LABEL])
+    groups = data.groupby([ROI_LABEL, RUN_LABEL])
     # Compute average of stat across trials
     trialavg_data = groups.mean()
+    # Remove time column if present
+    if isinstance(trialavg_data, pd.DataFrame) and TIME_LABEL in trialavg_data:
+        del trialavg_data[TIME_LABEL]
     if full_output:
-        # Compute std of stat across trials
-        trialstd_data = groups.std()        
+        # Compute average of stat across trials
+        trialstd_data = groups.std()
         # Determine whether stats is a repeated value or a real distribution
-        is_repeat = not trialstd_data.max() > 0
+        is_repeat = ~(trialstd_data.max() > 0)
         return trialavg_data, is_repeat
     else:
         return trialavg_data
+
+
+def weighted_average(data, avg_name, weight_name):
+    '''
+    Compute a weighted-average of a particular column of a dataframe using the weights
+    of another column.
+    
+    :param data: dataframe
+    :param avg_name: name of the column containing the values to average
+    :param weight_name: name of the coolumn containing the weights
+    :return: weighted average
+    '''
+    d = data[avg_name]
+    w = data[weight_name]
+    return (d * w).sum() / w.sum()
 
 
 def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):

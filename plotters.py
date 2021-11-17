@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 18:07:51
+# @Last Modified time: 2021-11-17 16:27:15
 
 ''' Collection of plotting utilities. '''
 
@@ -19,8 +19,21 @@ from tqdm import tqdm
 from logger import logger
 from constants import *
 from utils import get_singleton, plural
-from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged
+from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, weighted_average
 from viewers import get_stack_viewer
+
+
+def plot_table(inputs):
+    '''Plot a table as a figure '''
+    cellText = [[k, v] for k, v in inputs.items()]
+    fig, ax = plt.subplots()
+    ax.set_title('Dataset', fontsize=20)
+    ax.axis('off')
+    table = ax.table(cellText, loc='center')
+    table.set_fontsize(14)
+    table.scale(1, 3)
+    fig.tight_layout()
+    return fig
    
 
 def plot_stack_summary(stack, cmap='viridis', title=None):
@@ -385,41 +398,35 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
     tcolor = 'w' if brightness < 0.7 else 'k'
     ax.add_patch(Rectangle((1 - w,  1 - w), w, w, transform=ax.transAxes, fc=c, ec=None))
     ax.text(1 - w / 2,  1 - w / 2, s, transform=ax.transAxes, ha='center', va='center', c=tcolor)
-    
 
-def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='mean', ci=CI, ax=None,
-                   alltraces=False, hue=None, col=None,
-                   mark_stim=True, mark_analysis_window=True, mark_peaks=False,
-                   label=None, title=None, **kwargs):
-    ''' Plot trial responses of specific sub-datasets.
+
+
+def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
+                   ax=None, alltraces=False, hue=None, col=None, label=None, title=None, markerfunc=None,
+                   **filter_kwargs):
+    ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
-    :param tbounds (optional): time limits for plot
-    :param ykey (optional): key indicating the specific signals to plot on the y-axis
+    :param xkey: key indicating the specific signals to plot on the x-axis
+    :param ykey: key indicating the specific signals to plot on the y-axis
+    :param xbounds (optional): x-axis limits for plot
     :param ybounds (optional): y-axis limits for plot
-    :param aggfunc (optional): method for aggregating across multiple observations within group. If None, all observations will be drawn.
+    :param aggfunc (optional): method for aggregating across multiple observations within group.
+    :param weightby (optional): column used to weight observations upon aggregration.
     :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None) 
     :param alltraces (optional): whether to plot all individual traces
     :param hue (optional): grouping variable that will produce lines with different colors.
     :param col (optional): grouping variable that will produce different axes.
-    :param mark_stim (optional): whether to add a stimulus mark on the plot
-    :param mark_analysis_window (optional): whether to add mark indicating the response analysis interval on the plot
-    :param mark_peaks: whether to mark the peaks of each identified response
     :param label (optional): add a label indicating a specific field value on the plot (when possible)
     :param title (optional): figure title (deduced if not provided)
-    :param kwargs: keyword parameters that are passed to the filter_data function
+    :param markerfunc (optional): function to draw additional markers for individual traces
+    :param filter_kwargs: keyword parameters that are passed to the filter_data function
     :return: figure handle
     '''
-    # Extract response interval (from unfiltered data) if requested 
-    if mark_analysis_window:
-        tresponse = [data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
-    else:
-        tresponse = None
-
     ###################### Filtering ######################
 
     # Filter data based on selection criteria
-    filtered_data, filters = filter_data(data, full_output=True, tbounds=tbounds, **kwargs)
+    filtered_data, filters = filter_data(data, full_output=True, **filter_kwargs)
     
     # Remove problematic trials (i.e. that contain NaN for the column of interest) 
     filtered_data = filtered_data.dropna(subset=[ykey])
@@ -451,12 +458,19 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         s.append(f'grouping by {hue}')
         if hue == ROI_LABEL and ROI_LABEL in filters:
             del filters[ROI_LABEL]
+    if weightby is not None:
+        if weightby not in data:
+            raise ValueError(f'weighting variable ({weightby}) not found in data')
+        if aggfunc != 'mean':
+            raise ValueError(f'cannot use {weightby}-weighting with {aggfunc} aggregation')
+        s.append(f'weighting by {weightby}')
+        filters['weight'] = f'weighted by {weightby}'
     if aggfunc is not None:
         s.append('averaging')
     if ci is not None:
         s.append('estimating confidence intervals')
     s = f'{", ".join(s)} and ' if len(s) > 0 else ''
-    logger.info(f'{s}plotting...')
+    logger.info(f'{s}plotting {aggfunc} {ykey} vs. {xkey} ...')
     # Determine color palette depending on hue parameter
     palette = {
         None: None,
@@ -465,12 +479,28 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         ROI_RESP_TYPE_LABEL: RGB_BY_TYPE
     }.get(hue, None)
 
+
+    ###################### Aggregating function ######################
+
+    # If weighting variable is specified, define aggregating function accordingly
+    if weightby is not None:
+        def aggfunc(x):
+            if isinstance(x, pd.Series):
+                # Series case (when computing aggregate) -> weight by "weightby" column values at same index
+                weights = filtered_data.loc[x.index, weightby]
+            else:
+                # Array case case (when computing CI) -> uniform weighting
+                weights = np.ones_like(x)
+            # Return weighted average       
+            return (x * weights).sum() / weights.sum()
+
+
     ###################### Mean traces and CIs ######################
 
     # Default plot arguments dictionary
     plot_kwargs = dict(
         data      = filtered_data, # data
-        x         = TIME_LABEL,    # x-axis
+        x         = xkey,          # x-axis
         y         = ykey,          # y-axis
         hue       = hue,           # hue grouping variable
         estimator = aggfunc,       # aggregating function
@@ -502,12 +532,14 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
 
     ###################### Individual traces ######################
     
+    # Aggregation keys = all index keys that are not "frame" 
+    aggkeys = list(filter(lambda x: x is not None and x != FRAME_LABEL, filtered_data.index.names))
     if alltraces:
-        logger.info('plotting individual traces...')
+        logger.info(f'plotting individual {ykey} vs. {xkey} traces...')
+        # Getting number of conditions to plot
         nconds = len(axlist) * len(axlist[0].get_lines())
+        alpha_trace = 0.2  # opacity index of each trace
         with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
-            # Aggregation keys = all index keys that are not "frame" 
-            aggkeys = list(filter(lambda x: x is not None and x != FRAME_LABEL, filtered_data.index.names))
             # Group data by col, if provided
             if col is not None:
                 logger.debug(f'grouping by {col}')
@@ -522,14 +554,14 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
                     groups = colgr.groupby(hue)
                 else:
                     groups = [('all', colgr)]
-                # For each hue group
+                # Use color code for individual traces only if 1 group on the axis
                 use_color_code = len(groups) == 1
+                # For each hue group
                 for l, (_, gr) in zip(ax.get_lines(), groups):
                     group_color = l.get_color()
-                    group_alpha = 0.2
                     # Generate pivot table for the value
                     table = gr.pivot_table(
-                        index=TIME_LABEL,  # index = time
+                        index=xkey,  # index = xkey
                         columns=aggkeys,  # each column = 1 line to plot 
                         values=ykey)  # values
                     # Get response classification of each trace
@@ -538,21 +570,12 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
                     for i, (x, is_resp) in enumerate(zip(table, is_resps)):
                         if use_color_code:
                             color = {True: 'g', False: 'r'}[is_resp]
-                            alpha = {True: .2, False: .2}[is_resp]
                         else:
                             color = group_color
-                            alpha = group_alpha
-                        ax.plot(table[x].index, table[x].values, c=color, alpha=alpha, zorder=-10)
-                        # Add detected peak if specified
-                        if mark_peaks:
-                            window_trace = table[x][
-                                (table[x].index >= tresponse[0]) &
-                                (table[x].index <= tresponse[1])]
-                            ipeak, ypeak = find_response_peak(
-                                window_trace, return_index=True)
-                            if not np.isnan(ipeak):
-                                ax.scatter(
-                                    window_trace.index[ipeak], ypeak, color=color, alpha=alpha)
+                        ax.plot(table[x].index, table[x].values, c=color, alpha=alpha_trace, zorder=-10)
+                        # Add individual trace markers if specified
+                        if markerfunc is not None:
+                            markerfunc(ax, table[x], color=color, alpha=alpha_trace)
                     pbar.update()
 
     ###################### Markers ######################
@@ -567,22 +590,14 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         
     # For each axis
     for iax, ax in enumerate(axlist):
-        # Plot stimulus mark if specified
-        if mark_stim:
-            ax.axvspan(0, get_singleton(filtered_data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
-        # Plot noise threshold level if key is z-score
-        if ykey in [ZSCORE_LABEL, CORRECTED_ZSCORE_LABEL]:
-            ax.axhline(ZSCORE_THR, ls='--', c='k', lw=1.)
-        # Plot response interval if specified
-        if tresponse is not None:
-            for tr in tresponse:
-                ax.axvline(tr, ls='--', c='k', lw=1.)
-        # Adjust time axis if specified
-        if tbounds is not None:
-            ax.set_xlim(*tbounds)
+        # Adjust x-axis if specified
+        if xbounds is not None:
+            ax.set_xlim(*xbounds)
         # Adjust y-axis if specified
         if ybounds is not None:
-            ax.set_ylim(*ybounds)
+            ylims = ax.get_ylim()
+            ybounds_ax = [yb if yb is not None else yl for yb, yl in zip(ybounds, ylims)]
+            ax.set_ylim(*ybounds_ax)
         # Add label for specific field value, if specified and possible
         if label is not None:
             label_values = label_values_per_ax[iax]
@@ -605,6 +620,100 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, ybounds=None, aggfunc='me
         fig.subplots_adjust(top=1 - dy / height)
         fig.suptitle(title)
 
+    # Return figure
+    return fig
+
+
+def marks_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
+    ''' Function to mark peaks of a response trace '''
+    # Restrict trace to specific time interval (if specified)
+    if tbounds is not None:
+        trace = trace[(trace.index >= tbounds[0]) & (trace.index <= tbounds[1])]
+    # Find peak on the response trace
+    ipeak, ypeak = find_response_peak(
+        trace, return_index=True)
+    # If peak has been detected, plot it
+    if not np.isnan(ipeak):
+        ax.scatter(trace.index[ipeak], ypeak, color=color, alpha=alpha)
+
+
+def plot_responses(data, tbounds=None, ykey=DFF_LABEL, mark_stim=True, mark_analysis_window=True,
+                   mark_peaks=False, **kwargs):
+    ''' Plot trial responses of specific sub-datasets.
+    
+    :param data: experiment dataframe
+    :param tbounds (optional): time limits for plot
+    :param ykey (optional): key indicating the specific signals to plot on the y-axis
+    :param mark_stim (optional): whether to add a stimulus mark on the plot
+    :param mark_analysis_window (optional): whether to add mark indicating the response analysis interval on the plot
+    :param mark_peaks: whether to mark the peaks of each identified response
+    :param label (optional): add a label indicating a specific field value on the plot (when possible)
+    :param title (optional): figure title (deduced if not provided)
+    :param kwargs: keyword parameters that are passed to the generic plot_from_data function
+    :return: figure handle
+    '''
+    # By default, no marker funtion is needed
+    markerfunc = None
+
+    # Extract response interval (from unfiltered data) if requested 
+    if mark_analysis_window:
+        tresponse = [data[TIME_LABEL].values[i] for i in [I_RESPONSE.start, I_RESPONSE.stop]]
+        # Define marker function if mark_peaks is set to True
+        if mark_peaks:
+            markerfunc = lambda *args, **kwargs: marks_response_peak(
+                *args, tbounds=tresponse, **kwargs)
+
+    # Add tbounds to filtering criteria
+    kwargs['tbounds'] = tbounds
+
+    # Plot with time on x-axis
+    fig = plot_from_data(
+        data, TIME_LABEL, ykey, xbounds=tbounds, markerfunc=markerfunc, **kwargs)
+        
+    # Add markers for each axis
+    for ax in fig.axes:
+        # Plot stimulus mark if specified
+        if mark_stim:
+            ax.axvspan(0, get_singleton(data, DUR_LABEL), ec=None, fc='C5', alpha=0.5)
+        # Plot noise threshold level if key is z-score
+        if ykey in [ZSCORE_LABEL, CORRECTED_ZSCORE_LABEL]:
+            ax.axhline(ZSCORE_THR, ls='--', c='k', lw=1.)
+        # Plot response interval if specified
+        if tresponse is not None:
+            for tr in tresponse:
+                ax.axvline(tr, ls='--', c='k', lw=1.)
+
+    # Return figure
+    return fig
+
+
+def plot_parameter_dependency(data, xkey=P_LABEL, ykey=SUCCESS_RATE_LABEL, **kwargs):
+    ''' Plot parameter dependency of responses for specific sub-datasets.
+    
+    :param data: experiment dataframe
+    :param xkey (optional): key indicating the independent variable of the x-axis
+    :param ykey (optional): key indicating the dependent variable of the y-axis
+    :param kwargs: keyword parameters that are passed to the generic plot_from_data function
+    :return: figure handle
+    '''
+    # Average data across frames & trials (i.e. 1 data metric per ROI & condition)
+    trialavg_data = data.groupby([ROI_LABEL, RUN_LABEL]).mean()
+    
+    # # If ykey is not success rate, then weigh ykey by success rate 
+    # if ykey != SUCCESS_RATE_LABEL:
+    #     trialavg_data[ykey] = trialavg_data[ykey] * trialavg_data[SUCCESS_RATE_LABEL]
+    
+    # Restrict filtering criteria based on xkey
+    if xkey == P_LABEL:
+        kwargs['DC'] = DC_REF
+    elif xkey == DC_LABEL:
+        kwargs['P'] = P_REF
+    else:
+        raise ValueError(f'xkey must be one of ({P_LABEL}, {DC_LABEL}')
+    
+    # Plot
+    fig = plot_from_data(trialavg_data, xkey, ykey, **kwargs)
+    
     # Return figure
     return fig
 
@@ -675,7 +784,7 @@ def plot_stat_heatmap(data, key, expand=False, title=None, **kwargs):
     '''
     s = f'{key} per ROI & run'
     # Compute trial-averaged data
-    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    trialavg_data, is_repeat = get_trial_averaged(data[key], full_output=True)
     # Determine whether stats is a repeated value or a real distribution
     if not is_repeat:
         s = f'trial-averaged {s}'
@@ -705,7 +814,7 @@ def plot_stat_per_ROI(data, key, title=None):
     '''
     s = key
     # Compute trial-averaged data
-    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    trialavg_data, is_repeat = get_trial_averaged(data[key], full_output=True)
     # Determine whether stats is a repeated value or a real distribution
     if not is_repeat:
         s = f'trial-averaged {s}'
@@ -737,7 +846,7 @@ def plot_stat_per_run(data, key, title=None):
     '''
     s = key
     # Compute trial-averaged data
-    trialavg_data, is_repeat = get_trial_averaged(data, key, full_output=True)
+    trialavg_data, is_repeat = get_trial_averaged(data[key], full_output=True)
     # Determine whether stats is a repeated value or a real distribution
     if not is_repeat:
         s = f'trial-averaged {s}'
