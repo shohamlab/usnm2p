@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 17:33:40
+# @Last Modified time: 2021-11-17 18:22:46
 
 ''' Collection of plotting utilities. '''
 
@@ -387,7 +387,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
-                   ax=None, alltraces=False, hue=None, col=None, label=None, title=None, markerfunc=None,
+                   err_style='band', ax=None, alltraces=False, hue=None, col=None, label=None, title=None, markerfunc=None,
                    **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
@@ -398,7 +398,8 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     :param ybounds (optional): y-axis limits for plot
     :param aggfunc (optional): method for aggregating across multiple observations within group.
     :param weightby (optional): column used to weight observations upon aggregration.
-    :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None) 
+    :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None)
+    :param err_style (“band” or “bars”): whether to draw the confidence intervals with translucent error bands or discrete error bars.
     :param alltraces (optional): whether to plot all individual traces
     :param hue (optional): grouping variable that will produce lines with different colors.
     :param col (optional): grouping variable that will produce different axes.
@@ -490,6 +491,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         hue       = hue,           # hue grouping variable
         estimator = aggfunc,       # aggregating function
         ci        = ci,            # confidence interval estimator
+        err_style = err_style,     # error visualization style 
         lw        = 2.0,           # line width
         palette   = palette,       # color palette
         legend    = 'full'         # use all hue entries in the legend
@@ -690,7 +692,7 @@ def plot_parameter_dependency(data, xkey=P_LABEL, ykey=SUCCESS_RATE_LABEL, **kwa
         raise ValueError(f'xkey must be one of ({P_LABEL}, {DC_LABEL}')
     
     # Plot
-    fig = plot_from_data(data, xkey, ykey, **kwargs)
+    fig = plot_from_data(data, xkey, ykey, err_style='bars', **kwargs)
     
     # Return figure
     return fig
