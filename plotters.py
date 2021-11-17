@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 16:27:15
+# @Last Modified time: 2021-11-17 17:33:40
 
 ''' Collection of plotting utilities. '''
 
@@ -290,22 +290,7 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
         ax.legend(frameon=False)
             
     return fig
-    
-
-def plot_types_sequence(rtypes):
-    '''
-    Plot a line showing color-coded response type per cell.
-    
-    :param rtypes: list of response types per cell.
-    :return: figure handle
-    '''
-    fig, ax = plt.subplots(figsize=(12, 1))
-    ax.imshow(
-        np.array([rtypes]), interpolation='nearest',
-        cmap=ListedColormap(list(RGB_BY_TYPE.values())))
-    ax.set_aspect('auto')
-    return fig
-    
+        
 
 def plot_cell_map(data, s2p_data, s2p_ops, title=None):
     ''' Plot spatial distribution of cells (per response type) on the recording plane.
@@ -331,7 +316,7 @@ def plot_cell_map(data, s2p_data, s2p_ops, title=None):
     ax.imshow(im)
     # Add legend
     leg_items = [Line2D(
-        [0], [0], label=f'{LABEL_BY_TYPE[k]} ({sum(rtypes == k)})',
+        [0], [0], label=f'{k} ({sum(rtypes == k)})',
         c='none', marker='o', mfc=v, mec='k', ms=10)
         for k, v in RGB_BY_TYPE.items()]
     ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
@@ -690,19 +675,12 @@ def plot_responses(data, tbounds=None, ykey=DFF_LABEL, mark_stim=True, mark_anal
 def plot_parameter_dependency(data, xkey=P_LABEL, ykey=SUCCESS_RATE_LABEL, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
-    :param data: experiment dataframe
+    :param data: trial-averaged experiment dataframe
     :param xkey (optional): key indicating the independent variable of the x-axis
     :param ykey (optional): key indicating the dependent variable of the y-axis
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
-    '''
-    # Average data across frames & trials (i.e. 1 data metric per ROI & condition)
-    trialavg_data = data.groupby([ROI_LABEL, RUN_LABEL]).mean()
-    
-    # # If ykey is not success rate, then weigh ykey by success rate 
-    # if ykey != SUCCESS_RATE_LABEL:
-    #     trialavg_data[ykey] = trialavg_data[ykey] * trialavg_data[SUCCESS_RATE_LABEL]
-    
+    '''    
     # Restrict filtering criteria based on xkey
     if xkey == P_LABEL:
         kwargs['DC'] = DC_REF
@@ -712,7 +690,7 @@ def plot_parameter_dependency(data, xkey=P_LABEL, ykey=SUCCESS_RATE_LABEL, **kwa
         raise ValueError(f'xkey must be one of ({P_LABEL}, {DC_LABEL}')
     
     # Plot
-    fig = plot_from_data(trialavg_data, xkey, ykey, **kwargs)
+    fig = plot_from_data(data, xkey, ykey, **kwargs)
     
     # Return figure
     return fig
@@ -878,10 +856,10 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     sns.despine(ax=ax)
     ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
     labels = []
-    for k, v in LABEL_BY_TYPE.items():
+    for k in RGB_BY_TYPE.keys():
         nclass = sum(resp_types == k)
         if nclass > 0:
-            labels.append(f'{v} (n = {nclass})')
+            labels.append(f'{k} (n = {nclass})')
     ax.legend(title=ROI_RESP_TYPE_LABEL, loc='upper right', labels=['threshold'] + labels[::-1])
     s = 'classification by # positive conditions'
     if title is not None:

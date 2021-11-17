@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 17:57:55
+# @Last Modified time: 2021-11-17 16:55:27
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -140,5 +140,5 @@ ROI_RESP_TYPE_LABEL = 'response type'
 
 LABEL_BY_TYPE = {-1: 'negative', 0: 'neutral', 1: 'positive'} 
 TAB10 = sns.color_palette('tab10')  # default color palette
-RGB_BY_TYPE = {-1: TAB10[1], 0: TAB10[7], 1: TAB10[2]}  # mapping of RGB colors to specific integer codes
+RGB_BY_TYPE = {'negative': TAB10[1], 'neutral': TAB10[7], 'positive': TAB10[2]}  # mapping of RGB colors to response types
 CI = 95  # default confidence interval for bootstrapping

@@ -2,12 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 15:37:35
+# @Last Modified time: 2021-11-17 17:29:17
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
-from pandas.core.frame import DataFrame
+import pandas as pd
 from tqdm import tqdm
 from scipy.signal import find_peaks
 
@@ -181,7 +181,7 @@ def get_trial_averaged(data, full_output=False):
     # Group trials
     groups = data.groupby([ROI_LABEL, RUN_LABEL])
     # Compute average of stat across trials
-    trialavg_data = groups.mean()
+    trialavg_data = groups.agg(mean_str)
     # Remove time column if present
     if isinstance(trialavg_data, pd.DataFrame) and TIME_LABEL in trialavg_data:
         del trialavg_data[TIME_LABEL]
@@ -257,7 +257,7 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
         if iROI is not None:  # cannot filter on response type if ROI index is provided
             raise ValueError(f'only 1 of "iROI" and "rtype" can be provided')
         include = include & (data[ROI_RESP_TYPE_LABEL] == rtype)
-        filters[ROI_RESP_TYPE_LABEL] = f'{LABEL_BY_TYPE[rtype]} ROIs'
+        filters[ROI_RESP_TYPE_LABEL] = f'{rtype} ROIs'
     # Refine inclusion criterion based on stimulation parameters
     if P is not None:
         include = include & (data[P_LABEL] == P)

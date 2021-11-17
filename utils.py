@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-11 13:00:27
+# @Last Modified time: 2021-11-17 17:26:28
 
 ''' Collection of generic utilities. '''
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 import operator
 import abc
 
@@ -250,3 +251,11 @@ def reindex_dataframe_level(df, level=0):
     old_vals = df.index.unique(level=level)
     new_vals = np.arange(old_vals.size)
     return df.reindex(new_vals, level=level)
+
+
+def mean_str(s):
+    ''' Averaging function with extra handling of string-typed iterables. '''
+    if is_numeric_dtype(s):
+        return s.mean()
+    else:
+        return s.unique() if s.nunique() == 1 else np.nan
