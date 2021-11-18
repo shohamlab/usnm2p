@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 15:29:21
+# @Last Modified time: 2021-11-17 18:40:17
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -134,8 +134,10 @@ def get_output_equivalent(in_path, basein, baseout):
     if not os.path.exists(out_path):
         if os.path.isdir(in_path):  # if input path was a directory -> include all elements
             os.makedirs(out_path)
-        else:  # if input path was a file -> omit last element
-            os.makedirs(os.path.split(out_path)[0])
+        else:  # if input path was a file -> fetch parent directory
+            pardir = os.path.split(out_path)[0]
+            if not os.path.isdir(pardir):
+                os.makedirs(pardir)
     # Return output path
     return out_path
 

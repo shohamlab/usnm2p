@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 18:00:37
+# @Last Modified time: 2021-11-18 10:36:21
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -139,6 +139,6 @@ ROI_RESP_TYPE_LABEL = 'response type'
 ###################################### PLOTTING ######################################
 
 LABEL_BY_TYPE = {0: 'non-responder', 1: 'responder'}
-TAB10 = sns.color_palette('tab10')  # default color palette
-RGB_BY_TYPE = {'non-responder': TAB10[0], 'responder': TAB10[1]}  # mapping of RGB colors to response types
+COLORS = sns.color_palette('Set2')  # default color palette
+RGB_BY_TYPE = {'non-responder': COLORS[7], 'responder': COLORS[0]}  # mapping of RGB colors to response types
 CI = 95  # default confidence interval for bootstrapping

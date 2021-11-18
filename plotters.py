@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 18:22:46
+# @Last Modified time: 2021-11-18 15:41:28
 
 ''' Collection of plotting utilities. '''
 
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.colors import ListedColormap
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
 import seaborn as sns
 from colorsys import hsv_to_rgb, rgb_to_hsv
@@ -21,6 +21,16 @@ from constants import *
 from utils import get_singleton, plural
 from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, weighted_average
 from viewers import get_stack_viewer
+
+
+def harmonize_axes_limits(axes, axkey='y'):
+    ''' Harmonize axes limits'''
+    if axes.ndim > 1:
+        axes = axes.flatten()
+    ymin = min([ax.get_ylim()[0] for ax in axes])
+    ymax = max([ax.get_ylim()[1] for ax in axes])
+    for ax in axes.flatten():
+        ax.set_ylim(ymin, ymax)
 
 
 def plot_table(inputs):
@@ -36,7 +46,7 @@ def plot_table(inputs):
     return fig
    
 
-def plot_stack_summary(stack, cmap='viridis', title=None):
+def plot_stack_summary(stack, cmap='viridis', title=None, um_per_px=None):
     '''
     Plot summary imges from a TIF stack.
     :param stack: TIF stack
@@ -60,10 +70,45 @@ def plot_stack_summary(stack, cmap='viridis', title=None):
         ax.imshow(func(stack, axis=0), cmap=cmap)
         ax.set_xticks([])
         ax.set_yticks([])
+        if um_per_px is not None:
+            npx = stack.shape[-1]
+            add_scale_bar(ax, npx, um_per_px, color='w')
     return fig
 
 
-def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis'):
+def add_scale_bar(ax, npx, um_per_px, color='k'):
+    '''
+    Add a scale bar to a micrograph axis
+    
+    :param ax: axis object
+    :param npx: number of pixels on each dimension of the axis image
+    :param um_per_pixel: number of microns per pixel
+    :param color: color of the scale bar
+    '''
+    # Compute scale bar length (in microns)
+    npx_bar_length = npx / 4   # starting point (in pxels): 1/4 of the image length
+    um_bar_length = um_per_px * npx_bar_length  # conversion to microns
+    # Round to appropriate power of ten factor
+    pow10 = int(np.log10(um_bar_length))
+    roundfactor = np.power(10, pow10)
+    um_bar_length = np.round(um_bar_length / roundfactor) * roundfactor
+    # Compute relative length (in axis units)
+    npx_bar_length = um_bar_length / um_per_px
+    rel_bar_length = npx_bar_length / npx
+    # Define and
+    scalebar = AnchoredSizeBar(ax.transAxes,
+        rel_bar_length, 
+        f'{um_bar_length:.0f} um',
+        'lower right', 
+        pad=0.1,
+        color=color,
+        frameon=False,
+        size_vertical=.01)
+    # Add scale bar to axis
+    ax.add_artist(scalebar)
+
+
+def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_per_px=None):
     ''' Plot summary registration images from suite2p processing output.
 
         :param output_ops: suite2p output
@@ -89,6 +134,13 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis'):
     ax = axes[3]
     ax.imshow(output_ops['meanImgE'], cmap=cmap)
     ax.set_title("High-pass filtered Mean registered image")
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        npx = output_ops['meanImgE'].shape[-1]
+        for ax in axes:
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            add_scale_bar(ax, npx, um_per_px, color='w')
     return fig
 
 
@@ -124,7 +176,7 @@ def plot_suite2p_registration_offsets(output_ops, title=None):
     return fig
 
 
-def plot_suite2p_ROIs(data, output_ops, title=None):
+def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None):
     ''' Plot regions of interest identified by suite2p.
 
         :param data: data dictionary containing contents outputed by suite2p
@@ -162,6 +214,13 @@ def plot_suite2p_ROIs(data, output_ops, title=None):
     ax = axes[2]
     ax.imshow(rgbs[0])
     ax.set_title(f'Non-cell ROIs ({np.sum(iscell == 0)})')
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        npx = rgbs[0].shape[0]
+        for ax in axes:
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            add_scale_bar(ax, npx, um_per_px, color='w')    
     # Tighten and return
     fig.tight_layout()
     return fig
@@ -292,7 +351,7 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     return fig
         
 
-def plot_cell_map(data, s2p_data, s2p_ops, title=None):
+def plot_cell_map(data, s2p_data, s2p_ops, title=None, um_per_px=None):
     ''' Plot spatial distribution of cells (per response type) on the recording plane.
 
         :param data: experiment dataframe.
@@ -314,6 +373,12 @@ def plot_cell_map(data, s2p_data, s2p_ops, title=None):
     if title is not None:
         ax.set_title(title)
     ax.imshow(im)
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        npx = s2p_ops['Ly']
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        add_scale_bar(ax, npx, um_per_px)    
     # Add legend
     leg_items = [Line2D(
         [0], [0], label=f'{k} ({sum(rtypes == k)})',
@@ -692,7 +757,7 @@ def plot_parameter_dependency(data, xkey=P_LABEL, ykey=SUCCESS_RATE_LABEL, **kwa
         raise ValueError(f'xkey must be one of ({P_LABEL}, {DC_LABEL}')
     
     # Plot
-    fig = plot_from_data(data, xkey, ykey, err_style='bars', **kwargs)
+    fig = plot_from_data(data, xkey, ykey, **kwargs)
     
     # Return figure
     return fig
@@ -776,6 +841,8 @@ def plot_stat_heatmap(data, key, expand=False, title=None, **kwargs):
     center = 0 if trialavg_data.min() < 0 else None
     # Create figure and plot trial-averaged stat heatmap
     fig, ax = plt.subplots(figsize=figsize)
+    if key == SUCCESS_RATE_LABEL:
+        kwargs.update({'vmin': 0, 'vmax': 1})
     ax = sns.heatmap(trialavg_data.unstack(), center=center, **kwargs)
     # Add title
     if title is not None:
@@ -813,6 +880,8 @@ def plot_stat_per_ROI(data, key, title=None):
     # Plot mean trace with +/-std shaded area
     ax.plot(x, mu)
     ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
+    if key == SUCCESS_RATE_LABEL:
+        ax.set_ylim(0, 1)
     sns.despine(ax=ax)
     return fig
 
@@ -842,6 +911,8 @@ def plot_stat_per_run(data, key, title=None):
     trialavg_data = trialavg_data.to_frame()
     trialavg_data = trialavg_data.reset_index(level=RUN_LABEL)
     sns.barplot(ax=ax, data=trialavg_data, x=RUN_LABEL, y=key, ci='sd')
+    if key == SUCCESS_RATE_LABEL:
+        ax.set_ylim(0, 1)
     sns.despine(ax=ax)
     return fig
 
@@ -850,19 +921,22 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     ''' Plot the histogram of the number of positive conditions for each ROI,
         per response type.
     '''
+    # Plot histogram per response type
     fig, ax = plt.subplots()
-    ax = sns.histplot(
-        pd.DataFrame([resp_types, n_positive_runs]).T,
-        x=NPOS_RUNS_LABEL, hue=ROI_RESP_TYPE_LABEL, bins=np.arange(nruns) + 0.5,
-        ax=ax)
+    ax.set_xlabel(NPOS_RUNS_LABEL)
+    ax.set_ylabel('Count')
+    bins = np.arange(nruns) + 0.5
+    df = pd.DataFrame([resp_types, n_positive_runs]).T
+    for label, group in df.groupby(ROI_RESP_TYPE_LABEL):
+        ax.hist(
+            group[NPOS_RUNS_LABEL], bins=bins, label=f'{label} (n = {len(group)})',
+            fc=RGB_BY_TYPE[label], ec='k')
     sns.despine(ax=ax)
+    # Add legend
+    ax.legend(title=ROI_RESP_TYPE_LABEL)
+    # Add separator line
     ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
-    labels = []
-    for k in RGB_BY_TYPE.keys():
-        nclass = sum(resp_types == k)
-        if nclass > 0:
-            labels.append(f'{k} (n = {nclass})')
-    ax.legend(title=ROI_RESP_TYPE_LABEL, loc='upper right', labels=['threshold'] + labels[::-1])
+    # Add title
     s = 'classification by # positive conditions'
     if title is not None:
         s = f'{s} ({title})'

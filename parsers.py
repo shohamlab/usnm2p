@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-10 18:02:13
+# @Last Modified time: 2021-11-18 14:58:38
 
 ''' Collection of parsing utilities. '''
 
+from xml.dom import minidom
 import re
 import os
 import pandas as pd
@@ -86,3 +87,138 @@ def get_info_table(folders, index_key=RUN_LABEL, ntrials_per_run=None, discard_u
     if discard_unknown:
         del info_table[UNKNOWN]
     return info_table
+
+
+def parse_Bruker_element(elem):
+    '''
+    Parse an element from the Bruker XML tree.
+    
+    :param elem: XML DOM element
+    :return: key, value pair representing the element
+    '''
+    # Fetch element type 
+    elem_type = elem.nodeName
+    # Determine element key type from element type
+    key_key = {
+        'PVStateValue': 'key',
+        'IndexedValue': 'index',
+        'SubindexedValues': 'index',
+        'SubindexedValue': 'subindex'
+    }[elem_type]
+    # Fetch element key
+    key = elem.attributes[key_key].value
+    # Try to fetch element value
+    try:
+        val = elem.attributes['value'].value
+        # If present, try to convert it to a float
+        try:
+            val = float(val)
+        except:
+            pass
+        # Otherwise, convert to a boolean if applicable
+        if val == 'True':
+            val = True
+        elif val == 'False':
+            val = False
+        # Fetch element description (if any) and combine it with its value
+        try:
+            desc = elem.attributes['description'].value
+            val = (val, desc)
+        except:
+            pass
+    # If element has no "value", then it must have children -> loop through them
+    except KeyError:
+        # Define values dictionary
+        val = {}
+
+        # Parse each child element and populate values dictionary
+        for child in elem.childNodes:
+            if isinstance(child, minidom.Element):
+                k, v = parse_Bruker_element(child)
+                val[k] = v
+
+        # Post-processing
+        if all(k.isnumeric() for k in val.keys()) and [int(k) for k in val.keys()] == list(range(len(val))):
+            # If all keys are integers and form a range -> transform dict to list
+            val = list(val.values())
+            # If resulting list has only 1 element -> reduce it to its element
+            if len(val) == 1:
+                val = val[0]
+            # If resulting list is made only of tuples -> recast as a dictionary
+            elif all(isinstance(x, tuple) for x in val):
+                val = {x[1]: x[0] for x in val}
+
+        # If dictionary only has 1 key-value pair -> transform to tuple
+        if isinstance(val, dict) and len(val) == 1:
+            val = list(val.items())[0]
+
+    # Return (key, val) pair
+    return key, val
+
+
+def get_Bruker_XML(folder):
+    '''
+    Get the path to a Bruker XML settings file associated to a specific data folder
+    
+    :param fodler: path to the folder containing the raw TIF files
+    :return: full path to the corresponding Bruker XML file 
+    '''
+    xml_fname = f'{os.path.basename(folder)}.xml'
+    return os.path.join(folder, xml_fname)
+
+
+def parse_Bruker_XML(fpath, simplify=True):
+    '''
+    Extract data aquisition settings from Bruker XML file.
+    
+    :param fpath: full path to the XML file
+    :return: data aquisition settings dictionary
+    '''
+    # Parse XML file
+    xmltree = minidom.parse(fpath)
+    # Extract relevant nodes from DOM
+    PVStateShard = xmltree.getElementsByTagName('PVStateShard')[0]
+    PVStateValues = PVStateShard.getElementsByTagName('PVStateValue')
+    # Parse all these nodes into a info dictionary 
+    settings = dict([parse_Bruker_element(item) for item in PVStateValues])
+    if simplify:
+        settings = simplify_Bruker_settings(settings)
+    return settings
+
+
+def simplify_Bruker_settings(settings):
+    ''' Simplify dictionary of Bruker settings '''
+    # Check spatial resolution uniformity across X and Y axes and simplify corresponding field
+    mpp = settings['micronsPerPixel']
+    del mpp['ZAxis']
+    assert mpp['XAxis'] == mpp['YAxis'], f'differing spatial resolution across axes: {mpp}'
+    settings['micronsPerPixel'] = mpp['XAxis']
+    return settings
+    
+
+def parse_aquisition_settings(folders):
+    '''
+    Extract data aquisition settings from raw data folders.
+    
+    :param folders: full list of data folders containing the raw TIF files.
+    :return: dictionary containing data aquisition settings that are common across all data folders 
+    '''
+    # Parse aquisition settings of each data folder 
+    daq_settings_list = [parse_Bruker_XML(get_Bruker_XML(folder)) for folder in folders]
+    # Extract reference settings
+    ref_settings, *other_settings_list = daq_settings_list
+    # Check that aquisition settings keys are identical across data folders
+    assert all(x.keys() == ref_settings.keys() for x in daq_settings_list), 'inconsistent settings list'
+    # Gather keys of settings fields that vary across folders
+    diffkeys = []
+    for settings in other_settings_list:
+        if settings != ref_settings:
+            for k in settings.keys():
+                if settings[k] != ref_settings[k]:
+                    if k not in diffkeys:
+                        diffkeys.append(k)
+    # Remove those fields from reference settings dictionary
+    for k in diffkeys:
+        del ref_settings[k]
+    # Return common aquisition settings dictionary
+    return ref_settings

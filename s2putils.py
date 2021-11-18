@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-12 08:58:41
+# @Last Modified time: 2021-11-18 10:14:56
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
