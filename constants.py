@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-18 10:36:21
+# @Last Modified time: 2021-11-23 17:03:49
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -40,7 +40,6 @@ SI_POWERS = {
 
 REF_NFRAMES = 1600  # reference number of frames in any given experimental run (used to check integrity of input stacks)
 NFRAMES_PER_TRIAL = 100  # default number of frames per trial
-STIM_FRAME_INDEX = 10  # index of the frame coinciding with the US stimulus in each trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
@@ -70,70 +69,100 @@ BASELINE_QUANTILE = .05  # quantile used for the computation of the fluorescence
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
 
 # dFF noise level computation
-DFF_NOISE_WLEN = 60.  # window length (in s) to compute the dFF noise level
-DFF_NOISE_QUANTILE = .5  # quantile used for the computation of the dFF noise level
+DFF_NOISE_QUANTILE = .9  # quantile used for the computation of the dFF noise level
 
-I_RESPONSE = slice(STIM_FRAME_INDEX, STIM_FRAME_INDEX + 10)  # indexes used for response computation per trial.
+# Frame indexes
+class FrameIndex:
+    STIM = 10  # index of the frame coinciding with the US stimulus in each trial
+    PRESTIM = slice(STIM - 2, STIM)  # indexes used for analysis of pres-stimulus activity per trial.
+    RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
+
+
+# Response & cell type classification
+ZSCORE_PRESTIM_THR = 1.645  # threshold max z-score within the pre-stimulus window to identify pre-stimulus activity
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value  
-ZSCORE_THR = 1.64  # threshold absolute z-score value
+REL_ZSCORE_RESPONSE_THR = 1.645  # threshold z-score value (corresponding to 5% significance level for 1-tailed test)
 SUCCESS_RATE_THR = .3  # threshold success rate for a positive response
 NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
 
 
 ###################################### PARSING ######################################
 
-P_LINE = '([A-z][A-z0-9]*)'
-P_TRIAL_LENGTH = '([0-9]+)frames'
-P_FREQ = '([0-9]+[.]?[0-9]*)Hz'
-P_DUR = '([0-9]+[.]?[0-9]*)ms'
-P_MPA = '([0-9]+[.]?[0-9]*)MPA'
-P_DC = '([0-9]+)DC'
-P_RUN = '([0-9]+)'
-P_CYCLE = 'Cycle([0-9]+)'
-P_CHANNEL = 'Ch([0-9])'
-P_FRAME = '([0-9]+)'
+class Pattern:
+
+    LINE = '([A-z][A-z0-9]*)'
+    TRIAL_LENGTH = '([0-9]+)frames'
+    FREQ = '([0-9]+[.]?[0-9]*)Hz'
+    DUR = '([0-9]+[.]?[0-9]*)ms'
+    MPA = '([0-9]+[.]?[0-9]*)MPA'
+    DC = '([0-9]+)DC'
+    RUN = '([0-9]+)'
+    CYCLE = 'Cycle([0-9]+)'
+    CHANNEL = 'Ch([0-9])'
+    FRAME = '([0-9]+)'
 
 
 ###################################### LABELS ######################################
 
-# Acquisition
-UNKNOWN = '???'  # unknown key
-P_LABEL = 'P (MPa)'
-DC_LABEL = 'DC (%)'
-DUR_LABEL = 'duration (s)'
-FPS_LABEL = 'fps'
-RUNID_LABEL = 'run ID'
-LINE_LABEL = 'line'
-NPERTRIAL_LABEL = 'trial_length'
-NTRIALS_LABEL = 'ntrials'
-CYCLE_LABEL = 'cycle'
-FRAME_LABEL = 'frame'
-CH_LABEL = 'channel'
+class Label:
 
-# Data indexes
-ROI_LABEL = 'ROI'
-RUN_LABEL = 'run'
-TRIAL_LABEL = 'trial'
+    # Acquisition
+    UNKNOWN = '???'  # unknown key
+    P = 'P (MPa)'
+    DC = 'DC (%)'
+    DUR = 'duration (s)'
+    FPS = 'fps'
+    RUNID = 'run ID'
+    LINE = 'line'
+    NPERTRIAL = 'trial_length'
+    NTRIALS = 'ntrials'
+    CYCLE = 'cycle'
+    FRAME = 'frame'
+    CH = 'channel'
 
-# Fluorescence signals
-TIME_LABEL = 'time (s)'
-F_ROI_LABEL = 'F_ROI (a.u.)'
-F_NEU_LABEL = 'F_neu (a.u.)'
-F_LABEL = 'F (a.u.)'
-F0_LABEL = 'F0 (a.u.)'
-DFF_LABEL = 'dF/F0'
+    # Data indexes
+    ROI = 'ROI'
+    RUN = 'run'
+    TRIAL = 'trial'
 
-# Stats
-DFF_NOISE_LABEL = 'dFF noise'
-ZSCORE_LABEL = 'z-score'
-PEAK_ZSCORE_LABEL = 'peak z-score'
-IS_RESP_LABEL = 'trial response?'
-SUCCESS_RATE_LABEL = 'success rate'
-CORRECTED_ZSCORE_LABEL = 'corrected z-score'
-CORRECTED_PEAK_ZSCORE_LABEL = 'corrected peak z-score'
-IS_POSITIVE_RUN_LABEL = 'positive run?'
-NPOS_RUNS_LABEL = '# positive runs'
-ROI_RESP_TYPE_LABEL = 'response type'
+    # Fluorescence signals
+    TIME = 'time (s)'
+    F_ROI = 'F_ROI (a.u.)'
+    F_NEU = 'F_neu (a.u.)'
+    F = 'F (a.u.)'
+    F0 = 'F0 (a.u.)'
+
+    # Relative fluorescence signals
+    DFF = '\u0394F/F0'
+    DFF_NOISE_LEVEL = f'{DFF} noise level'
+    DFF_NOISE_AMP = f'{DFF} noise amplitude'
+
+    # z-score signals
+    ZSCORE = f'Z({DFF})'
+    MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
+    REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
+    PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
+    REL_ZSCORE_RESPONLY = f'{REL_ZSCORE} (responses only)'
+    PEAK_REL_ZSCORE_POSTSTIM_RESPONLY = f'{PEAK_REL_ZSCORE_POSTSTIM} (responses only)'
+
+    # Trial activity & related measures
+    PRESTIM_ACTIVITY = 'pre-stim activity?'
+    PRESTIM_RATE = 'pre-stim rate'
+    IS_RESP = 'trial response?'
+    SUCCESS_RATE = 'success rate'
+    SUCCESS_RATE_PRESTIM = f'{SUCCESS_RATE} (pre-stim activity)'
+    SUCCESS_RATE_NOPRESTIM = f'{SUCCESS_RATE} (no pre-stim activity)'
+
+    # ROI classification 
+    IS_POSITIVE_RUN = 'positive run?'
+    NPOS_RUNS = '# positive runs'
+    ROI_RESP_TYPE = 'response type'
+
+    # Labels that must be renamed upon averaging 
+    RENAME_ON_AVERAGING = {
+        IS_RESP: SUCCESS_RATE,
+        PRESTIM_ACTIVITY: PRESTIM_RATE
+    }
 
 
 ###################################### PLOTTING ######################################

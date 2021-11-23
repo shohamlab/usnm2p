@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 17:26:28
+# @Last Modified time: 2021-11-23 15:50:16
 
 ''' Collection of generic utilities. '''
 
@@ -12,7 +12,7 @@ from pandas.api.types import is_numeric_dtype
 import operator
 import abc
 
-from constants import SI_POWERS, IND_LETTERS
+from constants import SI_POWERS, IND_LETTERS, Label
 from logger import logger
 
 
@@ -255,7 +255,23 @@ def reindex_dataframe_level(df, level=0):
 
 def mean_str(s):
     ''' Averaging function with extra handling of string-typed iterables. '''
-    if is_numeric_dtype(s):
-        return s.mean()
+    if s.nunique() == 0:
+        # 0 unique -> only NaNs -> return NaN
+        return np.nan
+    elif s.nunique() == 1:
+        out = s.unique()
+        # 1 unique value
+        if is_numeric_dtype(s):
+            # If numeric, extract first non NaN value and cast it to float
+            return out[~np.isnan(out)][0].astype(np.float)
+        else:
+            # Otherwise, assume no NaN are present and return first value
+            return out[0] 
     else:
-        return s.unique() if s.nunique() == 1 else np.nan
+        # Multiple non NaN values
+        if is_numeric_dtype(s):
+            # For numeric types -> return mean
+            return s.mean()
+        else:
+            # For non-numeric type -> return NaN
+            return np.nan

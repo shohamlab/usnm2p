@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-18 14:58:38
+# @Last Modified time: 2021-11-22 11:29:41
 
 ''' Collection of parsing utilities. '''
 
@@ -15,8 +15,8 @@ from constants import *
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
 
-P_RAWFOLDER = re.compile(f'^{P_LINE}_{P_TRIAL_LENGTH}_{P_FREQ}_{P_DUR}_{P_FREQ}_{P_MPA}_{P_DC}-{P_RUN}$', re.IGNORECASE)
-P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{P_CYCLE}_{P_CHANNEL}_{P_FRAME}.ome.tif$', re.IGNORECASE)
+P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.RUN}$', re.IGNORECASE)
+P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 
 
@@ -43,30 +43,30 @@ def parse_experiment_parameters(name):
         raise ValueError(f'"{name}" does not match the experiment naming pattern')
     # Extract and parse folder-level parameters
     params = {
-        LINE_LABEL: mo.group(1),  # line name
-        NPERTRIAL_LABEL: int(mo.group(2)),
-        UNKNOWN: float(mo.group(3)),
-        DUR_LABEL: float(mo.group(4)) * 1e-3,  # s
-        FPS_LABEL: float(mo.group(5)),  
-        P_LABEL: mo.group(6),  # MPa
-        DC_LABEL: float(mo.group(7)),  # %
-        RUNID_LABEL: int(mo.group(8))
+        Label.LINE: mo.group(1),  # line name
+        Label.NPERTRIAL: int(mo.group(2)),
+        Label.UNKNOWN: float(mo.group(3)),
+        Label.DUR: float(mo.group(4)) * 1e-3,  # s
+        Label.FPS: float(mo.group(5)),  
+        Label.P: mo.group(6),  # MPa
+        Label.DC: float(mo.group(7)),  # %
+        Label.RUNID: int(mo.group(8))
     }
     # Fix for pressure (replacing first zero by decimal dot)
-    if '.' not in params[P_LABEL]:
-        params[P_LABEL] = float(f'.{params[P_LABEL][1:]}')
+    if '.' not in params[Label.P]:
+        params[Label.P] = float(f'.{params[Label.P][1:]}')
     # If file, add file-level parameters
     if israwfile:
         params.update({
-            CYCLE_LABEL: int(mo.group(9)),
-            CH_LABEL: int(mo.group(10)),
-            FRAME_LABEL: int(mo.group(11))
+            Label.CYCLE: int(mo.group(9)),
+            Label.CH: int(mo.group(10)),
+            Label.FRAME: int(mo.group(11))
         })
     # Return parameters dictionary
     return params
 
 
-def get_info_table(folders, index_key=RUN_LABEL, ntrials_per_run=None, discard_unknown=True):
+def get_info_table(folders, index_key=Label.RUN, ntrials_per_run=None, discard_unknown=True):
     '''
     Parse a list of input folders and aggregate extracted parameters into an info table.
     
@@ -83,9 +83,9 @@ def get_info_table(folders, index_key=RUN_LABEL, ntrials_per_run=None, discard_u
     if index_key is not None:
         info_table.index.name = index_key
     if ntrials_per_run is not None:
-        info_table[NTRIALS_LABEL] = ntrials_per_run
+        info_table[Label.NTRIALS] = ntrials_per_run
     if discard_unknown:
-        del info_table[UNKNOWN]
+        del info_table[Label.UNKNOWN]
     return info_table
 
 
