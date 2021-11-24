@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-16 17:12:50
+# @Last Modified time: 2021-11-24 18:11:11
 
 ''' Notebook image viewing utilities. '''
 
@@ -129,6 +129,12 @@ class StackViewer:
         ''' Get header text component '''
         return HTML(value=f'<center>{text}</center>')
 
+    def reset_binary_file(self, fobj):
+        ''' Close and re-open file-object '''
+        fpath, Lx, Ly = fobj.read_filename, fobj.Lx, fobj.Ly
+        fobj.close()
+        return BinaryFile(Ly=Ly, Lx=Lx, read_filename=fpath)
+
     def iter_frames(self, fobj, frange, func=None):
         '''
         Iterate through frames and apply func
@@ -139,7 +145,10 @@ class StackViewer:
         '''
         if func is None:
             func = lambda x: None
+        out = []
         if isinstance(fobj, BinaryFile):
+            # FIX: reset binary file object to make sure iter_frames works correctly
+            fobj = self.reset_binary_file(fobj)
             refindex = None
             with tqdm(total=frange.stop - frange.start, position=0, leave=True) as pbar:
                 for (index, *_), frame in fobj.iter_frames():
@@ -147,18 +156,20 @@ class StackViewer:
                         refindex = index
                     real_index = index - refindex
                     if real_index >= frange.start and real_index < frange.stop:
-                        func(real_index, frame[0])
+                        out.append(func(real_index, frame[0]))
                         pbar.update()
         else:
             for k in tqdm(list(frange)):
                 frame = self.get_frame(fobj, k)
-                func(k, frame)
+                out.append(func(k, frame))
+        return out
 
-    def get_mean_evolution(self, fobj, frange):
-        ''' Get the range of pixel intensity across the whole stack. '''
-        mu = []
-        self.iter_frames(fobj, frange, func=lambda _, x: mu.append(x.mean()))
-        return np.array(mu)
+    def get_frame_metric_evolution(self, fobj, frange, func=None):
+        ''' Compute the time course of a given frame metrics across a specific range of frames. '''
+        if func is None:
+            func = lambda x: x.mean()
+        xlist = self.iter_frames(fobj, frange, func=lambda _, x: func(x))
+        return np.array(xlist)
 
     def transform(self, arr):
         ''' Transform a grayscale intensity image to a colored image using a specific colormap '''

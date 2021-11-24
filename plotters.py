@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-23 17:27:22
+# @Last Modified time: 2021-11-24 18:07:22
 
 ''' Collection of plotting utilities. '''
 
@@ -795,9 +795,10 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, **kwa
     return fig
 
 
-def plot_mean_evolution(*args, **kwargs):
+def plot_stack_timecourse(*args, **kwargs):
     '''
-    Plot the evolution of the average frame intensity over time
+    Plot the evolution of the average frame intensity over time, with shaded areas
+    showing its standard deviation
 
     :param correct (optional): whether to mean-correct the signal before plotting it  
     '''
@@ -837,13 +838,16 @@ def plot_mean_evolution(*args, **kwargs):
     
     # For each stack file-object provided
     for header, fobj in zip(viewer.headers, viewer.fobjs):
-        # Get mean evolution of the stack
-        mu = viewer.get_mean_evolution(fobj, viewer.frange)
+        # Get evolution of frame average intensity and its standard deviation
+        mu, sigma = [viewer.get_frame_metric_evolution(fobj, viewer.frange, func=func)
+                   for func in [np.mean, np.std]]
         # Mean-correct the signal if needed
         if correct:
             mu -= mu.mean()
         # Plot the signal with the correct label
-        ax.plot(mu, label=header)
+        inds = np.arange(mu.size)
+        ax.plot(inds, mu, label=header)
+        ax.fill_between(inds, mu - sigma, mu + sigma, alpha=0.2)
     
     # Add/update legend
     ax.legend(frameon=False)
