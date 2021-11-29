@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-23 16:04:19
+# @Last Modified time: 2021-11-29 15:07:50
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from scipy.signal import find_peaks
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import pdist
 
 from constants import *
 from logger import logger
@@ -324,3 +326,37 @@ def groupby_and_all(data, func, groupby=None):
         for cond, cond_data in data.groupby(groupby):
             out[cond] = func(cond_data)
     return out
+
+
+def get_clustered_index(data, metric='euclidean', method='single'):
+    '''
+    Compute a clustered index list according observations across dimensions
+    
+    :param data: (observations x dimensions) dataframe for some specific variable.
+    :return: index of observations outputed by the clustering algorithm
+    '''
+    logger.info('computing new index according to hierarchical clustering...')
+    # Get dataset index
+    index = data.index
+    # Compute pairwise distance matrix
+    Y = pdist(data, metric=metric, out=None)
+    # If NaNs in matrix -> return original index
+    if np.isnan(np.sum(Y)):
+        logger.warning('cannot clusterize dataset with NaNs -> ignoring')
+        return index
+    # Cluster hierarchically using the pairwise distance matrix
+    Z = linkage(Y, method=method, optimal_ordering=False)
+    # Return index list from cluster output 
+    return index[leaves_list(Z)]
+
+
+def clusterize_data(data, *kwargs):
+    '''
+    Re-arrange dataset along the ROI dimension according observations across runs 
+    
+    :param data: (nROIs x nruns) dataframe for some specific variable.
+    :return: dataframe re-indexed alonmg according to ROI clustering process 
+    '''
+    iROIs_clustered = get_clustered_index(data, **kwargs)
+    logger.info('re-arranging dataset...')
+    return data.reindex(iROIs_clustered)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-24 18:11:11
+# @Last Modified time: 2021-11-29 12:28:02
 
 ''' Notebook image viewing utilities. '''
 
@@ -129,11 +129,12 @@ class StackViewer:
         ''' Get header text component '''
         return HTML(value=f'<center>{text}</center>')
 
-    def reset_binary_file(self, fobj):
+    def reload_binary_file(self, fobj):
         ''' Close and re-open file-object '''
         fpath, Lx, Ly = fobj.read_filename, fobj.Lx, fobj.Ly
+        findex = self.fobjs.index(fobj)
         fobj.close()
-        return BinaryFile(Ly=Ly, Lx=Lx, read_filename=fpath)
+        self.fobjs[findex] = BinaryFile(Ly=Ly, Lx=Lx, read_filename=fpath)
 
     def iter_frames(self, fobj, frange, func=None):
         '''
@@ -147,8 +148,6 @@ class StackViewer:
             func = lambda x: None
         out = []
         if isinstance(fobj, BinaryFile):
-            # FIX: reset binary file object to make sure iter_frames works correctly
-            fobj = self.reset_binary_file(fobj)
             refindex = None
             with tqdm(total=frange.stop - frange.start, position=0, leave=True) as pbar:
                 for (index, *_), frame in fobj.iter_frames():
@@ -158,6 +157,9 @@ class StackViewer:
                     if real_index >= frange.start and real_index < frange.stop:
                         out.append(func(real_index, frame[0]))
                         pbar.update()
+            # FIX: reload binary file object to reset internal index and make sure
+            # next iter_frames works correctly
+            self.reload_binary_file(fobj)
         else:
             for k in tqdm(list(frange)):
                 frame = self.get_frame(fobj, k)

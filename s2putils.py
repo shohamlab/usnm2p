@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-18 10:14:56
+# @Last Modified time: 2021-11-29 12:12:12
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -14,6 +14,7 @@ import os
 import numpy as np
 import pandas as pd
 from suite2p import run_s2p, default_ops, version
+from suite2p.io import BinaryFile
 
 from constants import *
 from logger import logger
@@ -166,3 +167,20 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False, s2p_basedir=None)
 def filter_s2p_data(data, ivalids):
     ''' Filter suite2p output dictionary according to list of valid indexes '''
     return {k: v[ivalids] if isinstance(v, np.ndarray) else v for k, v in data.items()}
+
+
+def open_binary_file(ops):
+    ''' Open binary file linked to options dictionary '''
+    return BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file'])
+
+
+def get_s2p_stack(ops, bounds=None):
+    ''' Get the stack resulting from suite2p processing '''
+    with open_binary_file(ops) as fobj:
+        logger.info('loading registered stack...')
+        data = fobj.data
+    if bounds is not None:
+        logger.info(f'extracting {bounds} stack slice...')
+        data = data[bounds[0]:bounds[1] + 1]
+    return data
+

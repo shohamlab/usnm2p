@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-24 18:07:22
+# @Last Modified time: 2021-11-29 14:31:05
 
 ''' Collection of plotting utilities. '''
 
@@ -20,17 +20,17 @@ from tqdm import tqdm
 from logger import logger
 from constants import *
 from utils import get_singleton, is_iterable, plural
-from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, groupby_and_all
+from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, groupby_and_all, clusterize_data
 from viewers import get_stack_viewer
 
 
 def harmonize_axes_limits(axes, axkey='y'):
     ''' Harmonize axes limits'''
     if axes.ndim > 1:
-        axes = axes.flatten()
+        axes = axes.ravel()
     ymin = min([ax.get_ylim()[0] for ax in axes])
     ymax = max([ax.get_ylim()[1] for ax in axes])
-    for ax in axes.flatten():
+    for ax in axes.ravel():
         ax.set_ylim(ymin, ymax)
 
 
@@ -47,9 +47,35 @@ def plot_table(inputs):
     return fig
    
 
-def plot_stack_summary(stack, cmap='viridis', title=None, um_per_px=None):
+def plot_stack_histogram(stacks, title=None):
     '''
-    Plot summary imges from a TIF stack.
+    Plot summary histogram from TIF stacks.
+    
+    :param stacks: dictionary of TIF stacks
+    :param cmap (optional): colormap
+    :return: figure handle
+    '''
+    logger.info('plotting stack(s) histogram...')
+    fig, ax = plt.subplots()
+    if title is None:
+        title = ''
+    else:
+        title = f'{title} - '
+    ax.set_title(f'{title}summary histogram')
+    sns.despine(ax=ax)
+    for k, v in stacks.items():
+        ax.hist(v.ravel(), bins=50, label=k, ec='k', alpha=0.5)
+    ax.legend()
+    ax.set_xlabel('pixel intensity')
+    ax.set_yscale('log')
+    ax.set_ylabel('Count')
+    return fig
+
+
+def plot_stack_summary_frames(stack, cmap='viridis', title=None, um_per_px=None):
+    '''
+    Plot summary images from a TIF stack.
+    
     :param stack: TIF stack
     :param cmap (optional): colormap
     :return: figure handle
@@ -65,7 +91,6 @@ def plot_stack_summary(stack, cmap='viridis', title=None, um_per_px=None):
         title = ''
     fig.suptitle(f'{title} - summary frames')
     fig.subplots_adjust(hspace=10)
-    fig.patch.set_facecolor('w')
     for ax, (title, func) in zip(axes, plotfuncs.items()):
         ax.set_title(title)
         ax.imshow(func(stack, axis=0), cmap=cmap)
@@ -242,7 +267,7 @@ def plot_parameter_distributions(data, pkeys, zthr=None):
     nrows = int(np.ceil(len(pkeys) / ncols))
     # Create figure
     fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
-    axes = axes.flatten()
+    axes = axes.ravel()
     fig.suptitle('Morphological parameters - distribution across cells')
     # Initialize outliers dictionary
     is_outlier = {}
@@ -605,7 +630,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             col      = col,      # column (i.e. axis) grouping variable
         ))
         fg = sns.relplot(**plot_kwargs)
-        axlist = fg.axes.flatten()
+        axlist = fg.axes.ravel()
         fig = fg.figure
     # Remove right and top spines
     sns.despine()
@@ -837,9 +862,9 @@ def plot_stack_timecourse(*args, **kwargs):
         fig = ax.get_figure()
     
     # For each stack file-object provided
-    for header, fobj in zip(viewer.headers, viewer.fobjs):
+    for i, header in enumerate(viewer.headers):
         # Get evolution of frame average intensity and its standard deviation
-        mu, sigma = [viewer.get_frame_metric_evolution(fobj, viewer.frange, func=func)
+        mu, sigma = [viewer.get_frame_metric_evolution(viewer.fobjs[i], viewer.frange, func=func)
                    for func in [np.mean, np.std]]
         # Mean-correct the signal if needed
         if correct:
@@ -854,7 +879,23 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, **kwargs):
+def get_adapted_bounds(x, nstd=None):
+    '''
+    Return plotting boundaries for a dataset, composed of:
+
+    :param x: data distribution
+    :param nstd: number of standard deviations away from the median allowed
+    :return: (lowerbound, upperbound) tuple
+    '''
+    bounds = (x.min(), x.max())
+    if nstd is not None:
+        med, sigma = x.median(), x.std()
+        bounds = (max(bounds[0], med - nstd * sigma), min(bounds[1], med + nstd * sigma))
+    return bounds
+
+
+def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=None, cluster=False,
+                      **kwargs):
     '''
     Plot ROI x run heatmap for some statistics
     
@@ -871,6 +912,7 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, **kwarg
         data,
         lambda df: get_trial_averaged(df[key], full_output=True),
         groupby=groupby)
+
     if key in Label.RENAME_ON_AVERAGING.keys():
         key = Label.RENAME_ON_AVERAGING[key]
     # Determine figure size and title
@@ -896,11 +938,20 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, **kwarg
         axes = [axes]
     # Determine colormap range
     if key in [Label.SUCCESS_RATE, Label.IS_RESP]:
-        kwargs.update({'vmin': 0, 'vmax': 1})
+        bounds = {k: (0, 1) for k in trialavg_data.keys()}
+    elif nstd is not None:
+        bounds = {k: get_adapted_bounds(v, nstd=nstd) for k, v in trialavg_data.items()}
+    else:
+        bounds = None
     # Plot trial-averaged stat heatmap for each condition
     for ax, (k, v) in zip(axes, trialavg_data.items()):
         logger.info(f'plotting {s} - {k} trials...')
-        sns.heatmap(v.unstack(), center=center, ax=ax, **kwargs)
+        if bounds is not None:
+            kwargs.update({'vmin': bounds[k][0], 'vmax': bounds[k][1]})
+        vtable = v.unstack()
+        if cluster:
+            vtable = clusterize_data(vtable)
+        sns.heatmap(vtable, center=center, ax=ax, **kwargs)
         if naxes > 1:
             ax.set_title(k)
     # Add title
@@ -911,6 +962,52 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, **kwarg
     else:
         fig.suptitle(stitle)
     # Return
+    return fig
+
+
+def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nstd=None):
+    '''
+    Plot the histogram distribution of a stat
+    
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
+    :return: figure handle
+    '''
+    # Compute trial-averaged data for entire dataset and each groupby subgroup
+    data = groupby_and_all(
+        data,
+        lambda df: get_trial_averaged(df[key]) if trialavg else df[key],
+        groupby=groupby)
+    
+    if trialavg and key in Label.RENAME_ON_AVERAGING.keys():
+        key = Label.RENAME_ON_AVERAGING[key]
+
+    # Restrict data distribution to given range around median, if specified
+    if nstd is not None:
+        bounds = {k: get_adapted_bounds(v, nstd=nstd) for k, v in data.items()}
+        data = {k: v[(v > bounds[k][0]) & (v < bounds[k][1])] for k, v in data.items()}
+    
+    # Re-arrange dataset to enable hist plot
+    for k in data.keys():
+        data[k] = data[k].to_frame()
+        if groupby is not None:
+            data[k][groupby] = k
+    data = pd.concat(data.values(), axis=0)
+    for k in data.index.names:
+        data.reset_index(level=k, inplace=True)
+
+    # Create figure
+    fig, ax = plt.subplots()
+    sns.despine(ax=ax)
+    parsed_title = key
+    if groupby is not None:
+        parsed_title = f'{parsed_title} - by {groupby}'
+    if title is not None:
+        parsed_title = f'{parsed_title} ({title})'
+    ax.set_title(parsed_title)
+
+    # Plot Kernel density estimation for each condition
+    sns.histplot(ax=ax, data=data, x=key, hue=groupby, stat='density', element='poly')
+
     return fig
 
 
