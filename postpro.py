@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 15:07:50
+# @Last Modified time: 2021-11-29 15:16:13
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -350,7 +350,7 @@ def get_clustered_index(data, metric='euclidean', method='single'):
     return index[leaves_list(Z)]
 
 
-def clusterize_data(data, *kwargs):
+def clusterize_data(data, **kwargs):
     '''
     Re-arrange dataset along the ROI dimension according observations across runs 
     
