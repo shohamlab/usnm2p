@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 15:16:13
+# @Last Modified time: 2021-11-29 17:22:49
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
@@ -360,3 +361,57 @@ def clusterize_data(data, **kwargs):
     iROIs_clustered = get_clustered_index(data, **kwargs)
     logger.info('re-arranging dataset...')
     return data.reindex(iROIs_clustered)
+
+
+def gauss(x, H, A, x0, sigma):
+    '''
+    Gaussian function
+    
+    :param x: independent variable
+    :param H: vertical offset
+    :param A: gaussian amplitude
+    :param x0: horizontal offset
+    :param sigma: gaussian width
+    '''
+    return H + A * np.exp(-(x - x0) ** 2 / (2 * sigma**2))
+
+
+def histogram_fit(data, func, bins=100, p0=None):
+    '''
+    Fit a specific function to a dataset's histogram distribution
+    
+    :param data: data array
+    :param func: function to be fitted
+    :param bins (optional): number of bins in histogram  (or bin edges values)
+    :param p0 (optional): initial guess for function parameters
+    :return: (bin mid-points, fitted function parameters) tuple
+    '''
+    hist, xedges = np.histogram(data, bins=bins)
+    xmid = (xedges[1:] + xedges[:-1]) / 2 
+    popt, _ = curve_fit(func, xmid, hist, p0=p0)
+    return xmid, popt
+
+
+def gauss_histogram_fit(data, bins=100):
+    '''
+    Fit a gaussian function to a dataset's histogram distribution
+    
+    :param data: data array
+    :param bins (optional): number of bins in histogram  (or bin edges values)
+    :return: (bin mid-points, fitted function parameters) tuple
+    '''
+    # Histogram distribution
+    hist, edges = np.histogram(data, bins=bins)
+    mids = (edges[1:] + edges[:-1]) / 2
+    
+    # Initial guesses
+    H = hist.min()  # vertical offset -> min histogram value
+    A = np.ptp(hist)  # gaussian range -> histogram amplitude range 
+    x0 = mids[np.argmax(hist)]  # gaussian mean -> index of max histogram value
+    sigma = np.ptp(mids) / 4  # gaussian width -> 1/4 of the histogram range 
+    p0 = (H, A, x0, sigma)
+    
+    # Fit gaussian to histogram distribution
+    xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0)
+    
+    return xmid, popt
