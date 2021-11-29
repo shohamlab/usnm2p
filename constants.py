@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-23 17:03:49
+# @Last Modified time: 2021-11-29 15:18:03
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -74,7 +74,7 @@ DFF_NOISE_QUANTILE = .9  # quantile used for the computation of the dFF noise le
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 2, STIM)  # indexes used for analysis of pres-stimulus activity per trial.
+    PRESTIM = slice(STIM - 3, STIM - 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 
