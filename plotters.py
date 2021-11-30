@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 14:31:05
+# @Last Modified time: 2021-11-30 08:23:38
 
 ''' Collection of plotting utilities. '''
 
@@ -20,7 +20,7 @@ from tqdm import tqdm
 from logger import logger
 from constants import *
 from utils import get_singleton, is_iterable, plural
-from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, groupby_and_all, clusterize_data
+from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, groupby_and_all, clusterize_data, gauss
 from viewers import get_stack_viewer
 
 
@@ -1136,4 +1136,51 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     if title is not None:
         s = f'{s} ({title})'
     ax.set_title(s)
+    return fig
+
+
+def plot_gaussian_histogram_fit(data, fitparams, iROI, irun, ykey=Label.DFF, nbins=100):
+    ''' 
+    Plot histogram distribution and fitted gaussian fit for a particular dataset,
+    for a subset of ROIs of interest.
+    
+    :param data: timeseries data
+    :param fitparams: fitted gaussian parameters data
+    :param iROI: indexes of ROIs of interest
+    :param irun: index of run of interest
+    :param ykey (optional): column of interest in timeseries data
+    :param nbins (optional): number of bins in histogram distributions
+    :return: figure handle
+    '''
+    # Create figure
+    fig, axes = plt.subplots(iROI.size, 1, figsize=(5, 3 * iROI.size), sharex=True)
+    axes[-1].set_xlabel(ykey)
+    # For each ROI of interest
+    for ax, ir in zip(axes, iROI):
+        sns.despine(ax=ax)
+        # Plot histogram distribution
+        ax.set_title(f'ROI {ir}')
+        ax.set_ylabel('Count')
+        _, xedges, _ = ax.hist(
+            data.loc[pd.IndexSlice[ir, irun, :, :], ykey],
+            bins=nbins, alpha=0.5)
+        # Plot fitted gaussian
+        xmids = (xedges[1:] + xedges[:-1]) / 2
+        params = fitparams.loc[pd.IndexSlice[ir, irun]]
+        ax.plot(xmids, gauss(xmids, *params.values), c='k')
+        # Plot markers for mean and width of gaussian fit
+        ax.vlines(
+            params['x0'], 
+            ymin=params['H'], 
+            ymax=params['H'] + params['A'], 
+            ls='--', colors='k')
+        ax.hlines(
+            params['H'] + params['A'] / 2,
+            xmin=params['x0'] - params['sigma'],
+            xmax=params['x0'] + params['sigma'],
+            ls='--', colors='k')
+        # Add text labels for mean and width of gaussian fit
+        ax.text(0.5, 0.6, f'\u03BC({ykey}) = {params["x0"]:.3f}', transform=ax.transAxes)
+        ax.text(0.5, 0.5, f'\u03C3({ykey}) = {params["sigma"]:.3f}', transform=ax.transAxes)
+    # Return figure
     return fig

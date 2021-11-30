@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 15:18:03
+# @Last Modified time: 2021-11-30 08:27:07
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -67,9 +67,6 @@ ALPHA = .7
 BASELINE_WLEN = 30.  # window length (in s) to compute the fluorescence baseline
 BASELINE_QUANTILE = .05  # quantile used for the computation of the fluorescence baseline
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
-
-# dFF noise level computation
-DFF_NOISE_QUANTILE = .9  # quantile used for the computation of the dFF noise level
 
 # Frame indexes
 class FrameIndex:
