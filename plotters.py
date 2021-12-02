@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 12:09:13
+# @Last Modified time: 2021-12-02 14:56:13
 
 ''' Collection of plotting utilities. '''
 
@@ -900,8 +900,8 @@ def plot_stack_timecourse(*args, **kwargs):
     # For each stack file-object provided
     for i, header in enumerate(viewer.headers):
         # Get evolution of frame average intensity and its standard deviation
-        mu, sigma = [viewer.get_frame_metric_evolution(viewer.fobjs[i], viewer.frange, func=func)
-                   for func in [np.mean, np.std]]
+        mu, sigma = viewer.get_frame_metric_evolution(
+            viewer.fobjs[i], viewer.frange, func=lambda x: (x.mean(), x.std())).T
         # Mean-correct the signal if needed
         if correct:
             mu -= mu.mean()

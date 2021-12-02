@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-30 08:27:07
+# @Last Modified time: 2021-12-02 14:35:34
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -46,6 +46,7 @@ P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
 ###################################### SUITE2P ######################################
 
+S2P_UINT16_NORM_FACTOR = 2  # normalization factor applied by suite2p to input uint16 TIF files
 REWRITTEN_S2P_KEYS = {  # suite2p options keys that are rewritten upon suite2p processing
     'fast_disk',
     'save_path0',

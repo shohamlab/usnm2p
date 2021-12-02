@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 12:28:02
+# @Last Modified time: 2021-12-02 14:52:59
 
 ''' Notebook image viewing utilities. '''
 
@@ -19,6 +19,7 @@ from IPython.display import display
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
 import imageio as iio
+from constants import S2P_UINT16_NORM_FACTOR
 
 from logger import logger
 from utils import float_to_uint8
@@ -88,7 +89,7 @@ class StackViewer:
     def get_frame(self, fobj, i):
         '''Get a particular frame in the stack '''
         if isinstance(fobj, BinaryFile):
-            return fobj[i][0]
+            return fobj[i][0] * S2P_UINT16_NORM_FACTOR
         else:
             return fobj.pages[i].asarray()
 
@@ -104,14 +105,13 @@ class StackViewer:
         else:
             logger.info(f'frame frange: {bounds}')
         return range(bounds[0], bounds[1] + 1)
-
-    def get_intensity_range(self, fobj, frange):
+    
+    def get_intensity_range(self, i, frange):
         ''' Get the range of pixel intensity across the whole stack. '''
-        Imin, Imax = np.inf, -np.inf
-        for i in tqdm(frange):
-            frame = self.get_frame(fobj, i)
-            Imin = min(Imin, frame.min())
-            Imax = max(Imax, frame.max())
+        # Get evolution of min and max frame intensity
+        Imin, Imax = self.get_frame_metric_evolution(
+            self.fobjs[i], frange, func=lambda x: (x.min(), x.max())).T
+        Imin, Imax = np.min(Imin), np.max(Imax)
         logger.info(f'intensity range: {Imin} - {Imax}')
         return (Imin, Imax)
 
@@ -155,7 +155,8 @@ class StackViewer:
                         refindex = index
                     real_index = index - refindex
                     if real_index >= frange.start and real_index < frange.stop:
-                        out.append(func(real_index, frame[0]))
+                        # Multiply stack by factor 2 to compensate for suite2p input normalization
+                        out.append(func(real_index, frame[0] * S2P_UINT16_NORM_FACTOR))
                         pbar.update()
             # FIX: reload binary file object to reset internal index and make sure
             # next iter_frames works correctly
@@ -235,7 +236,7 @@ class StackViewer:
         # Initialize normalizers
         if norm:
             logger.info(f'computing stack intensity range across {self.frange.start} - {self.frange.stop -1} frame range...')
-            lims = [self.get_intensity_range(fobj, self.frange) for fobj in self.fobjs]
+            lims = [self.get_intensity_range(i, self.frange) for i in range(len(self.fobjs))]
             self.norms = [plt.Normalize(vmin=x[0], vmax=x[1]) for x in lims]
         else:
             self.norms = [None] * len(self.fobjs)
