@@ -49,8 +49,8 @@ The raw data is typically processed in different successive steps, described bel
 
 3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
 	- conversion from TIF to binary data
-	- motion correction & image registration (parametrized, rigid vs. non-rigid)
-	- denoising using principal component analysis (optional) ???
+	- motion correction & image registration (optional, can be rigid or non-rigid)
+	- denoising using principal component analysis (optional)
 	- regions of interest (ROIs) detection over contaminating signals originating from the surrounding neuropil (i.e. axons & dendrites located outside of the plane of interest but in the acquisition volume)
 	- ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
 	- extraction of ROI's calcium fluorescence timecourse

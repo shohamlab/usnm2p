@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-30 08:23:38
+# @Last Modified time: 2021-12-02 12:09:13
 
 ''' Collection of plotting utilities. '''
 
@@ -47,7 +47,7 @@ def plot_table(inputs):
     return fig
    
 
-def plot_stack_histogram(stacks, title=None):
+def plot_stack_histogram(stacks, title=None, yscale='log'):
     '''
     Plot summary histogram from TIF stacks.
     
@@ -67,7 +67,7 @@ def plot_stack_histogram(stacks, title=None):
         ax.hist(v.ravel(), bins=50, label=k, ec='k', alpha=0.5)
     ax.legend()
     ax.set_xlabel('pixel intensity')
-    ax.set_yscale('log')
+    ax.set_yscale(yscale)
     ax.set_ylabel('Count')
     return fig
 
@@ -141,68 +141,76 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
         :return: figure handle    
     '''
     logger.info('plotting suite2p registered images...')    
-    fig, axes = plt.subplots(1, 4, figsize=(18, 4))
+    
+    # Gather images dictionary
+    imkeys_dict = {
+        'Reference registration image': 'refImg',
+        'Max projection image': 'max_proj',
+        'Correlation map': 'Vcorr',
+        'Mean image': 'meanImg',
+        'Enhanced mean image (median-filtered)': 'meanImgE'
+    }
+    imgs_dict = {label: output_ops.get(key, None) for label, key in imkeys_dict.items()}
+    imgs_dict = {k: v for k, v in imgs_dict.items() if v is not None}
+    
+    # Create figure
+    nimgs = len(imgs_dict)
+    fig, axes = plt.subplots(1, nimgs, figsize=(4 * nimgs, 4))
     if title is not None:
         fig.suptitle(title)
-    # Reference image for registration 
-    ax = axes[0]
-    ax.imshow(output_ops['refImg'], cmap=cmap)
-    ax.set_title('Reference Image for Registration')
-    # Maximum of recording over time
-    ax = axes[1]
-    ax.imshow(output_ops['max_proj'], cmap=cmap)
-    ax.set_title("Registered Image, Max Projection")
-    # Mean registered image
-    ax = axes[2]
-    ax.imshow(output_ops['meanImg'], cmap=cmap)
-    ax.set_title("Mean registered image")
-    # High-pass filtered mean regitered image
-    ax = axes[3]
-    ax.imshow(output_ops['meanImgE'], cmap=cmap)
-    ax.set_title("High-pass filtered Mean registered image")
-    # Add scale bar if scale provided
-    if um_per_px is not None:
-        npx = output_ops['meanImgE'].shape[-1]
-        for ax in axes:
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            add_scale_bar(ax, npx, um_per_px, color='w')
+    
+    # For each available image
+    for ax, (label, img) in zip(axes, imgs_dict.items()):
+        # Set image title and render image
+        ax.set_title(label)
+        ax.imshow(img)
+        # Add scale bar if scale provided
+        if um_per_px is not None:
+            npx = img.shape[-1]
+            for ax in axes:
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                add_scale_bar(ax, npx, um_per_px, color='w')
+
+    # Return figure
     return fig
 
 
-def plot_suite2p_registration_offsets(output_ops, title=None):
+def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
     ''' Plot registration offsets over time from suite2p processing output.
 
         :param output_ops: suite2p output
         :return: figure handle    
     '''    
+    if 'yoff' not in output_ops:
+        logger.warning('looks like the data was not registered -> ignoring')
+        return None
     logger.info('plotting suite2p registration offsets...')
-    fig, axes = plt.subplots(4, 1, figsize=(18, 8))
+    fig, axes = plt.subplots(2, 1, figsize=(12, 5), sharey=True)
     if title is not None:
         fig.suptitle(title)
-    # Rigid y-offsets
-    ax = axes[0]
-    ax.plot(output_ops['yoff'][:1000])
-    ax.set_ylabel('rigid y-offsets')
-    # Rigid x-offsets
-    ax = axes[1]
-    ax.plot(output_ops['xoff'][:1000])
-    ax.set_ylabel('rigid x-offsets')
-    # Non-rigid y-offsets
-    ax = axes[2]
-    ax.plot(output_ops['yoff1'][:1000])
-    ax.set_ylabel('nonrigid y-offsets')
-    # Non-rigid x-offsets
-    ax = axes[3]
-    ax.plot(output_ops['xoff1'][:1000])
-    ax.set_ylabel('nonrigid x-offsets')
-    ax.set_xlabel('frames')
-    # Hide spines and return
-    sns.despine()
+    for ax in axes[:-1]:
+        ax.set_xticks([])
+        sns.despine(ax=ax, bottom=True)
+    axes[-1].set_xlabel('frames')
+    sns.despine(ax=axes[-1], offset={'bottom': 10})
+    for ax, key in zip(axes, ['y', 'x']):
+        offsets = output_ops[f'{key}off']
+        block_offsets = output_ops[f'{key}off1']
+        if fbounds is not None:
+            offsets = offsets[fbounds[0]:fbounds[1] + 1]
+            block_offsets = block_offsets[fbounds[0]:fbounds[1] + 1]
+        ax.plot(offsets, c='k', label='whole frame', zorder=5)
+        for i, bo in enumerate(block_offsets.T):
+            ax.plot(bo, label=f'block {i + 1}')
+        ax.axhline(0, c='silver', ls='--')
+        ax.set_ylabel(key)
+    axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
     return fig
 
 
-def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None):
+def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=True,
+                      superimpose=False, refkey='Vcorr'):
     ''' Plot regions of interest identified by suite2p.
 
         :param data: data dictionary containing contents outputed by suite2p
@@ -212,41 +220,69 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None):
     logger.info('plotting suite2p identified ROIs...')
     iscell = data['iscell'][:, 0].astype(int)
     stats = data['stat']
-    # Generate ncells random points
-    h = np.random.rand(len(iscell))
-    hsvs = np.zeros((2, output_ops['Ly'], output_ops['Lx'], 3), dtype=np.float32)
+    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    # Generate nROIs random hues
+    hues = np.random.rand(len(iscell))
+    # Initialize empty HSV and alpha matrices
+    hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
+    alphas = np.zeros((2, Ly, Lx), dtype=np.float32)
     # Assign a color to each ROIs coordinates
     for i, stat in enumerate(stats):
         # Get x, y pixels and associated mask values of ROI
         ypix, xpix, lam = stat['ypix'], stat['xpix'], stat['lam']
-        hsvs[iscell[i], ypix, xpix, 0] = h[i]  # random hue
-        hsvs[iscell[i], ypix, xpix, 1] = 1     # fully saturated
-        hsvs[iscell[i], ypix, xpix, 2] = lam / lam.max()  # intensity depending on mask value
+        # Normalize mask values if specified
+        if norm_mask:
+            lam /= lam.max()
+        # Assign HSV color
+        hsvs[iscell[i], ypix, xpix, 0] = hues[i]  # Hue: from random hues array
+        hsvs[iscell[i], ypix, xpix, 1] = 1        # Saturation: 1
+        hsvs[iscell[i], ypix, xpix, 2] = lam      # Value: from mask
+        # Set alpha to 1
+        alphas[iscell[i], ypix, xpix] = 1.
     # Convert HSV -> RGB space
     rgbs = np.array([hsv_to_rgb(*hsv) for hsv in hsvs.reshape(-1, 3)]).reshape(hsvs.shape)
+    # Add transparency information
+    if superimpose:
+        rgbs = np.append(rgbs, np.expand_dims(alphas, axis=-1), axis=-1)
     # Create figure
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    if superimpose:
+        naxes = rgbs.shape[0]
+        iref, icell, inoncell = [0, 1], 0, 1
+        alpha_ROIs = .9
+    else:
+        naxes = rgbs.shape[0] + 1
+        iref, icell, inoncell = [1], 0, 2
+        alpha_ROIs = 1
+    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 5))
     if title is not None:
         fig.suptitle(title)
-    # Registered image (max projection)
-    ax = axes[0]
-    ax.imshow(output_ops['max_proj'], cmap='gray')
-    ax.set_title('Registered Image, Max Projection')
+    # Reference image
+    cmap = plt.get_cmap('viridis').copy()
+    cmap.set_bad(color='silver')
+    refimg = output_ops[refkey]
+    # Adapt correlation map in superimpose mode (NaN padding to match original dimensions)
+    if refkey == 'Vcorr' and superimpose:
+        Lyc, Lxc = output_ops['Lyc'], output_ops['Lxc']
+        dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
+        refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+    for ax in axes[iref]:
+        if not superimpose:
+            ax.set_title('Reference image')
+        ax.imshow(refimg, cmap=cmap)
     # Cells ROIs
-    ax = axes[1]
-    ax.imshow(rgbs[1])
+    ax = axes[icell]
     ax.set_title(f'Cell ROIs ({np.sum(iscell == 1)})')
+    ax.imshow(rgbs[1], alpha=alpha_ROIs)
     # Non-cell ROIs
-    ax = axes[2]
-    ax.imshow(rgbs[0])
+    ax = axes[inoncell]
     ax.set_title(f'Non-cell ROIs ({np.sum(iscell == 0)})')
+    ax.imshow(rgbs[0], alpha=alpha_ROIs)
     # Add scale bar if scale provided
     if um_per_px is not None:
-        npx = rgbs[0].shape[0]
         for ax in axes:
             ax.set_xticklabels([])
             ax.set_yticklabels([])
-            add_scale_bar(ax, npx, um_per_px, color='w')    
+            add_scale_bar(ax, Lx, um_per_px, color='w')    
     # Tighten and return
     fig.tight_layout()
     return fig

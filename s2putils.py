@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 12:12:12
+# @Last Modified time: 2021-12-01 15:51:56
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -184,3 +184,15 @@ def get_s2p_stack(ops, bounds=None):
         data = data[bounds[0]:bounds[1] + 1]
     return data
 
+
+def get_s2p_stack_label(ops):
+    ''' Construct an appropriate label for the suite2p output stack '''
+    l = []
+    if ops['do_registration'] == 1:
+        l.append('registered')
+    if ops['denoise']:
+        l.append('PCA denoised')
+    label = 's2p'
+    if len(l) > 0:
+        label = f'{label} ({" + ".join(l)})'
+    return label
