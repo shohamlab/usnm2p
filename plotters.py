@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-03 11:50:23
+# @Last Modified time: 2021-12-03 16:42:29
 
 ''' Collection of plotting utilities. '''
 
@@ -239,12 +239,12 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     Ly, Lx = output_ops['Ly'], output_ops['Lx']
 
     # Initialize pixel matrices
-    alphas = np.zeros((2, Ly, Lx), dtype=np.float32)
-    if mode == 'fill':
+    Z = np.zeros((2, iscell.size, Ly, Lx), dtype=np.float32)
+    if mode in ['fill', 'both']:
         # nROIs random hues
         hues = np.random.rand(len(iscell))
         hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
-    else:
+    if mode in ['contour', 'both']:
         X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
         contour_color = {
             'viridis': 'r',
@@ -255,9 +255,9 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     for i, stat in enumerate(stats):
         # Get x, y pixels and associated mask values of ROI
         ypix, xpix, lam = stat['ypix'], stat['xpix'], stat['lam']
-        # Set alpha to 1
-        alphas[iscell[i], ypix, xpix] = 1.
-        if mode =='fill':
+        # Set Z to ROI 1
+        Z[iscell[i], i, ypix, xpix] = 1
+        if mode in ['fill', 'both']:
             # Normalize mask values if specified
             if norm_mask:
                 lam /= lam.max()
@@ -265,14 +265,13 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
             hsvs[iscell[i], ypix, xpix, 0] = hues[i]  # Hue: from random hues array
             hsvs[iscell[i], ypix, xpix, 1] = 1        # Saturation: 1
             hsvs[iscell[i], ypix, xpix, 2] = lam      # Value: from mask
-
     
-    if mode == 'fill':
+    if mode in ['fill', 'both']:
         # Convert HSV -> RGB space
         rgbs = np.array([hsv_to_rgb(*hsv) for hsv in hsvs.reshape(-1, 3)]).reshape(hsvs.shape)
         # Add transparency information to RGB matrices if in superimpose mode
         if superimpose:
-            rgbs = np.append(rgbs, np.expand_dims(alphas * alpha_ROIs, axis=-1), axis=-1)
+            rgbs = np.append(rgbs, np.expand_dims(Z.max(axis=1) * alpha_ROIs, axis=-1), axis=-1)
 
     # Create figure
     if superimpose:
@@ -304,11 +303,13 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     for iax, iscell_bool, label in zip([icell, inoncell], [1, 0], ['Cell', 'Non-cell']):
         ax = axes[iax]
         ax.set_title(f'{label} ROIs ({np.sum(iscell == iscell_bool)})')
-        if mode == 'contour':  # "contour" mode
-            ax.contour(X, Y, alphas[iscell_bool, :, :], levels=[.5], colors=[contour_color])
+        if mode in ['contour', 'both']:  # "contour" mode
+            for z in Z[iscell_bool]:
+                if z.max() > 0:
+                    ax.contour(X, Y, z, levels=[.5], colors=[contour_color])
             if not superimpose:
                 ax.set_aspect(1.)
-        else:  # "fill" mode
+        if mode in ['fill', 'both']:  # "fill" mode
             ax.imshow(rgbs[iscell_bool])
 
     # Add scale bar if scale provided
