@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 14:56:13
+# @Last Modified time: 2021-12-03 11:50:23
 
 ''' Collection of plotting utilities. '''
 
@@ -134,7 +134,7 @@ def add_scale_bar(ax, npx, um_per_px, color='k'):
     ax.add_artist(scalebar)
 
 
-def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_per_px=None):
+def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_per_px=None, full_mode=False):
     ''' Plot summary registration images from suite2p processing output.
 
         :param output_ops: suite2p output
@@ -144,11 +144,15 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     
     # Gather images dictionary
     imkeys_dict = {
-        'Reference registration image': 'refImg',
         'Max projection image': 'max_proj',
         'Correlation map': 'Vcorr',
-        'Mean image': 'meanImg',
-        'Enhanced mean image (median-filtered)': 'meanImgE'
+        'Mean image': 'meanImg'
+    }
+    if full_mode:
+        imkeys_dict = {
+            'Reference registration image': 'refImg',
+            ** imkeys_dict,
+            'Enhanced mean image (median-filtered)': 'meanImgE'
     }
     imgs_dict = {label: output_ops.get(key, None) for label, key in imkeys_dict.items()}
     imgs_dict = {k: v for k, v in imgs_dict.items() if v is not None}
@@ -163,7 +167,7 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     for ax, (label, img) in zip(axes, imgs_dict.items()):
         # Set image title and render image
         ax.set_title(label)
-        ax.imshow(img)
+        ax.imshow(img, cmap=cmap)
         # Add scale bar if scale provided
         if um_per_px is not None:
             npx = img.shape[-1]
@@ -194,70 +198,95 @@ def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
         sns.despine(ax=ax, bottom=True)
     axes[-1].set_xlabel('frames')
     sns.despine(ax=axes[-1], offset={'bottom': 10})
+    if fbounds is None:
+        fbounds = [0, output_ops['nframes'] - 1]
     for ax, key in zip(axes, ['y', 'x']):
-        offsets = output_ops[f'{key}off']
-        block_offsets = output_ops[f'{key}off1']
-        if fbounds is not None:
-            offsets = offsets[fbounds[0]:fbounds[1] + 1]
-            block_offsets = block_offsets[fbounds[0]:fbounds[1] + 1]
+        offsets = output_ops[f'{key}off'][fbounds[0]:fbounds[1] + 1]
         ax.plot(offsets, c='k', label='whole frame', zorder=5)
-        for i, bo in enumerate(block_offsets.T):
-            ax.plot(bo, label=f'block {i + 1}')
+        if output_ops['nonrigid']:
+            block_offsets = output_ops[f'{key}off1'][fbounds[0]:fbounds[1] + 1]
+            for i, bo in enumerate(block_offsets.T):
+                ax.plot(bo, label=f'block {i + 1}')
         ax.axhline(0, c='silver', ls='--')
         ax.set_ylabel(key)
-    axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
+    if output_ops['nonrigid']:
+        axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
     return fig
 
 
 def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=True,
-                      superimpose=False, refkey='Vcorr'):
+                      superimpose=True, mode='contour', refkey='Vcorr', alpha_ROIs=1.,
+                      cmap='viridis'):
     ''' Plot regions of interest identified by suite2p.
 
         :param data: data dictionary containing contents outputed by suite2p
         :param output_ops: dictionary of outputed suite2p options
+        :param title (optional): figure title
+        :param um_per_pixel (optional): number of microns per pixel (for scale bar)
+        :param norm_mask (default: True): whether to normalize mask values for each ROI
+        :param superimpose (default: True): whether to superimpose ROIs on reference image
+        :param mode (default: contour): ROIs render mode ('fill' or 'contour')
+        :param refkey: key of reference image to fetch from options dictionary
+        :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
+        :param cmap (default: viridis): colormap used to render reference image 
         :return: figure handle
     '''
     logger.info('plotting suite2p identified ROIs...')
+    
+    # Fetch parameters from data
     iscell = data['iscell'][:, 0].astype(int)
     stats = data['stat']
     Ly, Lx = output_ops['Ly'], output_ops['Lx']
-    # Generate nROIs random hues
-    hues = np.random.rand(len(iscell))
-    # Initialize empty HSV and alpha matrices
-    hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
+
+    # Initialize pixel matrices
     alphas = np.zeros((2, Ly, Lx), dtype=np.float32)
-    # Assign a color to each ROIs coordinates
+    if mode == 'fill':
+        # nROIs random hues
+        hues = np.random.rand(len(iscell))
+        hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
+    else:
+        X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
+        contour_color = {
+            'viridis': 'r',
+            'gray': 'r'
+        }.get(cmap, 'r')
+    
+    # Loop through each ROI coordinates
     for i, stat in enumerate(stats):
         # Get x, y pixels and associated mask values of ROI
         ypix, xpix, lam = stat['ypix'], stat['xpix'], stat['lam']
-        # Normalize mask values if specified
-        if norm_mask:
-            lam /= lam.max()
-        # Assign HSV color
-        hsvs[iscell[i], ypix, xpix, 0] = hues[i]  # Hue: from random hues array
-        hsvs[iscell[i], ypix, xpix, 1] = 1        # Saturation: 1
-        hsvs[iscell[i], ypix, xpix, 2] = lam      # Value: from mask
         # Set alpha to 1
         alphas[iscell[i], ypix, xpix] = 1.
-    # Convert HSV -> RGB space
-    rgbs = np.array([hsv_to_rgb(*hsv) for hsv in hsvs.reshape(-1, 3)]).reshape(hsvs.shape)
-    # Add transparency information
-    if superimpose:
-        rgbs = np.append(rgbs, np.expand_dims(alphas, axis=-1), axis=-1)
+        if mode =='fill':
+            # Normalize mask values if specified
+            if norm_mask:
+                lam /= lam.max()
+            # Assign HSV color
+            hsvs[iscell[i], ypix, xpix, 0] = hues[i]  # Hue: from random hues array
+            hsvs[iscell[i], ypix, xpix, 1] = 1        # Saturation: 1
+            hsvs[iscell[i], ypix, xpix, 2] = lam      # Value: from mask
+
+    
+    if mode == 'fill':
+        # Convert HSV -> RGB space
+        rgbs = np.array([hsv_to_rgb(*hsv) for hsv in hsvs.reshape(-1, 3)]).reshape(hsvs.shape)
+        # Add transparency information to RGB matrices if in superimpose mode
+        if superimpose:
+            rgbs = np.append(rgbs, np.expand_dims(alphas * alpha_ROIs, axis=-1), axis=-1)
+
     # Create figure
     if superimpose:
-        naxes = rgbs.shape[0]
+        naxes = 2
         iref, icell, inoncell = [0, 1], 0, 1
-        alpha_ROIs = .9
     else:
-        naxes = rgbs.shape[0] + 1
+        naxes = 3
         iref, icell, inoncell = [1], 0, 2
-        alpha_ROIs = 1
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 5))
     if title is not None:
         fig.suptitle(title)
-    # Reference image
-    cmap = plt.get_cmap('viridis').copy()
+        
+    # Get reference image
+    cmap = plt.get_cmap(cmap).copy()
     cmap.set_bad(color='silver')
     refimg = output_ops[refkey]
     # Adapt correlation map in superimpose mode (NaN padding to match original dimensions)
@@ -265,24 +294,30 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
         Lyc, Lxc = output_ops['Lyc'], output_ops['Lxc']
         dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
         refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+    # Plot reference image 
     for ax in axes[iref]:
         if not superimpose:
             ax.set_title('Reference image')
         ax.imshow(refimg, cmap=cmap)
-    # Cells ROIs
-    ax = axes[icell]
-    ax.set_title(f'Cell ROIs ({np.sum(iscell == 1)})')
-    ax.imshow(rgbs[1], alpha=alpha_ROIs)
-    # Non-cell ROIs
-    ax = axes[inoncell]
-    ax.set_title(f'Non-cell ROIs ({np.sum(iscell == 0)})')
-    ax.imshow(rgbs[0], alpha=alpha_ROIs)
+    
+    # Plot cell and non-cell ROIs
+    for iax, iscell_bool, label in zip([icell, inoncell], [1, 0], ['Cell', 'Non-cell']):
+        ax = axes[iax]
+        ax.set_title(f'{label} ROIs ({np.sum(iscell == iscell_bool)})')
+        if mode == 'contour':  # "contour" mode
+            ax.contour(X, Y, alphas[iscell_bool, :, :], levels=[.5], colors=[contour_color])
+            if not superimpose:
+                ax.set_aspect(1.)
+        else:  # "fill" mode
+            ax.imshow(rgbs[iscell_bool])
+
     # Add scale bar if scale provided
     if um_per_px is not None:
         for ax in axes:
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             add_scale_bar(ax, Lx, um_per_px, color='w')    
+
     # Tighten and return
     fig.tight_layout()
     return fig

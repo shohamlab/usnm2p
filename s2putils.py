@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 14:35:25
+# @Last Modified time: 2021-12-02 15:59:10
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -82,11 +82,20 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
     :param overwrite (optional): what to do in case of potential overwrite
     :return: suite2p sub-dir code established from run options
     '''
+    # Fetch default options
+    defops = default_ops()
+    # Check registration status and adapt it if needed
+    is_reg = ops.get('do_registration', defops['do_registration'])
+    is_nonrigid = ops.get('nonrigid', defops['nonrigid'])
+    if not is_reg and is_nonrigid:
+        logger.warning('opted out of registration -> setting nonrigid to False')
+        ops['nonrigid'] = False
+    
     logger.info(f'running suite2p {version} with the following options:\n{pprint.pformat(ops)}')
     if db is None:
         raise ValueError('"db" keyword argument must be provided')
     # Get dictionary of options that differ from default options
-    diff_from_default_ops = compare_options(ops, default_ops())['input'].to_dict()
+    diff_from_default_ops = compare_options(ops, defops)['input'].to_dict()
     # Derive options code and, from it, final suite2p sub-directory
     s2p_basedir = 'suite2p'
     if diff_from_default_ops is not None:
@@ -196,7 +205,8 @@ def get_s2p_stack_label(ops):
     ''' Construct an appropriate label for the suite2p output stack '''
     l = []
     if ops['do_registration'] == 1:
-        l.append('registered')
+        prefix = 'non-rigid' if ops['nonrigid'] else 'rigid'
+        l.append(f'{prefix} registered')
     if ops['denoise']:
         l.append('PCA denoised')
     label = 's2p'
