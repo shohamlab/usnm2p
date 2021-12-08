@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 13:24:09
+# @Last Modified time: 2021-12-08 15:26:06
 
 ''' Collection of generic utilities. '''
 
@@ -11,6 +11,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 import operator
 import abc
+from functools import wraps
 
 from constants import SI_POWERS, IND_LETTERS, Label
 from logger import logger
@@ -275,3 +276,13 @@ def mean_str(s):
         else:
             # For non-numeric type -> return NaN
             return np.nan
+
+
+def pbar_update(func, pbar):
+    ''' Add par update feature to function object '''
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        out = func(*args, **kwargs)
+        pbar.update()
+        return out
+    return wrapper

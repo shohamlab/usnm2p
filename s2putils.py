@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 15:59:10
+# @Last Modified time: 2021-12-07 18:05:27
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -90,7 +90,10 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
     if not is_reg and is_nonrigid:
         logger.warning('opted out of registration -> setting nonrigid to False')
         ops['nonrigid'] = False
-    
+    # Check diameter value and raise error if needed
+    if not ops.get('sparse_mode', True) and ops.get('diameter', 0) == 0:
+        raise ValueError('Cannot run non-sparse ROI detection: diameter not specified')
+            
     logger.info(f'running suite2p {version} with the following options:\n{pprint.pformat(ops)}')
     if db is None:
         raise ValueError('"db" keyword argument must be provided')

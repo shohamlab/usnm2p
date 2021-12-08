@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-29 17:22:49
+# @Last Modified time: 2021-12-08 17:21:02
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -27,22 +27,29 @@ def separate_runs(data, nruns):
     :param nruns: number of runs
     :return: multi-index dataframe with 3D (ROI, run, frame) index
     '''
+    # Check that data was not already split by run
     if Label.RUN in data.index.names:
         logger.warning('data already split by run -> ignoring')
         return data
     logger.info(f'splitting fluorescence data into {nruns} separate runs...')
+    # Get dimensions of dataframe index 
     nROIs, nframes_per_ROI = [len(data.index.unique(level=k)) for k in data.index.names]
+    # Make sure that #frames / ROI is an integer multiple of #frames / run 
     if nframes_per_ROI % nruns != 0:
         raise ValueError(f'specified number of runs {nruns} incompatible with number of frames per ROI ({nframes_per_ROI})')
+    # Add run indexes as an extra column
     iruns = np.arange(nruns)
     nframes_per_run = nframes_per_ROI // nruns
     data[Label.RUN] = np.repeat(np.tile(iruns, (nROIs, 1)), nframes_per_run)
+    # Re-arrange frame indexes on a per-run basis
     iframes_per_run = np.arange(nframes_per_run)
     iframes_per_run_ext = np.tile(iframes_per_run, (nROIs * nruns, 1)).flatten()
+    # Re-generate data index with new "run" level 
     data = data.droplevel(Label.FRAME)
     data = data.set_index(Label.RUN, append=True)
     data[Label.FRAME] = iframes_per_run_ext
     data = data.set_index(Label.FRAME, append=True)
+    # Return data
     return data
     
 
@@ -50,27 +57,67 @@ def separate_trials(data, ntrials):
     '''
     Split fluorescence dataframe into separate trials.
 
-    :param df: multi-index dataframe with 3D (ROI, run, frame) index
+    :param data: multi-index dataframe with 3D (ROI, run, frame) index
     :param ntrials: number of trials
     :return: multi-index dataframe with 4D (ROI, run, trial, frame) index
     '''
+    # Check that data was already split by run but not yet by trial
+    if Label.RUN not in data.index.names:
+        raise ValueError(f'attempting to split by {Label.TRIAL} but dataset missing {Label.RUN} information')
     if Label.TRIAL in data.index.names:
         logger.warning(f'data already split by {Label.TRIAL} -> ignoring')
         return data
     logger.info(f'splitting fluorescence data into {ntrials} separate trials...')
+    # Get dimensions of dataframe index
     nROIs, nruns, nframes_per_run = [len(data.index.unique(level=k)) for k in data.index.names]
+    # Make sure that #frames / run is an integer multiple of #frames / trial
     if nframes_per_run % ntrials != 0:
         raise ValueError(f'specified number of trials {ntrials} incompatible with number of frames per run ({nframes_per_run})')
+    # Add trial indexes as an extra column
     itrials = np.arange(ntrials)
     nframes_per_trial = nframes_per_run // ntrials
     itrials_ext = np.repeat(np.tile(itrials, (nROIs * nruns, 1)), nframes_per_trial)
     data[Label.TRIAL] = itrials_ext
+    # Re-arrange frame indexes on a per-trial basis
     iframes_per_trial = np.arange(nframes_per_trial)
     iframes_per_trial_ext = np.tile(iframes_per_trial, (nROIs * nruns * ntrials, 1)).flatten()
+    # Re-generate data index with new "trial" level 
     data = data.droplevel(Label.FRAME)
     data = data.set_index(Label.TRIAL, append=True)
     data[Label.FRAME] = iframes_per_trial_ext
-    data = data.set_index(Label.FRAME, append=True)
+    data = data.set_index(Label.FRAME, append=True) 
+    # Return data
+    return data
+
+
+def remove_trials(data, iremove):
+    '''
+    Remove specific trial indexes from fluoresence dataset
+    
+    :param data: multi-index dataframe with 4D (ROI, run, trial, frame) index
+    :param iremove: indexes of trials to remove
+    :return: filtered dataset
+    '''
+    # Cast indexes to remove as list
+    if not is_iterable(iremove):
+        iremove = [iremove]
+    # Get trials indexes present in dataset
+    itrials = data.index.unique(level=Label.TRIAL)
+    # Diff the two lists to get indexes to keep and indexes absent from dataset
+    iabsent = sorted(list(set(iremove) - set(itrials)))
+    ikeep = sorted(list(set(itrials) - set(iremove)))
+    iremove = sorted(list(set(itrials).intersection(set(iremove))))
+    # Convert ikeep to slice if possible (much faster data extraction)
+    ibounds = min(ikeep), max(ikeep)
+    if ikeep == list(range(ibounds[0], ibounds[1] + 1)):
+        ikeep = slice(ibounds[0], ibounds[1])
+    # Log warning message in case of absent indexes
+    if len(iabsent) > 0:
+        logger.warning(f'trials {iabsent} not found in dataets (already removed?) -> ignoring') 
+    # Restrict dataset to keep indexes
+    logger.info(f'removing trials {iremove} for each run...')
+    data = data.loc[pd.IndexSlice[:, :, ikeep, :], :]
+    # Return
     return data
 
 
@@ -376,7 +423,7 @@ def gauss(x, H, A, x0, sigma):
     return H + A * np.exp(-(x - x0) ** 2 / (2 * sigma**2))
 
 
-def histogram_fit(data, func, bins=100, p0=None):
+def histogram_fit(data, func, bins=100, p0=None, bounds=None):
     '''
     Fit a specific function to a dataset's histogram distribution
     
@@ -384,11 +431,12 @@ def histogram_fit(data, func, bins=100, p0=None):
     :param func: function to be fitted
     :param bins (optional): number of bins in histogram  (or bin edges values)
     :param p0 (optional): initial guess for function parameters
+    :param bounds (optional): bounds for function parameters
     :return: (bin mid-points, fitted function parameters) tuple
     '''
     hist, xedges = np.histogram(data, bins=bins)
     xmid = (xedges[1:] + xedges[:-1]) / 2 
-    popt, _ = curve_fit(func, xmid, hist, p0=p0)
+    popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds)
     return xmid, popt
 
 
@@ -403,15 +451,26 @@ def gauss_histogram_fit(data, bins=100):
     # Histogram distribution
     hist, edges = np.histogram(data, bins=bins)
     mids = (edges[1:] + edges[:-1]) / 2
+    ptp = np.ptp(data)
     
     # Initial guesses
     H = hist.min()  # vertical offset -> min histogram value
-    A = np.ptp(hist)  # gaussian range -> histogram amplitude range 
+    A = np.ptp(hist)  # vertical range -> histogram amplitude range
     x0 = mids[np.argmax(hist)]  # gaussian mean -> index of max histogram value
-    sigma = np.ptp(mids) / 4  # gaussian width -> 1/4 of the histogram range 
+    sigma = ptp / 4  # gaussian width -> 1/4 of the data range 
     p0 = (H, A, x0, sigma)
-    
+
+    # Bounds
+    Hbounds = (0., H + A / 2)  # vertical offset -> between 0 and min + half-range
+    Abounds = (A / 2, 2 * A)   # vertical range -> between half and twice initial guess
+    x0bounds = (x0 - ptp / 2, x0 + ptp / 2)  # gaussian mean -> within half-range of initial guess
+    sigmabounds = (1e-10, ptp)  # sigma -> between 0 and full range (non-negativity constraint)
+    pbounds = tuple(zip(*(Hbounds, Abounds, x0bounds, sigmabounds)))
+
     # Fit gaussian to histogram distribution
-    xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0)
+    xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0, bounds=pbounds)
+
+    s = popt[3]
+    assert s > 0, f'Error: negative standard deviation found during Gaussian fit ({s})'
     
     return xmid, popt

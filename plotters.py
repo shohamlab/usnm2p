@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-03 16:42:29
+# @Last Modified time: 2021-12-08 17:17:08
 
 ''' Collection of plotting utilities. '''
 
@@ -145,7 +145,7 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     # Gather images dictionary
     imkeys_dict = {
         'Max projection image': 'max_proj',
-        'Correlation map': 'Vcorr',
+        'Cross-scale correlation map': 'Vcorr',
         'Mean image': 'meanImg'
     }
     if full_mode:
@@ -180,10 +180,36 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     return fig
 
 
+def plot_suite2p_phase_corr_peak(output_ops):
+    ''' 
+    Plot peak of phase correlation with reference image over time
+    from suite2p processing output.
+
+    :param output_ops: suite2p output
+    :return: figure handle    
+    '''    
+    if 'corrXY' not in output_ops:
+        logger.warning('looks like movie was not registered -> ignoring')
+        return None
+    logger.info('plotting suite2p registration phase correlation peaks...')
+    fig, ax = plt.subplots(figsize=(12, 3))
+    sns.despine(ax=ax)
+    ax.set_title('peak of phase correlation with ref. image over time')
+    ax.set_xlabel('frames')
+    ax.set_ylabel('phase correlation peak')
+    ax.plot(output_ops['corrXY'], c='k')
+    if output_ops['nonrigid']:
+        block_corrs = output_ops[f'corrXY1']
+        for i, bc in enumerate(block_corrs.T):
+            ax.plot(bc, label=f'block {i + 1}')
+        ax.legend(bbox_to_anchor=(1, 0), loc='center left')
+    return fig
+
+
 def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
     ''' Plot registration offsets over time from suite2p processing output.
 
-        :param output_ops: suite2p output
+        :param output_ops: suite2p output options dictionary
         :return: figure handle    
     '''    
     if 'yoff' not in output_ops:
@@ -212,6 +238,139 @@ def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
     if output_ops['nonrigid']:
         axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
     return fig
+
+
+def plot_suite2p_PCs(output_ops, nPCs=3, um_per_px=None):
+    '''
+    Plot average of top and bottom 500 frames for each PC across the movie
+    
+    :param output_ops: dictionary of outputed suite2p options
+    :param um_per_pixel (optional): number of microns per pixel (for scale bar)
+    :return: figure handle
+    '''
+    logger.info('plotting suite2p PCs average frames...')
+    PCs = output_ops['regPC']
+    if nPCs is not None:
+        PCs = PCs[:, :nPCs]
+    nPCs = PCs.shape[1]
+    fig, axes = plt.subplots(nPCs, 3, figsize=(9, nPCs * 3))
+    fig.suptitle(f'top {nPCs} PCs average images across movie')
+    maxPCs, minPCs = PCs
+    for iPC, (axrow, minPC, maxPC) in enumerate(zip(axes, minPCs, maxPCs)):
+        title = f'PC {iPC + 1}'
+        axrow[0].imshow(minPC)
+        axrow[0].set_title(f'{title}: bottom 500 frames')
+        axrow[1].imshow(maxPC)
+        axrow[1].set_title(f'{title}: top 500 frames')
+        axrow[2].imshow(maxPC - minPC)
+        axrow[2].set_title(f'{title}: difference')
+    
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        refnpx = max(maxPC.shape)
+        for ax in axes.ravel():
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            add_scale_bar(ax, refnpx, um_per_px, color='w')
+    return fig
+
+
+def plot_suite2p_PC_drifts(output_ops):
+    '''
+    Plot drifts of PCs w.r.t reference image
+    
+    :param output_ops: suite2p output options dictionary
+    :return: figure handle
+    '''
+    PCdrifts = output_ops['regDX'].T
+    PCdrifts_dict = {
+        'rigid': PCdrifts[0],
+        'nonrigid avg': PCdrifts[1],
+        'nonrigid max': PCdrifts[2]
+    }
+    fig, ax = plt.subplots()
+    sns.despine(ax=ax)
+    ax.set_title('PC drifts w.r.t. reference image')
+    ax.set_xlabel('# PC')
+    ax.set_ylabel('absolute registration offset')
+    for k, v in PCdrifts_dict.items():
+        ax.plot(v, label=k)
+    ax.legend(frameon=False)
+    
+
+def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
+    ''' 
+    Plot the maps of detected peaks generated at various downsampling factors of
+    the sparse detection mode
+
+    :param output_ops: dictionary of outputed suite2p options
+    :param um_per_pixel (optional): number of microns per pixel (for scale bar)
+    '''
+    if not output_ops['sparse_mode']:
+        logger.warning('looks like sparse mode was not turned on -> ignoring')
+        return None
+    
+    # Extract maps
+    Vcorr, Vmaps = output_ops['Vcorr'], output_ops['Vmap']
+    
+    # Compute ratios
+    refnpx = max(Vcorr.shape)
+    npxs = np.array([max(x.shape) for x in Vmaps])  # get map dimensions
+    ratios = npxs / refnpx  # get ratios to reference map
+    ratios = np.power(2, np.ceil(np.log(ratios) / np.log(2)))  # round ratios to nearest power of 2
+    
+    # Find index of map with optimal scale for ROI detection 
+    best_scale_px = output_ops['spatscale_pix'][0]
+    best_scale = np.log(best_scale_px / 3) / np.log(2)
+    ibest_scale = np.where(1 / ratios == best_scale)[0][0]
+
+    # Determine maps titles
+    titles = [f'{npx} px (x 1/{1 / r:.0f}) map' for npx, r in zip(npxs, ratios)]
+
+    # Add reference map
+    titles = ['correlation map'] + titles
+    Vmaps = [Vcorr] + Vmaps
+    ibest_scale += 1
+
+    # Create figure
+    fig, axes = plt.subplots(2, len(Vmaps) // 2, figsize=(len(Vmaps) * 2, 8))
+    fig.suptitle(f'Sparse detection maps (best ROI detection scale = {best_scale_px} px)')
+    
+    # Plot maps
+    ths = []
+    for i, (ax, title, img) in enumerate(zip(axes.ravel(), titles, Vmaps)):
+        ths.append(ax.set_title(title))
+        ax.imshow(img)
+    
+    # Flag map with best scale
+    plt.setp(ths[ibest_scale], color='g')
+    
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        for ax in axes.ravel():
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            add_scale_bar(ax, refnpx, um_per_px, color='w')    
+    
+    # Return figure
+    return fig
+
+
+def get_image_and_cmap(output_ops, key, cmap, pad=True):
+    ''' Extract a reference image from the suite2p options dictionary, pad it if needed '''
+    # Get colormap
+    cmap = plt.get_cmap(cmap).copy()
+    cmap.set_bad(color='silver')
+    # Extract reference image
+    refimg = output_ops[key]
+    # If required, apply NaN padding to match original frame dimensions
+    Lyc, Lxc = refimg.shape
+    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    if (Lxc < Lx) or (Lyc < Ly) and pad:
+        dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
+        refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+    # Return reference image and colormap as a tuple
+    return refimg, cmap
 
 
 def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=True,
@@ -246,10 +405,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
         hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
     if mode in ['contour', 'both']:
         X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
-        contour_color = {
-            'viridis': 'r',
-            'gray': 'r'
-        }.get(cmap, 'r')
+        contour_color = {0: 'tab:red', 1: 'tab:orange'}
     
     # Loop through each ROI coordinates
     for i, stat in enumerate(stats):
@@ -283,17 +439,9 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 5))
     if title is not None:
         fig.suptitle(title)
-        
-    # Get reference image
-    cmap = plt.get_cmap(cmap).copy()
-    cmap.set_bad(color='silver')
-    refimg = output_ops[refkey]
-    # Adapt correlation map in superimpose mode (NaN padding to match original dimensions)
-    if refkey == 'Vcorr' and superimpose:
-        Lyc, Lxc = output_ops['Lyc'], output_ops['Lxc']
-        dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
-        refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+    
     # Plot reference image 
+    refimg, cmap = get_image_and_cmap(output_ops, refkey, cmap, pad=superimpose)
     for ax in axes[iref]:
         if not superimpose:
             ax.set_title('Reference image')
@@ -306,7 +454,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
         if mode in ['contour', 'both']:  # "contour" mode
             for z in Z[iscell_bool]:
                 if z.max() > 0:
-                    ax.contour(X, Y, z, levels=[.5], colors=[contour_color])
+                    ax.contour(X, Y, z, levels=[.5], colors=[contour_color[iscell_bool]])
             if not superimpose:
                 ax.set_aspect(1.)
         if mode in ['fill', 'both']:  # "fill" mode
@@ -322,55 +470,74 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     # Tighten and return
     fig.tight_layout()
     return fig
-    
 
-def plot_parameter_distributions(data, pkeys, zthr=None):
-    '''
-    Plot distributions of several morphological parameters (extracted from suite2p output)
-    across cells.
-    
-    :param data: cell-filtered suite2p output dictionary
-    :param pkeys: list of parameters to considers
-    :param zthr: threshold z-score (number of standard deviations from the mean) used to identify outliers
-    :return: figure handle, optionally with a dataframe summarizing identified outliers
-    '''
-    # Determine figure gird organization based on number of parameters
-    ncols = min(len(pkeys), 4)
-    nrows = int(np.ceil(len(pkeys) / ncols))
+
+def plot_suite2p_ROI_probs(iscell):
+    ''' Plot the histogram distribution of posterior probabilities of each ROIdistribution '''
+    # Transform iscell matrix into dataframe
+    data = pd.DataFrame(data=iscell, columns=['cell?', 'probability'])
+    # Remap the values of the dataframe
+    data = data.replace({'cell?': {1: 'yes', 0: 'no'}})
     # Create figure
-    fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
-    axes = axes.ravel()
-    fig.suptitle('Morphological parameters - distribution across cells')
-    # Initialize outliers dictionary
-    is_outlier = {}
-    # Fetch stats dictionary
-    stats = data['stat']
-    # For each output stats parameter
-    for ax, pkey in zip(axes, pkeys):
-        # Plot histogram distribution
-        sns.despine(ax=ax, left=True)
-        ax.set_xlabel(pkey)
-        ax.set_yticks([])
-        d = np.array([x[pkey] for x in stats])
-        ax.hist(d, bins=20, ec='k', alpha=0.7)
-        # If z-score threshold if provided, compute z-score distribution and identify outliers
-        if zthr is not None:
-            mu, std = d.mean(), d.std()
-            lims = [mu + k * zthr * std for k in [-1, 1]]
-            for l in lims:
-                ax.axvline(l, ls='--', c='silver')
-            is_outlier[pkey] = np.logical_or(d < lims[0], d > lims[1])
-    # Hide unused axes
-    for ax in axes[len(pkeys):]:
-        sns.despine(ax=ax, left=True, bottom=True)
-        ax.set_xticks([])
-        ax.set_yticks([])
-    # Conditional return
-    if zthr is None:
-        return fig
-    else:
-        # return dataframe of outliers
-        return fig, pd.DataFrame(is_outlier)
+    fig, ax = plt.subplots()
+    ax.set_title('posterior cell probability distributions')
+    sns.despine(ax=ax)
+    # Plot histogram distribution of both classes 
+    sns.histplot(data, x='probability', hue='cell?', bins=30)
+    # Return figure handle
+    return fig
+
+
+def plot_npix_ratio_distribution(stats, thr=None):
+    '''
+    Plot the histogram distribution of number of pixels in soma vs whole ROI
+    
+    :param stats: suite2p stats dictionary
+    :param thr (optional): threshold for outlier detection
+    :return: figure handle
+    '''
+    data = pd.DataFrame({
+        'npix': [x['npix'] for x in stats],
+        'npix_soma': [x['npix_soma'] for x in stats]
+    })
+    data['npix_ratio'] = data['npix'] / data['npix_soma']
+    fig, ax = plt.subplots()
+    ax.set_title('Ratios of (# pixels ROI) / (# pixels soma)')
+    sns.despine(ax=ax)
+    hue = None
+    if thr is not None:
+        ax.axvline(thr, ls='--', c='silver')
+        data['is_outlier'] = data['npix_ratio'] > thr
+        hue = 'is_outlier'
+    sns.histplot(data, x='npix_ratio', bins=30, ax=ax, hue=hue)
+    return fig, data
+
+
+def plot_all_ROIs(data, key=Label.F, delimiters=None):
+    '''
+    Plot all ROI traces for a particular variable
+
+    :param data: fluorescence dataframe
+    :return: figure handle
+    '''
+    logger.info(f'plotting {key} traces of all ROIs...')
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 4))
+    sns.despine(ax=ax)
+    ax.set_xlabel('frames')
+    ax.set_ylabel(key)
+    nROIs = len(data.index.unique(level=Label.ROI))
+    ax.set_title(f'{key} traces for all {nROIs} ROIs')
+    # Plot traces of all ROIs
+    for _, y in data[key].groupby(Label.ROI):
+        ax.plot(y.values)
+    # Plot delimiters, if any
+    if delimiters is not None:
+        logger.info(f'adding {len(delimiters)} delimiters')
+        for iframe in delimiters:
+            ax.axvline(iframe, color='k', linestyle='--')
+    # Return figure
+    return fig    
 
 
 def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
@@ -476,7 +643,8 @@ def mark_trials(ax, yconds, iROI, irun, color='C1'):
             ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
         
 
-def plot_cell_map(data, s2p_data, s2p_ops, title=None, um_per_px=None):
+def plot_cell_map(data, s2p_data, output_ops, title=None, um_per_px=None, refkey='Vcorr',
+                  mode='contour', cmap='viridis', alpha_ROIs=0.7):
     ''' Plot spatial distribution of cells (per response type) on the recording plane.
 
         :param data: experiment dataframe.
@@ -486,30 +654,69 @@ def plot_cell_map(data, s2p_data, s2p_ops, title=None, um_per_px=None):
         :param title (optional): figure title
         :return: figure handle
     '''
-    rtypes = get_response_types_per_ROI(data)
     logger.info('plotting cells map color-coded by response type...')
-    # Initialize an RGB image matrix
-    im = np.ones((s2p_ops['Ly'], s2p_ops['Lx'], 3), dtype=np.float32)
-    # Assign response-type-dependent color to the pixels of each cell
-    for i, (stat, rtype) in enumerate(zip(s2p_data['stat'], rtypes)):
-        im[stat['ypix'], stat['xpix'], :] = RGB_BY_TYPE[rtype]
-    # Render image on figure
-    fig, ax = plt.subplots()
+
+    # Fetch parameters from data
+    stats = s2p_data['stat']
+    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    rtypes = get_response_types_per_ROI(data)
+
+    # Initialize pixels by cell matrix
+    idx_by_type = {'non-responder': 0, 'responder': 1}
+    Z = np.zeros((2, rtypes.size, Ly, Lx), dtype=np.float32)
+
+    # Compute mask per ROI type
+    for i, (stat, rtype) in enumerate(zip(stats, rtypes)):
+        Z[idx_by_type[rtype], i, stat['ypix'], stat['xpix']] = 1
+    
+    if mode == 'contour':
+        # Initialize pixel matrices
+        X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
+    else:
+        # Stack Z matrices along ROIs to get 1 mask per type
+        masks = np.array([z.max(axis=0) for z in Z])
+        # Assign color and transparency to each mask
+        rgbs = np.zeros((*masks.shape, 4))
+        for i, (rtype, mask) in enumerate(zip(idx_by_type.keys(), masks)):
+            rgbs[i][mask == 1] = [*RGB_BY_TYPE[rtype], alpha_ROIs]
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(6, 6))
     if title is not None:
         ax.set_title(title)
-    ax.imshow(im)
+    
+    # Plot reference image 
+    refimg, cmap = get_image_and_cmap(output_ops, refkey, cmap, pad=True)
+    ax.imshow(refimg, cmap=cmap)
+    
+    # Plot cell and non-cell ROIs
+    for rtype, idx in idx_by_type.items():
+        if mode == 'contour':  # "contour" mode
+            for z in Z[idx]:
+                if z.max() > 0:
+                    ax.contour(X, Y, z, levels=[.5], colors=[RGB_BY_TYPE[rtype]])
+        else:  # "fill" mode
+            ax.imshow(rgbs[idx])
+
     # Add scale bar if scale provided
     if um_per_px is not None:
-        npx = s2p_ops['Ly']
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-        add_scale_bar(ax, npx, um_per_px)    
+        add_scale_bar(ax, Lx, um_per_px, color='w')    
+ 
     # Add legend
-    leg_items = [Line2D(
-        [0], [0], label=f'{k} ({sum(rtypes == k)})',
-        c='none', marker='o', mfc=v, mec='k', ms=10)
-        for k, v in RGB_BY_TYPE.items()]
+    if mode == 'contour':
+        leg_items = [Line2D(
+            [0], [0], label=f'{k} ({sum(rtypes == k)})',
+            c='none', marker='o', mfc='none', mec=v, mew=2, ms=10)
+            for k, v in RGB_BY_TYPE.items()]
+    else:
+        leg_items = [Line2D(
+            [0], [0], label=f'{k} ({sum(rtypes == k)})',
+            c='none', marker='o', mfc=v, mec='none', ms=10)
+            for k, v in RGB_BY_TYPE.items()]
     ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+    
     return fig
 
 

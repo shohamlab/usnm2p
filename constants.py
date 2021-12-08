@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 14:35:34
+# @Last Modified time: 2021-12-08 17:07:02
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -58,6 +58,8 @@ TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s)
 
 ###################################### POST-PROCESSING ######################################
 
+NPIX_RATIO_THR = 2.  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
+
 # neuropil subtraction factor (0-1):
 # - small values (around 0) tend to produce smoother dF/F0 traces with less amplitude,
 # - large values (around 1) tend to produce higher amplitude dF/F0 traces with more fluctuations
@@ -65,16 +67,18 @@ TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s)
 ALPHA = .7
 
 # Baseline computation
-BASELINE_WLEN = 30.  # window length (in s) to compute the fluorescence baseline
+BASELINE_WLEN = 15.  # window length (in s) to compute the fluorescence baseline
 BASELINE_QUANTILE = .05  # quantile used for the computation of the fluorescence baseline
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
+
+# Trials discarding
+ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
     PRESTIM = slice(STIM - 3, STIM - 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
-
 
 # Response & cell type classification
 ZSCORE_PRESTIM_THR = 1.645  # threshold max z-score within the pre-stimulus window to identify pre-stimulus activity
@@ -126,6 +130,7 @@ class Label:
     # Fluorescence signals
     TIME = 'time (s)'
     F_ROI = 'F_ROI (a.u.)'
+    MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
     F = 'F (a.u.)'
     F0 = 'F0 (a.u.)'
