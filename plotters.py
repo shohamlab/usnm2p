@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 17:17:08
+# @Last Modified time: 2021-12-08 17:26:02
 
 ''' Collection of plotting utilities. '''
 
@@ -197,7 +197,7 @@ def plot_suite2p_phase_corr_peak(output_ops):
     ax.set_title('peak of phase correlation with ref. image over time')
     ax.set_xlabel('frames')
     ax.set_ylabel('phase correlation peak')
-    ax.plot(output_ops['corrXY'], c='k')
+    ax.plot(output_ops['corrXY'], c='k', label='whole frame', zorder=5)
     if output_ops['nonrigid']:
         block_corrs = output_ops[f'corrXY1']
         for i, bc in enumerate(block_corrs.T):
@@ -295,7 +295,10 @@ def plot_suite2p_PC_drifts(output_ops):
     ax.set_ylabel('absolute registration offset')
     for k, v in PCdrifts_dict.items():
         ax.plot(v, label=k)
+    ylims = ax.get_ylim()
+    ax.set_ylim(min(ylims[0], -0.1), max(ylims[1], 1.0))
     ax.legend(frameon=False)
+    return fig
     
 
 def plot_suite2p_sparse_maps(output_ops, um_per_px=None):

@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 17:21:02
+# @Last Modified time: 2021-12-08 17:54:34
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
+from numpy.core.function_base import logspace
 import pandas as pd
 from tqdm import tqdm
 from scipy.optimize import curve_fit
@@ -131,7 +132,7 @@ def get_window_size(wlen, fps):
     return w
 
 
-def compute_baseline(data, fps, wlen, q):
+def compute_baseline(data, fps, wlen, q, smooth=True):
     '''
     Compute the baseline of a signal.
 
@@ -139,22 +140,36 @@ def compute_baseline(data, fps, wlen, q):
     :param fps: frame rate of the signal (in fps)
     :param wlen: window length (in s) to compute the fluorescence baseline
     :param q: quantile used for the computation of the fluorescence baseline 
+    :param smooth (default: False): whether to smooth the baseline by applying an additional
+        moving average (with half window size) to the sliding window output
     :return: fluorescence baseline series
     '''
     # Compute window size (in number of frames)
     w = get_window_size(wlen, fps)
+    if smooth:
+        w2 = w // 2
+        if w2 % 2 == 0:
+            w2 += 1   
     # Log process info
-    wstr = (f'{wlen:.1f}s ({w} frames) sliding window')    
+    wstr = (f'{wlen:.1f}s ({w} frames) sliding window')
     qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
-    logger.info(f'computing signal baseline as {qstr} of {wstr}')
+    steps_str = [f'{qstr} of {wstr}']
+    if smooth:
+        steps_str.append(f'mean of {w2 / fps:.1f}s ({w2} frames) sliding window')
+    if len(steps_str) > 1:
+        steps_str = '\n'.join([f'  - {s}' for s in steps_str])
+        steps_str = f'successive application of:\n{steps_str}'
+    logger.info(f'computing signal baseline as {steps_str}')
     # Group data by ROI and run, and apply sliding window on F to compute baseline fluorescence
     groupkeys = [Label.ROI, Label.RUN]
     nconds = np.prod([len(data.index.unique(level=k)) for k in groupkeys])
+    def bfunc(s):
+        b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
+        if smooth:
+            b = apply_rolling_window(b, w2, func=lambda x: x.mean())
+        return b
     with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
-        def funcwrap(x):
-            pbar.update()
-            return apply_rolling_window(x.values, w, func=lambda x: x.quantile(q))
-        return data.groupby(groupkeys).transform(funcwrap)
+        return data.groupby(groupkeys).transform(pbar_update(bfunc, pbar))
 
 
 def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
