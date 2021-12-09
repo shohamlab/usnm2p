@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-09 13:54:40
+# @Last Modified time: 2021-12-09 17:22:22
 
 ''' Collection of plotting utilities. '''
 
@@ -69,6 +69,40 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     ax.set_xlabel('pixel intensity')
     ax.set_yscale(yscale)
     ax.set_ylabel('Count')
+    return fig
+
+
+def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
+    '''
+    Plot frequency spectrum of TIF stacks.
+    
+    :param stacks: dictionary of TIF stacks
+    :param cmap (optional): colormap
+    :return: figure handle
+    '''
+    logger.info('computing stack(s) fft...')
+    nframes = stacks[list(stacks.keys())[0]].shape[0]
+    # Compute frequencies
+    freqs = np.fft.rfftfreq(nframes, 1 / fs)
+    # Compute FFTs along time axis
+    ffts = {k: np.abs(np.fft.rfft(v, axis=0)) for k, v in stacks.items()}
+    # Square FFts and average across pixels to get power spectrum for each frequency
+    ps_avg = {k: np.array([(x**2).mean() for x in v]) for k, v in ffts.items()}
+
+    logger.info('plotting stack(s) frequency spectrum...')
+    fig, ax = plt.subplots()
+    if title is None:
+        title = ''
+    else:
+        title = f'{title} - '
+    ax.set_title(f'{title}frequency spectrum')
+    sns.despine(ax=ax)
+    for k, v in ps_avg.items():
+        ax.plot(freqs, v, label=k)
+    ax.legend()
+    ax.set_xlabel('frequency (Hz)')
+    ax.set_yscale(yscale)
+    ax.set_ylabel('power spectrum')
     return fig
 
 
@@ -189,7 +223,7 @@ def plot_suite2p_phase_corr_peak(output_ops):
     :return: figure handle    
     '''    
     if 'corrXY' not in output_ops:
-        logger.warning('looks like movie was not registered -> ignoring')
+        logger.warning('looks like the data was not registered -> ignoring')
         return None
     logger.info('plotting suite2p registration phase correlation peaks...')
     fig, ax = plt.subplots(figsize=(12, 3))
@@ -248,6 +282,9 @@ def plot_suite2p_PCs(output_ops, nPCs=3, um_per_px=None):
     :param um_per_pixel (optional): number of microns per pixel (for scale bar)
     :return: figure handle
     '''
+    if 'regPC' not in output_ops:
+        logger.warning('looks like the data was not registered -> ignoring')
+        return None
     logger.info('plotting suite2p PCs average frames...')
     PCs = output_ops['regPC']
     if nPCs is not None:
@@ -282,6 +319,9 @@ def plot_suite2p_PC_drifts(output_ops):
     :param output_ops: suite2p output options dictionary
     :return: figure handle
     '''
+    if 'regDX' not in output_ops:
+        logger.warning('looks like the data was not registered -> ignoring')
+        return None
     PCdrifts = output_ops['regDX'].T
     PCdrifts_dict = {
         'rigid': PCdrifts[0],
@@ -313,6 +353,8 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
         logger.warning('looks like sparse mode was not turned on -> ignoring')
         return None
     
+    logger.info('plotting suite2p sparse projection maps...')
+    
     # Extract maps
     Vcorr, Vmaps = output_ops['Vcorr'], output_ops['Vmap']
     
@@ -320,7 +362,7 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
     refnpx = max(Vcorr.shape)
     npxs = np.array([max(x.shape) for x in Vmaps])  # get map dimensions
     ratios = npxs / refnpx  # get ratios to reference map
-    ratios = np.power(2, np.ceil(np.log(ratios) / np.log(2)))  # round ratios to nearest power of 2
+    ratios = np.power(2, np.round(np.log(ratios) / np.log(2)))  # round ratios to nearest power of 2
     
     # Find index of map with optimal scale for ROI detection 
     best_scale_px = output_ops['spatscale_pix'][0]
