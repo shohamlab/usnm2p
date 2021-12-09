@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 17:26:02
+# @Last Modified time: 2021-12-09 13:54:40
 
 ''' Collection of plotting utilities. '''
 
@@ -596,10 +596,13 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
         ax.set_ylabel(ylabel)
     del filters[Label.ROI]
     parsed_title = ' - '.join(filters.values()) + f' trace{plural(nsignals)}'
+    parsed_title = [parsed_title] * len(axes)
     if title is not None:
-        parsed_title = f'{parsed_title} ({title})' 
-    for ir, ax in zip(iROI, axes):
-        ax.set_title(f'ROI {ir} {parsed_title}')
+        if not is_iterable(title):
+            title = [title] * len(axes)
+        parsed_title = [f'{pt} ({t})' for pt, t in zip(parsed_title, title)]
+    for ir, ax, pt in zip(iROI, axes, parsed_title):
+        ax.set_title(f'ROI {ir} {pt}')
 
     # Generate x-axis indexes
     xinds = np.arange(npersignal) + ionset

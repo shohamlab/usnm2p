@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 17:07:02
+# @Last Modified time: 2021-12-09 13:46:14
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -133,6 +133,7 @@ class Label:
     MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
     F = 'F (a.u.)'
+    ALPHA = 'alpha'
     F0 = 'F0 (a.u.)'
 
     # Relative fluorescence signals

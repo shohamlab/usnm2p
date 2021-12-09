@@ -2,16 +2,16 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 17:54:34
+# @Last Modified time: 2021-12-09 14:24:04
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import numpy as np
-from numpy.core.function_base import logspace
 import pandas as pd
 from tqdm import tqdm
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
+from scipy.stats import skew
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 
@@ -130,6 +130,48 @@ def get_window_size(wlen, fps):
     if w % 2 == 0:
         w += 1
     return w
+
+
+def optimize_alpha(data, costfunc, bounds=(0, 1)):
+    '''
+    Compute optimal neuropil subtraction coefficient that minimizes a specific cost function 
+
+    :param data: fluorescence timeseries dataframe
+    :param costfunc: cost function object
+    :param bounds (default: (0, 1)): bondary values for neuropil subtraction coefficient
+    :return: optimal neuropil subtraction coefficient value
+    '''
+    # Generate vector of alphas
+    alphas = np.arange(*bounds, .01)
+    # Extract fluorescence profiles as 2D arrays
+    F_ROI = data[Label.F_ROI].values
+    F_NEU = data[Label.F_NEU].values
+    # Compute cost for each alpha
+    costs = np.array([costfunc(F_ROI, F_NEU, alpha) for alpha in alphas])
+    # Return alpha corresponding to minimum cost
+    return alphas[np.argmin(costs)]
+
+
+def costfunc(F_ROI, F_NEU, alpha):
+    '''
+    Function computing the cost associated with a corrected fluorescence profile
+    
+    :param Fc: corrected fluorescence profile (1D array)
+    :return: associated cost (scalar)
+    '''
+    # Compute corrected fluorescence signal
+    Fc = F_ROI - alpha * F_NEU
+    # Initialize zero cost
+    cost = 0
+    # Attract alpha towards default value by penalizing absolute distance from default 
+    cost += np.abs(alpha - ALPHA)
+    # # Penalize negative skewness 
+    # cost -= skew(Fc)
+    # Impose non-negativity constraint by heavily penalizing presence of
+    # negative samples in the corrected signal
+    if Fc.min() < 0:
+        cost += 1e10
+    return cost
 
 
 def compute_baseline(data, fps, wlen, q, smooth=True):
