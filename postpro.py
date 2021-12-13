@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-09 14:24:04
+# @Last Modified time: 2021-12-13 18:48:05
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -14,6 +14,7 @@ from scipy.signal import find_peaks
 from scipy.stats import skew
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
+import statsmodels.api as sm
 
 from constants import *
 from logger import logger
@@ -132,6 +133,59 @@ def get_window_size(wlen, fps):
     return w
 
 
+def linreg(data, xkey=Label.F_NEU, ykey=Label.F_ROI, norm='HuberT', add_cst=True):
+    '''
+    Perform linear regression on 2 columns of a dataset
+    
+    :param data: pandas dataframe contaning the variables of interest
+    :param xkey: name of the column containing the independent variable X
+    :param ykey: name of the column containing the dependent variable Y
+    :param norm (default: HuberT): name of the norm used to compute the linear regression
+    :param add_cst (default: True): whether to consider an additional constant in the
+        linear regression model 
+    :return: fitted regression parameter(s)
+    '''
+    Y = data[ykey].values
+    X = data[xkey].values
+    if add_cst:
+        X = sm.add_constant(X)
+    norm = getattr(sm.robust.norms, norm)()
+    model = sm.RLM(Y, X, M=norm)
+    fit = model.fit()
+    params = fit.params
+    if not add_cst:
+        return [0, params[0]]
+    else:
+        return params
+
+
+def costfunc(F_ROI, F_NEU, alpha, nonnegative=True):
+    '''
+    Function computing the cost associated with a corrected fluorescence profile
+    
+    :param F_ROI: ROI fluorescence profile (1D array)
+    :param F_NEU: associated neuropil fluorescence profile (1D array)
+    :param alpha: candidate neuropil subtraction factor (scalar)
+    :param nonnegative (default: True): whether to force a non-negative corrected profile
+    :return: associated cost (scalar)
+    '''
+    # Compute corrected fluorescence signal
+    Fc = F_ROI - alpha * F_NEU
+    # Initialize zero cost
+    cost = 0
+    # Attract alpha towards default value by penalizing absolute distance from default 
+    # cost += np.abs(alpha - ALPHA)
+    # Maximmize skewness by penalizing negative skewness values
+    cost -= skew(Fc)
+    # If non-negativity constraint is turned on, impose it by heavily penalizing
+    # presence of negative samples in the corrected signal
+    if nonnegative:
+        if Fc.min() < 0:
+            cost += 1e10
+    # Return cost
+    return cost
+
+
 def optimize_alpha(data, costfunc, bounds=(0, 1)):
     '''
     Compute optimal neuropil subtraction coefficient that minimizes a specific cost function 
@@ -150,28 +204,6 @@ def optimize_alpha(data, costfunc, bounds=(0, 1)):
     costs = np.array([costfunc(F_ROI, F_NEU, alpha) for alpha in alphas])
     # Return alpha corresponding to minimum cost
     return alphas[np.argmin(costs)]
-
-
-def costfunc(F_ROI, F_NEU, alpha):
-    '''
-    Function computing the cost associated with a corrected fluorescence profile
-    
-    :param Fc: corrected fluorescence profile (1D array)
-    :return: associated cost (scalar)
-    '''
-    # Compute corrected fluorescence signal
-    Fc = F_ROI - alpha * F_NEU
-    # Initialize zero cost
-    cost = 0
-    # Attract alpha towards default value by penalizing absolute distance from default 
-    cost += np.abs(alpha - ALPHA)
-    # # Penalize negative skewness 
-    # cost -= skew(Fc)
-    # Impose non-negativity constraint by heavily penalizing presence of
-    # negative samples in the corrected signal
-    if Fc.min() < 0:
-        cost += 1e10
-    return cost
 
 
 def compute_baseline(data, fps, wlen, q, smooth=True):

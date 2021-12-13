@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-09 17:22:22
+# @Last Modified time: 2021-12-13 18:54:41
 
 ''' Collection of plotting utilities. '''
 
@@ -20,7 +20,7 @@ from tqdm import tqdm
 from logger import logger
 from constants import *
 from utils import get_singleton, is_iterable, plural
-from postpro import filter_data, find_response_peak, get_response_types_per_ROI, get_trial_averaged, groupby_and_all, clusterize_data, gauss
+from postpro import *
 from viewers import get_stack_viewer
 
 
@@ -32,6 +32,15 @@ def harmonize_axes_limits(axes, axkey='y'):
     ymax = max([ax.get_ylim()[1] for ax in axes])
     for ax in axes.ravel():
         ax.set_ylim(ymin, ymax)
+
+
+def add_unit_diag(ax, c='k', ls='--'):
+    ''' Add a diagonal line representing the Y = X relationship on the axis '''
+    xlims, ylims = ax.get_xlim(), ax.get_ylim()
+    lims = (min(xlims[0], ylims[0]), max(xlims[1], ylims[1]))
+    ax.set_xlim(*lims)
+    ax.set_ylim(*lims)
+    ax.plot(lims, lims, c='k', ls='--')
 
 
 def plot_table(inputs):
@@ -678,6 +687,37 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
         for ax in axes:
             ax.legend(frameon=False)
             
+    return fig
+
+
+def plot_linreg(data, iROI, x=Label.F_NEU, y=Label.F_ROI):
+    '''
+    Plot linear regression between neuropil and ROI fluorescence traces
+    
+    :param data: fluorescence timereseries data
+    :param iROI: subset of ROIs to plot
+    :param x: name of column containing neuropil traces
+    :param y: name of column containing ROI traces
+    :return: figure handle
+    '''
+    fig, axes = plt.subplots(1, iROI.size, figsize=(iROI.size * 3.5, 4))
+    fig.suptitle('Linear regressions F_ROI = A * F_NEU + B')
+    for ax, ir in zip(axes, iROI):
+        logger.info(f'plotting F_ROI = f(F_NEU) with linear regression for ROI {ir}...')
+        subdata = data.loc[pd.IndexSlice[ir, :, :, :]]
+        sns.despine(ax=ax)
+        ax.set_title(f'ROI {ir}')
+        ax.set_aspect(1.)
+        sns.regplot(
+            data=subdata, x=x, y=y, ax=ax, label='data',
+            robust=True, ci=None)
+        add_unit_diag(ax)
+        bopt, aopt = linreg(subdata)
+        logger.info(f'optimal fit: F_ROI = {aopt:.2f} * F_NEU + {bopt:.2f}')
+        xvec = np.array([subdata[x].min(), subdata[x].max()])
+        ax.plot(xvec, aopt * xvec + bopt, label='linear fit')
+        ax.legend()
+    fig.tight_layout()
     return fig
 
 
