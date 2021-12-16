@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-13 18:48:05
+# @Last Modified time: 2021-12-16 18:31:38
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -15,6 +15,7 @@ from scipy.stats import skew
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 import statsmodels.api as sm
+from functools import wraps
 
 from constants import *
 from logger import logger
@@ -157,33 +158,53 @@ def linreg(data, xkey=Label.F_NEU, ykey=Label.F_ROI, norm='HuberT', add_cst=True
         return [0, params[0]]
     else:
         return params
+    
 
-
-def costfunc(F_ROI, F_NEU, alpha, nonnegative=True):
+def force_positive_Fc(costfunc):
     '''
-    Function computing the cost associated with a corrected fluorescence profile
+    Wrapper around cost function that forces positivity of the corrected fluorescence trace
+    by heavily penalizing the presence of negative samples
+    
+    :param costfunc: cost functiopn object
+    :return: modified cost function object with enforced non-negativity constraint
+    '''
+    @wraps(costfunc)
+    def wrapper(F_ROI, F_NEU, alpha):
+        cost = costfunc(F_ROI, F_NEU, alpha)
+        Fc = F_ROI - alpha * F_NEU
+        if Fc.min() < 0:
+            cost += 1e10
+        return cost
+    return wrapper
+
+
+def maximize_skewness(F_ROI, F_NEU, alpha):
+    '''
+    Maximize skewness of corrected fluorescence profile
     
     :param F_ROI: ROI fluorescence profile (1D array)
     :param F_NEU: associated neuropil fluorescence profile (1D array)
     :param alpha: candidate neuropil subtraction factor (scalar)
-    :param nonnegative (default: True): whether to force a non-negative corrected profile
     :return: associated cost (scalar)
     '''
     # Compute corrected fluorescence signal
     Fc = F_ROI - alpha * F_NEU
-    # Initialize zero cost
-    cost = 0
-    # Attract alpha towards default value by penalizing absolute distance from default 
-    # cost += np.abs(alpha - ALPHA)
-    # Maximmize skewness by penalizing negative skewness values
-    cost -= skew(Fc)
-    # If non-negativity constraint is turned on, impose it by heavily penalizing
-    # presence of negative samples in the corrected signal
-    if nonnegative:
-        if Fc.min() < 0:
-            cost += 1e10
-    # Return cost
-    return cost
+    # Maximize skewness by penalizing negative skewness values
+    return -skew(Fc)
+
+
+def center_around(alpha_ref):
+    '''
+    Create a cost function that minimizes deviations of alpha from a reference value
+
+    :param alpha_ref: reference alpha value
+    :return: cost function object
+    '''
+    def costfunc(a, b, alpha):
+        # Attract alpha towards reference value by penalizing absolute distance from default 
+        return np.abs(alpha - alpha_ref)
+    costfunc.__name__ = f'center_around({alpha_ref})'
+    return costfunc
 
 
 def optimize_alpha(data, costfunc, bounds=(0, 1)):
@@ -524,8 +545,12 @@ def histogram_fit(data, func, bins=100, p0=None, bounds=None):
     :return: (bin mid-points, fitted function parameters) tuple
     '''
     hist, xedges = np.histogram(data, bins=bins)
-    xmid = (xedges[1:] + xedges[:-1]) / 2 
-    popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds)
+    xmid = (xedges[1:] + xedges[:-1]) / 2
+    try:
+        popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds)
+    except RuntimeError:
+        logger.warning('histogram fit requires more iterations than expected...')
+        popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds, max_nfev=1000)
     return xmid, popt
 
 
@@ -563,3 +588,14 @@ def gauss_histogram_fit(data, bins=100):
     assert s > 0, f'Error: negative standard deviation found during Gaussian fit ({s})'
     
     return xmid, popt
+
+
+def sort_ROIs(data, pattern):
+    ''' Get sorted ROI index from dataset according to specific metrics '''
+    # Compute average metrics per ROI on the 'all' condition
+    avg_per_ROI = data['all'].groupby(Label.ROI).mean()
+    # sort average metrics in specified direction
+    ascending = {'ascend': True, 'descend': False}[pattern]
+    avg_per_ROI = avg_per_ROI.sort_values(ascending=ascending)
+    # Extract sorted ROI indexes
+    return avg_per_ROI.index

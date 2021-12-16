@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-08 15:26:06
+# @Last Modified time: 2021-12-16 16:07:27
 
 ''' Collection of generic utilities. '''
 
@@ -12,8 +12,9 @@ from pandas.api.types import is_numeric_dtype
 import operator
 import abc
 from functools import wraps
+from scipy.stats import norm
 
-from constants import SI_POWERS, IND_LETTERS, Label
+from constants import SI_POWERS, IND_LETTERS
 from logger import logger
 
 
@@ -286,3 +287,16 @@ def pbar_update(func, pbar):
         pbar.update()
         return out
     return wrapper
+
+
+def get_zscore(p=.05, directional=True):
+    '''
+    Compute the z-score corresponding to a given chance probability level
+    
+    :param p: associated probability
+    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
+    :return: corresponding z-score
+    '''
+    if not directional:
+        p /= 2
+    return norm.ppf(1 - p)

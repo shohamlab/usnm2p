@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-09 13:46:14
+# @Last Modified time: 2021-12-16 16:17:08
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -58,13 +58,13 @@ TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s)
 
 ###################################### POST-PROCESSING ######################################
 
-NPIX_RATIO_THR = 2.  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
+NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
 
 # neuropil subtraction factor (0-1):
 # - small values (around 0) tend to produce smoother dF/F0 traces with less amplitude,
 # - large values (around 1) tend to produce higher amplitude dF/F0 traces with more fluctuations
 # - default is 0.7 (from literature), for PV 0.5 works better, for SST 0.6. But lately it seems that is ok with 0.7 for all regardless of the line 
-ALPHA = .7
+ALPHA = 0.7
 
 # Baseline computation
 BASELINE_WLEN = 15.  # window length (in s) to compute the fluorescence baseline
@@ -81,9 +81,8 @@ class FrameIndex:
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 # Response & cell type classification
-ZSCORE_PRESTIM_THR = 1.645  # threshold max z-score within the pre-stimulus window to identify pre-stimulus activity
+PTHR = 0.05  # significance threshold probability considered for activity detection in fluorescence signals (assuming directional effect)
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value  
-REL_ZSCORE_RESPONSE_THR = 1.645  # threshold z-score value (corresponding to 5% significance level for 1-tailed test)
 SUCCESS_RATE_THR = .3  # threshold success rate for a positive response
 NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
 
@@ -134,6 +133,7 @@ class Label:
     F_NEU = 'F_neu (a.u.)'
     F = 'F (a.u.)'
     ALPHA = 'alpha'
+    BETA = 'beta'
     F0 = 'F0 (a.u.)'
 
     # Relative fluorescence signals

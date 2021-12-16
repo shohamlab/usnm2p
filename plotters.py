@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-13 18:54:41
+# @Last Modified time: 2021-12-16 18:29:40
 
 ''' Collection of plotting utilities. '''
 
@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton, is_iterable, plural
+from utils import get_singleton, is_iterable, plural, get_zscore
 from postpro import *
 from viewers import get_stack_viewer
 
@@ -1153,7 +1153,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
             ax.axvspan(0, get_singleton(data, Label.DUR), ec=None, fc='C5', alpha=0.5)
         # Plot noise threshold level if key is z-score
         if ykey in [Label.REL_ZSCORE, Label.REL_ZSCORE_RESPONLY]:
-            ax.axhline(REL_ZSCORE_RESPONSE_THR, ls='--', c='k', lw=1.)
+            ax.axhline(get_zscore(PTHR), ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
             for tr in tresponse:
@@ -1261,7 +1261,7 @@ def get_adapted_bounds(x, nstd=None):
     return bounds
 
 
-def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=None, cluster=False,
+def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=None, cluster=False, sort=None,
                       **kwargs):
     '''
     Plot ROI x run heatmap for some statistics
@@ -1310,6 +1310,10 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=No
         bounds = {k: get_adapted_bounds(v, nstd=nstd) for k, v in trialavg_data.items()}
     else:
         bounds = None
+    
+    if sort is not None:
+        sorted_iROIs = sort_ROIs(trialavg_data, sort)
+
     # Plot trial-averaged stat heatmap for each condition
     for ax, (k, v) in zip(axes, trialavg_data.items()):
         logger.info(f'plotting {s} - {k} trials...')
@@ -1318,6 +1322,8 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=No
         vtable = v.unstack()
         if cluster:
             vtable = clusterize_data(vtable)
+        elif sort is not None:
+            vtable = vtable.reindex(sorted_iROIs)
         sns.heatmap(vtable, center=center, ax=ax, **kwargs)
         if naxes > 1:
             ax.set_title(k)
@@ -1378,7 +1384,7 @@ def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nst
     return fig
 
 
-def plot_stat_per_ROI(data, key, title=None, groupby=None):
+def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None):
     '''
     Plot the distribution of a stat per ROI over all experimental conditions
     
@@ -1395,6 +1401,11 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None):
     # Seperate relevant data from is_repeat
     is_repeat = trialavg_data['all'][1]
     trialavg_data = {k: v[0] for k, v in trialavg_data.items()}
+
+    # If ROI sorting pattern is specified
+    if sort is not None:
+        sorted_iROIs = sort_ROIs(trialavg_data, sort)
+
     # Determine whether stats is a repeated value or a real distribution
     s = key
     s2 = s
@@ -1418,8 +1429,12 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None):
     for k, v in trialavg_data.items():
         logger.info(f'plotting {s} - {k} trials...')
         # Group by ROI, get mean and std
-        groups = v.groupby(Label.ROI)    
+        groups = v.groupby(Label.ROI) 
         mu, sigma = groups.mean(), groups.std()
+        # Re-order metrics by spsecific ROI sorting pattern if specified
+        if sort is not None:
+            mu, sigma = mu[sorted_iROIs], sigma[sorted_iROIs]
+        # Plot metrics
         x = np.arange(mu.size)
         ax.plot(x, mu, label=k)
         ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
@@ -1476,6 +1491,32 @@ def plot_stat_per_run(data, key, title=None, groupby=None):
     if s2 == Label.SUCCESS_RATE:
         ax.set_ylim(0, 1)
     sns.despine(ax=ax)
+    return fig
+
+
+def plot_pct_ROIs_map(data, key=Label.IS_RESP, label='stimulus-evoked activity'):
+    '''
+    Plot the percentage of ROIs satisfying a given condition for each run & trial
+    of the experiment
+    
+    :param data: multi-indexed (ROI x run x trial) statistics dataframe
+    :param key: name of the column containing the statistics of interest
+    :param label: descriptive label corresponding to the column of interest
+    :return: figure handle
+    '''
+    # Fetch total number of ROIs
+    nROIs = len(data.index.unique(level=Label.ROI))
+    # Compute number of ROIs satisfying condition for each run & trial
+    nROIs_per_run_trial = data.loc[:, key].groupby([Label.RUN, Label.TRIAL]).sum()
+    # Transform into percentage
+    pctROIs_per_run_trial = nROIs_per_run_trial / nROIs * 1e2
+    # Create figure
+    fig, ax = plt.subplots()
+    # Plot % ROIs heatmap
+    sns.heatmap(pctROIs_per_run_trial.unstack(), ax=ax, cmap='viridis', vmin=0, vmax=100)
+    # Add title with label 
+    ax.set_title(f'% ROIs with {label} per run & trial')
+    # Return figure handle
     return fig
 
 
