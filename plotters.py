@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-16 18:29:40
+# @Last Modified time: 2021-12-17 18:00:05
 
 ''' Collection of plotting utilities. '''
 
@@ -1163,7 +1163,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     return fig
 
 
-def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, **kwargs):
+def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -1182,6 +1182,11 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, **kwa
     
     # Plot
     fig = plot_from_data(data, xkey, ykey, **kwargs)
+
+    # Add baseline if specified
+    if baseline is not None:
+        for ax in fig.axes:
+            ax.axhline(baseline, c='k', ls='--')
     
     # Return figure
     return fig
@@ -1335,6 +1340,41 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=No
     else:
         fig.suptitle(stitle)
     # Return
+    return fig
+
+
+def plot_activity_rate_along_trial(isactive, wlen, fps):
+    '''
+    Plot the mean activity rate as a function of the sliding window position along the trial
+    
+    :param isactive: multi-inxexed (ROI, run, trial, frame, istart) series of detected peaks
+    :param wlen: window length (in frames)
+    :param fps: frame rate (in frames per second)
+    :return: figure handle
+    '''
+    # Compute mean and std for each start index
+    mu_act = isactive.groupby('istart').mean()
+    sigma_act = isactive.groupby('istart').std()
+    # Extract starting indexes
+    istarts = mu_act.index
+    # Interpolate value at stim frame index
+    stim_act = np.interp(FrameIndex.STIM, istarts, mu_act.values)
+    # Extract baseline value as median
+    baseline_act = mu_act.median()
+    # Plot on figure
+    fig, ax = plt.subplots()
+    ax.set_title('activity rate along the trial interval')
+    ax.set_xlabel(f'start time of the {wlen / fps:.1f} s long detection window (s)')
+    ax.set_ylabel('activity rate')
+    ax.set_ylim(0, 1)
+    sns.despine(ax=ax)
+    t = (istarts - FrameIndex.STIM) / fps
+    ax.plot(t, mu_act, label='average')
+    ax.fill_between(t, mu_act - sigma_act, mu_act + sigma_act, alpha=0.2, label='+/-SD interval')
+    ax.axhline(baseline_act, ls=':', c='k', label=f'baseline ({baseline_act * 1e2:.0f} %)')
+    ax.axhline(stim_act, ls=':', c='k', label=f'stim-evoked ({stim_act * 1e2:.0f} %)')
+    ax.axvline(0, ls='--', c='k', label='stimulus onset')
+    ax.legend()
     return fig
 
 
@@ -1528,12 +1568,13 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     fig, ax = plt.subplots()
     ax.set_xlabel(Label.NPOS_RUNS)
     ax.set_ylabel('Count')
-    bins = np.arange(nruns) + 0.5
+    bins = np.arange(nruns + 2) - 0.5
     df = pd.DataFrame([resp_types, n_positive_runs]).T
     for label, group in df.groupby(Label.ROI_RESP_TYPE):
         ax.hist(
             group[Label.NPOS_RUNS], bins=bins, label=f'{label} (n = {len(group)})',
             fc=RGB_BY_TYPE[label], ec='k')
+    ax.set_xlim(bins[0], bins[-1])
     sns.despine(ax=ax)
     # Add legend
     ax.legend(title=Label.ROI_RESP_TYPE)

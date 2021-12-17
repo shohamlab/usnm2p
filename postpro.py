@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-16 18:31:38
+# @Last Modified time: 2021-12-17 17:47:57
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
+import logging
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -293,6 +294,60 @@ def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
     else:
         return ypeak
 
+
+def find_peaks_across_trials(data, iwindow, key=Label.ZSCORE):
+    '''
+    Find peaks in a given time window across all trials
+
+    :param data: multi-indexed fluorescence timeseries dataframe
+    :param iwindow: list (or slice) of indexes to consider (i.e. window of interest) in the trial interval
+    :param key: name of the column containing the variable of interest
+    :return: multi-indexed series of peak values across conditions    
+    '''
+    logger.info(f'identifying peak {key} in {iwindow} index window...')
+    window_data = data.loc[pd.IndexSlice[:, :, :, iwindow], key]
+    peaks = window_data.groupby(
+        [Label.ROI, Label.RUN, Label.TRIAL]).agg(find_response_peak)
+    npeaks, ntrials = peaks.notna().sum(), len(peaks)
+    logger.info(f'identified {npeaks} peaks over {ntrials} trials (detection rate = {npeaks / ntrials * 1e2:.1f} %)')
+    return peaks
+
+
+def slide_along_trial(func, data, wlen, iseeds):
+    '''
+    Call a specific function while sliding a detection window along the trial length.
+
+    :param func: function called on each sliding iteration
+    :param data: fluorescence timeseries data
+    :param wlen: window length (in frames)
+    :param iseeds: either the index list or the number of sliding iterations along the trial length
+    :return: stacked function output series with window starting index as a new index level
+    '''
+    # Generate vector of starting positions for the analysis window
+    if isinstance(iseeds, int):
+        iseeds = np.round(np.linspace(0, NFRAMES_PER_TRIAL - wlen, iseeds)).astype(int)
+    logger.info(f'applying {func,__name__} function at {iseeds.size} seeds along trial length...')
+    lvl = logger.getEffectiveLevel()
+    logger.setLevel(logging.WARNING)
+    outs = []
+    # For each starting position
+    for i in tqdm(iseeds):
+        # Call function and get output series
+        out = func(data, slice(i, i + wlen))
+        # Save its name
+        name = out.name
+        # Rename with start index and append to list
+        outs.append(out.rename(i))
+    logger.setLevel(lvl)
+    # Concatenate output series into dataframe
+    df = pd.concat(outs, axis=1)
+    # Stack them ot yield output series with new index level
+    s = df.stack()
+    # Specify index level name
+    s.index.set_names('istart', level=-1, inplace=True)
+    # Rename series with function output name, and return
+    return s.rename(name)
+    
 
 def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM):
     '''

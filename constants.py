@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-16 16:17:08
+# @Last Modified time: 2021-12-16 18:48:32
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -81,7 +81,7 @@ class FrameIndex:
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 # Response & cell type classification
-PTHR = 0.05  # significance threshold probability considered for activity detection in fluorescence signals (assuming directional effect)
+PTHR = 0.01  # significance threshold probability considered for activity detection in fluorescence signals (assuming directional effect)
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value  
 SUCCESS_RATE_THR = .3  # threshold success rate for a positive response
 NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
