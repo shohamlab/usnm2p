@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-16 18:48:32
+# @Last Modified time: 2021-12-20 11:40:47
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -125,6 +125,8 @@ class Label:
     ROI = 'ROI'
     RUN = 'run'
     TRIAL = 'trial'
+
+    ISTART = 'istart'
 
     # Fluorescence signals
     TIME = 'time (s)'

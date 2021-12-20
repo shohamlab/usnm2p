@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-17 17:47:57
+# @Last Modified time: 2021-12-20 18:04:07
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -295,22 +295,54 @@ def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
         return ypeak
 
 
-def find_peaks_across_trials(data, iwindow, key=Label.ZSCORE):
+def compute_displacement_velocity(ops, mux, um_per_pixel, fps):
     '''
-    Find peaks in a given time window across all trials
+    Compute displacement velocity profiles frrom registration offsets
+    
+    :param ops: suite2p output options dictionary
+    :param mux: (run, trial, frame) multi-index object
+    :param um_per_pixel: spatial resolution of the images
+    :param fps: sampling frequency (in frames/second)
+    :return: Series of displacement velocity profiles
+    '''
+    logger.info('computing diplacement velocity over time from registration offsets...')
+    # Gather pixel offsets from reference frame
+    offsets = pd.DataFrame({f'{k[0]} (pixels)': ops[k] for k in ['xoff', 'yoff']}, index=mux)
+    # Add mean of sub-block offsets if present
+    if 'xoff1' in ops:
+        offsets['x (pixels)'] += ops['xoff1'].mean(axis=1)
+        offsets['y (pixels)'] += ops['yoff1'].mean(axis=1)
+    # Compute Euclidean distance from reference frame (in pixels)
+    offsets['d (pixels)'] = np.sqrt(offsets['x (pixels)']**2 + offsets['y (pixels)']**2)
+    # Translate distance from pixels to microns
+    offsets[f'd (um)'] = offsets[f'd (pixels)'] * um_per_pixel
+    # Compute absolute displacement velocity (in um/frame) for each run independently
+    offsets['v (um/frame)'] = offsets['d (um)'].groupby(Label.RUN).diff().abs()
+    # Translate displacement velocity to um/s
+    offsets['v (um/s)'] = offsets['v (um/frame)'] * fps
+    return offsets['v (um/s)']
 
+
+def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
+    '''
+    Apply detection function in a given time window across all trials
+
+    :param func: event detection function
     :param data: multi-indexed fluorescence timeseries dataframe
     :param iwindow: list (or slice) of indexes to consider (i.e. window of interest) in the trial interval
     :param key: name of the column containing the variable of interest
-    :return: multi-indexed series of peak values across conditions    
+    :return: multi-indexed series of detect event values across conditions    
     '''
-    logger.info(f'identifying peak {key} in {iwindow} index window...')
-    window_data = data.loc[pd.IndexSlice[:, :, :, iwindow], key]
-    peaks = window_data.groupby(
-        [Label.ROI, Label.RUN, Label.TRIAL]).agg(find_response_peak)
-    npeaks, ntrials = peaks.notna().sum(), len(peaks)
-    logger.info(f'identified {npeaks} peaks over {ntrials} trials (detection rate = {npeaks / ntrials * 1e2:.1f} %)')
-    return peaks
+    if iwindow is not None:
+        data = data.loc[pd.IndexSlice[:, :, :, iwindow], key]
+        s = f' in {iwindow} index window'
+    else:
+        s = ''
+    logger.info(f'applying {func.__name__} function to detect events in {key} signals across trials{s}...')
+    events = data.groupby([Label.ROI, Label.RUN, Label.TRIAL]).agg(func)
+    nevents, ntrials = events.notna().sum(), len(events)
+    logger.info(f'identified {nevents} events over {ntrials} trials (detection rate = {nevents / ntrials * 1e2:.1f} %)')
+    return events
 
 
 def slide_along_trial(func, data, wlen, iseeds):
@@ -326,7 +358,7 @@ def slide_along_trial(func, data, wlen, iseeds):
     # Generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
         iseeds = np.round(np.linspace(0, NFRAMES_PER_TRIAL - wlen, iseeds)).astype(int)
-    logger.info(f'applying {func,__name__} function at {iseeds.size} seeds along trial length...')
+    logger.info(f'applying {func.__name__} function at {iseeds.size} seeds along trial length...')
     lvl = logger.getEffectiveLevel()
     logger.setLevel(logging.WARNING)
     outs = []
@@ -344,7 +376,7 @@ def slide_along_trial(func, data, wlen, iseeds):
     # Stack them ot yield output series with new index level
     s = df.stack()
     # Specify index level name
-    s.index.set_names('istart', level=-1, inplace=True)
+    s.index.set_names(Label.ISTART, level=-1, inplace=True)
     # Rename series with function output name, and return
     return s.rename(name)
     

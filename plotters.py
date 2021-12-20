@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-17 18:00:05
+# @Last Modified time: 2021-12-20 12:15:11
 
 ''' Collection of plotting utilities. '''
 
@@ -1424,7 +1424,7 @@ def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nst
     return fig
 
 
-def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None):
+def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline=None):
     '''
     Plot the distribution of a stat per ROI over all experimental conditions
     
@@ -1479,6 +1479,11 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None):
         ax.plot(x, mu, label=k)
         ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
     
+    # Add baseline if specified
+    if baseline is not None:
+        for ax in fig.axes:
+            ax.axhline(baseline, c='k', ls='--')
+    
     # Legend
     if groupby is not None:
         ax.legend()
@@ -1486,7 +1491,7 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None):
     return fig
 
 
-def plot_stat_per_run(data, key, title=None, groupby=None):
+def plot_stat_per_run(data, key, title=None, groupby=None, baseline=None):
     '''
     Plot the distribution of a stat per run over all ROIs
     
@@ -1531,6 +1536,12 @@ def plot_stat_per_run(data, key, title=None, groupby=None):
     if s2 == Label.SUCCESS_RATE:
         ax.set_ylim(0, 1)
     sns.despine(ax=ax)
+
+    # Add baseline if specified
+    if baseline is not None:
+        for ax in fig.axes:
+            ax.axhline(baseline, c='k', ls='--')
+
     return fig
 
 
