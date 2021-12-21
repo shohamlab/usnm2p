@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-20 18:04:07
+# @Last Modified time: 2021-12-21 17:29:44
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -12,7 +12,8 @@ import pandas as pd
 from tqdm import tqdm
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
-from scipy.stats import skew
+from scipy.stats import skew, norm
+from scipy.stats import t as tstats
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 import statsmodels.api as sm
@@ -686,3 +687,106 @@ def sort_ROIs(data, pattern):
     avg_per_ROI = avg_per_ROI.sort_values(ascending=ascending)
     # Extract sorted ROI indexes
     return avg_per_ROI.index
+
+
+def compute_correlation_coeffs(data, xkey, ykey):
+    '''
+    Compute correlation coefficients between an input (independent) variable and
+    an output (dependent) variable for each ROI in a dataset.
+
+    :param data: fluorescence dataset
+    :param xkey: name of the column containing the input (independent) variable 
+    :param ykey: name of the column containing the output (dependent) variable 
+    :return: series of correlation coefficients per ROI
+    '''
+    # Filter data according to independent variable
+    if xkey not in data:
+        raise ValueError(f'"{xkey}" variable not found in dataset')
+    if ykey not in data:
+        raise ValueError(f'"{ykey}" variable not found in dataset')
+    if xkey == Label.P:
+        data = filter_data(data, DC=DC_REF)
+    elif xkey == Label.DC:
+        data = filter_data(data, P=P_REF)
+    else:
+        logger.warning(f'x-variable "{xkey}" does not look independent...')
+    # Group by ROI and compute correlation coefficients
+    r = data.groupby(Label.ROI).apply(lambda df: df.corr().loc[xkey, ykey])
+    # Rename and return
+    return r.rename(f'r[{xkey}, {ykey}]')
+
+
+def corrcoeff_to_tscore(r, n):
+    '''
+    Compute t-score associated with a given correlation coefficient
+    
+    :param r: correlation coefficient (scalar, array or series)
+    :param n: sample size
+    :return: associated t-score (same type as input)
+    '''
+    t = r * np.sqrt((n - 2) / (1 - r**2))
+    if isinstance(r, pd.Series):
+        t = t.rename(f't[{r.name}]')
+    return t
+
+
+def tscore_to_corrcoeff(t, n):
+    '''
+    Compute correlation coefficient associated with a given t-score
+    
+    :param t: t-test score (scalar, array or series)
+    :param n: sample size
+    :return: associated correlation coefficient (same type as input)
+    '''
+    x = t**2 / (n - 2)
+    r = np.sqrt(x / (1 + x))
+    if isinstance(t, pd.Series):
+        r = r.rename(f'r[{r.name}]')
+    return r
+
+
+def tscore_to_pvalue(t, n, directional=True):
+    '''
+    Compute p-value associated with a given t-score
+    
+    :param t: t-score (scalar, array or series)
+    :param n: sample size
+    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
+    :return: associated p-value (same type as input)
+    '''
+    p = tstats.sf(np.abs(t), df=n - 1)
+    if directional:
+        p *= 2
+    if isinstance(t, pd.Series):
+        p = pd.Series(data=p, index=t.index).rename(f'p[{t.name}]')
+    return p
+
+
+def pvalue_to_tscore(p, n, directional=True):
+    '''
+    Compute t-score associated with a given p-value
+    
+    :param p: p-value (scalar, array or series)
+    :param n: sample size
+    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
+    :return: associated t-score (same type as input)
+    '''
+    if not directional:
+        p /= 2
+    t = tstats.ppf(1 - p, df=n - 1)
+    if isinstance(t, pd.Series):
+        t = pd.Series(data=t, index=p.index).rename(f't[{p.name}]')
+    return t
+
+
+def pvalue_to_zscore(p=.05, directional=True):
+    '''
+    Compute the z-score corresponding to a given chance probability level
+    
+    :param p: associated probability
+    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
+    :return: corresponding z-score
+    '''
+    if not directional:
+        p /= 2
+    return norm.ppf(1 - p)
