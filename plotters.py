@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-20 12:15:11
+# @Last Modified time: 2021-12-21 20:16:54
 
 ''' Collection of plotting utilities. '''
 
@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton, is_iterable, plural, get_zscore
+from utils import get_singleton, is_iterable, plural
 from postpro import *
 from viewers import get_stack_viewer
 
@@ -1153,7 +1153,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
             ax.axvspan(0, get_singleton(data, Label.DUR), ec=None, fc='C5', alpha=0.5)
         # Plot noise threshold level if key is z-score
         if ykey in [Label.REL_ZSCORE, Label.REL_ZSCORE_RESPONLY]:
-            ax.axhline(get_zscore(PTHR), ls='--', c='k', lw=1.)
+            ax.axhline(pvalue_to_zscore(PTHR), ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
             for tr in tresponse:
@@ -1644,3 +1644,77 @@ def plot_gaussian_histogram_fit(data, fitparams, iROI, irun, ykey=Label.DFF, nbi
         ax.text(0.5, 0.5, f'\u03C3({ykey}) = {params["sigma"]:.3f}', transform=ax.transAxes)
     # Return figure
     return fig
+
+
+def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None):
+    '''
+    Plot the distribution of correlation coefficients of a specific response metrics
+    with input stimulation parameters (pressure & duty cycle) for each ROI.
+
+    :param data: trial-averaged statistics dataframe per ROI & run
+    :param ykey: name of the column containing the metrics of interest
+    :param pthr (optional): significance threshold probability used for ROI classification
+    :return: figure handle
+    '''
+    xkeys = [Label.P, Label.DC]
+
+    # Compute correlation coeficients with stimulation parameters
+    corr_coeffs = pd.concat([
+        compute_correlation_coeffs(data, xkey, ykey) for xkey in xkeys], axis=1)
+
+
+    # If significance threshold probability is provided
+    if pthr is not None:
+        # Compute threshold correlation coefficients for statistical significance in both dimensions
+        rthrs = {}
+        for xkey in xkeys:
+            n = data[xkey].nunique()
+            rthrs[xkey] = tscore_to_corrcoeff(pvalue_to_tscore(pthr, n), n)
+
+        # Identify significantly correlated samples across both dimensions and in both directions
+        corrtypes = pd.DataFrame()
+        for (xkey, rthr), col in zip(rthrs.items(), corr_coeffs):
+            corrtypes[xkey] = (corr_coeffs[col] > rthr).astype(int) - (corr_coeffs[col] < -rthr).astype(int)
+        # Convert both informations into string code for graphical representation
+        corr_coeffs['type'] = pd.concat([
+            corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
+        hue = 'type'
+        palette = None
+        legend = 'full'
+    else:
+        # Otherwise, use mean value of the metrics as a color code
+        corr_coeffs['avg'] = data[ykey].groupby(Label.ROI).mean()
+        hue = 'avg'
+        palette = 'flare'
+        legend = None
+
+    # Plot joint distributions of correlation coefficients with P & DC for each ROI
+    # using correlation type as color code
+    jg = sns.jointplot(
+        data=corr_coeffs, **dict(zip(['x', 'y'], corr_coeffs.columns.values)),
+        xlim=[-1, 1], ylim=[-1, 1], hue=hue, palette=palette, legend=legend)
+    
+    # If significance-based classification was performed
+    if pthr is not None:
+        # Add sample size for each category in legend
+        counts = corr_coeffs['type'].value_counts()
+        labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
+        leg = jg.ax_joint.get_legend()
+        for t in leg.texts:
+            t.set_text(labels[t.get_text()])
+
+        # Plot statistical significance threshold lines
+        for ax_marg, xkey, k in zip([jg.ax_marg_x, jg.ax_marg_y], xkeys, ['v', 'h']):
+            rthr = rthrs[xkey]
+            for ax in [ax_marg, jg.ax_joint]:
+                linefunc = getattr(ax, f'ax{k}line')
+                for x in [-1, 1]:
+                    linefunc(x * rthr, c='k', ls='--')
+    
+    # Add title
+    jg.fig.suptitle(f'{ykey} - correlation with stimulus parameters across ROIs')
+    jg.fig.tight_layout()
+    jg.fig.subplots_adjust(top=0.92)
+
+    # Return figure
+    return jg.fig
