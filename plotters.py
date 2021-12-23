@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-21 20:16:54
+# @Last Modified time: 2021-12-23 18:22:44
 
 ''' Collection of plotting utilities. '''
 
@@ -731,31 +731,31 @@ def mark_trials(ax, yconds, iROI, irun, color='C1'):
             ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
         
 
-def plot_cell_map(data, s2p_data, output_ops, title=None, um_per_px=None, refkey='Vcorr',
+def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, refkey='Vcorr',
                   mode='contour', cmap='viridis', alpha_ROIs=0.7):
     ''' Plot spatial distribution of cells (per response type) on the recording plane.
 
-        :param data: experiment dataframe.
-        :param s2p_data: suite2p output data dictionary
-        :param s2p_ops: suite2p output options dictionary
-        :param resp_types: array of response types per cell.
+        :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+        :param Fstats: statistics dataframe
+        :param output_ops: suite2p output options dictionary
         :param title (optional): figure title
         :return: figure handle
     '''
     logger.info('plotting cells map color-coded by response type...')
 
     # Fetch parameters from data
-    stats = s2p_data['stat']
     Ly, Lx = output_ops['Ly'], output_ops['Lx']
-    rtypes = get_response_types_per_ROI(data)
+    rtypes_per_ROI = get_response_types_per_ROI(Fstats)
+    rtypes = rtypes_per_ROI.unique()
 
     # Initialize pixels by cell matrix
-    idx_by_type = {'non-responder': 0, 'responder': 1}
-    Z = np.zeros((2, rtypes.size, Ly, Lx), dtype=np.float32)
+    idx_by_type = dict(zip(rtypes, np.arange(rtypes.size)))
+    # idx_by_type = {'non-responder': 0, 'responder': 1}
+    Z = np.zeros((rtypes.size, rtypes_per_ROI.size, Ly, Lx), dtype=np.float32)
 
-    # Compute mask per ROI type
-    for i, (stat, rtype) in enumerate(zip(stats, rtypes)):
-        Z[idx_by_type[rtype], i, stat['ypix'], stat['xpix']] = 1
+    # Compute mask per ROI & response type
+    for i, (rtype, (_, ROI_mask)) in enumerate(zip(rtypes_per_ROI, ROI_masks.groupby(Label.ROI))):
+        Z[idx_by_type[rtype], i, ROI_mask['ypix'], ROI_mask['xpix']] = 1
     
     if mode == 'contour':
         # Initialize pixel matrices
@@ -793,16 +793,14 @@ def plot_cell_map(data, s2p_data, output_ops, title=None, um_per_px=None, refkey
         add_scale_bar(ax, Lx, um_per_px, color='w')    
  
     # Add legend
+    labels = [f'{k} ({sum(rtypes_per_ROI == k)})' for k in RGB_BY_TYPE.keys()]
     if mode == 'contour':
-        leg_items = [Line2D(
-            [0], [0], label=f'{k} ({sum(rtypes == k)})',
-            c='none', marker='o', mfc='none', mec=v, mew=2, ms=10)
-            for k, v in RGB_BY_TYPE.items()]
+        legfunc = lambda v: dict(c='none', marker='o', mfc='none', mec=v, mew=2)
     else:
-        leg_items = [Line2D(
-            [0], [0], label=f'{k} ({sum(rtypes == k)})',
-            c='none', marker='o', mfc=v, mec='none', ms=10)
-            for k, v in RGB_BY_TYPE.items()]
+        legfunc = lambda v: dict(c='none', marker='o', mfc=v, mec='none')
+    leg_items = [
+        Line2D([0], [0], label=label, ms=10, **legfunc(v))
+        for v, label in zip(RGB_BY_TYPE.values(), labels)]
     ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
     return fig
@@ -1559,12 +1557,18 @@ def plot_pct_ROIs_map(data, key=Label.IS_RESP, label='stimulus-evoked activity')
     nROIs = len(data.index.unique(level=Label.ROI))
     # Compute number of ROIs satisfying condition for each run & trial
     nROIs_per_run_trial = data.loc[:, key].groupby([Label.RUN, Label.TRIAL]).sum()
+    # Set totals from invalid trials to NaN
+    isvalid = data[Label.VALID].groupby([Label.RUN, Label.TRIAL]).first()
+    iinvalids = isvalid[~isvalid].index
+    nROIs_per_run_trial.loc[iinvalids] = np.nan
     # Transform into percentage
     pctROIs_per_run_trial = nROIs_per_run_trial / nROIs * 1e2
     # Create figure
     fig, ax = plt.subplots()
     # Plot % ROIs heatmap
-    sns.heatmap(pctROIs_per_run_trial.unstack(), ax=ax, cmap='viridis', vmin=0, vmax=100)
+    cmap = plt.get_cmap('viridis').copy()
+    cmap.set_bad('silver')
+    sns.heatmap(pctROIs_per_run_trial.unstack(), ax=ax, cmap=cmap, vmin=0, vmax=100)
     # Add title with label 
     ax.set_title(f'% ROIs with {label} per run & trial')
     # Return figure handle

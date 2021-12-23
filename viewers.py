@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-02 14:52:59
+# @Last Modified time: 2021-12-22 15:43:20
 
 ''' Notebook image viewing utilities. '''
 
@@ -310,6 +310,8 @@ def get_stack_viewer(fpaths, *args, **kwargs):
 
 def view_stack(*args, **kwargs):
     ''' Interface function to view stacks '''
+    if args[0] is None:
+        return
     norm = kwargs.pop('norm', True)
     cmap = kwargs.pop('cmap', 'viridis')
     bounds = kwargs.pop('bounds', None)

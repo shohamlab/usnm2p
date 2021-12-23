@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-17 18:40:17
+# @Last Modified time: 2021-12-23 17:54:16
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -10,6 +10,7 @@ import os
 import glob
 import pprint
 import datetime
+import pandas as pd
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
 
@@ -18,6 +19,7 @@ from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
+from postpro import slide_along_trial, detect_across_trials, find_response_peak
 
 
 def get_data_root():
@@ -310,6 +312,122 @@ def save_stack_to_gif(figsroot, *args, **kwargs):
     viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
     viewer.save_as_gif(figsdir, fps)
 
+
+def save_data(timeseries, info_table, ROI_masks, outdir):
+    '''
+    Save processed output data
+    
+    :param timeseries: multi-indexed (ROI, run, trial, frame) dataframe containing the z-score timeseries
+    :param info_table: dataframe containing the information about experimental parameters for each run
+    :param outdir: output directory
+    :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+    '''
+    # Create output directory if needed
+    if not os.path.isdir(outdir):
+        logger.info(f'creating "{outdir}" folder...')
+        os.makedirs(outdir)
+    # Save experiment info table
+    logger.info('saving experiment info table...')
+    info_table.to_csv(os.path.join(outdir, f'info_table.csv'))
+    # Save z-scores split by run
+    for ir, df in timeseries.loc[:, [Label.ZSCORE]].groupby(Label.RUN):
+        logger.info(f'saving z-score data for run {ir}...')
+        fpath = os.path.join(outdir, f'zscores_run{ir}.csv')
+        df.to_csv(fpath)
+    # Save ROI masks
+    logger.info('saving ROI masks...')
+    ROI_masks.to_csv(os.path.join(outdir, f'ROI_masks.csv'))
+    logger.info('data successfully saved')
+
+
+def load_data(outdir, nruns, check=False):
+    '''
+    Load processed output data
+    
+    :param outdir: output directory
+    :param nruns: number of runs
+    :param check (default: False): whether to sjut check for data availability or to actually load it
+    :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) z-score timeseries per ROI,
+        experiment info dataframe, and ROI-indexed dataframe of (x, y) coordinates and weights.
+    '''
+    # Check that output directory exists
+    if not os.path.isdir(outdir):
+        raise ValueError(f'"{outdir}" does not exist')
+    # Check that info table file is present in directory
+    info_table_fpath = os.path.join(outdir, f'info_table.csv')
+    if not os.path.isfile(info_table_fpath):
+        raise ValueError('info table file not found in directory')
+    # Check that ROI masks file is present in directory
+    ROI_masks_fpath = os.path.join(outdir, f'ROI_masks.csv')
+    if not os.path.isfile(ROI_masks_fpath):
+        raise ValueError('ROI masks file not found in directory')
+    # Check that all z-score files are present in directory
+    zscorefiles = glob.glob(os.path.join(outdir, 'zscores_run*.csv'))
+    if len(zscorefiles) != nruns:
+        raise ValueError(f'number of saved z-score files ({len(zscorefiles)}) does not correspond to number of runs ({nruns})')
+    if check:  # check mode -> return None
+        return None
+    # Load experiment info table
+    logger.info('loading experiment info table...')
+    info_table = pd.read_csv(info_table_fpath)
+    # Load z-scores split by run
+    timeseries = []
+    for ir in range(nruns):
+        logger.info(f'loading z-score data for run {ir}...')
+        fpath = os.path.join(outdir, f'zscores_run{ir}.csv')
+        timeseries.append(pd.read_csv(fpath))
+    # Concatenate and re-order index
+    timeseries = pd.concat(timeseries, axis=0)
+    logger.info('re-organizing timeseries index...')
+    timeseries.set_index([Label.ROI, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True)
+    timeseries.sort_index(inplace=True)
+    # Load ROI masks
+    logger.info('loading ROI masks...')
+    ROI_masks = pd.read_csv(ROI_masks_fpath).set_index(Label.ROI, drop=True)
+    logger.info('data successfully loaded')
+    return timeseries, info_table, ROI_masks
+
+
+def check_data(outdir, nruns):
+    '''
+    Check for availability of processed output data
+    
+    :return: boolean stating whether the data is available
+    '''
+    try:
+        load_data(outdir, nruns, check=True)
+        logger.info(f'processed data is available in "{outdir}" directory')
+        return True
+    except ValueError:
+        logger.info(f'processed data not found in "{outdir}" directory')
+        return False
+
+
+def get_peaks_along_trial(fpath, data, wlen, nseeds):
+    '''
+    Compute (or load) the detected activity peaks by sliding a detection window
+    along the trial interval for evey trial
+
+    :param fpath: output filepath
+    :param data: z-score timeseries data
+    :param wlen: window length (number of samples)
+    :param nseeds: number of starting indexes for the detection window along the interval
+    :return: multi-indexed series of detected peaks for each window position
+    '''
+    if os.path.isfile(fpath):
+        logger.info('loading detected peaks data...')
+        return pd.read_csv(fpath).set_index(
+            [Label.ROI, Label.RUN, Label.TRIAL, Label.ISTART])
+    else:
+        logger.info(f'detecting activity events in {nseeds} windows along the trial interval for each trial...')
+        peaks = slide_along_trial(
+            lambda *args, **kwargs: detect_across_trials(find_response_peak, *args, **kwargs),
+            data, wlen, nseeds)
+        peaks.rename(columns={Label.ZSCORE: Label.PEAK_ZSCORE}, inplace=True)
+        logger.info('saving detected peaks data...')
+        peaks.to_csv(fpath)
+        return peaks
+        
 
 def locate_datafiles(line, layer, filter_key=None):
     ''' Construct a list of suite2p data files to be used as input for an analysis. '''

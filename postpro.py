@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-21 17:29:44
+# @Last Modified time: 2021-12-23 16:12:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -112,16 +112,20 @@ def remove_trials(data, iremove):
     iabsent = sorted(list(set(iremove) - set(itrials)))
     ikeep = sorted(list(set(itrials) - set(iremove)))
     iremove = sorted(list(set(itrials).intersection(set(iremove))))
-    # Convert ikeep to slice if possible (much faster data extraction)
-    ibounds = min(ikeep), max(ikeep)
-    if ikeep == list(range(ibounds[0], ibounds[1] + 1)):
-        ikeep = slice(ibounds[0], ibounds[1])
-    # Log warning message in case of absent indexes
-    if len(iabsent) > 0:
-        logger.warning(f'trials {iabsent} not found in dataets (already removed?) -> ignoring') 
-    # Restrict dataset to keep indexes
-    logger.info(f'removing trials {iremove} for each run...')
-    data = data.loc[pd.IndexSlice[:, :, ikeep, :], :]
+
+    data.loc[pd.IndexSlice[:, :, iremove, :], :] = np.nan
+
+    # # Convert ikeep to slice if possible (much faster data extraction)
+    # ibounds = min(ikeep), max(ikeep)
+    # if ikeep == list(range(ibounds[0], ibounds[1] + 1)):
+    #     ikeep = slice(ibounds[0], ibounds[1])
+    # # Log warning message in case of absent indexes
+    # if len(iabsent) > 0:
+    #     logger.warning(f'trials {iabsent} not found in dataets (already removed?) -> ignoring') 
+    # # Restrict dataset to keep indexes
+    # logger.info(f'removing trials {iremove} for each run...')
+    # data = data.loc[pd.IndexSlice[:, :, ikeep, :], :]
+
     # Return
     return data
 
@@ -229,6 +233,29 @@ def optimize_alpha(data, costfunc, bounds=(0, 1)):
     return alphas[np.argmin(costs)]
 
 
+def nan_proof(func):
+    '''
+    Wrapper around cost function that makes it NaN-proof
+    
+    :param func: function taking a input a pandas Series and outputing a pandas Series
+    :return: modified, NaN-proof function object
+    '''
+    @wraps(func)
+    def wrapper(s, *args, **kwargs):
+        # Remove NaN values
+        s2 = s.dropna()
+        # Call function on cleaned input series
+        out = func(s2, *args, **kwargs)
+        # If output is of the same size as the cleaned input, add it to original input to retain same dimensions
+        if (is_iterable(out) or isinstance(out, pd.Series)) and len(out) == s2.size:
+            s[s2.index] = out
+            return s
+        # Otherwise return output as is
+        else:
+            return out
+    return wrapper
+
+
 def compute_baseline(data, fps, wlen, q, smooth=True):
     '''
     Compute the baseline of a signal.
@@ -260,13 +287,17 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
     # Group data by ROI and run, and apply sliding window on F to compute baseline fluorescence
     groupkeys = [Label.ROI, Label.RUN]
     nconds = np.prod([len(data.index.unique(level=k)) for k in groupkeys])
+    # Define NaN-proof baseline computation function
+    @nan_proof
     def bfunc(s):
         b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
         if smooth:
             b = apply_rolling_window(b, w2, func=lambda x: x.mean())
         return b
+    # Apply function to each ROI & run, and log progress
     with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
-        return data.groupby(groupkeys).transform(pbar_update(bfunc, pbar))
+        baselines = data.groupby(groupkeys).transform(pbar_update(bfunc, pbar))
+    return baselines
 
 
 def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
@@ -274,7 +305,7 @@ def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
     Find the response peak (if any) of a signal
     
     :param s: pandas Series containing the signal
-    :param n_neighbors: number of neighboring elemtns to include on each side
+    :param n_neighbors: number of neighboring elements to include on each side
         to compute average value around the peak
     :param return_index: whether to also return the index of the peak
     '''
@@ -359,7 +390,6 @@ def slide_along_trial(func, data, wlen, iseeds):
     # Generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
         iseeds = np.round(np.linspace(0, NFRAMES_PER_TRIAL - wlen, iseeds)).astype(int)
-    logger.info(f'applying {func.__name__} function at {iseeds.size} seeds along trial length...')
     lvl = logger.getEffectiveLevel()
     logger.setLevel(logging.WARNING)
     outs = []
@@ -375,11 +405,20 @@ def slide_along_trial(func, data, wlen, iseeds):
     # Concatenate output series into dataframe
     df = pd.concat(outs, axis=1)
     # Stack them ot yield output series with new index level
-    s = df.stack()
-    # Specify index level name
+    s = df.stack(dropna=False)
+     # Specify index level name
     s.index.set_names(Label.ISTART, level=-1, inplace=True)
-    # Rename series with function output name, and return
-    return s.rename(name)
+    # Rename series with function output name
+    df = s.rename(name).to_frame()
+    # Add information about valid trials
+    df[Label.VALID] = True
+    isvalid = ~data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().isnull()
+    iinvalids = isvalid[~isvalid].index
+    uniques = [iinvalids.unique(level=k) for k in iinvalids.names] + [df.index.unique(Label.ISTART)]
+    mux = pd.MultiIndex.from_product(uniques)
+    df.loc[mux, Label.VALID] = False
+    # Return
+    return df
     
 
 def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM):
@@ -790,3 +829,27 @@ def pvalue_to_zscore(p=.05, directional=True):
     if not directional:
         p /= 2
     return norm.ppf(1 - p)
+
+
+def valid(df):
+    ''' Return a copy of the dataframe with only rows labeled a valid '''
+    return df.loc[df[Label.VALID], :]
+
+
+def get_ROI_masks(stats, iROIs):
+    '''
+    Get a dataframe of ROI masks containing pixel coordinates and weight information
+    
+    :param stats: suite2p stats dictionary
+    :param iROIs: ROIs index
+    :return: ROI-indexed dataframe of (x, y) coordinates and weights
+    '''
+    if len(stats) != len(iROIs):
+        raise ValueError(f'number of ROIs in stats ({len(stats)}) does not match index length ({len(iROIs)})')
+    keys = ['ypix', 'xpix', 'lam']
+    masks = []
+    for iROI, stat in zip(iROIs, stats):
+        mask = pd.DataFrame({k: stat[k] for k in keys})
+        mask[Label.ROI] = iROI
+        masks.append(mask)
+    return pd.concat(masks).set_index(Label.ROI, drop=True)

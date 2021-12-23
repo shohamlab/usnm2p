@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-20 11:40:47
+# @Last Modified time: 2021-12-23 13:51:55
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -125,10 +125,9 @@ class Label:
     ROI = 'ROI'
     RUN = 'run'
     TRIAL = 'trial'
-
     ISTART = 'istart'
 
-    # Fluorescence signals
+    # Time-varying signals
     TIME = 'time (s)'
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
@@ -137,16 +136,15 @@ class Label:
     ALPHA = 'alpha'
     BETA = 'beta'
     F0 = 'F0 (a.u.)'
-
-    # Relative fluorescence signals
     DFF = '\u0394F/F0'
-    DFF_NOISE_LEVEL = f'{DFF} noise level'
-    DFF_NOISE_AMP = f'{DFF} noise amplitude'
-
-    # z-score signals
     ZSCORE = f'Z({DFF})'
-    MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
+
+    # Statistics
+    VALID = 'valid'
+    EVENT = 'event?'
+    PEAK_ZSCORE = F'peak {ZSCORE}'
+    MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
     REL_ZSCORE_RESPONLY = f'{REL_ZSCORE} (responses only)'
     PEAK_REL_ZSCORE_POSTSTIM_RESPONLY = f'{PEAK_REL_ZSCORE_POSTSTIM} (responses only)'
