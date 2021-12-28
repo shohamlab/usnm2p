@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 12:17:27
+# @Last Modified time: 2021-12-28 18:07:24
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -181,4 +181,5 @@ class Label:
 
 ###################################### PLOTTING ######################################
 
+RTYPE_CMAP = 'tab10'  #sns.color_palette('tab10')
 CI = 95  # default confidence interval for bootstrapping

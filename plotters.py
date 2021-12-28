@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 12:35:51
+# @Last Modified time: 2021-12-28 18:05:52
 
 ''' Collection of plotting utilities. '''
 
@@ -766,8 +766,9 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
         masks = np.array([z.max(axis=0) for z in Z])
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
-        for i, (rtype, mask) in enumerate(zip(idx_by_type.keys(), masks)):
-            rgbs[i][mask == 1] = [*RGB_BY_TYPE[rtype], alpha_ROIs]
+        colors = sns.color_palette(RTYPE_CMAP)
+        for i, (c, mask) in enumerate(zip(colors, masks)):
+            rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
     # Create figure
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -779,7 +780,7 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
-    colors = sns.color_palette('tab10')
+    colors = sns.color_palette(RTYPE_CMAP)
     for c, (rtype, idx) in zip(colors, idx_by_type.items()):
         if mode == 'contour':  # "contour" mode
             for z in Z[idx]:
@@ -817,7 +818,8 @@ def plot_experiment_heatmap(data, key=Label.DFF, title=None, show_ylabel=True):
     '''
     # Determine rows color labels from response types per cell
     rtypes = get_response_types_per_ROI(data).values
-    row_colors = [RGB_BY_TYPE[rtype] for rtype in rtypes]
+    row_cmap = dict(zip(np.unique(rtypes), sns.color_palette(RTYPE_CMAP)))
+    row_colors = [row_cmap[rtype] for rtype in rtypes]
     # Generate 2D table of average dF/F0 response per cell (using roi as index),
     # across runs and trials
     logger.info(f'generating (ROI x time) {key} pivot table...')
@@ -947,7 +949,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         None: None,
         Label.P: 'flare',
         Label.DC: 'crest',
-        Label.ROI_RESP_TYPE: 'tab10'  # RGB_BY_TYPE
+        Label.ROI_RESP_TYPE: RTYPE_CMAP
     }.get(hue, None)
 
     ###################### Aggregating function ######################
@@ -1053,7 +1055,6 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
 
     # If indicator provided, check number of values per axis
     if label is not None:
-        label_cmap = RGB_BY_TYPE if label == Label.ROI_RESP_TYPE else None
         try:
             label_values = filtered_data[label]
         except KeyError:
@@ -1062,6 +1063,10 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             label_values_per_ax = label_values.groupby(col).unique().values
         else:
             label_values_per_ax = [label_values.unique()]
+        if label == Label.ROI_RESP_TYPE:
+            label_cmap = dict(zip([x[0] for x in label_values_per_ax], sns.color_palette(RTYPE_CMAP)))
+        else:
+            label_cmap = None
         
     # For each axis
     for iax, ax in enumerate(axlist):
@@ -1587,16 +1592,17 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     ax.set_ylabel('Count')
     bins = np.arange(nruns + 2) - 0.5
     df = pd.DataFrame([resp_types, n_positive_runs]).T
-    for label, group in df.groupby(Label.ROI_RESP_TYPE):
+    colors = sns.color_palette(RTYPE_CMAP)
+    for c, (label, group) in zip(colors, df.groupby(Label.ROI_RESP_TYPE)):
         ax.hist(
             group[Label.NPOS_RUNS], bins=bins, label=f'{label} (n = {len(group)})',
-            fc=RGB_BY_TYPE[label], ec='k')
+            fc=c, ec='k')
     ax.set_xlim(bins[0], bins[-1])
     sns.despine(ax=ax)
     # Add legend
     ax.legend(title=Label.ROI_RESP_TYPE)
     # Add separator line
-    ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
+    # ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
     # Add title
     s = 'classification by # positive conditions'
     if title is not None:
@@ -1699,7 +1705,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
         # corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat([
         #     corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
         hue = Label.ROI_RESP_TYPE
-        palette = None
+        palette = RTYPE_CMAP
         legend = 'full'
     else:
         # Otherwise, use mean value of the metrics as a color code
