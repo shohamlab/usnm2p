@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-23 13:51:55
+# @Last Modified time: 2021-12-28 12:17:27
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -74,6 +74,12 @@ BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluore
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
+# Motion artifacts
+VDISP_THR = 5.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
+
+# Baseline activity
+NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval to detect activity 
+
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
@@ -81,10 +87,12 @@ class FrameIndex:
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 # Response & cell type classification
-PTHR = 0.01  # significance threshold probability considered for activity detection in fluorescence signals (assuming directional effect)
-N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value  
-SUCCESS_RATE_THR = .3  # threshold success rate for a positive response
-NPOS_CONDS_THR = 5  # threshold number of positive conditions for an ROI to be classified as positive responder
+PTHR_DETECTION = 0.01  # significance threshold probability considered for activity detection in fluorescence signals (assuming directional effect)
+N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
+PTHR_DEPENDENCY = 0.05  # significance threshold probability considered for parameter dependency detection
+
+# Traces & trends
+ZSCORE_QUANTILE_INTERVAL = (0.5, 0.75)  # quantile interval of peak z-scores per category to select for z-score plots 
 
 
 ###################################### PARSING ######################################
@@ -141,7 +149,9 @@ class Label:
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
 
     # Statistics
+    PEAK_DISP_VEL = 'peak displacement velocity (um/s)'
     VALID = 'valid'
+    MOTION = 'motion?'
     EVENT = 'event?'
     PEAK_ZSCORE = F'peak {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
@@ -171,7 +181,4 @@ class Label:
 
 ###################################### PLOTTING ######################################
 
-LABEL_BY_TYPE = {0: 'non-responder', 1: 'responder'}
-COLORS = sns.color_palette('Set2')  # default color palette
-RGB_BY_TYPE = {'non-responder': COLORS[7], 'responder': COLORS[0]}  # mapping of RGB colors to response types
 CI = 95  # default confidence interval for bootstrapping

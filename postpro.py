@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-23 16:12:31
+# @Last Modified time: 2021-12-28 12:14:08
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -365,6 +365,7 @@ def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
     :param key: name of the column containing the variable of interest
     :return: multi-indexed series of detect event values across conditions    
     '''
+    ntrials = data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().notna().sum()
     if iwindow is not None:
         data = data.loc[pd.IndexSlice[:, :, :, iwindow], key]
         s = f' in {iwindow} index window'
@@ -372,8 +373,8 @@ def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
         s = ''
     logger.info(f'applying {func.__name__} function to detect events in {key} signals across trials{s}...')
     events = data.groupby([Label.ROI, Label.RUN, Label.TRIAL]).agg(func)
-    nevents, ntrials = events.notna().sum(), len(events)
-    logger.info(f'identified {nevents} events over {ntrials} trials (detection rate = {nevents / ntrials * 1e2:.1f} %)')
+    nevents = events.notna().sum()
+    logger.info(f'identified {nevents} events over {ntrials} valid trials (detection rate = {nevents / ntrials * 1e2:.1f} %)')
     return events
 
 
@@ -738,6 +739,10 @@ def compute_correlation_coeffs(data, xkey, ykey):
     :param ykey: name of the column containing the output (dependent) variable 
     :return: series of correlation coefficients per ROI
     '''
+    # Trial-average if required
+    if Label.TRIAL in data.index.names:
+        logger.info('computing trial-averaged stats...')
+        data = get_trial_averaged(data)
     # Filter data according to independent variable
     if xkey not in data:
         raise ValueError(f'"{xkey}" variable not found in dataset')
@@ -750,6 +755,7 @@ def compute_correlation_coeffs(data, xkey, ykey):
     else:
         logger.warning(f'x-variable "{xkey}" does not look independent...')
     # Group by ROI and compute correlation coefficients
+    logger.info('computing correlation coefficients...')
     r = data.groupby(Label.ROI).apply(lambda df: df.corr().loc[xkey, ykey])
     # Rename and return
     return r.rename(f'r[{xkey}, {ykey}]')
@@ -832,8 +838,26 @@ def pvalue_to_zscore(p=.05, directional=True):
 
 
 def valid(df):
-    ''' Return a copy of the dataframe with only rows labeled a valid '''
+    ''' Return a copy of the dataframe with only rows labeled as valid. '''
+    logger.info('discarding invalid samples...')
     return df.loc[df[Label.VALID], :]
+
+
+def nomotion(df):
+    ''' Return a copy of the dataframe with only rows labeled as "motion-free". '''
+    logger.info('discarding samples with significant motion artefact...')
+    return df.loc[~df[Label.MOTION], :]
+
+
+def nopreactive(df):
+    ''' Return a copy of the dataframe with only rows labeled as "no pre-stimulus activity". '''
+    logger.info('discarding samples with pre-stimulus activity...')
+    return df.loc[~df[Label.PRESTIM_ACTIVITY], :]
+
+
+def included(df):
+    ''' Return a copy of the dataframe with only rows that  must be included for response analysis. '''
+    return valid(nopreactive(nomotion(df)))
 
 
 def get_ROI_masks(stats, iROIs):
@@ -853,3 +877,31 @@ def get_ROI_masks(stats, iROIs):
         mask[Label.ROI] = iROI
         masks.append(mask)
     return pd.concat(masks).set_index(Label.ROI, drop=True)
+
+
+def get_quantile_slice(s, qmin=0.25, qmax=0.75):
+    '''
+    Get the values of a series that lie within a specific quantile interval
+    
+    :param s: pandas Series object
+    :param qmin: quantile of the lower bound
+    :param qmax: quantile of the upper bound
+    :return: series reduced only to its quantile slice constituents
+    '''
+    xmin, xmax = s.quantile(qmin), s.quantile(qmax)
+    return s[(s >= xmin) & (s <= xmax)]
+
+
+def get_data_subset(data, subset_idx):
+    '''
+    Select a sbuset of traces based on a ROI, run, trial multi-index
+    
+    :param data: (ROI, run, trial, frame) multi-indexed traces dataframe
+    :param subset_idx: (ROI, run, trial) subset index
+    :return: (ROI, run, trial, frame) subset traces dataframe
+    '''
+    logger.info(f'creating new multi-index (with frame level) corresponding to index subset...')
+    mux = repeat_along_new_dim(
+        pd.DataFrame(index=subset_idx), Label.FRAME, data.index.unique(level=Label.FRAME)).index
+    logger.info('selecting traces data from subset...')
+    return data.loc[mux, :]

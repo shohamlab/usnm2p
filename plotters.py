@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-23 18:22:44
+# @Last Modified time: 2021-12-28 12:35:51
 
 ''' Collection of plotting utilities. '''
 
+from itertools import count
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -747,10 +748,10 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     Ly, Lx = output_ops['Ly'], output_ops['Lx']
     rtypes_per_ROI = get_response_types_per_ROI(Fstats)
     rtypes = rtypes_per_ROI.unique()
+    count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
 
     # Initialize pixels by cell matrix
     idx_by_type = dict(zip(rtypes, np.arange(rtypes.size)))
-    # idx_by_type = {'non-responder': 0, 'responder': 1}
     Z = np.zeros((rtypes.size, rtypes_per_ROI.size, Ly, Lx), dtype=np.float32)
 
     # Compute mask per ROI & response type
@@ -778,11 +779,12 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
-    for rtype, idx in idx_by_type.items():
+    colors = sns.color_palette('tab10')
+    for c, (rtype, idx) in zip(colors, idx_by_type.items()):
         if mode == 'contour':  # "contour" mode
             for z in Z[idx]:
                 if z.max() > 0:
-                    ax.contour(X, Y, z, levels=[.5], colors=[RGB_BY_TYPE[rtype]])
+                    ax.contour(X, Y, z, levels=[.5], colors=[c])
         else:  # "fill" mode
             ax.imshow(rgbs[idx])
 
@@ -790,17 +792,17 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     if um_per_px is not None:
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-        add_scale_bar(ax, Lx, um_per_px, color='w')    
- 
+        add_scale_bar(ax, Lx, um_per_px, color='w')
+
     # Add legend
-    labels = [f'{k} ({sum(rtypes_per_ROI == k)})' for k in RGB_BY_TYPE.keys()]
+    labels = [f'{k} ({v})' for k, v in count_by_type.items()]
     if mode == 'contour':
-        legfunc = lambda v: dict(c='none', marker='o', mfc='none', mec=v, mew=2)
+        legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
     else:
-        legfunc = lambda v: dict(c='none', marker='o', mfc=v, mec='none')
+        legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
     leg_items = [
-        Line2D([0], [0], label=label, ms=10, **legfunc(v))
-        for v, label in zip(RGB_BY_TYPE.values(), labels)]
+        Line2D([0], [0], label=label, ms=10, **legfunc(c))
+        for c, label in zip(colors, labels)]
     ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
     return fig
@@ -945,9 +947,8 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         None: None,
         Label.P: 'flare',
         Label.DC: 'crest',
-        Label.ROI_RESP_TYPE: RGB_BY_TYPE
+        Label.ROI_RESP_TYPE: 'tab10'  # RGB_BY_TYPE
     }.get(hue, None)
-
 
     ###################### Aggregating function ######################
 
@@ -1151,7 +1152,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
             ax.axvspan(0, get_singleton(data, Label.DUR), ec=None, fc='C5', alpha=0.5)
         # Plot noise threshold level if key is z-score
         if ykey in [Label.REL_ZSCORE, Label.REL_ZSCORE_RESPONLY]:
-            ax.axhline(pvalue_to_zscore(PTHR), ls='--', c='k', lw=1.)
+            ax.axhline(pvalue_to_zscore(PTHR_DETECTION), ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
             for tr in tresponse:
@@ -1351,14 +1352,14 @@ def plot_activity_rate_along_trial(isactive, wlen, fps):
     :return: figure handle
     '''
     # Compute mean and std for each start index
-    mu_act = isactive.groupby('istart').mean()
-    sigma_act = isactive.groupby('istart').std()
+    rate_along_trial = isactive.groupby(Label.ISTART).mean()
+    rate_var_along_trial = isactive.groupby(Label.ISTART).std()
     # Extract starting indexes
-    istarts = mu_act.index
+    istarts = rate_along_trial.index
     # Interpolate value at stim frame index
-    stim_act = np.interp(FrameIndex.STIM, istarts, mu_act.values)
+    evoked_rate = np.interp(FrameIndex.STIM, istarts, rate_along_trial.values)
     # Extract baseline value as median
-    baseline_act = mu_act.median()
+    baseline_rate = rate_along_trial.median()
     # Plot on figure
     fig, ax = plt.subplots()
     ax.set_title('activity rate along the trial interval')
@@ -1367,10 +1368,11 @@ def plot_activity_rate_along_trial(isactive, wlen, fps):
     ax.set_ylim(0, 1)
     sns.despine(ax=ax)
     t = (istarts - FrameIndex.STIM) / fps
-    ax.plot(t, mu_act, label='average')
-    ax.fill_between(t, mu_act - sigma_act, mu_act + sigma_act, alpha=0.2, label='+/-SD interval')
-    ax.axhline(baseline_act, ls=':', c='k', label=f'baseline ({baseline_act * 1e2:.0f} %)')
-    ax.axhline(stim_act, ls=':', c='k', label=f'stim-evoked ({stim_act * 1e2:.0f} %)')
+    ax.plot(t, rate_along_trial, label='average')
+    ax.fill_between(t, rate_along_trial - rate_var_along_trial, rate_along_trial + rate_var_along_trial,
+        alpha=0.2, label='+/-SD interval')
+    ax.axhline(baseline_rate, ls=':', c='k', label=f'baseline ({baseline_rate * 1e2:.0f} %)')
+    ax.axhline(evoked_rate, ls=':', c='k', label=f'stim-evoked ({evoked_rate * 1e2:.0f} %)')
     ax.axvline(0, ls='--', c='k', label='stimulus onset')
     ax.legend()
     return fig
@@ -1452,7 +1454,7 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline=N
     # Create figure
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.set_xlabel('# ROI')
-    ax.set_ylabel(s)
+    ax.set_ylabel(s2)
     parsed_title = f'{s2} per ROI'
     if groupby is not None:
         parsed_title = f'{parsed_title} - by {groupby}'
@@ -1650,7 +1652,7 @@ def plot_gaussian_histogram_fit(data, fitparams, iROI, irun, ykey=Label.DFF, nbi
     return fig
 
 
-def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None):
+def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, directional=True):
     '''
     Plot the distribution of correlation coefficients of a specific response metrics
     with input stimulation parameters (pressure & duty cycle) for each ROI.
@@ -1658,31 +1660,45 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None):
     :param data: trial-averaged statistics dataframe per ROI & run
     :param ykey: name of the column containing the metrics of interest
     :param pthr (optional): significance threshold probability used for ROI classification
+    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
     :return: figure handle
     '''
     xkeys = [Label.P, Label.DC]
-
+    
     # Compute correlation coeficients with stimulation parameters
     corr_coeffs = pd.concat([
         compute_correlation_coeffs(data, xkey, ykey) for xkey in xkeys], axis=1)
 
-
     # If significance threshold probability is provided
     if pthr is not None:
         # Compute threshold correlation coefficients for statistical significance in both dimensions
+        # using appropriate t-value depending on effect directionality constraint  
         rthrs = {}
+        srthrs = []
         for xkey in xkeys:
             n = data[xkey].nunique()
-            rthrs[xkey] = tscore_to_corrcoeff(pvalue_to_tscore(pthr, n), n)
+            rthrs[xkey] = tscore_to_corrcoeff(pvalue_to_tscore(pthr, n, directional=directional), n)
+            srthrs.append(f'r({xkey}, p = {pthr:.3f}, n = {n}, {"1" if directional else "2"}-tailed) = {rthrs[xkey]:.2f}')
+        srthrs = '\n'.join([f'-   {x}' for x in srthrs])
+        logger.info(f'setting thresholds correlation coefficients for significant dependency along each dimension:\n{srthrs}')
 
-        # Identify significantly correlated samples across both dimensions and in both directions
+        # Identify significantly correlated samples across both dimensions
         corrtypes = pd.DataFrame()
         for (xkey, rthr), col in zip(rthrs.items(), corr_coeffs):
-            corrtypes[xkey] = (corr_coeffs[col] > rthr).astype(int) - (corr_coeffs[col] < -rthr).astype(int)
+            # By default, consider only positive correlation
+            corrtypes[xkey] = (corr_coeffs[col] > rthr).astype(int)
+            # If specified, consider also negative correlation
+            if not directional:
+                corrtypes[xkey] -= (corr_coeffs[col] < -rthr).astype(int)
         # Convert both informations into string code for graphical representation
-        corr_coeffs['type'] = pd.concat([
-            corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
-        hue = 'type'
+        corrcodes = []
+        for col in corrtypes:
+            code = 'P' if col == Label.P else 'DC'
+            corrcodes.append(corrtypes[col].map({-1: f'{code}-', 0: f'{code}o', 1: f'{code}+'}))
+        corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat(corrcodes, axis=1).agg(', '.join, axis=1)
+        # corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat([
+        #     corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
+        hue = Label.ROI_RESP_TYPE
         palette = None
         legend = 'full'
     else:
@@ -1701,7 +1717,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None):
     # If significance-based classification was performed
     if pthr is not None:
         # Add sample size for each category in legend
-        counts = corr_coeffs['type'].value_counts()
+        counts = corr_coeffs[Label.ROI_RESP_TYPE].value_counts()
         labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
         leg = jg.ax_joint.get_legend()
         for t in leg.texts:
@@ -1712,13 +1728,17 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None):
             rthr = rthrs[xkey]
             for ax in [ax_marg, jg.ax_joint]:
                 linefunc = getattr(ax, f'ax{k}line')
-                for x in [-1, 1]:
-                    linefunc(x * rthr, c='k', ls='--')
-    
+                linefunc(rthr, c='k', ls='--')
+                if not directional:
+                    linefunc(-rthr, c='k', ls='--')
+        
     # Add title
     jg.fig.suptitle(f'{ykey} - correlation with stimulus parameters across ROIs')
     jg.fig.tight_layout()
     jg.fig.subplots_adjust(top=0.92)
 
     # Return figure
-    return jg.fig
+    if pthr is not None:
+        return jg.fig, corr_coeffs[Label.ROI_RESP_TYPE]
+    else:
+        return jg.fig
