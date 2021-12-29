@@ -2,12 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 20:23:44
+# @Last Modified time: 2021-12-29 12:12:58
 
 ''' Collection of constants used throughout the code base. '''
 
-import numpy as np
-import seaborn as sns
 from string import ascii_lowercase
 
 ###################################### MISCELLANEOUS ######################################
@@ -156,20 +154,14 @@ class Label:
     PEAK_ZSCORE = F'peak {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
-    REL_ZSCORE_RESPONLY = f'{REL_ZSCORE} (responses only)'
-    PEAK_REL_ZSCORE_POSTSTIM_RESPONLY = f'{PEAK_REL_ZSCORE_POSTSTIM} (responses only)'
 
     # Trial activity & related measures
     PRESTIM_ACTIVITY = 'pre-stim activity?'
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
     SUCCESS_RATE = 'success rate'
-    SUCCESS_RATE_PRESTIM = f'{SUCCESS_RATE} (pre-stim activity)'
-    SUCCESS_RATE_NOPRESTIM = f'{SUCCESS_RATE} (no pre-stim activity)'
 
     # ROI classification 
-    IS_POSITIVE_RUN = 'positive run?'
-    NPOS_RUNS = '# positive runs'
     ROI_RESP_TYPE = 'response type'
 
     # Labels that must be renamed upon averaging 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-23 17:54:16
+# @Last Modified time: 2021-12-29 12:16:31
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -28,9 +28,24 @@ def get_data_root():
         from config import dataroot
     except ModuleNotFoundError:
         raise ValueError(f'user-specific "config.py" file is missing')
+    except ImportError:
+        raise ValueError(f'"dataroot" variable is missing from user-specific "config.py" file')
     if not os.path.isdir(dataroot):
         raise ValueError(f'data root directory "{dataroot}" does not exist')
     return dataroot
+
+
+def get_figs_dir():
+    ''' Get the directory where output figures should be saved '''
+    try:
+        from config import figsdir
+    except ModuleNotFoundError:
+        raise ValueError(f'user-specific "config.py" file is missing')
+    except ImportError:
+        raise ValueError(f'"figsdir" variable is missing from user-specific "config.py" file')
+    if not os.path.isdir(figsdir):
+        raise ValueError(f'figures directory "{figsdir}" does not exist')
+    return figsdir
 
 
 def check_for_existence(fpath, overwrite):
@@ -278,10 +293,12 @@ def get_figdir(figsroot):
     return figsdir
 
 
-def save_figs_book(figsroot, figs):
+def save_figs_book(figsroot, figs, prefix=None):
     ''' Save figures dictionary as consecutive pages in single PDF document. '''
     now = datetime.datetime.now()
     s = now.strftime('%Y.%m.%d-%H.%M')
+    if prefix is not None:
+        s = f'{prefix}_{s}'
     fname = f'figs_{s}.pdf'
     fpath = os.path.join(figsroot, fname)
     file = matplotlib.backends.backend_pdf.PdfPages(fpath)
