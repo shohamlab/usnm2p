@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 18:07:24
+# @Last Modified time: 2021-12-28 20:23:44
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -92,7 +92,7 @@ N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "a
 PTHR_DEPENDENCY = 0.05  # significance threshold probability considered for parameter dependency detection
 
 # Traces & trends
-ZSCORE_QUANTILE_INTERVAL = (0.5, 0.75)  # quantile interval of peak z-scores per category to select for z-score plots 
+ZSCORE_QUANTILE_INTERVAL = (0.5, .75)  # quantile interval of peak z-scores per category to select for z-score plots 
 
 
 ###################################### PARSING ######################################
@@ -151,8 +151,8 @@ class Label:
     # Statistics
     PEAK_DISP_VEL = 'peak displacement velocity (um/s)'
     VALID = 'valid'
-    MOTION = 'motion?'
-    EVENT = 'event?'
+    MOTION = 'motion'
+    EVENT = 'event'
     PEAK_ZSCORE = F'peak {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
@@ -181,5 +181,13 @@ class Label:
 
 ###################################### PLOTTING ######################################
 
-RTYPE_CMAP = 'tab10'  #sns.color_palette('tab10')
+class Palette:
+    ''' Color palettes used to visualize various categories & dependencies '''
+    
+    DEFAULT = 'rocket_r'  # default (continuous)
+    RTYPE = 'tab10'  # response type (categorical)
+    P = 'flare'  # pressure (continuous)
+    DC = 'crest'  # duty cycle (continuous)
+
+
 CI = 95  # default confidence interval for bootstrapping

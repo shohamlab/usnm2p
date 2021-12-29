@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 18:05:52
+# @Last Modified time: 2021-12-28 20:15:58
 
 ''' Collection of plotting utilities. '''
 
@@ -16,7 +16,7 @@ from matplotlib.patches import Rectangle
 from pandas.core.groupby.groupby import GroupBy
 import seaborn as sns
 from colorsys import hsv_to_rgb, rgb_to_hsv
-from tqdm import tqdm
+from tqdm import std, tqdm
 
 from logger import logger
 from constants import *
@@ -766,7 +766,7 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
         masks = np.array([z.max(axis=0) for z in Z])
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
-        colors = sns.color_palette(RTYPE_CMAP)
+        colors = sns.color_palette(Palette.RTYPE)
         for i, (c, mask) in enumerate(zip(colors, masks)):
             rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
@@ -780,7 +780,7 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
-    colors = sns.color_palette(RTYPE_CMAP)
+    colors = sns.color_palette(Palette.RTYPE)
     for c, (rtype, idx) in zip(colors, idx_by_type.items()):
         if mode == 'contour':  # "contour" mode
             for z in Z[idx]:
@@ -818,7 +818,7 @@ def plot_experiment_heatmap(data, key=Label.DFF, title=None, show_ylabel=True):
     '''
     # Determine rows color labels from response types per cell
     rtypes = get_response_types_per_ROI(data).values
-    row_cmap = dict(zip(np.unique(rtypes), sns.color_palette(RTYPE_CMAP)))
+    row_cmap = dict(zip(np.unique(rtypes), sns.color_palette(Palette.RTYPE)))
     row_colors = [row_cmap[rtype] for rtype in rtypes]
     # Generate 2D table of average dF/F0 response per cell (using roi as index),
     # across runs and trials
@@ -874,7 +874,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
-                   err_style='band', ax=None, alltraces=False, hue=None, col=None, label=None, title=None, markerfunc=None,
+                   err_style='band', ax=None, alltraces=False, hue=None, hue_order=None, col=None, label=None, title=None, markerfunc=None,
                    **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
@@ -947,9 +947,9 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     # Determine color palette depending on hue parameter
     palette = {
         None: None,
-        Label.P: 'flare',
-        Label.DC: 'crest',
-        Label.ROI_RESP_TYPE: RTYPE_CMAP
+        Label.P: Palette.P,
+        Label.DC: Palette.DC,
+        Label.ROI_RESP_TYPE: Palette.RTYPE
     }.get(hue, None)
 
     ###################### Aggregating function ######################
@@ -975,6 +975,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         x         = xkey,          # x-axis
         y         = ykey,          # y-axis
         hue       = hue,           # hue grouping variable
+        hue_order = hue_order,     # hue plotting order 
         estimator = aggfunc,       # aggregating function
         ci        = ci,            # confidence interval estimator
         err_style = err_style,     # error visualization style 
@@ -1064,7 +1065,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         else:
             label_values_per_ax = [label_values.unique()]
         if label == Label.ROI_RESP_TYPE:
-            label_cmap = dict(zip([x[0] for x in label_values_per_ax], sns.color_palette(RTYPE_CMAP)))
+            label_cmap = dict(zip([x[0] for x in label_values_per_ax], sns.color_palette(Palette.RTYPE)))
         else:
             label_cmap = None
         
@@ -1118,7 +1119,7 @@ def marks_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_analysis_window=True,
-                   mark_peaks=False, **kwargs):
+                   mark_peaks=False, yref=None, **kwargs):
     ''' Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
@@ -1156,8 +1157,8 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
         if mark_stim:
             ax.axvspan(0, get_singleton(data, Label.DUR), ec=None, fc='C5', alpha=0.5)
         # Plot noise threshold level if key is z-score
-        if ykey in [Label.REL_ZSCORE, Label.REL_ZSCORE_RESPONLY]:
-            ax.axhline(pvalue_to_zscore(PTHR_DETECTION), ls='--', c='k', lw=1.)
+        if yref is not None:
+            ax.axhline(yref, ls='--', c='k', lw=1.)
         # Plot response interval if specified
         if tresponse is not None:
             for tr in tresponse:
@@ -1165,6 +1166,22 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
 
     # Return figure
     return fig
+
+
+def add_numbers_on_legend_labels(ax, data, xkey, ykey, hue):
+    ''' Add sample size of each hue category on the plot '''
+    counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
+    std_by_hue = counts_by_hue.std(axis=1)
+    counts_by_hue = counts_by_hue.mean(axis=1)
+    leg = ax.get_legend()
+    for t in leg.texts:
+        s = t.get_text()
+        c = counts_by_hue.loc[s]
+        if std_by_hue.loc[s] == 0.:
+            cs = f'{c:.0f}'
+        else:
+            cs = f'{c:.1f} +/- {std_by_hue.loc[s]:.1f}'
+        t.set_text(f'{s} (n = {cs})')
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None, **kwargs):
@@ -1179,13 +1196,21 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
     # Restrict filtering criteria based on xkey
     if xkey == Label.P:
         kwargs['DC'] = DC_REF
+        data = data[data[Label.DC] == DC_REF]
     elif xkey == Label.DC:
         kwargs['P'] = P_REF
+        data = data[data[Label.P] == P_REF]
     else:
         raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
     
     # Plot
     fig = plot_from_data(data, xkey, ykey, **kwargs)
+
+    # Add numbers on legend if needed
+    hue = kwargs.get('hue', None)
+    if hue is not None:
+        ax = kwargs.get('ax', fig.axes[0])
+        add_numbers_on_legend_labels(ax, data, xkey, ykey, hue)
 
     # Add baseline if specified
     if baseline is not None:
@@ -1347,40 +1372,46 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=No
     return fig
 
 
-def plot_activity_rate_along_trial(isactive, wlen, fps):
+def plot_metrics_along_trial(data, wlen, fps, full_output=True):
     '''
-    Plot the mean activity rate as a function of the sliding window position along the trial
+    Plot a specific output metrics as a function of the sliding window position along the trial
     
-    :param isactive: multi-inxexed (ROI, run, trial, frame, istart) series of detected peaks
+    :param data: multi-inxexed (ROI, run, trial, frame, istart) series of output metrics
     :param wlen: window length (in frames)
     :param fps: frame rate (in frames per second)
-    :return: figure handle
+    :return: figure handle (with optional derived baseline and stimulus-evoked values)
     '''
     # Compute mean and std for each start index
-    rate_along_trial = isactive.groupby(Label.ISTART).mean()
-    rate_var_along_trial = isactive.groupby(Label.ISTART).std()
+    y_along_trial = data.groupby(Label.ISTART).mean()
+    yvar_along_trial = data.groupby(Label.ISTART).std()
     # Extract starting indexes
-    istarts = rate_along_trial.index
+    istarts = y_along_trial.index
     # Interpolate value at stim frame index
-    evoked_rate = np.interp(FrameIndex.STIM, istarts, rate_along_trial.values)
+    y_evoked = np.interp(FrameIndex.STIM, istarts, y_along_trial.values)
     # Extract baseline value as median
-    baseline_rate = rate_along_trial.median()
+    y_baseline = y_along_trial.median()
     # Plot on figure
     fig, ax = plt.subplots()
-    ax.set_title('activity rate along the trial interval')
+    s = data.name
+    if data.dtype == bool:
+        s = f'{s} rate'
+        ax.set_ylim(0, 1)
+    ax.set_title(f'{s} along the trial interval')
     ax.set_xlabel(f'start time of the {wlen / fps:.1f} s long detection window (s)')
-    ax.set_ylabel('activity rate')
-    ax.set_ylim(0, 1)
+    ax.set_ylabel(s)
     sns.despine(ax=ax)
     t = (istarts - FrameIndex.STIM) / fps
-    ax.plot(t, rate_along_trial, label='average')
-    ax.fill_between(t, rate_along_trial - rate_var_along_trial, rate_along_trial + rate_var_along_trial,
+    ax.plot(t, y_along_trial, label='average')
+    ax.fill_between(t, y_along_trial - yvar_along_trial, y_along_trial + yvar_along_trial,
         alpha=0.2, label='+/-SD interval')
-    ax.axhline(baseline_rate, ls=':', c='k', label=f'baseline ({baseline_rate * 1e2:.0f} %)')
-    ax.axhline(evoked_rate, ls=':', c='k', label=f'stim-evoked ({evoked_rate * 1e2:.0f} %)')
+    ax.axhline(y_baseline, ls=':', c='k', label=f'baseline ({y_baseline:.2f})')
+    ax.axhline(y_evoked, ls=':', c='k', label=f'stim-evoked ({y_evoked:.2f})')
     ax.axvline(0, ls='--', c='k', label='stimulus onset')
     ax.legend()
-    return fig
+    if full_output:
+        return fig, y_baseline, y_evoked
+    else:
+        return fig
 
 
 def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nstd=None):
@@ -1592,7 +1623,7 @@ def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     ax.set_ylabel('Count')
     bins = np.arange(nruns + 2) - 0.5
     df = pd.DataFrame([resp_types, n_positive_runs]).T
-    colors = sns.color_palette(RTYPE_CMAP)
+    colors = sns.color_palette(Palette.RTYPE)
     for c, (label, group) in zip(colors, df.groupby(Label.ROI_RESP_TYPE)):
         ax.hist(
             group[Label.NPOS_RUNS], bins=bins, label=f'{label} (n = {len(group)})',
@@ -1705,13 +1736,13 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
         # corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat([
         #     corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
         hue = Label.ROI_RESP_TYPE
-        palette = RTYPE_CMAP
+        palette = Palette.RTYPE
         legend = 'full'
     else:
         # Otherwise, use mean value of the metrics as a color code
         corr_coeffs['avg'] = data[ykey].groupby(Label.ROI).mean()
         hue = 'avg'
-        palette = 'flare'
+        palette = Palette.DEFAULT
         legend = None
 
     # Plot joint distributions of correlation coefficients with P & DC for each ROI
