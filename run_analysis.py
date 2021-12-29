@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 16:45:52
+# @Last Modified time: 2021-12-29 17:53:57
 
 import os
 import papermill as pm
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     nbname, nbext = os.path.splitext(input_nbpath)
     output_nbpath = os.path.join(outdir, f'{nbname}_{"_".join(parameters.values())}{nbext}')
 
-    print(f'executing "{input_nbpath}" as "{output_nbpath}" with parameters {parameters}...')
+    print(f'executing "{input_nbpath}" with parameters {parameters} as "{output_nbpath}"...')
     pm.execute_notebook(input_nbpath, output_nbpath, parameters=parameters)
     print(f'notebook successfully executed')
 
