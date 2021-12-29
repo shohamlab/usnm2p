@@ -2,11 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 18:45:29
+# @Last Modified time: 2021-12-29 12:41:59
 
 ''' Collection of filtering utilities. '''
 
-import abc
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt

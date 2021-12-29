@@ -2,11 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-22 15:43:20
+# @Last Modified time: 2021-12-29 12:42:41
 
 ''' Notebook image viewing utilities. '''
 
-import abc
 import os
 import logging
 import numpy as np

@@ -2,21 +2,19 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 20:15:58
+# @Last Modified time: 2021-12-29 12:41:34
 
 ''' Collection of plotting utilities. '''
 
-from itertools import count
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
-from pandas.core.groupby.groupby import GroupBy
 import seaborn as sns
 from colorsys import hsv_to_rgb, rgb_to_hsv
-from tqdm import std, tqdm
+from tqdm import tqdm
 
 from logger import logger
 from constants import *

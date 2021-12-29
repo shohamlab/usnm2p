@@ -2,11 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-28 16:29:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-28 19:33:56
+# @Last Modified time: 2021-12-29 12:42:06
 
 ''' Collection of stack interpolators utilities. '''
 
-import abc
 import numpy as np
 from tqdm import tqdm
 from scipy.interpolate import interp1d
