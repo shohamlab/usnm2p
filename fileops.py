@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:16:31
+# @Last Modified time: 2021-12-30 15:57:49
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -386,7 +386,7 @@ def load_data(outdir, nruns, check=False):
         return None
     # Load experiment info table
     logger.info('loading experiment info table...')
-    info_table = pd.read_csv(info_table_fpath)
+    info_table = pd.read_csv(info_table_fpath).set_index(Label.RUN, drop=True)
     # Load z-scores split by run
     timeseries = []
     for ir in range(nruns):
