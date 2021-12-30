@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:12:58
+# @Last Modified time: 2021-12-30 17:56:26
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -145,6 +145,14 @@ class Label:
     DFF = '\u0394F/F0'
     ZSCORE = f'Z({DFF})'
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
+
+    # Displacement & velocities
+    X_PX = 'x (pixels)'
+    Y_PX = 'y (pixels)'
+    DISTANCE_PX = 'd (pixels)'
+    DISTANCE_UM = 'd (um)'
+    SPEED_UM_FRAME = 'v (um/frame)'
+    SPEED_UM_S = 'v (um/s)'
 
     # Statistics
     PEAK_DISP_VEL = 'peak displacement velocity (um/s)'

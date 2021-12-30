@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-28 12:14:08
+# @Last Modified time: 2021-12-30 18:06:16
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -327,7 +327,7 @@ def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
         return ypeak
 
 
-def compute_displacement_velocity(ops, mux, um_per_pixel, fps):
+def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True, full_output=False):
     '''
     Compute displacement velocity profiles frrom registration offsets
     
@@ -335,24 +335,43 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps):
     :param mux: (run, trial, frame) multi-index object
     :param um_per_pixel: spatial resolution of the images
     :param fps: sampling frequency (in frames/second)
+    :param substituted (default: True): whether stimulus frames have been substituted
+        by their preceding frames
+    :param full_output (default: False): whether to return the entire dataframe of intermediate
+        metrics or simply the resulting displacement velocity series 
     :return: Series of displacement velocity profiles
     '''
     logger.info('computing diplacement velocity over time from registration offsets...')
     # Gather pixel offsets from reference frame
-    offsets = pd.DataFrame({f'{k[0]} (pixels)': ops[k] for k in ['xoff', 'yoff']}, index=mux)
+    df = pd.DataFrame({f'{k[0]} (pixels)': ops[k] for k in ['xoff', 'yoff']}, index=mux)
     # Add mean of sub-block offsets if present
     if 'xoff1' in ops:
-        offsets['x (pixels)'] += ops['xoff1'].mean(axis=1)
-        offsets['y (pixels)'] += ops['yoff1'].mean(axis=1)
+        df[Label.X_PX] += ops['xoff1'].mean(axis=1)
+        df[Label.Y_PX] += ops['yoff1'].mean(axis=1)
     # Compute Euclidean distance from reference frame (in pixels)
-    offsets['d (pixels)'] = np.sqrt(offsets['x (pixels)']**2 + offsets['y (pixels)']**2)
+    df[Label.DISTANCE_PX] = np.sqrt(df[Label.X_PX]**2 + df[Label.Y_PX]**2)
     # Translate distance from pixels to microns
-    offsets[f'd (um)'] = offsets[f'd (pixels)'] * um_per_pixel
+    df[Label.DISTANCE_UM] = df[Label.DISTANCE_PX] * um_per_pixel
     # Compute absolute displacement velocity (in um/frame) for each run independently
-    offsets['v (um/frame)'] = offsets['d (um)'].groupby(Label.RUN).diff().abs()
+    df[Label.SPEED_UM_FRAME] = df[Label.DISTANCE_UM].groupby(Label.RUN).diff().abs()
+    # Stimulus frames substitution (if applied) creates consecutive identical frames, resulting
+    # in zero (or very low) displacement velocity artifacts at stimulus index. In this case, we
+    # also substitute displacement velocity at stimulus indexes by values at the preceding indexes.
+    if substituted:
+        logger.info('correcting displacement velocity at stimulus indexes to compensate for stimulus frames substitution...')
+        # Set stimulus frames velocities to NaN
+        df.loc[pd.IndexSlice[:, :, FrameIndex.STIM], Label.SPEED_UM_FRAME] = np.nan
+        # Interpolate stimulus frames velocities using forward fill method
+        df = df.fillna(method='ffill')
+        # Reset first velocity value of each run to NaN
+        df.loc[pd.IndexSlice[:, 0, 0], Label.SPEED_UM_FRAME] = np.nan
     # Translate displacement velocity to um/s
-    offsets['v (um/s)'] = offsets['v (um/frame)'] * fps
-    return offsets['v (um/s)']
+    df[Label.SPEED_UM_S] = df[Label.SPEED_UM_FRAME] * fps
+    # Return
+    if full_output:
+        return df
+    else:
+        return df[Label.SPEED_UM_S]
 
 
 def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
