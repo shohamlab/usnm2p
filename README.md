@@ -14,7 +14,7 @@ This repository hosts the code base to process and analyze 2-photon calcium imag
 - Download and install the suite2p functional segmentation pipeline [1] in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html
 - Clone this repository and open a terminal at its root directory 
 - While in the suite2p conda environment, install remaining package dependencies: `pip install -r requirements.txt`
-- Create a user configuration file called `config.py`, and define in it a variable called `dataroot` indicating the root directory for the raw data to be analyzed. Save the file in the repository top folder.
+- Create a user configuration file called `config.py`, and define in it 2 variables, namely `dataroot` (indicating the root directory for the raw data to be analyzed) and `figsdir` (indicating where to save the final figures file). Save the configuration file in the repository top folder.
 - You're all set!
 
 ## Usage
@@ -59,7 +59,6 @@ The raw data is typically processed in different successive steps, described bel
 	- extraction of ROI's calcium fluorescence timecourse and optional spike deconvolution.
 
 **Important**: if multiple stacked TIF files are provided as input, suite2p will **stack them sequentially prior to processing**. Therefore, **all stacked TIF files in the input folder must correspond to the same brain region**.
-
 Upon completion, a `/suite2p/plane0/` folder is created for each input stack that typically contains the following output files:
 - `F.npy`: array of fluorescence traces (ROIs by timepoints)
 - `Fneu.npy`: array of neuropil fluorescence traces (ROIs by timepoints)
@@ -75,7 +74,6 @@ Upon completion, a `/suite2p/plane0/` folder is created for each input stack tha
 	- baseline (F0) computation and baseline correction of neuropil-corrected fluorescence traces
 	- baseline normalization to obtain relative change fluorescence traces ΔF/F0
 	- noise level and variation range estimation (using gaussian fits of ΔF/F0 distributions) and subsequent noise-normalization of relative change fluorescence traces into z-score traces
-
 Upon completion, z-score traces of each ROI are saved with their ROI, run, trial and frame index information in a `/suite2p/processed/` folder (`zscores_run*.csv` files), along with a summary table of the parameters pertaining to each run (`info_tabel.csv`), and a table of the pixel masks of each selected ROI in the reference frame (`ROI_masks.csv`).
 
 4. **Statistics**: using the extracted z-score timeseries as a basis, transient activity events are detected and used to derive statistics on ultrasound-evoked (& spontaneous) neural activity. This analysis consists of the following sub-steps:
