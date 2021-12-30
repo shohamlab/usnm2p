@@ -43,18 +43,20 @@ This rich nomenclature is used as a way to store metadata associated with each e
 ### Processing steps
 
 The raw data is typically processed in different successive steps, described below.
-1. **Stacking**: raw TIF images are assembled into stacked TIF files containing all the frames of an entire run. Each resulting stacked TIF file should contain a 1600x256x256 uint16 array and is named after the directory containing the corresponding individual TIF files.
 
-2. **Denoising**: the main aim of this step is to remove Speckle noise present in raw microscope aqcuisitions. To this end, we use a modified implementation of the Kalman filter [2]. The main parameter influencing the outcome of this processing step is the *specified filter gain* (`G`). From collective experience, it seems that values around 0.5 work well when using GCaMP6s as a fluorescence reporter.
+1. **Pre-processing**: this consists of multiple steps to convert raw, single-frame TIF files into chronologically organized, stacked (i.e. multi-frame) TIF files that can be presented to our functional segmentation algorithm. This pre-processing consists of multiple steps:
+	- **Stacking**: raw TIF images are assembled into stacked TIF files containing all the frames of an entire run. Each resulting stacked TIF file should contain a 1600x256x256 uint16 array and is named after the directory containing the corresponding individual TIF files.
+	- **Substitution of stimulus frames**: frames acquired during sonication periods are typically "polluted" with a large amount of noise, making it virtually impossble to reliably detect regiosn of interest and extract their activity. Therefore, these frames are substituted by their preceding (unpolluted) frames.
+	- **Denoising**: the aim of this step is to remove the Speckle noise present in raw microscope aqcuisition frames. To this end, we use a modified implementation of the Kalman filter [2]. The main parameter influencing the outcome of this processing step is the *specified filter gain* (`G`). From collective experience and cmomparative visual inspections, it seems that values around 0.5 work well when using GCaMP6s as a fluorescence reporter.
 
-3. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several substeps:
-	- conversion from TIF to binary data
-	- motion correction & image registration (optional, can be rigid or non-rigid)
-	- denoising using principal component analysis (optional)
-	- regions of interest (ROIs) detection over contaminating signals originating from the surrounding neuropil (i.e. axons & dendrites located outside of the plane of interest but in the acquisition volume)
-	- ROI labelling into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs, using a naive Bayes classifier trained on cortical data to identify cells based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio).
-	- extraction of ROI's calcium fluorescence timecourse
-	- spike deconvolution (optional , and somewhat useless with a sampling rate of 3.5 Hz)
+2. **Functional segmentation**: the denoised TIF stacks are fed into the *suite2p* pipeline to extract cell-specific fluorescence timeseries. This consists of several sub-steps:
+	- conversion from TIF to binary data "movie"
+	- motion correction using (rigid & non-rigid) movie registration
+	- movie projection at various spatial scales to compute a "correlation map"
+	- iterative peak detection on correlation map, and extension around these peaks to determine regions of interest (ROIs)
+	- extraction of associated "neuropil" areas around each ROI (contaning contaminating signals originating from axons & dendrites located outside of the plane of interest but in the acquisition volume)
+	- ROI classification into cell (i.e. soma) and non-cell (e.g. axons, dendrites...) ROIs based on extracted features of ROI activity (skewness, variance, correlation to surrounding pixels) and anatomy (area, aspect ratio), using a naive Bayes classifier trained on cortical data.
+	- extraction of ROI's calcium fluorescence timecourse and optional spike deconvolution.
 
 **Important**: if multiple stacked TIF files are provided as input, suite2p will **stack them sequentially prior to processing**. Therefore, **all stacked TIF files in the input folder must correspond to the same brain region**.
 
@@ -67,28 +69,36 @@ Upon completion, a `/suite2p/plane0/` folder is created for each input stack tha
 - `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
 - `data.bin` (optional): registered image stack in binary format format
 
-4. **Calcium transients analysis**: the suite2p input files are used as input to derive and analyze calcium transient traces. This analysis consists of the following substeps:
-	- subtraction of cell and associated neuropil fluorescence traces.
-	- baseline computation and baseline correction of resulting fluorescence traces
-	- baseline normalization to obtain relative change fluorescence traces
-	- z-score normalization of relative change fluorescence traces
-	- detection of trials with pre-stimulus activity and stimuluse-evoked activity
-	- quantification of success rate & response strength fro every cell & condition 
-	- classification of cells by response type
+3. **Post-processing**: the main aim of this step is to convert the raw fluorescence timeseries of each ROI (extracted from the suite2p output files) into z-score timeseries of the corresponding relative fluorescence variation. This is carried out in successive sub-steps:
+	- extraction of cell and associated neuropil fluorescence traces
+	- subtraction of neuropil background with an appropriate coeefficient (currently 0.7) to obtain a corrected flueorescence timecourse (F) of each ROI
+	- baseline (F0) computation and baseline correction of neuropil-corrected fluorescence traces
+	- baseline normalization to obtain relative change fluorescence traces ΔF/F0
+	- noise level and variation range estimation (using gaussian fits of ΔF/F0 distributions) and subsequent noise-normalization of relative change fluorescence traces into z-score traces
 
-TO COMPLETE
+Upon completion, z-score traces of each ROI are saved with their ROI, run, trial and frame index information in a `/suite2p/processed/` folder (`zscores_run*.csv` files), along with a summary table of the parameters pertaining to each run (`info_tabel.csv`), and a table of the pixel masks of each selected ROI in the reference frame (`ROI_masks.csv`).
+
+4. **Statistics**: using the extracted z-score timeseries as a basis, transient activity events are detected and used to derive statistics on ultrasound-evoked (& spontaneous) neural activity. This analysis consists of the following sub-steps:
+	- quantification of lateral motion over time (using the registration offsets timeseries outputed by suite2p), detection of motion artifacts, and exclusion of associated trials
+	- detection of transient activity events in defined pre-stimulus and post-stimulus windows, but also on a continous detection window moving along the trial intervals
+	- characterization of baseline, pre-stimulus and stimulus-evoked neural activity (using the peak z-score value as a proxy) for each ROI and each trial, and exclusion of trials with pre-stimulus activity
+	- quantification of success rate & response strength for every ROI & run
+	- classification of cells by response type
+	- derivation of stimulus-evoked transient activity traces for each cell type and stimulus condition
+	- characteriztion of parameter-dependency of success rate & response strength for each cell type  
 
 ## Authors & contributors
 
 This code base has received contributions from many people, including
-- Diego Asua: original author???
+- Yi ???
+- Ben ???
+- Celine ???
+- Diego Asua
 - Theo Lemaire (theo.lemaire@nyulangone.org): current contributor
-
-TO COMPLETE
 
 ## References
 
 - [1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
 - [2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
 
-TO COMPLETE
+**TO COMPLETE**
