@@ -9,3 +9,4 @@ tifffile
 seaborn
 statsmodels
 papermill
+jupyter-slack
