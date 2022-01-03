@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-03 10:14:53
+# @Last Modified time: 2022-01-03 15:56:27
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -46,6 +46,41 @@ def get_figs_dir():
     if not os.path.isdir(figsdir):
         raise ValueError(f'figures directory "{figsdir}" does not exist')
     return figsdir
+
+
+def get_subfolder_names(dirpath):
+    ''' Return a list of sub-folders for a given directory '''
+    return [f.name for f in os.scandir(dirpath) if f.is_dir()]
+
+
+def get_date_mouse_region_combinations(root='.', excludes=['layer5']):
+    '''
+    Construct a list of (date, mouse, region) combinations that contain experiment datasets
+    inside a given root directory.
+    
+    :param root: root directory (typically a mouse line) containing the dataset folders
+    :param excludes: list of exlusion patterns
+    :return: list of dictionaries representing (date, mouse, region) combinations found
+        inside the root folder.
+    '''
+    # Populate folder list
+    print(f'Searching for data folders in {root}...')
+    l = []
+    # Loop through dates, mice, and regions, and add data root folders to list  
+    for date in get_subfolder_names(root):
+        datedir = os.path.join(root, date)
+        for mouse in get_subfolder_names(datedir):
+            mousedir = os.path.join(datedir, mouse)
+            for region in get_subfolder_names(mousedir):
+                regiondir = os.path.join(mousedir, region)
+                l.append((date, mouse, region, regiondir))
+
+    # Remove unwanted patterns from list
+    for k in excludes:
+        l = list(filter(lambda x: k not in os.path.basename(x[-1]), l))
+
+    # Return date, mouse, region combinations
+    return [{'date': x[0], 'mouse': x[1], 'region': x[2]} for x in l]
 
 
 def check_for_existence(fpath, overwrite):
@@ -456,67 +491,3 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         logger.info('saving detected peaks data...')
         peaks.to_csv(fpath)
         return peaks
-        
-
-def locate_datafiles(line, layer, filter_key=None):
-    ''' Construct a list of suite2p data files to be used as input for an analysis. '''
-    
-    # Determine data directory and potential exclusion patterns based on input parameters
-    exclude = []
-    if line == 'sarah_line3':
-        base_dir = '/gpfs/scratch/asuacd01/sarah_usnm/line3/20210804/mouse28/region1'
-        file_dir = f'{base_dir}/suite2p'
-        # base_dir = '/gpfs/scratch/asuacd01/sarah_usnm/line3'
-        # assert os.path.isdir(base_dir), f'"{base_dir}" directory does not exist'
-        # for x in [date, mouse, region]:
-        #     base_dir = f'{base_dir}/{x}'
-        #     assert os.path.isdir(base_dir), f'"{base_dir}" directory does not exist'
-        # file_dir = f'{base_dir}/suite2p'
-    if line == 'yi_line3':        
-        base_dir = '/gpfs/scratch/asuacd01/yi_usnm/line3'
-        file_dir = f'{base_dir}/suite2p_results'
-        exclude = ['mouse9', 'mouse10', 'mouse1_region2'] # list of excluded subjects, empty list if all included, for yi_line3
-    elif line == 'sst':
-        base_dir = '/gpfs/data/shohamlab/shared_data/yi_recordings/yi_new_holder_results/sst'
-        file_dir = f'{base_dir}/suite2p_results_frame_norm'
-        exclude = ['mouse6'] # list of excluded subjects, empty list if all included, for sst
-    elif line == 'celia_line3':
-        base_dir = '/gpfs/data/shohamlab/shared_data/celia/line3'
-        file_dir = f'{base_dir}/suite2p_results' # new data
-    elif line == 'pv':
-        base_dir = '/gpfs/data/shohamlab/shared_data/yi_recordings/yi_new_holder_results/PV/'
-        file_dir = f'{base_dir}/suite2p_results_framenorm'        
-        exclude = ['mouse6'] # list of excluded subjects, empty list if all included, for PV
-
-    # Locate and sort all files in the file directory
-    group_files = sorted(glob.glob(os.path.join(file_dir,'*')))
-
-    # Remove unwanted layers from the analysis
-    if layer == 'layer5':
-        group_files = [x for x in group_files if 'layer5' in x] 
-    elif layer == 'layer2_3':
-        group_files = [x for x in group_files if 'layer5' not in x]
-    else:
-        logger.warning('Performing analysis disregarding layer parameter')
-
-    # Exclude relevant subjects from the analysis
-    for subject in exclude:
-        group_files = [x for x in group_files if subject not in x]
-    
-    # Restrict analysis to files containing the filter key, if any
-    if filter_key is not None:
-        group_files = [x for x in group_files if filter_key in x]
-
-    # Get file base names
-    file_basenames = [os.path.basename(x) for x in group_files]
-
-    # # Add potential suffixes to line label
-    # if layer:
-    #     line = line + '_' + layer
-    # if exclude:
-    #     line = line + '_exclude'+ '-'.join(exclude)
-    # if filter_key:
-    #     line = line + '_individual'+ '-'.join(filter_key)
-
-    return file_dir, file_basenames
-
