@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:42:41
+# @Last Modified time: 2022-01-03 09:28:03
 
 ''' Notebook image viewing utilities. '''
 
@@ -68,6 +68,8 @@ class StackViewer:
         ''' Get the binary file object corresponding to a file path '''
         if isinstance(fpath, dict):
             return BinaryFile(Ly=fpath['Ly'], Lx=fpath['Lx'], read_filename=fpath['reg_file'])
+        elif isinstance(fpath, np.ndarray):
+            return fpath
         else:
             return TiffFile(fpath)
 
@@ -75,6 +77,8 @@ class StackViewer:
         ''' Get the number of frames in a stack '''
         if isinstance(fobj, BinaryFile):
             return fobj.n_frames
+        elif isinstance(fobj, np.ndarray):
+            return fobj.shape[0]
         else:
             return len(fobj.pages)
 
@@ -82,6 +86,8 @@ class StackViewer:
         ''' Get the shape of a frame in a stack '''
         if isinstance(fobj, BinaryFile):
             return fobj[i][0].shape
+        elif isinstance(fobj, np.ndarray):
+            return fobj.shape[1:]
         else:
             return fobj.pages[i].shape
 
@@ -89,6 +95,8 @@ class StackViewer:
         '''Get a particular frame in the stack '''
         if isinstance(fobj, BinaryFile):
             return fobj[i][0] * S2P_UINT16_NORM_FACTOR
+        elif isinstance(fobj, np.ndarray):
+            return fobj[i]
         else:
             return fobj.pages[i].asarray()
 

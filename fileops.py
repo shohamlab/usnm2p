@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-30 15:57:49
+# @Last Modified time: 2022-01-03 10:14:53
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -159,7 +159,7 @@ def get_output_equivalent(in_path, basein, baseout):
     return out_path
 
     
-def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[]):
+def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[], rec_call=False):
     '''
     Get data folders inside a root directory by searching (recursively or not) throughout
     a tree-like folder architecture.
@@ -168,23 +168,35 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     :param recursive: whether to search recursively or not.
     :param exclude_patterns: list of exclusion patterns (any folder paths containing any of these patterns are excluded)
     :param include_patterns: list of inclusion patterns (only folder paths containing all of these patterns are included) 
+    :param rec_call (default: False): whether or not this is a recursive function call
     :return: list of data folders
     '''
     logger.debug(f'Searching through {basedir}')
+    if not rec_call:
+        print(basedir)
     # Populate folder list
     datafolders = []
+    # Loop through content of base directory 
     for item in os.listdir(basedir):
         absitem = os.path.join(basedir, item)
+        # If content item is a directory containing TIF files, add to list
         if is_tif_dir(absitem):
             datafolders.append(absitem)
+        # If content item is a directory and recursive call enabled, call function
+        # recursively on child folder and add output to list
         if recursive and os.path.isdir(absitem):
-            datafolders += get_data_folders(absitem)
+            datafolders += get_data_folders(
+                absitem,
+                exclude_patterns=exclude_patterns, include_patterns=include_patterns,
+                rec_call=True)
+    logger.debug(f'raw list: {datafolders}')
     # Filter out excluded folders
     for k in exclude_patterns:
-        datafolders = list(filter(lambda x: k not in x, datafolders))
+        datafolders = list(filter(lambda x: k not in os.path.basename(x), datafolders))
     # Restrict to included patterns
     for k in include_patterns:
-        datafolders = list(filter(lambda x: k in x, datafolders))
+        datafolders = list(filter(lambda x: k in os.path.basename(x), datafolders))
+    logger.debug(f'filtered list: {datafolders}')
     return datafolders
 
 

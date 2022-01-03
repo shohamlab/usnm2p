@@ -1,6 +1,6 @@
 # USNM 2P imaging data analysis pipeline
 
-This repository hosts the code base to process and analyze 2-photon calcium imaging data upon stimulation of different cortical regions by ultrasound.
+This repository hosts the code base to process and analyze 2-photon calcium imaging data acquired upon stimulation of different cortical regions by ultrasound.
 
 ## Installation
 
@@ -9,26 +9,31 @@ This repository hosts the code base to process and analyze 2-photon calcium imag
 - Python 3.8+
 - Conda environment manager
 
+These can be downloaded from https://www.anaconda.com/products/individual.
+
 ### Instructions
 
-- Download and install the suite2p functional segmentation pipeline [1] in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html
-- Clone this repository and open a terminal at its root directory 
+- Download and install the suite2p functional segmentation pipeline [1] in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html.
+- Clone this repository and open a terminal at its root directory.
 - While in the suite2p conda environment, install remaining package dependencies: `pip install -r requirements.txt`
-- Create a user configuration file called `config.py`, and define in it 2 variables, namely `dataroot` (indicating the root directory for the raw data to be analyzed) and `figsdir` (indicating where to save the final figures file). Save the configuration file in the repository top folder.
-- You're all set!
+- Create a user configuration file called `config.py`, and define in it 2 variables:
+	- `dataroot` indicating the root directory for the raw data to be analyzed
+	- `figsdir` indicating where to save the final figures file.
+- Save the configuration file in the repository top folder. You're all set!
 
 ## Usage
 
 ### Acquisition protocols & raw data
 
-Raw data consist of invididual 16-bit, 256 by 256 pixels TIF images acquired from the microscope during experiments. The current sampling rate of these images is ca. 3.5 Hz, corresponding to an inter-frame interval of ca. 280 ms.
+Raw data consist of inividual 16-bit deep, 256-by-256 pixels grayscale TIF images acquired at a sampling rate of 3.56 Hz by the Bruker microscope during experiments.
 
-Each acquisition protocol (or run) consists of 16 sonication trials with an inter sonication interval of approximately 30s. 
+Each acquisition protocol (or run) consists of 16 sonication trials with an inter sonication interval of approximately 30s.
 
 Each trial is divided in 2 cycles:
-- The first cycle (always indicated by an odd number) consists of 10 frames of the pre-stimulus interval of the trial (ca. 2.8s).
-- The second cycle (always indicated by an even number) consists of 90 frames of the peri and post-stimulus intervals of the trial (ca. 25.2s).
-The stimulus is therefore delivered concurrently with the acquisition of the 10th frame of the first cycle (i.e. ca. at t = 2.8s).
+- The first cycle (indicated by an odd number) consists of 10 frames of the pre-stimulus interval of the trial (ca. 2.8s).
+- The second cycle (indicated by an even number) consists of 90 frames of the peri and post-stimulus intervals of the trial (ca. 25.2s).
+
+The ultrasound stimulus is delivered concurrently with the acquisition of the 10th frame of the first cycle (i.e. ca. at t = 2.8s).
 
 The TIF images from a given run are all stored in a single folder, which is named according to a specific pattern depending on the specimen, stimulation and acquisitation parameters:
 
@@ -38,7 +43,9 @@ Inside this folder, individual files are named using this same pattern, together
 
 `filename = <foldername>_Cycle<cycle_number>_Ch2_<frame_number>.ome.tif`
 
-This rich nomenclature is used as a way to store metadata associated with each experimental run.
+This informative nomenclature is used as a way to store metadata associated with each experimental run.
+
+Additionally, a file named `<foldername>.xml`, containing information about the microscope acquisition parameters for the run, is also stored in the data folder.
 
 ### Processing steps
 
@@ -89,16 +96,15 @@ Upon completion, z-score traces of each ROI are saved with their ROI, run, trial
 
 ## Authors & contributors
 
-This code base has received contributions from many people, including
-- Yi ???
-- Ben ???
-- Celine ???
-- Diego Asua
-- Theo Lemaire (theo.lemaire@nyulangone.org): current contributor
+The data was acquired by Yi Yuan (???) and Sarah Sarah Haiken (Research Associate).
+
+The analysis code base has received contributions from many people, including
+- Celia Gellman (Project Student)
+- Ben Stetler (Research Associate)
+- Diego Asua (Research Associate)
+- Theo Lemaire (Postdoctoral Researcher, theo.lemaire@nyulangone.org): current contributor
 
 ## References
 
 - [1] Pachitariu, M., Stringer, C., Dipoppa, M., Schröder, S., Rossi, L.F., Dalgleish, H., Carandini, M., and Harris, K.D. (2016). Suite2p: beyond 10,000 neurons with standard two-photon microscopy (Neuroscience).
 - [2] Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
-
-**TO COMPLETE**
