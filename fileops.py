@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-03 15:56:27
+# @Last Modified time: 2022-01-03 18:53:07
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -53,13 +53,14 @@ def get_subfolder_names(dirpath):
     return [f.name for f in os.scandir(dirpath) if f.is_dir()]
 
 
-def get_date_mouse_region_combinations(root='.', excludes=['layer5']):
+def get_date_mouse_region_combinations(root='.', excludes=['layer5'], includes=['region']):
     '''
     Construct a list of (date, mouse, region) combinations that contain experiment datasets
     inside a given root directory.
     
     :param root: root directory (typically a mouse line) containing the dataset folders
     :param excludes: list of exlusion patterns
+    :param includes: list of inclusion patterns
     :return: list of dictionaries representing (date, mouse, region) combinations found
         inside the root folder.
     '''
@@ -78,6 +79,8 @@ def get_date_mouse_region_combinations(root='.', excludes=['layer5']):
     # Remove unwanted patterns from list
     for k in excludes:
         l = list(filter(lambda x: k not in os.path.basename(x[-1]), l))
+    for k in includes:
+        l = list(filter(lambda x: k in os.path.basename(x[-1]), l))
 
     # Return date, mouse, region combinations
     return [{'date': x[0], 'mouse': x[1], 'region': x[2]} for x in l]
