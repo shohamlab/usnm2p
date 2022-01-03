@@ -83,7 +83,7 @@ Upon completion, a `/suite2p/plane0/` folder is created for each input stack tha
 	- baseline normalization to obtain relative change fluorescence traces ΔF/F0
 	- noise level and variation range estimation (using gaussian fits of ΔF/F0 distributions) and subsequent noise-normalization of relative change fluorescence traces into z-score traces
 
-Upon completion, z-score traces of each ROI are saved with their ROI, run, trial and frame index information in a `/suite2p/processed/` folder (`zscores_run*.csv` files), along with a summary table of the parameters pertaining to each run (`info_tabel.csv`), and a table of the pixel masks of each selected ROI in the reference frame (`ROI_masks.csv`).
+Upon completion, z-score traces of each ROI are saved with their ROI, run, trial and frame index information in a `/suite2p/processed/` folder (`zscores_run*.csv` files), along with a summary table of the parameters pertaining to each run (`info_table.csv`), and a table of the pixel masks of each selected ROI in the reference frame (`ROI_masks.csv`).
 
 4. **Statistics**: using the extracted z-score timeseries as a basis, transient activity events are detected and used to derive statistics on ultrasound-evoked (& spontaneous) neural activity. This analysis consists of the following sub-steps:
 	- quantification of lateral motion over time (using the registration offsets timeseries outputed by suite2p), detection of motion artifacts, and exclusion of associated trials
