@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 16:05:00
+# @Last Modified time: 2022-01-04 18:12:37
 
 import os
 import logging
@@ -25,7 +25,7 @@ def execute_notebook(pdict, input_nbpath, outdir):
     # Execute notebook
     logger.info(f'executing "{input_nbpath}" with parameters {pdict} as "{output_nbpath}"...')
     pm.execute_notebook(input_nbpath, output_nbpath, parameters=pdict)
-    logger.info(f'notebook successfully executed')
+    logger.info(f'{output_nbpath} notebook successfully executed')
 
 
 # Input & output

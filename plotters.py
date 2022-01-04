@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 17:05:57
+# @Last Modified time: 2022-01-04 18:18:23
 
 ''' Collection of plotting utilities. '''
 
@@ -1175,11 +1175,14 @@ def add_numbers_on_legend_labels(ax, data, xkey, ykey, hue):
     leg = ax.get_legend()
     for t in leg.texts:
         s = t.get_text()
-        c = counts_by_hue.loc[s]
-        if std_by_hue.loc[s] == 0.:
-            cs = f'{c:.0f}'
+        if s in counts_by_hue:
+            c = counts_by_hue.loc[s]
+            if std_by_hue.loc[s] == 0.:
+                cs = f'{c:.0f}'
+            else:
+                cs = f'{c:.1f} +/- {std_by_hue.loc[s]:.1f}'
         else:
-            cs = f'{c:.1f} +/- {std_by_hue.loc[s]:.1f}'
+            cs = '0'
         t.set_text(f'{s} (n = {cs})')
 
 
@@ -1751,7 +1754,8 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
         labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
         leg = jg.ax_joint.get_legend()
         for t in leg.texts:
-            t.set_text(labels[t.get_text()])
+            txt = t.get_text()
+            t.set_text(labels.get(txt, f'{txt} (0)'))
 
         # Plot statistical significance threshold lines
         for ax_marg, xkey, k in zip([jg.ax_marg_x, jg.ax_marg_y], xkeys, ['v', 'h']):
