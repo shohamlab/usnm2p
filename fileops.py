@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 15:42:31
+# @Last Modified time: 2022-01-04 17:55:49
 
 ''' Collection of utilities for operations on files and directories. '''
 
