@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 13:13:56
+# @Last Modified time: 2022-01-04 16:05:00
 
 import os
 import logging
@@ -66,23 +66,18 @@ if __name__ == '__main__':
     if locate:
         # If locate was turned on, extract parameter combinations from folder structure
         pdicts = get_date_mouse_region_combinations(root=get_data_root())
-        logger.info('identified combinations:')
-        for pdict in pdicts:
-            print('  - ', pdict)
     else:
         # Otherwise, construct unique combination from inputs
         pdicts = [args]
     if len(pdicts) == 1:
         mpi = False
 
-    # Establish inputs queue with each parameter combination
-    queue = list(zip(*[pdicts, [input_nbpath] * len(pdicts), [outdir] * len(pdicts)]))
-    for item in queue:
-        print(item)
-    # # queue = [(x, {}) for x in queue]
-    # # Run batch of jobs
-    # batch = Batch(execute_notebook, queue)
-    # batch.run(mpi=mpi, loglevel=logger.getEffectiveLevel())
+    # Establish batch queue with each parameter combination
+    queue = [list(x) for x in zip(*[pdicts, [input_nbpath] * len(pdicts), [outdir] * len(pdicts)])]
+
+    # Create and run job batch
+    batch = Batch(execute_notebook, queue)
+    batch.run(mpi=mpi, loglevel=logger.getEffectiveLevel(), ask_confirm=True)
 
     # Moving back to calling directory if it was different
     if call_dir != script_dir:

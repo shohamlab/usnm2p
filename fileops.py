@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-03 18:53:07
+# @Last Modified time: 2022-01-04 15:42:31
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -65,7 +65,7 @@ def get_date_mouse_region_combinations(root='.', excludes=['layer5'], includes=[
         inside the root folder.
     '''
     # Populate folder list
-    print(f'Searching for data folders in {root}...')
+    logger.info(f'Searching for data folders in {root}...')
     l = []
     # Loop through dates, mice, and regions, and add data root folders to list  
     for date in get_subfolder_names(root):
@@ -211,7 +211,7 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     '''
     logger.debug(f'Searching through {basedir}')
     if not rec_call:
-        print(basedir)
+        logger.info(basedir)
     # Populate folder list
     datafolders = []
     # Loop through content of base directory 

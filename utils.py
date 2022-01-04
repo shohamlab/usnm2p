@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-21 17:29:26
+# @Last Modified time: 2022-01-04 15:47:36
 
 ''' Collection of generic utilities. '''
 
@@ -286,3 +286,8 @@ def pbar_update(func, pbar):
         pbar.update()
         return out
     return wrapper
+
+
+def itemize(l):
+    ''' return an itemized string version of a list '''
+    return '\n'.join([f' - {item}' for item in l])

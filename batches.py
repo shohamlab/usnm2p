@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 12:59:37
+# @Last Modified time: 2022-01-04 16:04:38
 
 ''' Batch processing utilities '''
 
@@ -13,6 +13,7 @@ import numpy as np
 import multiprocessing as mp
 
 from logger import logger
+from utils import itemize
 
 
 class Consumer(mp.Process):
@@ -74,6 +75,9 @@ class Batch:
         '''
         self.func = func
         self.queue = queue
+    
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.func.__name__}, queue = \n{self.queue_str(self.queue)}\n)'
 
     def __call__(self, *args, **kwargs):
         ''' Call the internal run method. '''
@@ -128,8 +132,12 @@ class Batch:
         self.tasks.close()
         self.results.close()
 
-    def run(self, mpi=False, loglevel=logging.INFO):
+    def run(self, mpi=False, loglevel=logging.INFO, ask_confirm=False):
         ''' Run batch with or without multiprocessing. '''
+        if ask_confirm:
+            if not self.ask_confirm(mpi):
+                logger.info('aborting batch execution')
+                return None
         s = 'en' if mpi else 'dis'
         logger.info(f'Starting {len(self.queue)}-job(s) batch (multiprocessing {s}abled)')
         start_time = time.perf_counter()
@@ -149,13 +157,17 @@ class Batch:
         return outputs
 
     @staticmethod
-    def printQueue(queue, nmax=20):
+    def queue_str(queue, nmax=20):
         if len(queue) <= nmax:
-            for x in queue:
-                print(x)
+            return itemize(queue)
         else:
-            for x in queue[:nmax // 2]:
-                print(x)
-            print(f'... {len(queue) - nmax} more entries ...')
-            for x in queue[-nmax // 2:]:
-                print(x)
+            s_start = itemize(queue[:nmax // 2])
+            s_end = itemize(queue[-nmax // 2:])
+            nbetween = len(queue) - nmax
+            return f'{s_start}\n... {nbetween} more entries ...{s_end}'
+    
+    def ask_confirm(self, mpi):
+        ''' Ask user for confirmation before running batch '''
+        mpistr = 'with' if mpi else 'without'
+        answer = input(f'run {self} {mpistr} multiprocessing ? (y/n):')
+        return answer.lower() == 'y'
