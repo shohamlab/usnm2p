@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 16:56:05
+# @Last Modified time: 2022-01-04 17:47:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import logging
 import numpy as np
 import pandas as pd
+from pandas.core.groupby.groupby import GroupBy
 from tqdm import tqdm
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
@@ -911,6 +912,42 @@ def get_quantile_slice(s, qmin=0.25, qmax=0.75):
     return s[(s >= xmin) & (s <= xmax)]
 
 
+def get_quantile_indexes(data, qbounds, ykey, groupby=None):
+    '''
+    Return the row indexes of the dataframe that belong to a certain quantile interval
+    
+    :param data: multi-indexed experiment dataframe 
+    :param qbounds: 2-tuple indicating the quantile lower and upper bounds
+    :param ykey: the column of interest for the quantile slice estimation
+    :param groupby (optional): whether to group the data by category before quantile selection
+    :return: multi-index of the experiment dataframe specific to the quantile interval
+    '''
+    indlevels = data.index.names
+    if qbounds is None:
+        return data.index
+    qmin, qmax = qbounds
+    s = f'selecting {qmin} - {qmax} quantile slice from {ykey}'
+    if groupby is not None:
+        # Group the data by category
+        data = data.groupby(groupby)
+        # Expand groupby to iterbale if it is not
+        if not is_iterable(groupby):
+            groupby = [groupby[0]]
+        # Fogure ou
+        s = f'{s} for each {" & ".join(groupby)}'
+    logger.info(f'{s}...')
+    # Apply quantile selection on specific column
+    yquantile = data[ykey].apply(
+        lambda s: get_quantile_slice(s, qmin=qmin, qmax=qmax)).reset_index(level=1, drop=True)
+    # Remove groupby variables that were not in original index from output index 
+    if groupby is not None:
+        for gb in groupby:
+            if gb not in indlevels:
+                yquantile = yquantile.reset_index(level=gb)
+    # Return multi-index
+    return yquantile.index
+
+
 def get_data_subset(data, subset_idx):
     '''
     Select a sbuset of traces based on a ROI, run, trial multi-index
@@ -948,7 +985,24 @@ def correlations_to_rcode(corrtypes, j=', '):
 
 
 def get_default_rtypes():
+    ''' Get default response type codes '''
     df = pd.DataFrame({
         Label.P: [0, 1, 0, 1],
         Label.DC: [0, 0, 1, 1]})
     return correlations_to_rcode(df).tolist()
+
+
+def get_xdep_data(data, xkey):
+    '''
+    Restrict data to relevant subset to estimate parameter dependency.
+    
+    :param data: multi-indexed experiment dataframe
+    :param xkey: input parameter of interest (pressure or duty cycle)
+    :return: multi-indexed experiment dataframe containing only the row entries
+        necessary to evaluate the dependency on the input parameter
+    '''
+    if xkey == Label.P:
+        return data[data[Label.DC] == DC_REF]
+    elif xkey == Label.DC:
+        return data[data[Label.P] == P_REF]
+    raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
