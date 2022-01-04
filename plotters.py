@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:41:34
+# @Last Modified time: 2022-01-04 17:05:57
 
 ''' Collection of plotting utilities. '''
 
@@ -530,13 +530,14 @@ def plot_suite2p_ROI_probs(iscell):
     # Transform iscell matrix into dataframe
     data = pd.DataFrame(data=iscell, columns=['cell?', 'probability'])
     # Remap the values of the dataframe
-    data = data.replace({'cell?': {1: 'yes', 0: 'no'}})
+    codemap = {1: 'yes', 0: 'no'}
+    data = data.replace({'cell?': codemap})
     # Create figure
     fig, ax = plt.subplots()
     ax.set_title('posterior cell probability distributions')
     sns.despine(ax=ax)
     # Plot histogram distribution of both classes 
-    sns.histplot(data, x='probability', hue='cell?', bins=30)
+    sns.histplot(data, x='probability', hue='cell?', hue_order=list(codemap.values()), bins=30)
     # Return figure handle
     return fig
 
@@ -745,12 +746,12 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     # Fetch parameters from data
     Ly, Lx = output_ops['Ly'], output_ops['Lx']
     rtypes_per_ROI = get_response_types_per_ROI(Fstats)
-    rtypes = rtypes_per_ROI.unique()
+    rtypes = get_default_rtypes()
     count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
 
     # Initialize pixels by cell matrix
-    idx_by_type = dict(zip(rtypes, np.arange(rtypes.size)))
-    Z = np.zeros((rtypes.size, rtypes_per_ROI.size, Ly, Lx), dtype=np.float32)
+    idx_by_type = dict(zip(rtypes, np.arange(len(rtypes))))
+    Z = np.zeros((len(rtypes), rtypes_per_ROI.size, Ly, Lx), dtype=np.float32)
 
     # Compute mask per ROI & response type
     for i, (rtype, (_, ROI_mask)) in enumerate(zip(rtypes_per_ROI, ROI_masks.groupby(Label.ROI))):
@@ -1726,13 +1727,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
             if not directional:
                 corrtypes[xkey] -= (corr_coeffs[col] < -rthr).astype(int)
         # Convert both informations into string code for graphical representation
-        corrcodes = []
-        for col in corrtypes:
-            code = 'P' if col == Label.P else 'DC'
-            corrcodes.append(corrtypes[col].map({-1: f'{code}-', 0: f'{code}o', 1: f'{code}+'}))
-        corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat(corrcodes, axis=1).agg(', '.join, axis=1)
-        # corr_coeffs[Label.ROI_RESP_TYPE] = pd.concat([
-        #     corrtypes[col].map({-1: '-', 0: 'o', 1: '+'}) for col in corrtypes], axis=1).sum(axis=1)
+        corr_coeffs[Label.ROI_RESP_TYPE] = correlations_to_rcode(corrtypes, j=', ')
         hue = Label.ROI_RESP_TYPE
         palette = Palette.RTYPE
         legend = 'full'
@@ -1747,7 +1742,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
     # using correlation type as color code
     jg = sns.jointplot(
         data=corr_coeffs, **dict(zip(['x', 'y'], corr_coeffs.columns.values)),
-        xlim=[-1, 1], ylim=[-1, 1], hue=hue, palette=palette, legend=legend)
+        xlim=[-1, 1], ylim=[-1, 1], hue=hue, hue_order=get_default_rtypes(), palette=palette, legend=legend)
     
     # If significance-based classification was performed
     if pthr is not None:
@@ -1768,7 +1763,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
                     linefunc(-rthr, c='k', ls='--')
         
     # Add title
-    jg.fig.suptitle(f'{ykey} - correlation with stimulus parameters across ROIs')
+    # jg.fig.suptitle(f'{ykey} - correlation with stimulus parameters across ROIs')
     jg.fig.tight_layout()
     jg.fig.subplots_adjust(top=0.92)
 

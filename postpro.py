@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-30 18:06:16
+# @Last Modified time: 2022-01-04 16:56:05
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -924,3 +924,31 @@ def get_data_subset(data, subset_idx):
         pd.DataFrame(index=subset_idx), Label.FRAME, data.index.unique(level=Label.FRAME)).index
     logger.info('selecting traces data from subset...')
     return data.loc[mux, :]
+
+
+def correlations_to_rcode(corrtypes, j=', '):
+    ''' 
+    :param corrtypes: dataframe of integer codes {-1, 0 or 1} representing positive,
+        nonexistent or negative correlations with different input parameters
+    :param j: string used to join between inputs
+    :return: series of corresponding response type codes         
+    '''
+    # Define map of integers to suffixes
+    suffix_map = {-1: '-', 0: 'o', 1: '+'}
+    codes = []
+    # For each input column
+    for inputkey in corrtypes:
+        # Get prefix key of the column
+        prefix = inputkey.split()[0]
+        # Build integer to code mapping dictionary
+        code_map = {k: f'{prefix}{v}' for k, v in suffix_map.items()}
+        # Apply mapping dictionary over each row entry of the column
+        codes.append(corrtypes[inputkey].map(code_map))
+    return pd.concat(codes, axis=1).agg(j.join, axis=1)
+
+
+def get_default_rtypes():
+    df = pd.DataFrame({
+        Label.P: [0, 1, 0, 1],
+        Label.DC: [0, 0, 1, 1]})
+    return correlations_to_rcode(df).tolist()
