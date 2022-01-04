@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-30 17:56:26
+# @Last Modified time: 2022-01-04 12:48:04
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -73,7 +73,7 @@ BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluore
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
 # Motion artifacts
-VDISP_THR = 5.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
+VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
 
 # Baseline activity
 NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval to detect activity 

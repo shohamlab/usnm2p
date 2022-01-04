@@ -25,7 +25,7 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 
 ### Acquisition protocols & raw data
 
-Raw data consist of inividual 16-bit deep, 256-by-256 pixels grayscale TIF images acquired at a sampling rate of 3.56 Hz by the Bruker microscope during experiments.
+Raw data consist of inividual 16-bit deep, 256-by-256 pixels grayscale TIF images acquired at a sampling rate of 3.56 Hz and spatial resolution of 1.97 μm / pixel by the Bruker microscope during experiments.
 
 Each acquisition protocol (or run) consists of 16 sonication trials with an inter sonication interval of approximately 30s.
 
