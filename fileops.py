@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 19:04:21
+# @Last Modified time: 2022-01-05 11:49:02
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -507,3 +507,24 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         logger.info('saving detected peaks data...')
         peaks.to_csv(fpath)
         return peaks
+
+
+def load_stats_dataset(fpath):
+    '''
+    Load dataset of a particular mouse-region from a CSV file
+    
+    :param fpath: absolute path to the data file
+    :return: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    '''
+    fname = os.path.basename(fpath)
+    # Load data
+    logger.info(f'loading data from {fname}')
+    data = pd.read_csv(fpath)
+    # Add dataset ID column
+    data[Label.MOUSEREG] = os.path.splitext(fname)[0]
+    # Re-generate data index 
+    data.set_index(Label.MOUSEREG, inplace=True)
+    for k in [Label.ROI, Label.RUN, Label.TRIAL]:
+        data.set_index(k, append=True, inplace=True)
+    # Return data
+    return data

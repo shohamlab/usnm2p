@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 12:48:04
+# @Last Modified time: 2022-01-05 09:21:21
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -126,6 +126,7 @@ class Label:
     CYCLE = 'cycle'
     FRAME = 'frame'
     CH = 'channel'
+    MOUSEREG = 'mouse_reg'
 
     # Data indexes
     ROI = 'ROI'

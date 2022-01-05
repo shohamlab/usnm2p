@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 18:18:23
+# @Last Modified time: 2022-01-05 12:02:59
 
 ''' Collection of plotting utilities. '''
 
@@ -873,8 +873,8 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
-                   err_style='band', ax=None, alltraces=False, hue=None, hue_order=None, col=None, label=None, title=None, markerfunc=None,
-                   **filter_kwargs):
+                   err_style='band', ax=None, alltraces=False, hue=None, hue_order=None, col=None,
+                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -919,7 +919,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
 
     if col is not None:
         s.append(f'grouping by {col}')
-        col_wrap = min(len(filtered_data.groupby(col)), 5)
+        col_wrap = min(len(filtered_data.groupby(col)), max_colwrap)
         height = 5.
         if ax is not None:
             raise ValueError(f'cannot sweep over {col} with only 1 axis')
@@ -993,7 +993,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         plot_kwargs.update(dict(
             kind     = 'line',   # kind of plot
             height   = height,   # figure height
-            aspect   = 1.5,      # aspect ratio of the figure
+            aspect   = aspect,   # aspect ratio of the figure
             col_wrap = col_wrap, # how many axes per row
             col      = col,      # column (i.e. axis) grouping variable
         ))
@@ -1095,9 +1095,8 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         axlist[0].set_title(title)
     else:
         # Otherwise -> add as suptitle
-        dy = 3  # inches
-        height = fig.get_size_inches()[0]
-        fig.subplots_adjust(top=1 - dy / height)
+        height = fig.get_size_inches()[1]
+        fig.subplots_adjust(top=1 - dy_title / height)
         fig.suptitle(title)
 
     # Return figure
@@ -1167,12 +1166,11 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     return fig
 
 
-def add_numbers_on_legend_labels(ax, data, xkey, ykey, hue):
+def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
     ''' Add sample size of each hue category on the plot '''
     counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
     std_by_hue = counts_by_hue.std(axis=1)
     counts_by_hue = counts_by_hue.mean(axis=1)
-    leg = ax.get_legend()
     for t in leg.texts:
         s = t.get_text()
         if s in counts_by_hue:
@@ -1186,7 +1184,8 @@ def add_numbers_on_legend_labels(ax, data, xkey, ykey, hue):
         t.set_text(f'{s} (n = {cs})')
 
 
-def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None, **kwargs):
+def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None,
+                              add_leg_numbers=True, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -1210,9 +1209,13 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
 
     # Add numbers on legend if needed
     hue = kwargs.get('hue', None)
-    if hue is not None:
-        ax = kwargs.get('ax', fig.axes[0])
-        add_numbers_on_legend_labels(ax, data, xkey, ykey, hue)
+    if hue is not None and add_leg_numbers:
+        try:
+            leg = kwargs.get('ax', fig.axes[0]).get_legend()
+            add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
+        except AttributeError as err:
+            leg = fig.legend()
+            add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
 
     # Add baseline if specified
     if baseline is not None:

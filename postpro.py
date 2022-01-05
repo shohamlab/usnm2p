@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 17:47:18
+# @Last Modified time: 2022-01-05 09:50:45
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import logging
+from collections import Counter
 import numpy as np
 import pandas as pd
 from pandas.core.groupby.groupby import GroupBy
@@ -922,7 +923,8 @@ def get_quantile_indexes(data, qbounds, ykey, groupby=None):
     :param groupby (optional): whether to group the data by category before quantile selection
     :return: multi-index of the experiment dataframe specific to the quantile interval
     '''
-    indlevels = data.index.names
+    idxlevels_in = data.index.names
+    logger.debug(f'input index: {idxlevels_in}')
     if qbounds is None:
         return data.index
     qmin, qmax = qbounds
@@ -939,11 +941,20 @@ def get_quantile_indexes(data, qbounds, ykey, groupby=None):
     # Apply quantile selection on specific column
     yquantile = data[ykey].apply(
         lambda s: get_quantile_slice(s, qmin=qmin, qmax=qmax)).reset_index(level=1, drop=True)
-    # Remove groupby variables that were not in original index from output index 
-    if groupby is not None:
-        for gb in groupby:
-            if gb not in indlevels:
-                yquantile = yquantile.reset_index(level=gb)
+    # Remove duplicate levels in output index
+    logger.debug(f'output index: {yquantile.index.names}')
+    counts = dict(Counter(yquantile.index.names))
+    duplicates = [key for key, value in counts.items() if value > 1]
+    for k in duplicates:
+        i = yquantile.index.names.index(k)
+        logger.debug(f'removing first instance of duplicate {k} (level {i})')
+        yquantile.reset_index(level=i, inplace=True, drop=True)
+    # Remove variables in output index that were not in original index from output index 
+    for k in yquantile.index.names:
+        if k not in idxlevels_in:
+            logger.debug(f'removing index level "{k}" (not in original index)')
+            yquantile = yquantile.reset_index(level=k)
+    logger.debug(f'cleaned output index: {yquantile.index.names}')
     # Return multi-index
     return yquantile.index
 

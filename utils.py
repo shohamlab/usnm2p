@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 15:47:36
+# @Last Modified time: 2022-01-05 11:38:59
 
 ''' Collection of generic utilities. '''
 
@@ -291,3 +291,47 @@ def pbar_update(func, pbar):
 def itemize(l):
     ''' return an itemized string version of a list '''
     return '\n'.join([f' - {item}' for item in l])
+
+
+def reduce_close_elements(x, ethr=1e-8):
+    ''' Reduce array by resolving "almost-duplicate" elements '''
+    # Get matrix of pairwise combinations
+    X, Y = np.meshgrid(x, x)
+    # Keep only upper triangle and transform into dataframe
+    iup = np.triu_indices(x.size, k=1)
+    df = pd.DataFrame({'X': X[iup], 'Y': Y[iup]})
+    # Compute differences and identify pairs that contain very close elements
+    df['eps'] = np.abs(df['X'] - df['Y'])
+    df['isclose'] = df['eps'] < ethr
+    dfclose = df[df['isclose']]
+    # If close pairs remain, resolve first close pair
+    if len(dfclose) > 0:
+        row = dfclose.iloc[0]
+        x1, x2 = row['X'], row['Y']
+        i1, i2 = np.where(x == x1)[0], np.where(x == x2)[0]
+        x[i1] = (x1 + x2) / 2  # assign mean to first index
+        x = np.delete(x, i2)  # delete second index
+        return reduce_close_elements(x)  # call function recursively
+    return sorted(x)
+
+
+def find_nearest(array, value):
+    ''' Find nearest element to value in array '''
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return array[idx]
+
+
+def resolve_close_elements(x, **kwargs):
+    ''' Resolve array by updating "almost-duplicate" elements to their reduced value '''
+    xunique = reduce_close_elements(np.unique(x), **kwargs)
+    return np.array([find_nearest(xunique, xx) for xx in x])
+
+
+def resolve_columns(df, cols, **kwargs):
+    ''' Resolve specific dataframe columns by updating "almost-duplicate" elements to their reduced value '''
+    if not is_iterable(cols):
+        cols = [cols]
+    for col in cols:
+        df[col] = resolve_close_elements(df[col], **kwargs)
+    return df
