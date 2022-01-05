@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 12:02:59
+# @Last Modified time: 2022-01-05 16:11:45
 
 ''' Collection of plotting utilities. '''
 
@@ -874,7 +874,8 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
                    err_style='band', ax=None, alltraces=False, hue=None, hue_order=None, col=None,
-                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, **filter_kwargs):
+                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
+                   **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -982,6 +983,8 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         palette   = palette,       # color palette
         legend    = 'full'         # use all hue entries in the legend
     )
+    if alpha is not None:
+        plot_kwargs['alpha'] = alpha
     if ax is not None:
         # If axis object is provided -> add it to the dictionary and call axis-level plotting function
         plot_kwargs['ax'] = ax
@@ -1779,3 +1782,94 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
         return jg.fig, corr_coeffs[Label.ROI_RESP_TYPE]
     else:
         return jg.fig
+
+
+def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True):
+    '''
+    Plot a summary chart of the number of cells per response type and dataset
+    
+    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :return: figure handle
+    '''
+    # Restrict dataset to 1 element per ROI for each dataset
+    celltypes = data.groupby([Label.MOUSEREG, Label.ROI]).first()
+    # Figure out bar variable and plot orientation
+    groups = [Label.MOUSEREG, Label.ROI_RESP_TYPE]
+    bar = list(set(groups) - set([hue]))[0]
+    axdim = {Label.ROI_RESP_TYPE: 'x', Label.MOUSEREG: 'y'}[bar]
+    hue_order = {Label.ROI_RESP_TYPE: None, Label.MOUSEREG: get_default_rtypes()}[bar]
+    # Plot stacked count bars
+    fg = sns.displot(
+        data=celltypes, multiple='stack', hue=hue, hue_order=hue_order, **{axdim: bar})
+    sns.despine()
+    fig = fg.figure
+    if add_count_labels:
+        # Count number of cells of each bar and hue
+        cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.MOUSEREG]).count().iloc[:, 0].rename('counts')
+        nperhue = cellcounts.groupby(hue).sum().astype(int)
+        nperbar = cellcounts.groupby(bar).sum().astype(int)
+        # Get number of responding cells
+        ntot = nperhue.sum()
+        neutral_type = get_default_rtypes()[0]
+        if neutral_type in nperhue:
+            nneutral = nperhue.loc[neutral_type]
+        else:
+            nneutral = nperbar.loc[neutral_type]
+        nresp = ntot - nneutral
+        ax = fig.axes[0]
+        ax.set_title(f'{nresp} / {ntot} ({nresp / ntot * 1e2:.0f}%) responsive cells')
+        # If resp type is hue, add labels to legend
+        if hue == Label.ROI_RESP_TYPE:
+            leg = fg._legend
+            for t in leg.texts:
+                s = t.get_text()
+                n = nperhue.loc[s]
+                t.set_text(f'{s} (n={n}, {n / ntot * 100:.0f}%)')
+            leg.set_bbox_to_anchor([1.2, 0.5])
+        # If resp type is bar, add labels on top of bars
+        else:
+            labels = [l.get_text() for l in ax.get_xticklabels()]
+            offset = nperbar.max() * 0.02
+            for i, label in enumerate(labels):
+                n = nperbar.loc[label]
+                ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
+            
+    return fig
+
+
+def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds, ybounds=(0, None)):
+    '''
+    Plot the parameter dependency of a specific variable across mouse-region datasets
+    
+    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :param xkey: name of the stimulation parameter of interest
+    :param ykey: name of the output variable of interest
+    :param qbounds: specific quantile interval to restrict the dataset
+    :return: figure handle
+    '''
+    # Restrict data to included trials
+    data = included(data)
+    norig = len(data)
+    # Select quantile interval for each category (mouse-region, response type and run)
+    categories = [Label.MOUSEREG, Label.ROI_RESP_TYPE, Label.RUN]
+    xkeys = [Label.P, Label.DC]
+    subset_idx = get_quantile_indexes(data, qbounds, ykey, groupby=categories)
+    data = data.loc[subset_idx, :]
+    nkept = len(data)
+    logger.info(f'selected {nkept} / {norig} samples ({nkept / norig * 100:.1f}% of dataset)')
+    # Average data by mouse-region, response type and run 
+    avg_data = data.groupby(categories).mean()
+    # Make sure input columns are correclty resolved post-averaging
+    # (avoid "almost-identical" duplicates) 
+    avg_data = resolve_columns(avg_data, xkeys)
+    # Plot parameter dependency of ykey, grouped by mouse-region and response type
+    fig = plot_parameter_dependency(
+        data, xkey=xkey, ykey=ykey, ybounds=ybounds,
+        hue=Label.MOUSEREG, col=Label.ROI_RESP_TYPE,
+        add_leg_numbers=False, max_colwrap=2, aspect=1., ci=None, alpha=0.5,
+        title=f'q = {qbounds}')
+    # Add average parameter dependency trace across mouse-regions, for each response type
+    xdep_avg_data = get_xdep_data(avg_data, xkey)
+    for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
+        sns.lineplot(data=group, x=xkey, y=ykey, ax=ax, color='BLACK', lw=3, legend=False)
+    return fig
