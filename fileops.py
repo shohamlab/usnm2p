@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 17:55:49
+# @Last Modified time: 2022-01-04 19:04:21
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -46,6 +46,19 @@ def get_figs_dir():
     if not os.path.isdir(figsdir):
         raise ValueError(f'figures directory "{figsdir}" does not exist')
     return figsdir
+
+
+def get_stats_dir():
+    ''' Get the directory where output statistics should be saved '''
+    try:
+        from config import statsdir
+    except ModuleNotFoundError:
+        raise ValueError(f'user-specific "config.py" file is missing')
+    except ImportError:
+        raise ValueError(f'"statsdir" variable is missing from user-specific "config.py" file')
+    if not os.path.isdir(statsdir):
+        raise ValueError(f'statistics directory "{statsdir}" does not exist')
+    return statsdir
 
 
 def get_subfolder_names(dirpath):
