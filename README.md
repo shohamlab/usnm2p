@@ -2,7 +2,7 @@
 
 This repository hosts the code base to process and analyze 2-photon calcium imaging data acquired upon stimulation of different cortical regions by ultrasound.
 
-## Installation
+## Installation & usage
 
 ### Prerequisites
 
@@ -11,7 +11,7 @@ This repository hosts the code base to process and analyze 2-photon calcium imag
 
 These can be downloaded from https://www.anaconda.com/products/individual.
 
-### Instructions
+### Installation
 
 - Download and install the suite2p functional segmentation pipeline in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html.
 - Clone this repository and open a terminal at its root directory.
@@ -22,7 +22,19 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 	- `statsdir` indicating the folder in which to save the output stats file.
 - Save the configuration file in the repository top folder. You're all set!
 
-## Usage
+### Usage
+
+To run the analysis pipeline of a single mouse region interactively:
+- start Jupyter Lab: `jupyter lab`
+- execute the `single_region_analysis.ipynb` notebook
+
+To automatically run the same analysis over several datasets, you can use the `run_analyses.py` script directly from the terminal:
+- to run the script: `python run_analyses.py`
+- to access command line options: `python run_analyses.py -h`
+
+TO COMPLETE.
+
+## Description
 
 ### Mouse lines & datasets
 

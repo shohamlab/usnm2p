@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-06 11:48:01
+# @Last Modified time: 2022-01-06 11:56:00
+
+''' Utility script to run single region analysis notebook '''
 
 import os
 import logging
@@ -14,30 +16,24 @@ from nbutils import DirectorySwicther, execute_notebooks
 
 logger.setLevel(logging.INFO)
 
-''' Utility script to run single region analysis notebook '''
-
-# Input & output
-input_nbpath = 'single_region_analysis.ipynb'  # path to input notebook 
-outdir = 'outputs'  # relative path to output directory (w.r.t. this script)
-
-# Default parameters
+# Default parameters (with their description)
 defaults = {
-    'line': 'line3',  # mouse line
-    'mouse': 'mouse12',  # mouse number
-    'region': 'region1',  # brain region
-    'date': '11122019'  # experiment date
+    'input': ('single_region_analysis.ipynb', 'path to input notebook'), 
+    'outdir': ('outputs', 'relative path to output directory w.r.t. this script'),
+    'line': ('line3', 'mouse line'),
+    'mouse': ('mouse12', 'mouse number'),
+    'region': ('region1', 'brain region'),
+    'date': ('11122019', 'experiment date')
 }
 
 if __name__ == '__main__':
 
     # Create command line parser
     parser = ArgumentParser()
-    parser.add_argument('-i', '--input', default=input_nbpath, help='input notebook path')
-    parser.add_argument('-o', '--outdir', default=outdir, help='output directory path')
-    for k, v in defaults.items():
-        parser.add_argument(f'-{k[0]}', f'--{k}', default=v)
-    parser.add_argument('--locate', default=False, action='store_true')
-    parser.add_argument('--mpi', default=False, action='store_true')
+    for k, (default, desc) in defaults.items():
+        parser.add_argument(f'-{k[0]}', f'--{k}', default=default, help=f'{desc} (default = {default})')
+    parser.add_argument('--locate', default=False, action='store_true', help='automatically locate datasets in the file system')
+    parser.add_argument('--mpi', default=False, action='store_true', help='enable multiprocessing')
 
     # Extract input notebook, output diectory and execution parameters from command line arguments
     args = vars(parser.parse_args())

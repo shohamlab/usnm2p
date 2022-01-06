@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-06 11:47:13
+# @Last Modified time: 2022-01-06 11:50:16
+
+''' Notebook running utilities '''
 
 import os
 import papermill as pm
@@ -10,7 +12,6 @@ import papermill as pm
 from logger import logger
 from batches import Batch
 
-''' Notebook running utilities '''
 
 def execute_notebook(pdict, input_nbpath, outdir):
     '''
