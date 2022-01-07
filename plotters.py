@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 16:11:45
+# @Last Modified time: 2022-01-07 12:45:15
 
 ''' Collection of plotting utilities. '''
 
@@ -1872,4 +1872,30 @@ def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds, ybounds
     xdep_avg_data = get_xdep_data(avg_data, xkey)
     for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
         sns.lineplot(data=group, x=xkey, y=ykey, ax=ax, color='BLACK', lw=3, legend=False)
+    return fig
+
+
+def plot_protocol(table, xkey=Label.RUNID):
+    '''
+    Plot the evolution of stimulus parameters over time
+    
+    :param info_table: summary table of the parameters pertaining to each run
+    :param xkey: reference variable for time evolution (run or runID)
+    :return: figure handle
+    '''
+    try:
+        x = table[xkey]
+    except KeyError:
+        x = table.index.get_level_values(level=xkey)
+    ykeys = [Label.P, Label.DC]
+    fig, axes = plt.subplots(len(ykeys), 1)
+    axes[0].set_title('evolution of stimulation parameters over runs')
+    for ax, ykey in zip(axes, ykeys):
+        ax.scatter(x, table[ykey])
+        ax.set_ylabel(ykey)
+    for ax in axes[:-1]:
+        sns.despine(ax=ax, bottom=True)
+        ax.set_xticks([])
+    axes[-1].set_xlabel(xkey)
+    sns.despine(ax=axes[-1])
     return fig
