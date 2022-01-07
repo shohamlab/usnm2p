@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 09:50:45
+# @Last Modified time: 2022-01-07 16:41:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -469,6 +469,20 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM):
     return data
 
 
+def add_intensity_to_table(table):
+    '''
+    Add information about pulse and time average acoustic intensity to a table
+    
+    :param table: dataframe with pressure and duty cycle columns
+    :return: dtaframe with extra intensity columns
+    '''
+    if Label.ISPTA not in table:
+        logger.info('deriving acoustic intensity information...')
+        table[Label.ISPPA] = pressure_to_intensity(table[Label.P] * 1e6) * 1e-4  # W/cm2
+        table[Label.ISPTA] = table[Label.ISPPA] * table[Label.DC] * 1e-2   # W/cm2
+    return table
+
+
 def get_response_types_per_ROI(data):
     '''
     Extract the response type per ROI from experiment dataframe.
@@ -876,9 +890,15 @@ def nopreactive(df):
     return df.loc[~df[Label.PRESTIM_ACTIVITY], :]
 
 
+def nopreactive_pop(df):
+    ''' Return a copy of the dataframe with only rows labeled as "no pre-stimulus population activity". '''
+    logger.info('discarding samples with pre-stimulus population activity...')
+    return df.loc[~df[Label.PRESTIM_POP_ACTIVITY], :]
+
+
 def included(df):
     ''' Return a copy of the dataframe with only rows that  must be included for response analysis. '''
-    return valid(nopreactive(nomotion(df)))
+    return nopreactive_pop(nopreactive(nomotion(valid(df))))
 
 
 def get_ROI_masks(stats, iROIs):

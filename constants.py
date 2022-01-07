@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 09:21:21
+# @Last Modified time: 2022-01-07 16:15:25
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -72,8 +72,9 @@ BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluore
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
-# Motion artifacts
+# Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
+PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 
 # Baseline activity
 NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval to detect activity 
@@ -117,6 +118,8 @@ class Label:
     UNKNOWN = '???'  # unknown key
     P = 'P (MPa)'
     DC = 'DC (%)'
+    ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
+    ISPTA = 'I_SPTA (W/cm2)'  # spatial peak, temporal average acoustic intensity
     DUR = 'duration (s)'
     FPS = 'fps'
     RUNID = 'run ID'
@@ -165,9 +168,12 @@ class Label:
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
 
     # Trial activity & related measures
-    PRESTIM_ACTIVITY = 'pre-stim activity?'
+    PRESTIM_ACTIVITY = 'pre-stim cell activity?'
+    PCT_PREACTIVE_CELLS = '% pre-stim active cells'
+    PRESTIM_POP_ACTIVITY = 'pre-stim population activity?'
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
+    PCT_RESP_CELLS = '% responding cells'
     SUCCESS_RATE = 'success rate'
 
     # ROI classification 

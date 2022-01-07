@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 11:38:59
+# @Last Modified time: 2022-01-07 14:23:12
 
 ''' Collection of generic utilities. '''
 
@@ -335,3 +335,19 @@ def resolve_columns(df, cols, **kwargs):
     for col in cols:
         df[col] = resolve_close_elements(df[col], **kwargs)
     return df
+
+
+def pressure_to_intensity(p, rho=1046.0, c=1546.3):
+    '''
+    Return the spatial peak, pulse average acoustic intensity (ISPPA)
+    associated with the specified pressure amplitude.
+    
+    Default values of dennsity and speed of sound are taken from the
+    IT'IS foundation database for brain tissue. 
+    
+    :param p: pressure amplitude (Pa)
+    :param rho: medium density (kg/m3)
+    :param c: speed of sound in medium (m/s)
+    :return: spatial peak, pulse average acoustic intensity (W/m2)
+    '''
+    return p**2 / (2 * rho * c)

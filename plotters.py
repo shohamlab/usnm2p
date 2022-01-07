@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-07 12:45:15
+# @Last Modified time: 2022-01-07 17:32:00
 
 ''' Collection of plotting utilities. '''
 
@@ -21,6 +21,12 @@ from constants import *
 from utils import get_singleton, is_iterable, plural
 from postpro import *
 from viewers import get_stack_viewer
+
+# Colormaps
+rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
+rdgn.set_bad('silver')
+nan_viridis = plt.get_cmap('viridis').copy()
+nan_viridis.set_bad('silver')
 
 
 def harmonize_axes_limits(axes, axkey='y'):
@@ -1392,12 +1398,13 @@ def plot_metrics_along_trial(data, wlen, fps, full_output=True):
     # Compute mean and std for each start index
     y_along_trial = data.groupby(Label.ISTART).mean()
     yvar_along_trial = data.groupby(Label.ISTART).std()
-    # Extract starting indexes
+    # Extract starting indexes and time vector
     istarts = y_along_trial.index
+    t = (istarts - FrameIndex.STIM) / fps
     # Interpolate value at stim frame index
-    y_evoked = np.interp(FrameIndex.STIM, istarts, y_along_trial.values)
+    y_evoked = np.interp(0, t, y_along_trial.values)
     # Extract baseline value as median
-    y_baseline = y_along_trial.median()
+    y_baseline = y_along_trial[t > 10.].mean()
     # Plot on figure
     fig, ax = plt.subplots()
     s = data.name
@@ -1408,7 +1415,6 @@ def plot_metrics_along_trial(data, wlen, fps, full_output=True):
     ax.set_xlabel(f'start time of the {wlen / fps:.1f} s long detection window (s)')
     ax.set_ylabel(s)
     sns.despine(ax=ax)
-    t = (istarts - FrameIndex.STIM) / fps
     ax.plot(t, y_along_trial, label='average')
     ax.fill_between(t, y_along_trial - yvar_along_trial, y_along_trial + yvar_along_trial,
         alpha=0.2, label='+/-SD interval')
@@ -1898,4 +1904,39 @@ def plot_protocol(table, xkey=Label.RUNID):
         ax.set_xticks([])
     axes[-1].set_xlabel(xkey)
     sns.despine(ax=axes[-1])
+    return fig
+
+
+def plot_correlations_with_motion(data, ykeys):
+    '''
+    Plot correlations between peak displacement velocity and
+    specific response metrics.
+    
+    :param data: multi-indexed stats dataframe
+    :param ykeys: name(s) of the response metrics of interest 
+    :return: figure handle
+    '''
+    if not is_iterable(ykeys):
+        ykeys = [ykeys]
+    xkey = Label.PEAK_DISP_VEL
+    # Average data across ROI for each run & trial
+    data = data[[xkey, *ykeys]].groupby([Label.RUN, Label.TRIAL]).mean()
+    R = data.corr()
+    n = len(data)
+    # Plot peak z-score as a function of peak displacement velocity
+    fig, axes = plt.subplots(1, len(ykeys), figsize=(4.5 * len(ykeys), 4))
+    fig.suptitle('correlations with displacement velocity (average across ROIs)')
+    if len(ykeys) == 1:
+        axes = [axes]
+    for ax, ykey in zip(axes, ykeys):
+        r = R.loc[xkey, ykey]
+        pval = tscore_to_pvalue(corrcoeff_to_tscore(r, n), n, directional=False)
+        sig = pval <= PTHR_DEPENDENCY
+        sigstr = '*' if sig else ''
+        sns.despine(ax=ax)
+        sns.scatterplot(data=data, x=xkey, y=ykey, ax=ax)
+        ax.set_title(ykey)
+        ax.text(.9, .95, f'R = {r:.2f}{sigstr}\n(p = {pval:.2e})', va='top', ha='right', fontsize=12, transform=ax.transAxes)
+    fig.subplots_adjust(top=0.85)
+
     return fig
