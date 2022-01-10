@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-07 16:15:25
+# @Last Modified time: 2022-01-10 14:55:12
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -160,7 +160,7 @@ class Label:
 
     # Statistics
     PEAK_DISP_VEL = 'peak displacement velocity (um/s)'
-    VALID = 'valid'
+    DISCARDED = 'discarded'
     MOTION = 'motion'
     EVENT = 'event'
     PEAK_ZSCORE = F'peak {ZSCORE}'

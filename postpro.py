@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-07 16:41:43
+# @Last Modified time: 2022-01-10 14:58:19
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -19,6 +19,7 @@ from scipy.stats import t as tstats
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 import statsmodels.api as sm
+from statsmodels.formula.api import ols
 from functools import wraps
 
 from constants import *
@@ -432,13 +433,13 @@ def slide_along_trial(func, data, wlen, iseeds):
     s.index.set_names(Label.ISTART, level=-1, inplace=True)
     # Rename series with function output name
     df = s.rename(name).to_frame()
-    # Add information about valid trials
-    df[Label.VALID] = True
-    isvalid = ~data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().isnull()
-    iinvalids = isvalid[~isvalid].index
-    uniques = [iinvalids.unique(level=k) for k in iinvalids.names] + [df.index.unique(Label.ISTART)]
+    # Add information about discarded trials
+    df[Label.DISCARDED] = False
+    isdiscarded = data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().isnull()
+    idiscarded = isdiscarded[isdiscarded].index
+    uniques = [idiscarded.unique(level=k) for k in idiscarded.names] + [df.index.unique(Label.ISTART)]
     mux = pd.MultiIndex.from_product(uniques)
-    df.loc[mux, Label.VALID] = False
+    df.loc[mux, Label.DISCARDED] = True
     # Return
     return df
     
@@ -872,10 +873,10 @@ def pvalue_to_zscore(p=.05, directional=True):
     return norm.ppf(1 - p)
 
 
-def valid(df):
-    ''' Return a copy of the dataframe with only rows labeled as valid. '''
-    logger.info('discarding invalid samples...')
-    return df.loc[df[Label.VALID], :]
+def included(df):
+    ''' Return a copy of the dataframe with only rows not labeled as discarded. '''
+    logger.info('removing samples labeled as "discarded"...')
+    return df.loc[~df[Label.DISCARDED], :]
 
 
 def nomotion(df):
@@ -896,9 +897,9 @@ def nopreactive_pop(df):
     return df.loc[~df[Label.PRESTIM_POP_ACTIVITY], :]
 
 
-def included(df):
-    ''' Return a copy of the dataframe with only rows that  must be included for response analysis. '''
-    return nopreactive_pop(nopreactive(nomotion(valid(df))))
+def valid(df):
+    ''' Return a copy of the dataframe with only valid rows that must be included for response analysis. '''
+    return nopreactive_pop(nopreactive(nomotion(included(df))))
 
 
 def get_ROI_masks(stats, iROIs):
@@ -1001,6 +1002,7 @@ def correlations_to_rcode(corrtypes, j=', '):
     :param j: string used to join between inputs
     :return: series of corresponding response type codes         
     '''
+    corrtypes = corrtypes.astype(int)
     # Define map of integers to suffixes
     suffix_map = {-1: '-', 0: 'o', 1: '+'}
     codes = []
@@ -1037,3 +1039,24 @@ def get_xdep_data(data, xkey):
     elif xkey == Label.DC:
         return data[data[Label.P] == P_REF]
     raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
+
+
+def compute_1way_anova(data, xkey, ykey):
+    '''
+    Perform a 1-way ANOVA to assess whether a dependent variable is dependent
+    on a given independent variable (i.e. group, factor).
+
+    :param data: pandas dataframe
+    :param xkey: name of column containing the independent variable
+    :param ykey: name of column containing the dependent variable
+    :return: p-value for dependency
+    '''
+    # Rename columns of interest to ensure statsmodels compatibility
+    data = data.rename(columns={xkey: 'x', ykey: 'y'})
+    # Construct OLS model with data
+    model = ols('y ~ x', data=data).fit()
+    # Extract results table for 1-way ANOVA 
+    anova_table = sm.stats.anova_lm(model, typ=2)
+    # Extract relevant p-value for dependency
+    F = anova_table.loc['x', 'PR(>F)']
+    return F

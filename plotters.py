@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-07 17:32:00
+# @Last Modified time: 2022-01-10 14:53:16
 
 ''' Collection of plotting utilities. '''
 
@@ -1595,38 +1595,6 @@ def plot_stat_per_run(data, key, title=None, groupby=None, baseline=None):
     return fig
 
 
-def plot_pct_ROIs_map(data, key=Label.IS_RESP, label='stimulus-evoked activity'):
-    '''
-    Plot the percentage of ROIs satisfying a given condition for each run & trial
-    of the experiment
-    
-    :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :param key: name of the column containing the statistics of interest
-    :param label: descriptive label corresponding to the column of interest
-    :return: figure handle
-    '''
-    # Fetch total number of ROIs
-    nROIs = len(data.index.unique(level=Label.ROI))
-    # Compute number of ROIs satisfying condition for each run & trial
-    nROIs_per_run_trial = data.loc[:, key].groupby([Label.RUN, Label.TRIAL]).sum()
-    # Set totals from invalid trials to NaN
-    isvalid = data[Label.VALID].groupby([Label.RUN, Label.TRIAL]).first()
-    iinvalids = isvalid[~isvalid].index
-    nROIs_per_run_trial.loc[iinvalids] = np.nan
-    # Transform into percentage
-    pctROIs_per_run_trial = nROIs_per_run_trial / nROIs * 1e2
-    # Create figure
-    fig, ax = plt.subplots()
-    # Plot % ROIs heatmap
-    cmap = plt.get_cmap('viridis').copy()
-    cmap.set_bad('silver')
-    sns.heatmap(pctROIs_per_run_trial.unstack(), ax=ax, cmap=cmap, vmin=0, vmax=100)
-    # Add title with label 
-    ax.set_title(f'% ROIs with {label} per run & trial')
-    # Return figure handle
-    return fig
-
-
 def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
     ''' Plot the histogram of the number of positive conditions for each ROI,
         per response type.
@@ -1940,3 +1908,46 @@ def plot_correlations_with_motion(data, ykeys):
     fig.subplots_adjust(top=0.85)
 
     return fig
+
+
+def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin'):
+    '''
+    Plot the 2D distribution of p-values for pressure and duty cycle dependencies for each ROI,
+    color-coded by response type.
+
+    :param data: p-values and response type dataframe
+    :param xkey: independent stimulus variable to use on x-axis
+    :param ykey: independent stimulus variable to use on y-axis
+    :param scale: axes scale (linear / logarithmic)
+    :return: figure handle 
+    '''
+    pthr = PTHR_DEPENDENCY
+    # Rescale to log-space if required
+    if scale == 'log':
+        for key in [xkey, ykey]:
+            data[f'log-{key}'] = np.log(data[key])
+        pthr = np.log(pthr)
+    xkey, ykey = f'log-{xkey}', f'log-{ykey}'
+
+    # Plot distribution across 2D space (along with marginal plots)
+    rtypes = get_default_rtypes()
+    jg = sns.jointplot(
+        data=data, x=xkey, y=ykey, hue=Label.ROI_RESP_TYPE, hue_order=rtypes,
+        palette=Palette.RTYPE)
+
+    # Plot statistical significance threshold lines
+    for ax_marg, k in zip([jg.ax_marg_x, jg.ax_marg_y], ['v', 'h']):
+        for ax in [ax_marg, jg.ax_joint]:
+            getattr(ax, f'ax{k}line')(pthr, c='k', ls='--')
+    leg = jg.ax_joint.legend()
+
+    # Add sample size for each category in legend
+    counts = data[Label.ROI_RESP_TYPE].value_counts()
+    labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
+    leg = jg.ax_joint.get_legend()
+    for t in leg.texts:
+        txt = t.get_text()
+        t.set_text(labels.get(txt, f'{txt} (0)'))
+
+    # Return figure handle
+    return jg.figure
