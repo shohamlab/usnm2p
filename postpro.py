@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-10 14:58:19
+# @Last Modified time: 2022-01-11 15:10:07
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -16,6 +16,7 @@ from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.stats import skew, norm
 from scipy.stats import t as tstats
+from scipy.stats import f as fstats
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
 import statsmodels.api as sm
@@ -1060,3 +1061,43 @@ def compute_1way_anova(data, xkey, ykey):
     # Extract relevant p-value for dependency
     F = anova_table.loc['x', 'PR(>F)']
     return F
+
+
+def sum_of_square_devs(x):
+    return ((x - x.mean())**2).sum()
+
+
+def anova1d(data, xkey, ykey):
+    ''' Detailed 1-way ANOVA '''
+
+    # Compute problem dimensions
+    k = data[xkey].nunique()  # number of conditions
+    npergroup = data.groupby(xkey)[ykey].agg(lambda s: s.notna().sum())  # number of valid (non-NaN) observations in each condition
+    N = npergroup.sum()  # overall number of valid observations
+    
+    # Compute degrees of freedom
+    df_between = k - 1
+    df_within = N - k
+    df_total = N - 1
+
+    # Compute means
+    Gm = data[ykey].mean()  # grand mean
+    M = data.groupby(xkey)[ykey].mean()  # means per group
+
+    # Compute sums of squares
+    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).sum()
+    ss_between = (npergroup * (M - Gm)**2).sum()
+    ss_total = ss_between + ss_within
+
+    # Compute F-score
+    ms_within = ss_within / df_within
+    ms_between = ss_between / df_between
+    F = ms_between / ms_within
+
+    # Compute resulting statistics
+    p = fstats.sf(F, df_between, df_within)  # p-value
+    # eta_sqrd = ss_between / ss_total  # effect size
+    # om_sqrd = (ss_between - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
+
+    # Return p-value
+    return p
