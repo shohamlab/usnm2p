@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-11 15:10:07
+# @Last Modified time: 2022-02-24 16:11:45
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1068,8 +1068,14 @@ def sum_of_square_devs(x):
 
 
 def anova1d(data, xkey, ykey):
-    ''' Detailed 1-way ANOVA '''
-
+    '''
+    Detailed 1-way ANOVA
+    
+    :param data: multi-indexed experiment dataframe
+    :param xkey: name of column holding the values of the independent variable
+    :param ykey: name of column holding the values of the dependent variable
+    :return: p-value computing from F-score
+    '''
     # Compute problem dimensions
     k = data[xkey].nunique()  # number of conditions
     npergroup = data.groupby(xkey)[ykey].agg(lambda s: s.notna().sum())  # number of valid (non-NaN) observations in each condition

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-07 14:23:12
+# @Last Modified time: 2022-02-25 11:48:54
 
 ''' Collection of generic utilities. '''
 
@@ -351,3 +351,33 @@ def pressure_to_intensity(p, rho=1046.0, c=1546.3):
     :return: spatial peak, pulse average acoustic intensity (W/m2)
     '''
     return p**2 / (2 * rho * c)
+
+
+def normalize_stack(x, bounds=(0, 1000)):
+    '''
+    Normalize stack to a given interval
+    
+    :param x: (nframe, Ly, Lx) stack array
+    :param bounds (optional): bounds for the intensity interval
+    :return rescaled stack array
+    '''
+    # Get input data type and related bounds
+    dtype = x.dtype
+    if str(dtype).startswith('int'):
+        dinfo = np.iinfo(dtype)
+    else:
+        dinfo = np.finfo(dtype)
+    dbounds = (dinfo.min, dinfo.max)
+    # Make sure output bounds are within data type limits
+    if bounds[0] < dbounds[0] or bounds[1] > dbounds[1]:
+        raise ValueError(f'rescaling interval {bounds} exceeds possible {dtype} values')
+    # Get input bounds (recasting as float to make ensure correct downstream computations)
+    input_bounds = (x.min().astype(float), x.max().astype(float))
+    # Get normalization factor
+    input_ptp = input_bounds[1] - input_bounds[0]
+    output_ptp = bounds[1] - bounds[0]
+    norm_factor = input_ptp / output_ptp
+    # Compute normalized array
+    y = x / norm_factor - input_bounds[0] / norm_factor
+    # Cast as input type and return
+    return y.astype(dtype)

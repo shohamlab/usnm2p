@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-10 14:53:16
+# @Last Modified time: 2022-02-25 11:57:40
 
 ''' Collection of plotting utilities. '''
 
@@ -283,7 +283,7 @@ def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
                 ax.plot(bo, label=f'block {i + 1}')
         ax.axhline(0, c='silver', ls='--')
         ax.set_ylabel(key)
-    if output_ops['nonrigid']:
+    if output_ops['nonrigid']: # and output_ops['xoff1'].shape[0] < 40:
         axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
     return fig
 
@@ -1910,7 +1910,7 @@ def plot_correlations_with_motion(data, ykeys):
     return fig
 
 
-def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin'):
+def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin', pthr=None):
     '''
     Plot the 2D distribution of p-values for pressure and duty cycle dependencies for each ROI,
     color-coded by response type.
@@ -1919,14 +1919,15 @@ def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin'):
     :param xkey: independent stimulus variable to use on x-axis
     :param ykey: independent stimulus variable to use on y-axis
     :param scale: axes scale (linear / logarithmic)
+    :param pthr: threshold p-value for parameter dependency assessment
     :return: figure handle 
     '''
-    pthr = PTHR_DEPENDENCY
     # Rescale to log-space if required
     if scale == 'log':
         for key in [xkey, ykey]:
             data[f'log-{key}'] = np.log(data[key])
-        pthr = np.log(pthr)
+        if pthr is not None:
+            pthr = np.log(pthr)
     xkey, ykey = f'log-{xkey}', f'log-{ykey}'
 
     # Plot distribution across 2D space (along with marginal plots)
@@ -1936,10 +1937,10 @@ def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin'):
         palette=Palette.RTYPE)
 
     # Plot statistical significance threshold lines
-    for ax_marg, k in zip([jg.ax_marg_x, jg.ax_marg_y], ['v', 'h']):
-        for ax in [ax_marg, jg.ax_joint]:
-            getattr(ax, f'ax{k}line')(pthr, c='k', ls='--')
-    leg = jg.ax_joint.legend()
+    if pthr is not None:
+        for ax_marg, k in zip([jg.ax_marg_x, jg.ax_marg_y], ['v', 'h']):
+            for ax in [ax_marg, jg.ax_joint]:
+                getattr(ax, f'ax{k}line')(pthr, c='k', ls='--')
 
     # Add sample size for each category in legend
     counts = data[Label.ROI_RESP_TYPE].value_counts()
