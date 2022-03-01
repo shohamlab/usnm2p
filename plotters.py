@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-02-25 11:57:40
+# @Last Modified time: 2022-03-01 17:16:12
 
 ''' Collection of plotting utilities. '''
 
+import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -878,10 +879,10 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 
-def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI,
-                   err_style='band', ax=None, alltraces=False, hue=None, hue_order=None, col=None,
+def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI, legend='full',
+                   err_style='band', ax=None, alltraces=False, nmaxtraces=None, hue=None, hue_order=None, col=None,
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
-                   **filter_kwargs):
+                   palette=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -894,6 +895,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None)
     :param err_style (“band” or “bars”): whether to draw the confidence intervals with translucent error bands or discrete error bars.
     :param alltraces (optional): whether to plot all individual traces
+    :param nmaxtraces (optional): maximum number of traces that can be plot per group
     :param hue (optional): grouping variable that will produce lines with different colors.
     :param col (optional): grouping variable that will produce different axes.
     :param label (optional): add a label indicating a specific field value on the plot (when possible)
@@ -951,12 +953,13 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     s = f'{", ".join(s)} and ' if len(s) > 0 else ''
     logger.info(f'{s}plotting {aggfunc} {ykey} vs. {xkey} ...')
     # Determine color palette depending on hue parameter
-    palette = {
-        None: None,
-        Label.P: Palette.P,
-        Label.DC: Palette.DC,
-        Label.ROI_RESP_TYPE: Palette.RTYPE
-    }.get(hue, None)
+    if palette is None:
+        palette = {
+            None: None,
+            Label.P: Palette.P,
+            Label.DC: Palette.DC,
+            Label.ROI_RESP_TYPE: Palette.RTYPE
+        }.get(hue, None)
 
     ###################### Aggregating function ######################
 
@@ -987,7 +990,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         err_style = err_style,     # error visualization style 
         lw        = 2.0,           # line width
         palette   = palette,       # color palette
-        legend    = 'full'         # use all hue entries in the legend
+        legend    = legend         # use all hue entries in the legend
     )
     if alpha is not None:
         plot_kwargs['alpha'] = alpha
@@ -1016,6 +1019,8 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     
     # Aggregation keys = all index keys that are not "frame" 
     aggkeys = list(filter(lambda x: x is not None and x != Label.FRAME, filtered_data.index.names))
+    if xkey in [Label.P, Label.DC] and Label.RUN in aggkeys:
+        aggkeys.remove(Label.RUN)
     if alltraces:
         logger.info(f'plotting individual {ykey} vs. {xkey} traces...')
         # Getting number of conditions to plot
@@ -1046,18 +1051,31 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
                         index=xkey,  # index = xkey
                         columns=aggkeys,  # each column = 1 line to plot 
                         values=ykey)  # values
-                    # Get response classification of each trace
-                    is_resps = gr[Label.IS_RESP].groupby(aggkeys).first()                                        
+                    _, ntraces = table.shape
+                    # Randomly select n traces to plot, if max is reached 
+                    itraces = np.arange(ntraces)
+                    if nmaxtraces is not None and ntraces > nmaxtraces:
+                        itraces = random.sample(set(itraces), nmaxtraces)
+                    # Get response classification of each trace (if available)
+                    if Label.IS_RESP in gr:
+                        is_resps = gr[Label.IS_RESP].groupby(aggkeys).first()
+                    else:
+                        is_resps = [None] * ntraces
                     # Plot a line for each entry in the pivot table
                     for i, (x, is_resp) in enumerate(zip(table, is_resps)):
-                        if use_color_code:
-                            color = {True: 'g', False: 'r'}[is_resp]
-                        else:
-                            color = group_color
-                        ax.plot(table[x].index, table[x].values, c=color, alpha=alpha_trace, zorder=-10)
-                        # Add individual trace markers if specified
-                        if markerfunc is not None:
-                            markerfunc(ax, table[x], color=color, alpha=alpha_trace)
+                        if i in itraces:  # additional criterion
+                            if use_color_code:
+                                if is_resp is not None:
+                                    color = {True: 'g', False: 'r'}[is_resp]
+                                else:
+                                    color = None
+                            else:
+                                color = group_color
+                            ax.plot(table[x].index, table[x].values, color=color, alpha=alpha_trace,
+                                    zorder=-10)
+                            # Add individual trace markers if specified
+                            if markerfunc is not None:
+                                markerfunc(ax, table[x], color=color, alpha=alpha_trace)
                     pbar.update()
 
     ###################### Markers ######################
@@ -1386,7 +1404,7 @@ def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=No
     return fig
 
 
-def plot_metrics_along_trial(data, wlen, fps, full_output=True):
+def plot_metrics_along_trial(data, wlen, fps, tbounds_baseline=(None, None), full_output=True, varkey='sem'):
     '''
     Plot a specific output metrics as a function of the sliding window position along the trial
     
@@ -1395,16 +1413,23 @@ def plot_metrics_along_trial(data, wlen, fps, full_output=True):
     :param fps: frame rate (in frames per second)
     :return: figure handle (with optional derived baseline and stimulus-evoked values)
     '''
-    # Compute mean and std for each start index
-    y_along_trial = data.groupby(Label.ISTART).mean()
-    yvar_along_trial = data.groupby(Label.ISTART).std()
+    # Compute mean and variation metrics for each start index and ROI
+    ystats = data.groupby([Label.ROI, Label.ISTART]).agg(['mean', varkey])
     # Extract starting indexes and time vector
-    istarts = y_along_trial.index
+    istarts = ystats.index.unique(level=Label.ISTART)
     t = (istarts - FrameIndex.STIM) / fps
-    # Interpolate value at stim frame index
-    y_evoked = np.interp(0, t, y_along_trial.values)
-    # Extract baseline value as median
-    y_baseline = y_along_trial[t > 10.].mean()
+    # # Interpolate mean value at stim frame index for each ROI
+    # y_evoked = ystats['mean'].groupby(Label.ROI).agg(lambda s: np.interp(0, t, s.values))
+    # Get indexes of baseline window
+    if tbounds_baseline[0] is None:
+        tbounds_baseline = (t.min(), tbounds_baseline[1])  # s
+    if tbounds_baseline[1] is None:
+        tbounds_baseline = (tbounds_baseline[0], t.max())  # s
+    is_baseline = np.logical_and(t >= tbounds_baseline[0], t <= tbounds_baseline[1])
+    ibaseline = np.where(is_baseline)[0]
+    # Extract baseline metrics from mean value over baseline interval for each ROI
+    baseline_stats = ystats['mean'].loc[pd.IndexSlice[:, ibaseline]].groupby(Label.ROI).agg(
+        ['mean', 'std'])
     # Plot on figure
     fig, ax = plt.subplots()
     s = data.name
@@ -1415,15 +1440,16 @@ def plot_metrics_along_trial(data, wlen, fps, full_output=True):
     ax.set_xlabel(f'start time of the {wlen / fps:.1f} s long detection window (s)')
     ax.set_ylabel(s)
     sns.despine(ax=ax)
-    ax.plot(t, y_along_trial, label='average')
-    ax.fill_between(t, y_along_trial - yvar_along_trial, y_along_trial + yvar_along_trial,
-        alpha=0.2, label='+/-SD interval')
-    ax.axhline(y_baseline, ls=':', c='k', label=f'baseline ({y_baseline:.2f})')
-    ax.axhline(y_evoked, ls=':', c='k', label=f'stim-evoked ({y_evoked:.2f})')
+    for iROI, y in ystats.groupby(Label.ROI):
+        ax.plot(t, y['mean'])
+        ax.fill_between(t, y['mean'] - y[varkey], y['mean'] + y[varkey], alpha=0.2)
+        # ax.axhline(baseline_stats.loc[iROI, 'mean'], ls=':', c='k')
+        # ax.axhline(y_evoked, ls=':', c='k')
     ax.axvline(0, ls='--', c='k', label='stimulus onset')
+    ax.axvspan(*tbounds_baseline, fc='silver', ec=None, alpha=0.5, label='baseline window')
     ax.legend()
     if full_output:
-        return fig, y_baseline, y_evoked
+        return fig, baseline_stats
     else:
         return fig
 
@@ -1474,7 +1500,7 @@ def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nst
     return fig
 
 
-def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline=None):
+def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline_key=None):
     '''
     Plot the distribution of a stat per ROI over all experimental conditions
     
@@ -1529,10 +1555,14 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline=N
         ax.plot(x, mu, label=k)
         ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
     
-    # Add baseline if specified
-    if baseline is not None:
-        for ax in fig.axes:
-            ax.axhline(baseline, c='k', ls='--')
+    if baseline_key is not None:
+        # Extract baseline profiles and sort them according to sorted ROI indexes
+        baseline_stats = data[[f'{baseline_key}_mean', f'{baseline_key}_std']].groupby(Label.ROI).first()
+        baseline_stats = baseline_stats.loc[sorted_iROIs, :]
+        # Plot mu+/-sigma of baseline
+        mu, sigma = [baseline_stats[k] for k in baseline_stats]
+        ax.plot(x, mu)
+        ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
     
     # Legend
     if groupby is not None:
@@ -1849,20 +1879,20 @@ def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds, ybounds
     return fig
 
 
-def plot_protocol(table, xkey=Label.RUNID):
+def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
     '''
     Plot the evolution of stimulus parameters over time
     
     :param info_table: summary table of the parameters pertaining to each run
     :param xkey: reference variable for time evolution (run or runID)
+    :param ykey: reference variable for parameters evolution (e.g. Pressure, DC, intensity, ...)
     :return: figure handle
     '''
     try:
         x = table[xkey]
     except KeyError:
         x = table.index.get_level_values(level=xkey)
-    ykeys = [Label.P, Label.DC]
-    fig, axes = plt.subplots(len(ykeys), 1)
+    fig, axes = plt.subplots(len(ykeys), 1, figsize=(5, 2 * len(ykeys)))
     axes[0].set_title('evolution of stimulation parameters over runs')
     for ax, ykey in zip(axes, ykeys):
         ax.scatter(x, table[ykey])
@@ -1875,27 +1905,27 @@ def plot_protocol(table, xkey=Label.RUNID):
     return fig
 
 
-def plot_correlations_with_motion(data, ykeys):
+def plot_correlations(data, xkey, ykeys):
     '''
-    Plot correlations between peak displacement velocity and
-    specific response metrics.
+    Plot correlations between 1 variable multiple others.
     
     :param data: multi-indexed stats dataframe
-    :param ykeys: name(s) of the response metrics of interest 
+    :param xkey: name of the variable on x-axis
+    :param ykeys: name(s) of the response metrics of interest
     :return: figure handle
     '''
     if not is_iterable(ykeys):
         ykeys = [ykeys]
-    xkey = Label.PEAK_DISP_VEL
     # Average data across ROI for each run & trial
     data = data[[xkey, *ykeys]].groupby([Label.RUN, Label.TRIAL]).mean()
     R = data.corr()
     n = len(data)
     # Plot peak z-score as a function of peak displacement velocity
     fig, axes = plt.subplots(1, len(ykeys), figsize=(4.5 * len(ykeys), 4))
-    fig.suptitle('correlations with displacement velocity (average across ROIs)')
     if len(ykeys) == 1:
         axes = [axes]
+    if len(axes) > 1: 
+        fig.suptitle(f'correlations with {xkey} (average across ROIs)')
     for ax, ykey in zip(axes, ykeys):
         r = R.loc[xkey, ykey]
         pval = tscore_to_pvalue(corrcoeff_to_tscore(r, n), n, directional=False)
@@ -1903,7 +1933,7 @@ def plot_correlations_with_motion(data, ykeys):
         sigstr = '*' if sig else ''
         sns.despine(ax=ax)
         sns.scatterplot(data=data, x=xkey, y=ykey, ax=ax)
-        ax.set_title(ykey)
+        # ax.set_title(ykey)
         ax.text(.9, .95, f'R = {r:.2f}{sigstr}\n(p = {pval:.2e})', va='top', ha='right', fontsize=12, transform=ax.transAxes)
     fig.subplots_adjust(top=0.85)
 

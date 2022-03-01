@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-05 11:49:02
+# @Last Modified time: 2022-03-01 15:12:22
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -13,6 +13,7 @@ import datetime
 import pandas as pd
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
+from tqdm import tqdm
 
 from parsers import P_TIFFILE
 from logger import logger
@@ -452,8 +453,8 @@ def load_data(outdir, nruns, check=False):
     info_table = pd.read_csv(info_table_fpath).set_index(Label.RUN, drop=True)
     # Load z-scores split by run
     timeseries = []
-    for ir in range(nruns):
-        logger.info(f'loading z-score data for run {ir}...')
+    logger.info(f'loading z-score data for {nruns} runs...')
+    for ir in tqdm(range(nruns)):
         fpath = os.path.join(outdir, f'zscores_run{ir}.csv')
         timeseries.append(pd.read_csv(fpath))
     # Concatenate and re-order index

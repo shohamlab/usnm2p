@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-02-24 16:11:45
+# @Last Modified time: 2022-03-01 15:02:44
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -388,16 +388,22 @@ def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
     :param key: name of the column containing the variable of interest
     :return: multi-indexed series of detect event values across conditions    
     '''
+    # Compute number of trials to consider (i.e. those not starting by a NaN)
     ntrials = data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().notna().sum()
+    # Restrict dataset to given trial window if specified
     if iwindow is not None:
         data = data.loc[pd.IndexSlice[:, :, :, iwindow], key]
         s = f' in {iwindow} index window'
     else:
         s = ''
+    # Apply detection function for each ROI, run and trial in the dataset
     logger.info(f'applying {func.__name__} function to detect events in {key} signals across trials{s}...')
     events = data.groupby([Label.ROI, Label.RUN, Label.TRIAL]).agg(func)
+    # Compute number of detected events from function output
     nevents = events.notna().sum()
+    # Log events detection statistics
     logger.info(f'identified {nevents} events over {ntrials} valid trials (detection rate = {nevents / ntrials * 1e2:.1f} %)')
+    # Return events
     return events
 
 
@@ -445,7 +451,7 @@ def slide_along_trial(func, data, wlen, iseeds):
     return df
     
 
-def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM):
+def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=None):
     '''
     Add time information to info table
     
@@ -459,12 +465,13 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM):
         return data
     logger.info('adding time info to table...')
     # Extract sampling frequency
-    fps = get_singleton(data, Label.FPS)
+    if fps is None:
+        fps = get_singleton(data, Label.FPS)
+        del data[Label.FPS]
     # Extract frame indexes
     iframes = data.index.get_level_values(Label.FRAME)
-    # Add time column and remove fps column
+    # Add time column
     data[key] = (iframes - frame_offset) / fps
-    del data[Label.FPS]
     # Set time as first column
     cols = data.columns
     data = data.reindex(columns=[cols[-1], *cols[:-1]])

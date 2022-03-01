@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-02-24 11:12:48
+# @Last Modified time: 2022-02-28 16:33:47
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -167,6 +167,7 @@ class Label:
     PEAK_ZSCORE = F'peak {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
+    AREA_REL_ZSCORE_POSTSTIM = f'area post-stim [{REL_ZSCORE}] (s)'
 
     # Trial activity & related measures
     PRESTIM_ACTIVITY = 'pre-stim cell activity?'

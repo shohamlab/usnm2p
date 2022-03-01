@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-02-25 11:48:54
+# @Last Modified time: 2022-03-01 16:55:45
 
 ''' Collection of generic utilities. '''
 
@@ -246,6 +246,31 @@ def repeat_along_new_dims(df, newdims):
     for name, inds in newdims.items():
         df = repeat_along_new_dim(df, name, inds)
     return df
+
+def expand_to_match(df, mux):
+    '''
+    Expand dataframe along new index dimensions to match reference index
+    '''
+    refnames = mux.names
+    extra_levels = set(refnames) - set(df.index.names)
+    if len(extra_levels) == 0:
+        raise ValueError('did not find any extra index levels')
+    extra_levels = list(filter(lambda x: x in extra_levels, refnames))
+    newdims = {k: mux.unique(level=k) for k in extra_levels}
+    return repeat_along_new_dims(df, newdims)
+
+def expand_and_add(dfnew, dfref, prefix=''):
+    '''
+    Expand dataframe to match index of reference dataframe, and add it to the reference
+
+    :param dfnew: dataframe to be expanded and added
+    :param dfref: reference dataframe
+    '''
+    dfexp = expand_to_match(dfnew, dfref.index)
+    for k in dfexp:
+        dfref[f'{prefix}_{k}'] = dfexp[k]
+    return dfref
+    
 
 def reindex_dataframe_level(df, level=0):
     ''' Update dataframe index level to a standard integer list '''
