@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-03-01 16:55:45
+# @Last Modified time: 2022-03-09 11:03:36
 
 ''' Collection of generic utilities. '''
 
@@ -268,7 +268,8 @@ def expand_and_add(dfnew, dfref, prefix=''):
     '''
     dfexp = expand_to_match(dfnew, dfref.index)
     for k in dfexp:
-        dfref[f'{prefix}_{k}'] = dfexp[k]
+        key = f'{prefix}_{k}' if prefix else k
+        dfref[key] = dfexp[k]
     return dfref
     
 

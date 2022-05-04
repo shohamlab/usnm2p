@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-03-01 15:02:44
+# @Last Modified time: 2022-03-09 11:39:25
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -910,6 +910,11 @@ def valid(df):
     return nopreactive_pop(nopreactive(nomotion(included(df))))
 
 
+def nonzero(df):
+    ''' Return a copy of the dataframe with only rows corresponding to trials with non-zero pressure '''
+    return df.loc[df[Label.P] > 0., :]
+
+
 def get_ROI_masks(stats, iROIs):
     '''
     Get a dataframe of ROI masks containing pixel coordinates and weight information
@@ -1027,10 +1032,11 @@ def correlations_to_rcode(corrtypes, j=', '):
 
 def get_default_rtypes():
     ''' Get default response type codes '''
-    df = pd.DataFrame({
-        Label.P: [0, 1, 0, 1],
-        Label.DC: [0, 0, 1, 1]})
-    return correlations_to_rcode(df).tolist()
+    return ['non-responsive', 'responsive']
+    # df = pd.DataFrame({
+    #     Label.P: [0, 1, 0, 1],
+    #     Label.DC: [0, 0, 1, 1]})
+    # return correlations_to_rcode(df).tolist()
 
 
 def get_xdep_data(data, xkey):

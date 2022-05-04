@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-03-01 17:16:12
+# @Last Modified time: 2022-05-04 18:05:15
 
 ''' Collection of plotting utilities. '''
 
@@ -26,6 +26,8 @@ from viewers import get_stack_viewer
 # Colormaps
 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
 rdgn.set_bad('silver')
+gnrd = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=True)
+gnrd.set_bad('silver')
 nan_viridis = plt.get_cmap('viridis').copy()
 nan_viridis.set_bad('silver')
 
@@ -1220,7 +1222,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
     :param ykey (optional): key indicating the dependent variable of the y-axis
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
-    '''    
+    '''
     # Restrict filtering criteria based on xkey
     if xkey == Label.P:
         kwargs['DC'] = DC_REF
@@ -1250,6 +1252,27 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
             ax.axhline(baseline, c='k', ls='--')
     
     # Return figure
+    return fig
+
+
+def plot_stimparams_dependency_per_response_type(data, ykey, **kwargs):
+    '''
+    Plot dependency of a specific response metrics on stimulation parameters
+    
+    :param data: trial-averaged experiment dataframe
+    :param ykey (optional): key indicating the dependent variable of the y-axis
+    :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
+    :return: figure handle
+    '''
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    for xkey, ax in zip([Label.P, Label.DC], axes.T):
+        plot_parameter_dependency(
+            data, xkey=xkey, ykey=ykey, ax=ax, 
+            hue=Label.ROI_RESP_TYPE, max_colwrap=2, nmaxtraces=150,
+            hue_order=get_default_rtypes(),
+            **kwargs
+        )
+    harmonize_axes_limits(axes)
     return fig
 
 
@@ -1427,6 +1450,7 @@ def plot_metrics_along_trial(data, wlen, fps, tbounds_baseline=(None, None), ful
         tbounds_baseline = (tbounds_baseline[0], t.max())  # s
     is_baseline = np.logical_and(t >= tbounds_baseline[0], t <= tbounds_baseline[1])
     ibaseline = np.where(is_baseline)[0]
+    ibaseline = istarts[ibaseline]
     # Extract baseline metrics from mean value over baseline interval for each ROI
     baseline_stats = ystats['mean'].loc[pd.IndexSlice[:, ibaseline]].groupby(Label.ROI).agg(
         ['mean', 'std'])
@@ -1561,11 +1585,11 @@ def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline_k
         baseline_stats = baseline_stats.loc[sorted_iROIs, :]
         # Plot mu+/-sigma of baseline
         mu, sigma = [baseline_stats[k] for k in baseline_stats]
-        ax.plot(x, mu)
+        ax.plot(x, mu, label='baseline')
         ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
     
     # Legend
-    if groupby is not None:
+    if groupby is not None or baseline_key is not None:
         ax.legend()
 
     return fig
