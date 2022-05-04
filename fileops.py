@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-03-01 15:12:22
+# @Last Modified time: 2022-05-04 18:21:08
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -526,6 +526,8 @@ def load_stats_dataset(fpath):
     # Re-generate data index 
     data.set_index(Label.MOUSEREG, inplace=True)
     for k in [Label.ROI, Label.RUN, Label.TRIAL]:
+        if k not in data:
+            raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
         data.set_index(k, append=True, inplace=True)
     # Return data
     return data
