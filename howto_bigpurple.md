@@ -1,29 +1,54 @@
 # How to set up BigPurple for analyses with Suite2p
 
-## Log in
+# Initial setup
 
-- Log in to bigpurple (`xbigpurple`)
+- Log in to bigpurple: `xbigpurple`
+- Open your `.bashrc` file: `nano .bashrc`
+- Copy paste the following block into the file (adpting environment variables to your needs):
 
-## Set up a coding environment
+```
+# User-specific environment variables
+export MYID="lemait01"  # Kerberos ID
+export MYNAME="theo"   # Name of your personal directory in your lab space
+export MYLABNAME="shohamlab"  # Name of your lab space in /gpfs/data/
+export MYLABDRIVE="shohas01labspace"  # Name of your lab's research drive
 
-- Go to your personal lab storage space: `cd /gpfs/data/shohamlab`
-- Create a directory with your name (where you will store code and configuration files): `mkdir theo`
-- Go to your personal directory: `cd theo`
+# Slack webhook
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"
+
+# Alias commands
+alias datamover="srun -p data_mover -n 2 -t=8:00:00 --mem-per-cpu=1G --pty bash"  # open special node for file transfer with rsync
+alias mountlab="mount /mnt/$MYID/$MYLABDRIVE/"  # mount the labs's research drive on your BigPurple user session
+alias job="srun -c2 --partition=$MYLABNAME --mem=8G --pty /bin/bash"  # run a normal bash job
+alias xjob="srun --x11 -c2 --partition=$MYLABNAME --mem=16G --pty /bin/bash"  # run an interactive bash job
+alias mpijob="srun -c10 --partition=$MYLABNAME --mem=64G --pty /bin/bash"  # run a massively parallelized bash job
+alias myjobs="squeue -u $MYID"  # list all jobs assosicated to your user ID
+```
+
+- Save and close to file (`Ctrl-o` followed by `Ctrl-x`)
+- Activate these changes: `source .bashrc`
+- Go to your personal lab storage space: `cd /gpfs/data/$MYLABNAME`
+- Create a personal directory (where you will store code, configuration files, etc): `mkdir $MYNAME`
+- Go to your personal directory: `cd $MYNAME`
 - Create directory that will contain your code repositories: `mkdir code`
 - Create a directory that will contain your bash scripts: `mkdir bash`
-- Create directories that will contain your configuration files: `mkdir conda config ipython local misc`
+- Create directories that will contain your configuration files: `mkdir .conda .config .ipython .local`
 - Go to home folder: `cd ~`
-- Add a symbolic link to your personal directory: `ln -s /gpfs/data/shohamlab/theo ~/theo`
-- Add a symbolic link to your scratch directory (where you will store computation data): `ln -s /gpfs/scratch/lemait01 ~/scratch`
+- Add a symbolic link to your personal directory: `ln -s /gpfs/data/$MYLABNAME/$MYNAME ~/$MYNAME`
+- Add a symbolic link to your scratch directory (where you will store computation data): `ln -s /gpfs/scratch/$MYID ~/scratch`
 - Remove placeholders added by default upon creation of your user space: `rm .conda .config .ipython .local`
 - Replace these placeholders with symbolic links towards directories in your personal space:
-    - `ln -s /gpfs/data/shohamlab/theo/conda ~/.conda`
-    - `ln -s /gpfs/data/shohamlab/theo/config ~/.config`
-    - `ln -s /gpfs/data/shohamlab/theo/ipython ~/.ipython`
-    - `ln -s /gpfs/data/shohamlab/theo/local ~/.local` 
+    - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.conda ~/.conda`
+    - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.config ~/.config`
+    - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.ipython ~/.ipython`
+    - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.local ~/.local`
+
+## Set tup the USNM2P analysis coding environment
+
+- Log in to bigpurple: `xbigpurple`
 - Load git: `module load git`
 - Load miniconda: `module load miniconda3/cpu/4.9.2`
-- Got to your personal repositories folder: `cd ~/theo/code` 
+- Got to your personal repositories folder: `cd ~/$MYNAME/code` 
 - Download the suite2p repository from GitHub using Git: `git clone https://github.com/MouseLand/suite2p`
 - Move to the suite2p directory: `cd suite2p`
 - Run `conda env create -f environment.yml`
@@ -35,10 +60,13 @@
 
 # Run an analysis notebook interactively on BigPurple
 
+- Log in to bigpurple: `xbigpurple`
+
 TO COMPLETE
 
 # Run batch analyses on BigPurple
 
+- Log in to bigpurple: `xbigpurple`
 - Switch node and load resources to run parallelized job: `mpijob`
 - Load git: `module load git`
 - Load miniconda: `module load miniconda3/cpu/4.9.2`

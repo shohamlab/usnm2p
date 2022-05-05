@@ -3,13 +3,12 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-04 16:04:38
+# @Last Modified time: 2022-05-05 09:53:10
 
 ''' Batch processing utilities '''
 
-import time
+from datetime import datetime
 import logging
-import numpy as np
 import multiprocessing as mp
 
 from logger import logger
@@ -140,7 +139,7 @@ class Batch:
                 return None
         s = 'en' if mpi else 'dis'
         logger.info(f'Starting {len(self.queue)}-job(s) batch (multiprocessing {s}abled)')
-        start_time = time.perf_counter()
+        tstamp_start = datetime.now()
         if mpi:
             self.start()
             self.assign(loglevel)
@@ -152,8 +151,8 @@ class Batch:
             for params in self.queue:
                 args, kwargs = self.resolve(params)
                 outputs.append(self.func(*args, **kwargs))
-        run_time = time.perf_counter() - start_time
-        logger.info(f'Batch completed in {run_time:.2f} s')
+        tstamp_end = datetime.now()
+        logger.info(f'Batch completed in {tstamp_end - tstamp_start} s')
         return outputs
 
     @staticmethod
