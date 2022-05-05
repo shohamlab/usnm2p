@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-04 18:21:08
+# @Last Modified time: 2022-05-05 19:15:31
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -60,6 +60,19 @@ def get_stats_dir():
     if not os.path.isdir(statsdir):
         raise ValueError(f'statistics directory "{statsdir}" does not exist')
     return statsdir
+
+
+def get_traces_dir():
+    ''' Get the directory where output average traces should be saved '''
+    try:
+        from config import tracesdir
+    except ModuleNotFoundError:
+        raise ValueError(f'user-specific "config.py" file is missing')
+    except ImportError:
+        raise ValueError(f'"tracesdir" variable is missing from user-specific "config.py" file')
+    if not os.path.isdir(tracesdir):
+        raise ValueError(f'traces directory "{tracesdir}" does not exist')
+    return tracesdir
 
 
 def get_subfolder_names(dirpath):
