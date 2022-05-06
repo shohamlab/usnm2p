@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-04 18:05:15
+# @Last Modified time: 2022-05-06 10:47:12
 
 ''' Collection of plotting utilities. '''
 
@@ -883,7 +883,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI, legend='full',
                    err_style='band', ax=None, alltraces=False, nmaxtraces=None, hue=None, hue_order=None, col=None,
-                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
+                   col_order=None, label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
                    palette=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
@@ -1010,6 +1010,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             aspect   = aspect,   # aspect ratio of the figure
             col_wrap = col_wrap, # how many axes per row
             col      = col,      # column (i.e. axis) grouping variable
+            col_order = col_order
         ))
         fg = sns.relplot(**plot_kwargs)
         axlist = fg.axes.ravel()
@@ -1825,10 +1826,19 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     groups = [Label.MOUSEREG, Label.ROI_RESP_TYPE]
     bar = list(set(groups) - set([hue]))[0]
     axdim = {Label.ROI_RESP_TYPE: 'x', Label.MOUSEREG: 'y'}[bar]
-    hue_order = {Label.ROI_RESP_TYPE: None, Label.MOUSEREG: get_default_rtypes()}[bar]
+    # Determine plotting order
+    orders = {
+        Label.ROI_RESP_TYPE: get_default_rtypes(),
+        Label.MOUSEREG: data.index.unique(level=Label.MOUSEREG).values.tolist()
+    }
+    bar2 = f'{bar} '
+    barvals = celltypes.index.get_level_values(bar)
+    barvals = pd.Categorical(barvals, categories=orders[bar])
+    celltypes[bar2] = barvals
+    pltkwargs = {axdim: bar2, 'hue_order': orders[hue]}
     # Plot stacked count bars
     fg = sns.displot(
-        data=celltypes, multiple='stack', hue=hue, hue_order=hue_order, **{axdim: bar})
+        data=celltypes, multiple='stack', hue=hue, **pltkwargs)
     sns.despine()
     fig = fg.figure
     if add_count_labels:
@@ -1865,7 +1875,7 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     return fig
 
 
-def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds, ybounds=(0, None)):
+def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds=(0, 1), **kwargs):
     '''
     Plot the parameter dependency of a specific variable across mouse-region datasets
     
@@ -1876,30 +1886,33 @@ def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds, ybounds
     :return: figure handle
     '''
     # Restrict data to included trials
-    data = included(data)
+    # data = included(data)
     norig = len(data)
     # Select quantile interval for each category (mouse-region, response type and run)
     categories = [Label.MOUSEREG, Label.ROI_RESP_TYPE, Label.RUN]
     xkeys = [Label.P, Label.DC]
-    subset_idx = get_quantile_indexes(data, qbounds, ykey, groupby=categories)
-    data = data.loc[subset_idx, :]
+    # subset_idx = get_quantile_indexes(data, qbounds, ykey, groupby=categories)
+    title = None
+    if qbounds != (0, 1):
+        title = f'q = {qbounds}'
+    # data = data.loc[subset_idx, :]
     nkept = len(data)
     logger.info(f'selected {nkept} / {norig} samples ({nkept / norig * 100:.1f}% of dataset)')
-    # Average data by mouse-region, response type and run 
+    # Average data by mouse-region, response type and run
     avg_data = data.groupby(categories).mean()
     # Make sure input columns are correclty resolved post-averaging
-    # (avoid "almost-identical" duplicates) 
+    # (avoid "almost-identical" duplicates)
     avg_data = resolve_columns(avg_data, xkeys)
     # Plot parameter dependency of ykey, grouped by mouse-region and response type
     fig = plot_parameter_dependency(
-        data, xkey=xkey, ykey=ykey, ybounds=ybounds,
-        hue=Label.MOUSEREG, col=Label.ROI_RESP_TYPE,
-        add_leg_numbers=False, max_colwrap=2, aspect=1., ci=None, alpha=0.5,
-        title=f'q = {qbounds}')
-    # Add average parameter dependency trace across mouse-regions, for each response type
+        data, xkey=xkey, ykey=ykey,
+        hue=Label.MOUSEREG, col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
+        add_leg_numbers=False, max_colwrap=2, aspect=1., alpha=0.5,
+        title=title, **kwargs)
+    # # Add average parameter dependency trace across mouse-regions, for each response type
     xdep_avg_data = get_xdep_data(avg_data, xkey)
     for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
-        sns.lineplot(data=group, x=xkey, y=ykey, ax=ax, color='BLACK', lw=3, legend=False)
+        sns.lineplot(data=group, x=xkey, y=ykey, ax=ax, color='BLACK', lw=3, ci=None, legend=False)
     return fig
 
 

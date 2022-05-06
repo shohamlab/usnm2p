@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-03-09 11:39:25
+# @Last Modified time: 2022-05-06 13:29:55
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1039,6 +1039,19 @@ def get_default_rtypes():
     # return correlations_to_rcode(df).tolist()
 
 
+def reclassify(data, nposthr=None, verbose=False):
+    ''' Reclassify dataset based on a new threshold number of responsive conditions '''
+    if nposthr is not None:
+        new_isresp = data[Label.NPOS_CONDS] >= nposthr
+        if verbose:
+            same_isresp = data[Label.IS_RESP_ROI] == new_isresp
+            pctchange = (1 - (same_isresp.sum() / len(same_isresp))) * 100
+            logger.info(f'new npos threshold {nposthr} induced {pctchange:.1f}% change in ROI classification')
+        data[Label.IS_RESP_ROI] = new_isresp
+        data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map({True: 'responsive', False: 'non-responsive'})
+    return data
+
+
 def get_xdep_data(data, xkey):
     '''
     Restrict data to relevant subset to estimate parameter dependency.
@@ -1120,3 +1133,33 @@ def anova1d(data, xkey, ykey):
 
     # Return p-value
     return p
+
+
+def compute_metrics_vs_nposthr(data, nposthrs, ykeys, evalfunc='max'):
+    '''
+    Compute metrics evolution as a function of nposthr
+    
+    :param data: stats dataframe
+    :param nposthrs: vector of threshold number of positive conditions
+    :param ykeys: columns of interest
+    :param evalfunc: evaluation function applied to get metrics of interest
+    '''
+    metrics_vs_nposthr = []
+    # For each nposthr
+    for nposthr in nposthrs:
+        # Re-classify data
+        tmp = reclassify(data.copy(), nposthr=nposthr)
+        # Group by dataset, ROI and response type and extract columns of interest
+        groups = tmp.groupby([Label.MOUSEREG, Label.ROI, Label.ROI_RESP_TYPE])[ykeys]
+        # Extract metrics of interest from these columns
+        metrics = groups.agg(evalfunc)
+        # Add information about nposthr
+        metrics[Label.NPOS_CONDS] = nposthr
+        # Append to list
+        metrics_vs_nposthr.append(metrics)
+    # Concatenate into single dataframe
+    metrics_vs_nposthr = pd.concat(metrics_vs_nposthr, axis=0)
+    # Add nposthr to index to avoid duplicate indexes
+    metrics_vs_nposthr.set_index(Label.NPOS_CONDS, append=True, inplace=True)
+    # Return metrics dataframe
+    return metrics_vs_nposthr

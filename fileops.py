@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-05 19:15:31
+# @Last Modified time: 2022-05-06 09:31:26
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -14,6 +14,7 @@ import pandas as pd
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
+from natsort import natsorted
 
 from parsers import P_TIFFILE
 from logger import logger
@@ -523,24 +524,36 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         return peaks
 
 
-def load_stats_dataset(fpath):
+def load_mousereg_dataset(fpath, trialavg=True, prefix=None):
     '''
     Load dataset of a particular mouse-region from a CSV file
     
     :param fpath: absolute path to the data file
-    :return: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :return: multi-indexed dataframe with mouse-region as an extra index dimension
     '''
     fname = os.path.basename(fpath)
     # Load data
-    logger.info(f'loading data from {fname}')
+    s = 'data'
+    if prefix is not None:
+        s = f'{prefix} {s}'
+    logger.info(f'loading {s} from {fname}')
     data = pd.read_csv(fpath)
     # Add dataset ID column
     data[Label.MOUSEREG] = os.path.splitext(fname)[0]
     # Re-generate data index 
     data.set_index(Label.MOUSEREG, inplace=True)
-    for k in [Label.ROI, Label.RUN, Label.TRIAL]:
+    indexcols = [Label.ROI, Label.RUN]
+    if not trialavg:
+        indexcols.append(Label.TRIAL)
+    for k in indexcols:
         if k not in data:
             raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
         data.set_index(k, append=True, inplace=True)
     # Return data
     return data
+
+
+def load_mousereg_datasets(dirpath, **kwargs):
+    ''' Load multiple mouse-region datasets '''
+    fpaths = natsorted([os.path.join(dirpath, item) for item in os.listdir(dirpath)])
+    return pd.concat([load_mousereg_dataset(fpath, **kwargs)  for fpath in fpaths], axis=0)
