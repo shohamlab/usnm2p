@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-04 17:02:09
+# @Last Modified time: 2022-05-06 17:47:54
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -151,7 +151,7 @@ class Label:
     F0 = 'F0 (a.u.)'
     DFF = '\u0394F/F0'
     ZSCORE = f'Z({DFF})'
-    REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
+    REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_prestim'
 
     # Displacement & velocities
     X_PX = 'x (pixels)'
@@ -168,6 +168,7 @@ class Label:
     EVENT = 'event'
     PEAK_ZSCORE = F'peak {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
+    PEAK_ZSCORE_POSTSTIM = f'peak post-stim [{ZSCORE}]'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
     AREA_REL_ZSCORE_POSTSTIM = f'area post-stim [{REL_ZSCORE}] (s)'
 

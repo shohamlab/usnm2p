@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-06 09:31:26
+# @Last Modified time: 2022-05-06 16:42:56
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -408,9 +408,9 @@ def save_stack_to_gif(figsroot, *args, **kwargs):
     viewer.save_as_gif(figsdir, fps)
 
 
-def save_data(timeseries, info_table, ROI_masks, outdir):
+def save_timeseries_data(timeseries, info_table, ROI_masks, outdir):
     '''
-    Save processed output data
+    Save processed timeseries data
     
     :param timeseries: multi-indexed (ROI, run, trial, frame) dataframe containing the z-score timeseries
     :param info_table: dataframe containing the information about experimental parameters for each run
@@ -435,9 +435,9 @@ def save_data(timeseries, info_table, ROI_masks, outdir):
     logger.info('data successfully saved')
 
 
-def load_data(outdir, nruns, check=False):
+def load_timeseries_data(outdir, nruns, check=False):
     '''
-    Load processed output data
+    Load processed timeseries data
     
     :param outdir: output directory
     :param nruns: number of runs
@@ -483,18 +483,18 @@ def load_data(outdir, nruns, check=False):
     return timeseries, info_table, ROI_masks
 
 
-def check_data(outdir, nruns):
+def check_timeseries_data(outdir, nruns):
     '''
     Check for availability of processed output data
     
     :return: boolean stating whether the data is available
     '''
     try:
-        load_data(outdir, nruns, check=True)
-        logger.info(f'processed data is available in "{outdir}" directory')
+        load_timeseries_data(outdir, nruns, check=True)
+        logger.info(f'processed timeseries data is available in "{outdir}" directory')
         return True
     except ValueError:
-        logger.info(f'processed data not found in "{outdir}" directory')
+        logger.info(f'processed timeseries data not found in "{outdir}" directory')
         return False
 
 
