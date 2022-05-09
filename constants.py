@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-06 17:47:54
+# @Last Modified time: 2022-05-09 08:34:42
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -90,7 +90,7 @@ class FrameIndex:
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 PTHR_DETECTION = 0.01  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
 PTHR_RESPONSIVENESS = 0.05  # significance threshold probability for detection of responsive conditions based on evoked success rate vs. baseline rate
-NPOSCONDS_THR = 6  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
+NPOSCONDS_THR = 2  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
 PTHR_DEPENDENCY = 0.05  # significance threshold probability for parameter dependency detection
 
 # Traces & trends
@@ -167,6 +167,7 @@ class Label:
     MOTION = 'motion'
     EVENT = 'event'
     PEAK_ZSCORE = F'peak {ZSCORE}'
+    BASELINE_ZSCORE = F'baseline {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
     PEAK_ZSCORE_POSTSTIM = f'peak post-stim [{ZSCORE}]'
     PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'

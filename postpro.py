@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-06 13:29:55
+# @Last Modified time: 2022-05-07 19:46:34
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 import logging
 from collections import Counter
+from multiprocessing.sharedctypes import Value
 import numpy as np
 import pandas as pd
 from pandas.core.groupby.groupby import GroupBy
@@ -378,6 +379,26 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True,
         return df[Label.SPEED_UM_S]
 
 
+def shiftslice(s, i):
+    return slice(s.start + i, s.stop + i)
+
+
+def detect_peaks_in_window(data, wslice, verbose=True):
+    if verbose:
+        logger.info(
+            f'detecting peak z-scores in {wslice.start}-{wslice.stop} index window '
+            'across ROIs and runs...')
+    window_data = data.loc[pd.IndexSlice[:, :, wslice], Label.ZSCORE]
+    peaks = window_data.groupby([Label.ROI, Label.RUN]).agg(find_response_peak)
+    if verbose:
+        npeaks_found = peaks.notna().sum()
+        nwindows = len(data.groupby([Label.ROI, Label.RUN]).first())
+        logger.info(
+            f'identified peaks in {npeaks_found}/{nwindows} windows '
+            f'({npeaks_found / nwindows * 100:.1f} %)')
+    return peaks.rename(Label.PEAK_ZSCORE)
+    
+
 def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
     '''
     Apply detection function in a given time window across all trials
@@ -407,48 +428,42 @@ def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
     return events
 
 
-def slide_along_trial(func, data, wlen, iseeds):
+def slide_along_trial(func, data, ref_wslice, iseeds):
     '''
     Call a specific function while sliding a detection window along the trial length.
 
     :param func: function called on each sliding iteration
     :param data: fluorescence timeseries data
-    :param wlen: window length (in frames)
+    :param ref_wslice: reference window slice (in frames)
     :param iseeds: either the index list or the number of sliding iterations along the trial length
     :return: stacked function output series with window starting index as a new index level
     '''
+    # Normalize reference window
+    ref_wslice = slice(0, ref_wslice.stop - ref_wslice.start)
+    # Get window length
+    wlen = FrameIndex.RESPONSE.stop - FrameIndex.RESPONSE.start
     # Generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
         iseeds = np.round(np.linspace(0, NFRAMES_PER_TRIAL - wlen, iseeds)).astype(int)
-    lvl = logger.getEffectiveLevel()
-    logger.setLevel(logging.WARNING)
+    duplicates = set(iseeds) - set(np.unique(iseeds))
+    if len(duplicates) > 0:
+        raise ValueError(f'duplicate seeding indexes ({duplicates})')
     outs = []
     # For each starting position
     for i in tqdm(iseeds):
         # Call function and get output series
-        out = func(data, slice(i, i + wlen))
-        # Save its name
-        name = out.name
-        # Rename with start index and append to list
-        outs.append(out.rename(i))
-    logger.setLevel(lvl)
-    # Concatenate output series into dataframe
-    df = pd.concat(outs, axis=1)
-    # Stack them ot yield output series with new index level
-    s = df.stack(dropna=False)
-     # Specify index level name
-    s.index.set_names(Label.ISTART, level=-1, inplace=True)
-    # Rename series with function output name
-    df = s.rename(name).to_frame()
-    # Add information about discarded trials
-    df[Label.DISCARDED] = False
-    isdiscarded = data[Label.ZSCORE].groupby([Label.ROI, Label.RUN, Label.TRIAL]).first().isnull()
-    idiscarded = isdiscarded[isdiscarded].index
-    uniques = [idiscarded.unique(level=k) for k in idiscarded.names] + [df.index.unique(Label.ISTART)]
-    mux = pd.MultiIndex.from_product(uniques)
-    df.loc[mux, Label.DISCARDED] = True
+        out = func(data.copy(), shiftslice(ref_wslice, i))
+        # Transform to dataframe and add column with istart info
+        out = out.to_frame()
+        out[Label.ISTART] = i
+        # Append to list
+        outs.append(out)
+    # Concatenate outputs
+    df = pd.concat(outs, axis=0)
+    # Add istart to index
+    df.set_index(Label.ISTART, append=True, inplace=True)
     # Return
-    return df
+    return df, iseeds
     
 
 def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=None):

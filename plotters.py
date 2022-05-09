@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-06 10:47:12
+# @Last Modified time: 2022-05-09 09:10:45
 
 ''' Collection of plotting utilities. '''
 
@@ -62,7 +62,13 @@ def plot_table(inputs):
     table.scale(1, 3)
     fig.tight_layout()
     return fig
-   
+
+
+def data_to_axis(ax, p):
+    ''' Convert data coordinates to axis coordinates '''
+    trans = ax.transData.transform(p)
+    return ax.transAxes.inverted().transform(trans)
+
 
 def plot_stack_histogram(stacks, title=None, yscale='log'):
     '''
@@ -884,7 +890,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI, legend='full',
                    err_style='band', ax=None, alltraces=False, nmaxtraces=None, hue=None, hue_order=None, col=None,
                    col_order=None, label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
-                   palette=None, **filter_kwargs):
+                   palette=None, marker=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -985,6 +991,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         data      = filtered_data, # data
         x         = xkey,          # x-axis
         y         = ykey,          # y-axis
+        marker    = marker,        # marker type
         hue       = hue,           # hue grouping variable
         hue_order = hue_order,     # hue plotting order 
         estimator = aggfunc,       # aggregating function
@@ -1201,6 +1208,8 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
     counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
     std_by_hue = counts_by_hue.std(axis=1)
     counts_by_hue = counts_by_hue.mean(axis=1)
+    counts_by_hue.index = counts_by_hue.index.astype(str)
+    std_by_hue.index = std_by_hue.index.astype(str) 
     for t in leg.texts:
         s = t.get_text()
         if s in counts_by_hue:
@@ -1256,7 +1265,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
     return fig
 
 
-def plot_stimparams_dependency_per_response_type(data, ykey, **kwargs):
+def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_TYPE, marker='o', **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -1266,13 +1275,13 @@ def plot_stimparams_dependency_per_response_type(data, ykey, **kwargs):
     :return: figure handle
     '''
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    hue_order = None
+    if hue == Label.ROI_RESP_TYPE:
+        hue_order = get_default_rtypes()
     for xkey, ax in zip([Label.P, Label.DC], axes.T):
         plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, ax=ax, 
-            hue=Label.ROI_RESP_TYPE, max_colwrap=2, nmaxtraces=150,
-            hue_order=get_default_rtypes(),
-            **kwargs
-        )
+            data, xkey=xkey, ykey=ykey, ax=ax, hue=hue, hue_order=hue_order,
+            max_colwrap=2, nmaxtraces=150, marker=marker, **kwargs)
     harmonize_axes_limits(axes)
     return fig
 
@@ -1432,7 +1441,7 @@ def plot_metrics_along_trial(data, wlen, fps, tbounds_baseline=(None, None), ful
     '''
     Plot a specific output metrics as a function of the sliding window position along the trial
     
-    :param data: multi-inxexed (ROI, run, trial, frame, istart) series of output metrics
+    :param data: multi-inxexed (ROI, run, frame, istart) series of output metrics
     :param wlen: window length (in frames)
     :param fps: frame rate (in frames per second)
     :return: figure handle (with optional derived baseline and stimulus-evoked values)

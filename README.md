@@ -42,12 +42,10 @@ The full dataset contains data from different mouse lines, each genetically deri
 
 | Line              | Marker       | Neuron type                                   | Morphology | Cortical Layer(s) |
 | ----------------- | ------------ | --------------------------------------------- | ---------- | ----------------- |
-| Line3 - Layer 2/3 | ???          | Excitatory neuron                             | Pyramidal  | 2-3               |
-| Line3 - Layer 5   | ???          | Excitatory neuron                             | Pyramidal  | 5                 |
-| SST               | Somatostatin | GABAergic inhibitory interneuron              | ???        | 2-3               |
-| PV                | Parvalbumin  | GABAergic fast-spiking inhibitory interneuron | ???        | 2-3               |
-
-TO COMPLETE.
+| Line3 - Layer 2/3 | Thy1         | Excitatory neuron                             | Pyramidal  | 2-3               |
+| Line3 - Layer 5   | Thy          | Excitatory neuron                             | Pyramidal  | 5                 |
+| SST               | Somatostatin | GABAergic inhibitory interneuron              | Spiny      | 2-3               |
+| PV                | Parvalbumin  | GABAergic fast-spiking inhibitory interneuron | Spny       | 2-3               |
 
 ### Acquisition protocols & raw data
 
