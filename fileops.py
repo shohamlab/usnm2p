@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-06 16:42:56
+# @Last Modified time: 2022-05-10 13:08:27
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -81,37 +81,40 @@ def get_subfolder_names(dirpath):
     return [f.name for f in os.scandir(dirpath) if f.is_dir()]
 
 
-def get_date_mouse_region_combinations(root='.', excludes=['layer5'], includes=['region']):
+def get_dataset_params(root='.', excludes=['layer5'], includes=['region']):
     '''
-    Construct a list of (date, mouse, region) combinations that contain experiment datasets
-    inside a given root directory.
+    Construct a list of (line, date, mouse, region) combinations that contain
+    experiment datasets inside a given root directory.
     
     :param root: root directory (typically a mouse line) containing the dataset folders
     :param excludes: list of exlusion patterns
     :param includes: list of inclusion patterns
-    :return: list of dictionaries representing (date, mouse, region) combinations found
+    :return: list of dictionaries representing (line, date, mouse, region) combinations found
         inside the root folder.
     '''
-    # Populate folder list
-    logger.info(f'Searching for data folders in {root}...')
-    l = []
-    # Loop through dates, mice, and regions, and add data root folders to list  
-    for date in get_subfolder_names(root):
-        datedir = os.path.join(root, date)
-        for mouse in get_subfolder_names(datedir):
-            mousedir = os.path.join(datedir, mouse)
-            for region in get_subfolder_names(mousedir):
-                regiondir = os.path.join(mousedir, region)
-                l.append((date, mouse, region, regiondir))
+    logger.info(f'Searching for data folders in {root} ...')
+    datasets = []
+    # Loop through lines, dates, mice, and regions, and add data root folders to list  
+    for line in get_subfolder_names(root):
+        linedir = os.path.join(root, line)
+        for date in get_subfolder_names(linedir):
+            datedir = os.path.join(linedir, date)
+            for mouse in get_subfolder_names(datedir):
+                mousedir = os.path.join(datedir, mouse)
+                for region in get_subfolder_names(mousedir):
+                    regiondir = os.path.join(mousedir, region)
+                    datasets.append((line, date, mouse, region, regiondir))
 
     # Remove unwanted patterns from list
     for k in excludes:
-        l = list(filter(lambda x: k not in os.path.basename(x[-1]), l))
+        datasets = list(filter(lambda x: k not in os.path.basename(x[-1]), datasets))
     for k in includes:
-        l = list(filter(lambda x: k in os.path.basename(x[-1]), l))
+        datasets = list(filter(lambda x: k in os.path.basename(x[-1]), datasets))
 
-    # Return date, mouse, region combinations
-    return [{'date': x[0], 'mouse': x[1], 'region': x[2]} for x in l]
+    # Return line, date, mouse, region combinations
+    return [
+        {'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3]}
+        for x in datasets]
 
 
 def check_for_existence(fpath, overwrite):
@@ -193,7 +196,11 @@ def split_path_at(in_path, split_dir):
     # Make sure found split directory matches input
     assert found_split_dir == split_dir, 'mismatch in path parsing'
     # Return (upstream path, dplit dir, downstream path) tuple
-    return pardir, split_dir, os.path.join(*downstream_path)
+    if len(downstream_path) > 0:
+        downstream_path = os.path.join(*downstream_path)
+    else:
+        downstream_path = ''
+    return pardir, split_dir, downstream_path
 
 
 def get_output_equivalent(in_path, basein, baseout):
@@ -424,10 +431,10 @@ def save_timeseries_data(timeseries, info_table, ROI_masks, outdir):
     # Save experiment info table
     logger.info('saving experiment info table...')
     info_table.to_csv(os.path.join(outdir, f'info_table.csv'))
-    # Save z-scores split by run
-    for ir, df in timeseries.loc[:, [Label.ZSCORE]].groupby(Label.RUN):
-        logger.info(f'saving z-score data for run {ir}...')
-        fpath = os.path.join(outdir, f'zscores_run{ir}.csv')
+    # Save timeseries split by run
+    logger.info('saving processed timeseries data (split by run)...')
+    for ir, df in tqdm(timeseries.groupby(Label.RUN)):
+        fpath = os.path.join(outdir, f'timeseries_run{ir}.csv')
         df.to_csv(fpath)
     # Save ROI masks
     logger.info('saving ROI masks...')
@@ -442,7 +449,7 @@ def load_timeseries_data(outdir, nruns, check=False):
     :param outdir: output directory
     :param nruns: number of runs
     :param check (default: False): whether to sjut check for data availability or to actually load it
-    :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) z-score timeseries per ROI,
+    :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) timeseries per ROI,
         experiment info dataframe, and ROI-indexed dataframe of (x, y) coordinates and weights.
     '''
     # Check that output directory exists
@@ -456,20 +463,20 @@ def load_timeseries_data(outdir, nruns, check=False):
     ROI_masks_fpath = os.path.join(outdir, f'ROI_masks.csv')
     if not os.path.isfile(ROI_masks_fpath):
         raise ValueError('ROI masks file not found in directory')
-    # Check that all z-score files are present in directory
-    zscorefiles = glob.glob(os.path.join(outdir, 'zscores_run*.csv'))
-    if len(zscorefiles) != nruns:
-        raise ValueError(f'number of saved z-score files ({len(zscorefiles)}) does not correspond to number of runs ({nruns})')
+    # Check that all timeseries files are present in directory
+    timeseriesfiles = glob.glob(os.path.join(outdir, 'timeseries_run*.csv'))
+    if len(timeseriesfiles) != nruns:
+        raise ValueError(f'number of saved timeseries files ({len(timeseriesfiles)}) does not correspond to number of runs ({nruns})')
     if check:  # check mode -> return None
         return None
     # Load experiment info table
     logger.info('loading experiment info table...')
     info_table = pd.read_csv(info_table_fpath).set_index(Label.RUN, drop=True)
-    # Load z-scores split by run
+    # Load timeseries split by run
     timeseries = []
-    logger.info(f'loading z-score data for {nruns} runs...')
+    logger.info(f'loading processed timeseries data for {nruns} runs...')
     for ir in tqdm(range(nruns)):
-        fpath = os.path.join(outdir, f'zscores_run{ir}.csv')
+        fpath = os.path.join(outdir, f'timeseries_run{ir}.csv')
         timeseries.append(pd.read_csv(fpath))
     # Concatenate and re-order index
     timeseries = pd.concat(timeseries, axis=0)

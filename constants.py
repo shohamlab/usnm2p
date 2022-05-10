@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-09 08:34:42
+# @Last Modified time: 2022-05-10 09:48:35
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -71,7 +71,7 @@ BASELINE_QUANTILE = .05  # quantile used for the computation of the fluorescence
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
 
 # Trials discarding
-ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
+ITRIALS_DISCARD = []  # indexes of trials to be automatically discarded for each ROI & run 
 
 # Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
@@ -169,8 +169,8 @@ class Label:
     PEAK_ZSCORE = F'peak {ZSCORE}'
     BASELINE_ZSCORE = F'baseline {ZSCORE}'
     MAX_ZSCORE_PRESTIM = f'max pre-stim {ZSCORE}'
-    PEAK_ZSCORE_POSTSTIM = f'peak post-stim [{ZSCORE}]'
-    PEAK_REL_ZSCORE_POSTSTIM = f'peak post-stim [{REL_ZSCORE}]'
+    PEAK_ZSCORE_POSTSTIM = f'peak post-stim {ZSCORE}'
+    PEAK_REL_ZSCORE_POSTSTIM = f'relative {PEAK_ZSCORE_POSTSTIM}'
     AREA_REL_ZSCORE_POSTSTIM = f'area post-stim [{REL_ZSCORE}] (s)'
 
     # Trial activity & related measures

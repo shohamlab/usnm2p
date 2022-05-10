@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-09 09:10:45
+# @Last Modified time: 2022-05-10 12:16:41
 
 ''' Collection of plotting utilities. '''
 
@@ -887,10 +887,12 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 
-def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None, ci=CI, legend='full',
-                   err_style='band', ax=None, alltraces=False, nmaxtraces=None, hue=None, hue_order=None, col=None,
-                   col_order=None, label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, aspect=1.5, alpha=None,
-                   palette=None, marker=None, **filter_kwargs):
+def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
+                   ci=CI, legend='full', err_style='band', ax=None, alltraces=False, 
+                   nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
+                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, 
+                   height=None, aspect=1.5, alpha=None, palette=None, marker=None,
+                   **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -925,7 +927,6 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
 
     ###################### Process log ######################
     s = []
-    # Determine figure aspect based on col parameters
 
     # If col set to ROI and only ROI -> remove column assignment 
     if col == Label.ROI and nROIs_filtered == 1:
@@ -937,12 +938,14 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     if col is not None:
         s.append(f'grouping by {col}')
         col_wrap = min(len(filtered_data.groupby(col)), max_colwrap)
-        height = 5.
+        if height is None:
+            height = 5.
         if ax is not None:
             raise ValueError(f'cannot sweep over {col} with only 1 axis')
     else:
         col_wrap = None
-        height = 4.      
+        if height is None:
+            height = 4.      
     if hue is not None:
         s.append(f'grouping by {hue}')
         if hue == Label.ROI and Label.ROI in filters:
@@ -1014,7 +1017,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         plot_kwargs.update(dict(
             kind     = 'line',   # kind of plot
             height   = height,   # figure height
-            aspect   = aspect,   # aspect ratio of the figure
+            aspect   = aspect,   # width / height aspect ratio of each figure axis
             col_wrap = col_wrap, # how many axes per row
             col      = col,      # column (i.e. axis) grouping variable
             col_order = col_order
@@ -1265,7 +1268,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
     return fig
 
 
-def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_TYPE, marker='o', **kwargs):
+def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_TYPE,
+                                                 marker='o', **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -1283,6 +1287,41 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
             data, xkey=xkey, ykey=ykey, ax=ax, hue=hue, hue_order=hue_order,
             max_colwrap=2, nmaxtraces=150, marker=marker, **kwargs)
     harmonize_axes_limits(axes)
+    return fig
+
+
+def plot_parameter_dependency_across_datasets(data, xkey, ykey, weighted=False, **kwargs):
+    '''
+    Plot the parameter dependency of a specific variable across mouse-region datasets
+    
+    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :param xkey: name of the stimulation parameter of interest
+    :param ykey: name of the output variable of interest
+    :return: figure handle
+    '''
+    # Plot parameter dependency of ykey, grouped by mouse-region and response type
+    fig = plot_parameter_dependency(
+        data, xkey=xkey, ykey=ykey,
+        hue=Label.MOUSEREG, 
+        col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
+        add_leg_numbers=False, max_colwrap=2, ci=None, alpha=0.5,
+        **kwargs)
+    # Determine averaging categories
+    categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
+    if not weighted:  # if non-weighted average, add mouse-region
+        categories = [Label.MOUSEREG] + categories
+    # Average across each category and resolve input columns
+    # (avoid "almost-identical" duplicates)
+    avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
+    # Extract non weighted average traces across datasets
+    xdep_avg_data = get_xdep_data(avg_data, xkey)
+    # Add average parameter dependency trace across datasets, for each response type
+    for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
+        sns.lineplot(
+            data=group, x=xkey, y=ykey, ax=ax, color='BLACK', ci='sd',
+            marker='o', lw=4, markersize=10, legend=False)
+        line = ax.get_lines()[-1]
+    fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
     return fig
 
 
@@ -1881,47 +1920,6 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
                 n = nperbar.loc[label]
                 ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
             
-    return fig
-
-
-def plot_parameter_dependency_across_datasets(data, xkey, ykey, qbounds=(0, 1), **kwargs):
-    '''
-    Plot the parameter dependency of a specific variable across mouse-region datasets
-    
-    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
-    :param xkey: name of the stimulation parameter of interest
-    :param ykey: name of the output variable of interest
-    :param qbounds: specific quantile interval to restrict the dataset
-    :return: figure handle
-    '''
-    # Restrict data to included trials
-    # data = included(data)
-    norig = len(data)
-    # Select quantile interval for each category (mouse-region, response type and run)
-    categories = [Label.MOUSEREG, Label.ROI_RESP_TYPE, Label.RUN]
-    xkeys = [Label.P, Label.DC]
-    # subset_idx = get_quantile_indexes(data, qbounds, ykey, groupby=categories)
-    title = None
-    if qbounds != (0, 1):
-        title = f'q = {qbounds}'
-    # data = data.loc[subset_idx, :]
-    nkept = len(data)
-    logger.info(f'selected {nkept} / {norig} samples ({nkept / norig * 100:.1f}% of dataset)')
-    # Average data by mouse-region, response type and run
-    avg_data = data.groupby(categories).mean()
-    # Make sure input columns are correclty resolved post-averaging
-    # (avoid "almost-identical" duplicates)
-    avg_data = resolve_columns(avg_data, xkeys)
-    # Plot parameter dependency of ykey, grouped by mouse-region and response type
-    fig = plot_parameter_dependency(
-        data, xkey=xkey, ykey=ykey,
-        hue=Label.MOUSEREG, col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
-        add_leg_numbers=False, max_colwrap=2, aspect=1., alpha=0.5,
-        title=title, **kwargs)
-    # # Add average parameter dependency trace across mouse-regions, for each response type
-    xdep_avg_data = get_xdep_data(avg_data, xkey)
-    for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
-        sns.lineplot(data=group, x=xkey, y=ykey, ax=ax, color='BLACK', lw=3, ci=None, legend=False)
     return fig
 
 

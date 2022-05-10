@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-06 11:56:00
+# @Last Modified time: 2022-05-10 13:21:40
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -10,46 +10,55 @@ import os
 import logging
 from argparse import ArgumentParser
 
-from fileops import get_data_root, get_date_mouse_region_combinations
+from fileops import get_data_root, get_dataset_params
 from logger import logger
 from nbutils import DirectorySwicther, execute_notebooks
 
 logger.setLevel(logging.INFO)
 
-# Default parameters (with their description)
-defaults = {
-    'input': ('single_region_analysis.ipynb', 'path to input notebook'), 
-    'outdir': ('outputs', 'relative path to output directory w.r.t. this script'),
-    'line': ('line3', 'mouse line'),
-    'mouse': ('mouse12', 'mouse number'),
-    'region': ('region1', 'brain region'),
-    'date': ('11122019', 'experiment date')
-}
-
 if __name__ == '__main__':
 
     # Create command line parser
     parser = ArgumentParser()
-    for k, (default, desc) in defaults.items():
-        parser.add_argument(f'-{k[0]}', f'--{k}', default=default, help=f'{desc} (default = {default})')
-    parser.add_argument('--locate', default=False, action='store_true', help='automatically locate datasets in the file system')
-    parser.add_argument('--mpi', default=False, action='store_true', help='enable multiprocessing')
+    parser.add_argument(
+        '-i', '--input', default='single_region_analysis.ipynb', help='path to input notebook')
+    parser.add_argument(
+        '-o', '--outdir', default='outputs', 
+        help='relative path to output directory w.r.t. this script')    
+    parser.add_argument(
+        '--mpi', default=False, action='store_true', help='enable multiprocessing')
+    parser.add_argument('-l', '--line', help='mouse line')
+    parser.add_argument('-d', '--date', help='experiment date')
+    parser.add_argument('-m', '--mouse', help='mouse number')
+    parser.add_argument('-r', '--region', help='brain region')
 
-    # Extract input notebook, output diectory and execution parameters from command line arguments
+    # Extract input notebook, output directory and execution parameters from command line arguments
     args = vars(parser.parse_args())
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
-    locate = args.pop('locate')
     mpi = args.pop('mpi')
-    if locate:
-        # If locate was turned on, extract parameter combinations from folder structure
-        pdicts = get_date_mouse_region_combinations(root=get_data_root())
-    else:
-        # Otherwise, construct unique combination from inputs
-        pdicts = [args]
+    
+    # Rename parameters to avoid mix-up with other variables during notebook execution 
+    args['mouseline'] = args.pop('line')
+    args['expdate'] = args.pop('date')
+    args['mouseid'] = args.pop('mouse')
 
-    # Set multiprocessing to False in case of single execution
-    if len(pdicts) == 1:
+    # Extract candidate parameter combinations from folder structure
+    pdicts = get_dataset_params(root=get_data_root())
+
+    # Filter to match input parameters
+    for k, v in args.items():
+        if v is not None:
+            logger.info(f'restricting datasets to {k} = {v}')
+            pdicts = list(filter(lambda x: x[k] == v, pdicts))
+    
+    njobs = len(pdicts)
+    # Log warning message and quit if no job was found
+    if njobs == 0:
+        logger.warning('found no job to run')
+        quit()
+    # Set multiprocessing to False in case of single job
+    elif njobs == 1:
         mpi = False
 
     # Get absolute path to directory of current file (where code must be executed)

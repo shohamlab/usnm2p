@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-07 19:46:34
+# @Last Modified time: 2022-05-10 11:46:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -100,38 +100,30 @@ def separate_trials(data, ntrials):
     return data
 
 
-def remove_trials(data, iremove):
+def discard_indexes(data, ikey=Label.TRIAL, idiscard=None):
     '''
-    Remove specific trial indexes from fluoresence dataset
+    Discard specific values from a specific index level in a multi-indexed dataset
     
     :param data: multi-index dataframe with 4D (ROI, run, trial, frame) index
-    :param iremove: indexes of trials to remove
+    :param ikey: index level key
+    :param idiscard: index values to discard at this index level
     :return: filtered dataset
     '''
-    # Cast indexes to remove as list
-    if not is_iterable(iremove):
-        iremove = [iremove]
-    # Get trials indexes present in dataset
-    itrials = data.index.unique(level=Label.TRIAL)
-    # Diff the two lists to get indexes to keep and indexes absent from dataset
-    iabsent = sorted(list(set(iremove) - set(itrials)))
-    ikeep = sorted(list(set(itrials) - set(iremove)))
-    iremove = sorted(list(set(itrials).intersection(set(iremove))))
-
-    data.loc[pd.IndexSlice[:, :, iremove, :], :] = np.nan
-
-    # # Convert ikeep to slice if possible (much faster data extraction)
-    # ibounds = min(ikeep), max(ikeep)
-    # if ikeep == list(range(ibounds[0], ibounds[1] + 1)):
-    #     ikeep = slice(ibounds[0], ibounds[1])
-    # # Log warning message in case of absent indexes
-    # if len(iabsent) > 0:
-    #     logger.warning(f'trials {iabsent} not found in dataets (already removed?) -> ignoring') 
-    # # Restrict dataset to keep indexes
-    # logger.info(f'removing trials {iremove} for each run...')
-    # data = data.loc[pd.IndexSlice[:, :, ikeep, :], :]
-
-    # Return
+    # Cast indexes to discard as list
+    if not is_iterable(idiscard):
+        idiscard = [idiscard]
+    # If no discard index specified -> return 
+    if len(idiscard) == 0 or idiscard[0] is None:
+        return data
+    # Get indexes values present in dataset at that level
+    idxs = data.index.unique(level=ikey)
+    # Diff the two lists to get indexes to discard from dataset
+    idiscard = sorted(list(set(idxs).intersection(set(idiscard))))
+    # Discard them
+    logger.info(f'discarding {ikey} index values {idiscard} from dataset')
+    data = data.query(f'{ikey} not in {idiscard}')
+    # Return data
+    logger.info(f'filtered data ({describe_dataframe_index(data)})')
     return data
 
 
@@ -383,12 +375,20 @@ def shiftslice(s, i):
     return slice(s.start + i, s.stop + i)
 
 
-def detect_peaks_in_window(data, wslice, verbose=True):
+def detect_peaks_in_window(data, ykey, wslice, verbose=True):
+    '''
+    Detect peaks in a given signal within a specific observation window
+    
+    :param data: multi-indexed fluorescence timeseries dataframe
+    :param ykey: name of the column containing the signal of interest
+    :param wslice: slice object representing the indexes of the window
+    :param verbose (optional): whether to log peak detection results
+    '''
     if verbose:
         logger.info(
-            f'detecting peak z-scores in {wslice.start}-{wslice.stop} index window '
+            f'detecting peak {ykey} in {wslice.start}-{wslice.stop} index window '
             'across ROIs and runs...')
-    window_data = data.loc[pd.IndexSlice[:, :, wslice], Label.ZSCORE]
+    window_data = data.loc[pd.IndexSlice[:, :, wslice], ykey]
     peaks = window_data.groupby([Label.ROI, Label.RUN]).agg(find_response_peak)
     if verbose:
         npeaks_found = peaks.notna().sum()
@@ -396,7 +396,7 @@ def detect_peaks_in_window(data, wslice, verbose=True):
         logger.info(
             f'identified peaks in {npeaks_found}/{nwindows} windows '
             f'({npeaks_found / nwindows * 100:.1f} %)')
-    return peaks.rename(Label.PEAK_ZSCORE)
+    return peaks.rename(f'peak {ykey}')
     
 
 def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
@@ -642,7 +642,10 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
                 logger.warning(err)
     # No ROI selected -> indicate number of ROIs
     if iROI is None:
-        nROIs = len(data.index.unique(level=Label.ROI).values)
+        if Label.MOUSEREG in data.index.names:
+            nROIs = len(data.groupby([Label.MOUSEREG, Label.ROI]).first())
+        else:
+            nROIs = len(data.index.unique(level=Label.ROI).values)
         filters['nROIs'] = f'({nROIs} ROIs)'
 
     # Set filters to None if not filter was applied 
@@ -1054,16 +1057,16 @@ def get_default_rtypes():
     # return correlations_to_rcode(df).tolist()
 
 
-def reclassify(data, nposthr=None, verbose=False):
+def reclassify(data, zthr=None, nposthr=None, verbose=False):
     ''' Reclassify dataset based on a new threshold number of responsive conditions '''
+    if zthr is not None:
+        data[Label.POS_COND] = data[Label.PEAK_ZSCORE_POSTSTIM] > zthr
+        if nposthr is None:
+            nposthr = NPOSCONDS_THR
     if nposthr is not None:
-        new_isresp = data[Label.NPOS_CONDS] >= nposthr
-        if verbose:
-            same_isresp = data[Label.IS_RESP_ROI] == new_isresp
-            pctchange = (1 - (same_isresp.sum() / len(same_isresp))) * 100
-            logger.info(f'new npos threshold {nposthr} induced {pctchange:.1f}% change in ROI classification')
-        data[Label.IS_RESP_ROI] = new_isresp
-        data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map({True: 'responsive', False: 'non-responsive'})
+        data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
+        data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
+            {True: 'responsive', False: 'non-responsive'})
     return data
 
 
@@ -1178,3 +1181,15 @@ def compute_metrics_vs_nposthr(data, nposthrs, ykeys, evalfunc='max'):
     metrics_vs_nposthr.set_index(Label.NPOS_CONDS, append=True, inplace=True)
     # Return metrics dataframe
     return metrics_vs_nposthr
+
+
+def exclude_datasets(data, mouseregs):
+    '''
+    Exclude specific datasets from analysis
+    
+    :param data: global experiment dataframe
+    :param mouseregs: mouse-region combinatiojs to be discarded
+    :return: filtered experiment dataframe 
+    '''
+    logger.info(f'excluding {mouseregs} datasets from analysis')
+    return data.query(f'{Label.MOUSEREG} not in {mouseregs}')

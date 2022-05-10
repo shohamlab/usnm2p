@@ -32,7 +32,9 @@ To automatically run the same analysis over several datasets, you can use the `r
 - to run the script: `python run_analyses.py`
 - to access command line options: `python run_analyses.py -h`
 
-TO COMPLETE.
+To run the batch analysis of several datasets interactively:
+- start Jupyter Lab: `jupyter lab`
+- execute the `batch_analysis.ipynb` notebook
 
 ## Description
 
