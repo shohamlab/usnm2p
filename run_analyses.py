@@ -2,13 +2,15 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 13:21:40
+# @Last Modified time: 2022-05-10 13:43:56
 
 ''' Utility script to run single region analysis notebook '''
 
+from cProfile import run
 import os
 import logging
 from argparse import ArgumentParser
+from constants import KALMAN_GAIN
 
 from fileops import get_data_root, get_dataset_params
 from logger import logger
@@ -20,6 +22,8 @@ if __name__ == '__main__':
 
     # Create command line parser
     parser = ArgumentParser()
+
+    # Add input / output / mpi arguments
     parser.add_argument(
         '-i', '--input', default='single_region_analysis.ipynb', help='path to input notebook')
     parser.add_argument(
@@ -27,32 +31,37 @@ if __name__ == '__main__':
         help='relative path to output directory w.r.t. this script')    
     parser.add_argument(
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
-    parser.add_argument('-l', '--line', help='mouse line')
-    parser.add_argument('-d', '--date', help='experiment date')
-    parser.add_argument('-m', '--mouse', help='mouse number')
-    parser.add_argument('-r', '--region', help='brain region')
 
-    # Extract input notebook, output directory and execution parameters from command line arguments
+    # Add dataset arguments 
+    parser.add_argument('-l', '--mouseline', help='mouse line')
+    parser.add_argument('-d', '--expdate', help='experiment date')
+    parser.add_argument('-m', '--mouseid', help='mouse number')
+    parser.add_argument('-r', '--region', help='brain region')
+    
+    # Add arguments about other execution parameters
+    parser.add_argument(
+        '-k', '--kalmangain', type=float, default=KALMAN_GAIN, help='Kalman filter gain')
+
+    # Extract command line arguments
     args = vars(parser.parse_args())
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
-    
-    # Rename parameters to avoid mix-up with other variables during notebook execution 
-    args['mouseline'] = args.pop('line')
-    args['expdate'] = args.pop('date')
-    args['mouseid'] = args.pop('mouse')
+    exec_args = ['kalmangain']
+    exec_args = {k: args.pop(k) for k in exec_args}
 
-    # Extract candidate parameter combinations from folder structure
-    pdicts = get_dataset_params(root=get_data_root())
+    # Extract candidate datasets combinations from folder structure
+    datasets = get_dataset_params(root=get_data_root())
 
-    # Filter to match input parameters
+    # Filter datasets to match related input parameters
     for k, v in args.items():
         if v is not None:
             logger.info(f'restricting datasets to {k} = {v}')
-            pdicts = list(filter(lambda x: x[k] == v, pdicts))
+            datasets = list(filter(lambda x: x[k] == v, datasets))
+
+    # Compute number of jobs to run 
+    njobs = len(datasets)
     
-    njobs = len(pdicts)
     # Log warning message and quit if no job was found
     if njobs == 0:
         logger.warning('found no job to run')
@@ -61,6 +70,12 @@ if __name__ == '__main__':
     elif njobs == 1:
         mpi = False
 
+    # Merge datasets and execution parameters information
+    params = datasets.copy()
+    for k, v in exec_args.items():
+        for i in range(njobs):
+            params[i][k] = v
+
     # Get absolute path to directory of current file (where code must be executed)
     script_fpath = os.path.realpath(__file__)
     exec_dir = os.path.split(script_fpath)[0]
@@ -68,4 +83,4 @@ if __name__ == '__main__':
     # Execute notebooks within execution directory (to ensure correct function)
     with DirectorySwicther(exec_dir) as ds:
         # Execute notebooks as a batch with / without multiprocessing
-        output_nbpaths = execute_notebooks(pdicts, input_nbpath, outdir, mpi=mpi, ask_confirm=True)
+        output_nbpaths = execute_notebooks(params, input_nbpath, outdir, mpi=mpi, ask_confirm=True)
