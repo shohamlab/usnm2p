@@ -2,19 +2,17 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 11:46:43
+# @Last Modified time: 2022-05-12 18:38:39
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
-import logging
 from collections import Counter
-from multiprocessing.sharedctypes import Value
 import numpy as np
 import pandas as pd
-from pandas.core.groupby.groupby import GroupBy
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.optimize import curve_fit
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, peak_widths
 from scipy.stats import skew, norm
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -324,6 +322,14 @@ def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
         return ypeak
 
 
+def find_max(s, n_neighbors=N_NEIGHBORS_PEAK):
+    x = s.values
+    if n_neighbors > 0:
+        w = 2 * n_neighbors + 1
+        x = np.convolve(x, np.ones(w), 'valid') / w
+    return x.max()
+
+
 def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True, full_output=False):
     '''
     Compute displacement velocity profiles frrom registration offsets
@@ -375,29 +381,36 @@ def shiftslice(s, i):
     return slice(s.start + i, s.stop + i)
 
 
-def detect_peaks_in_window(data, ykey, wslice, verbose=True):
+def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=True):
     '''
-    Detect peaks in a given signal within a specific observation window
+    Apply function to a given signal within a specific observation window
     
     :param data: multi-indexed fluorescence timeseries dataframe
     :param ykey: name of the column containing the signal of interest
     :param wslice: slice object representing the indexes of the window
-    :param verbose (optional): whether to log peak detection results
     '''
+    idxlevels = [k for k in data.index.names if k != Label.FRAME]
     if verbose:
         logger.info(
-            f'detecting peak {ykey} in {wslice.start}-{wslice.stop} index window '
-            'across ROIs and runs...')
-    window_data = data.loc[pd.IndexSlice[:, :, wslice], ykey]
-    peaks = window_data.groupby([Label.ROI, Label.RUN]).agg(find_response_peak)
-    if verbose:
-        npeaks_found = peaks.notna().sum()
-        nwindows = len(data.groupby([Label.ROI, Label.RUN]).first())
+            f'applying {func.__name__} function on {ykey} in {wslice.start}-{wslice.stop} index window '
+            f'across {", ".join(idxlevels)} ...')
+    if len(idxlevels) == 1:
+        window_data = data.loc[pd.IndexSlice[:, wslice], ykey]
+    elif len(idxlevels) == 2:
+        window_data = data.loc[pd.IndexSlice[:, :, wslice], ykey]
+    elif len(idxlevels) == 3:
+        window_data = data.loc[pd.IndexSlice[:, :, :, wslice], ykey]
+    else:
+        raise ValueError(f'cannot apply {func} func: too many index levels ({len(idxlevels)}')
+    out = window_data.groupby(idxlevels).agg(func)
+    if log_completion_rate:
+        outs_found = out.notna().sum()
+        nwindows = len(data.groupby(idxlevels).first())
+        out_pct = outs_found / nwindows * 100
         logger.info(
-            f'identified peaks in {npeaks_found}/{nwindows} windows '
-            f'({npeaks_found / nwindows * 100:.1f} %)')
-    return peaks.rename(f'peak {ykey}')
-    
+            f'identified outputs in {outs_found}/{nwindows} windows ({out_pct:.1f} %)')
+    return out
+
 
 def detect_across_trials(func, data, iwindow=None, key=Label.ZSCORE):
     '''
@@ -569,7 +582,7 @@ def weighted_average(data, avg_name, weight_name):
     return (d * w).sum() / w.sum()
 
 
-def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
+def filter_data(data, iROI=None, irun=None, itrial=None, ireg=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
     ''' Filter data according to specific criteria.
     
     :param data: experiment dataframe
@@ -588,16 +601,20 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
 
     ###################### Sub-indexing ######################
     logger.info('sub-indexing data...')
-    subindex = [slice(None)] * 3
+    idxnames = data.index.names
+    subindex = [slice(None)] * len(idxnames)
     if iROI is not None:
-        subindex[0] = iROI
+        subindex[idxnames.index(Label.ROI)] = iROI
         filters[Label.ROI] = f'{Label.ROI}{plural(iROI)} {iROI}'
     if irun is not None:
-        subindex[1] = irun
+        subindex[idxnames.index(Label.RUN)] = irun
         filters[Label.RUN] = f'{Label.RUN}{plural(irun)} {irun}'
     if itrial is not None:
-        subindex[2] = itrial
+        subindex[idxnames.index(Label.TRIAL)] = itrial
         filters[Label.TRIAL] = f'{Label.TRIAL}{plural(itrial)} {itrial}'
+    if ireg is not None:
+        subindex[idxnames.index(Label.MOUSEREG)] = ireg
+        filters[Label.MOUSEREG] = f'{Label.MOUSEREG}{plural(ireg)} {ireg}'
     # Check for each sub-index level that elements are in global index
     for k, v in zip(data.index.names, subindex):
         if is_iterable(v) or v != slice(None):
@@ -640,8 +657,8 @@ def filter_data(data, iROI=None, irun=None, itrial=None, rtype=None, P=None, DC=
                 filters[Label.RUN] += f' (P = {parsed_P} MPa, DC = {parsed_DC} %)'
             except ValueError as err:
                 logger.warning(err)
-    # No ROI selected -> indicate number of ROIs
-    if iROI is None:
+    # No ROI selected  but ROI in data index -> indicate number of ROIs
+    if iROI is None and Label.ROI in data.index.names:
         if Label.MOUSEREG in data.index.names:
             nROIs = len(data.groupby([Label.MOUSEREG, Label.ROI]).first())
         else:
@@ -744,39 +761,60 @@ def histogram_fit(data, func, bins=100, p0=None, bounds=None):
     return xmid, popt
 
 
-def gauss_histogram_fit(data, bins=100):
+def gauss_histogram_fit(data, bins=100, plot=False):
     '''
     Fit a gaussian function to a dataset's histogram distribution
     
     :param data: data array
     :param bins (optional): number of bins in histogram  (or bin edges values)
+    :param plot (default: False): whether to plot fit results
     :return: (bin mid-points, fitted function parameters) tuple
     '''
-    # Histogram distribution
+    # Compute histogram distribution
     hist, edges = np.histogram(data, bins=bins)
     mids = (edges[1:] + edges[:-1]) / 2
-    ptp = np.ptp(data)
-    
+
+    # Identify location of histogram peak and estimate its width
+    ipeak = np.argmax(hist)
+    pw = peak_widths(hist, [ipeak])[0][0] * (mids[1] - mids[0])
+
     # Initial guesses
     H = hist.min()  # vertical offset -> min histogram value
     A = np.ptp(hist)  # vertical range -> histogram amplitude range
-    x0 = mids[np.argmax(hist)]  # gaussian mean -> index of max histogram value
-    sigma = ptp / 4  # gaussian width -> 1/4 of the data range 
+    x0 = mids[ipeak]  # gaussian mean -> index of max histogram value
+    sigma = pw / 2  # gaussian width -> 1/2 of the estimated histogram peak width
     p0 = (H, A, x0, sigma)
 
     # Bounds
-    Hbounds = (0., H + A / 2)  # vertical offset -> between 0 and min + half-range
+    Hbounds = (0, H + A / 2)  # vertical offset -> between 0 and min + half-range
     Abounds = (A / 2, 2 * A)   # vertical range -> between half and twice initial guess
-    x0bounds = (x0 - ptp / 2, x0 + ptp / 2)  # gaussian mean -> within half-range of initial guess
-    sigmabounds = (1e-10, ptp)  # sigma -> between 0 and full range (non-negativity constraint)
+    x0bounds = (x0 - pw, x0 + pw)  # gaussian mean -> within 2 peak width ranges
+    sigmabounds = (1e-10, 3 * pw)  # sigma -> between 0 and 3 peak width ranges (non-negativity constraint)
     pbounds = tuple(zip(*(Hbounds, Abounds, x0bounds, sigmabounds)))
 
     # Fit gaussian to histogram distribution
     xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0, bounds=pbounds)
 
+    # Optional plot
+    if plot:
+        fig, ax = plt.subplots()
+        ax.set_xlabel('signal values')
+        ax.set_ylabel('count')
+        for sk in ['top', 'right']:
+            ax.spines[sk].set_visible(False)
+        ax.plot(mids, hist, label='histogram')
+        ax.plot(mids, gauss(mids, *p0), label='initial guess')
+        ax.plot(xmid, gauss(mids, *popt), label='fit')
+        ax.legend(frameon=False)
+
+    # Check that x-axis parameters (mean and std) are correct
     s = popt[3]
     assert s > 0, f'Error: negative standard deviation found during Gaussian fit ({s})'
-    
+    mu = popt[2]
+    if mu < 0:
+        logger.warning(f'negative mean found during Gaussian fit ({mu})')
+
+    # Return outputs
     return xmid, popt
 
 
@@ -1051,16 +1089,12 @@ def correlations_to_rcode(corrtypes, j=', '):
 def get_default_rtypes():
     ''' Get default response type codes '''
     return ['non-responsive', 'responsive']
-    # df = pd.DataFrame({
-    #     Label.P: [0, 1, 0, 1],
-    #     Label.DC: [0, 0, 1, 1]})
-    # return correlations_to_rcode(df).tolist()
 
 
-def reclassify(data, zthr=None, nposthr=None, verbose=False):
+def reclassify(data, ykey, thr=None, nposthr=None, verbose=False):
     ''' Reclassify dataset based on a new threshold number of responsive conditions '''
-    if zthr is not None:
-        data[Label.POS_COND] = data[Label.PEAK_ZSCORE_POSTSTIM] > zthr
+    if thr is not None:
+        data[Label.POS_COND] = data[ykey] > thr
         if nposthr is None:
             nposthr = NPOSCONDS_THR
     if nposthr is not None:
@@ -1183,13 +1217,89 @@ def compute_metrics_vs_nposthr(data, nposthrs, ykeys, evalfunc='max'):
     return metrics_vs_nposthr
 
 
-def exclude_datasets(data, mouseregs):
+def exclude_datasets(data, to_exclude):
     '''
     Exclude specific datasets from analysis
     
     :param data: global experiment dataframe
-    :param mouseregs: mouse-region combinatiojs to be discarded
+    :param to_exclude: mouse-region combinations to be discarded
     :return: filtered experiment dataframe 
     '''
-    logger.info(f'excluding {mouseregs} datasets from analysis')
-    return data.query(f'{Label.MOUSEREG} not in {mouseregs}')
+    default_k = list(data.keys())[0]
+    candidate_mouseregs = data[default_k].index.unique(level=Label.MOUSEREG).values
+    notthere = list(set(to_exclude) - set(candidate_mouseregs))
+    if len(notthere) > 0:
+        logger.warning(f'{notthere} not found in dataset -> ignoring') 
+    to_exclude = list(set(candidate_mouseregs).intersection(set(to_exclude)))
+    if len(to_exclude) == 0:
+        logger.warning('did not find any mouse-region to exclude from dataset')
+        return data
+    logger.info(f'excluding {to_exclude} datasets from analysis')
+    query = f'{Label.MOUSEREG} not in {to_exclude}'
+    return {k: v.query(query) for k, v in data.items()}
+
+
+def add_change_metrics(timeseries, stats, ykey):
+    '''
+    Add a change metrics to a stats table
+    
+    :param timeseries: mutli-indexed timeseries dataframe
+    :param stats: mutli-indexed stats dataframe
+    :param ykey: name of the variable for which to compute the relative change
+    '''
+    if ykey not in timeseries:
+        raise ValueError(f'{ykey} not in timeseries data')
+
+    # Determine variable of interest for output metrics
+    ykey_peak = f'peak {ykey}'
+    ykey_baseline = f'baseline {ykey}'
+    ykey_change = f'relative {ykey} change'
+
+    # If change metrics is already present in stats, return
+    if ykey in stats:
+        logger.warning(f'{ykey_change} already in stats dataframe -> ignoring')
+        return stats
+
+    # Extract stimulus-evoked peak and pre-stimulus baseline
+    stats[ykey_peak] = apply_in_window(
+        find_response_peak, timeseries, ykey, FrameIndex.RESPONSE)
+    stats[ykey_baseline] = apply_in_window(
+        np.mean, timeseries, ykey, FrameIndex.PRESTIM, log_completion_rate=False)
+    # Subtract baseline from peak to get relative change
+    stats[ykey_change] = stats[ykey_peak] - stats[ykey_baseline]
+    
+    # Return stats dataframe
+    return stats
+
+
+def harmonize_run_index(data):
+    '''
+    Generate a new harmonized run index in multi-region dataset, based on P-DC combination
+    '''
+    # Remove run index
+    data = data.droplevel(Label.RUN)
+    # Parse P and DC columns to strings
+    P_str = data[Label.P].map('{:.2f}MPa'.format)
+    DC_str = data[Label.DC].map('{:.0f}%DC'.format)
+    # Generate new run column from (P, DC) combination 
+    data[Label.RUN] = P_str + DC_str
+    # Add as index dimension
+    data.set_index(Label.RUN, append=True, inplace=True)
+    # Return 
+    return data
+
+
+def get_subdataset(data, mousereg):
+    subdata = {}
+    for k, df in data.items():
+        tmp = df[df.index.get_level_values(level=Label.MOUSEREG) == mousereg]
+        subdata[k] = tmp.droplevel(Label.MOUSEREG)
+    return subdata
+
+
+def get_plot_data(timeseries, stats):
+    logger.info('merging timeseries and stats information...')
+    plt_data = timeseries.copy()
+    expand_and_add(stats, plt_data)
+    add_time_to_table(plt_data)
+    return plt_data

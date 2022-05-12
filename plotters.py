@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 12:16:41
+# @Last Modified time: 2022-05-12 18:20:00
 
 ''' Collection of plotting utilities. '''
 
 import random
+from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -582,28 +583,63 @@ def plot_npix_ratio_distribution(stats, thr=None):
     return fig, data
 
 
-def plot_all_ROIs(data, key=Label.F, delimiters=None):
+def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=None, stacked=False):
     '''
-    Plot all ROI traces for a particular variable
+    Plot ROI traces for a particular variable
 
     :param data: fluorescence dataframe
+    :param xdelimiters (optional): temporal delimiters at which to draw vertical lines
+    :param ydelimiters (optional): vertical delimiters at which to draw horizontal lines
+    :param ntraces (optional): number of traces to plot
+    :param stacked (optional): whether to stack the traces vertically
     :return: figure handle
     '''
-    logger.info(f'plotting {key} traces of all ROIs...')
+    # Reduce daatset to key of interest
+    data = data[key]
+    # Get ROIs indexes
+    iROIs = data.index.unique(level=Label.ROI)
+    # Check and adapt y-delimiters, if any
+    if ydelimiters is not None:
+        if ydelimiters.ndim  == 1:
+            ydelimiters = np.atleast_2d(ydelimiters).T
+        if ydelimiters.shape[0] != len(iROIs):
+            raise ValueError(
+                f'delimiters ({ydelimiters.shape}) do not match number of ROIs ({len(iROIs)})')
+    # If number of traces specified, reduce to subset of traces (if applicable)
+    if ntraces is not None and ntraces < len(iROIs):
+        prefix  = ''
+        iROIs = random.sample(set(iROIs), ntraces)
+        data = data.query(f'{Label.ROI} in {iROIs}')
+        if ydelimiters is not None:
+            ydelimiters = ydelimiters[iROIs]
+    else:
+        prefix = 'all '
+    nROIs = len(iROIs)
+    logger.info(f'plotting {key} traces of {prefix}{nROIs} ROIs...')
+    # Adjust height vertical delta if stacked
+    if stacked:
+        dy = data.groupby(Label.ROI).apply(np.ptp).quantile(.2)
+        height = 0.5 * nROIs
+    else:
+        dy = 0
+        height = 4
     # Create figure
-    fig, ax = plt.subplots(figsize=(12, 4))
+    fig, ax = plt.subplots(figsize=(12, height))
+    ax.set_title(f'{key} traces for {prefix}{nROIs} ROIs')
     sns.despine(ax=ax)
     ax.set_xlabel('frames')
     ax.set_ylabel(key)
-    nROIs = len(data.index.unique(level=Label.ROI))
-    ax.set_title(f'{key} traces for all {nROIs} ROIs')
-    # Plot traces of all ROIs
-    for _, y in data[key].groupby(Label.ROI):
-        ax.plot(y.values)
+    # Plot traces of all selected ROIs
+    for i, (iROI, y) in enumerate(data.groupby(Label.ROI)):
+        ax.plot(y.values + dy * i, lw=1, rasterized=True)
+        if ydelimiters is not None:
+            for yd in ydelimiters[i]:
+                ax.axhline(yd + dy * i, c='k', ls='--', rasterized=True)
+    ax.autoscale(enable=True, tight=True)
     # Plot delimiters, if any
-    if delimiters is not None:
-        logger.info(f'adding {len(delimiters)} delimiters')
-        for iframe in delimiters:
+    if xdelimiters is not None:
+        logger.info(f'adding {len(xdelimiters)} delimiters')
+        for iframe in xdelimiters:
             ax.axvline(iframe, color='k', linestyle='--')
     # Return figure
     return fig    
@@ -612,7 +648,7 @@ def plot_all_ROIs(data, key=Label.F, delimiters=None):
 def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
                 ybounds=None, cmap=None, title=None):
     '''
-    Simple function to plot fluorescence traces from a fluorescnece data matrix
+    Simple function to plot fluorescence traces from a fluorescence data matrix
     
     :param data: fluorescence dataframe
     :param iROI (optional): ROI index
@@ -892,7 +928,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, 
                    height=None, aspect=1.5, alpha=None, palette=None, marker=None,
-                   **filter_kwargs):
+                   hide_col_prefix=False, col_count_key=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -922,19 +958,18 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     # Remove problematic trials (i.e. that contain NaN for the column of interest) 
     filtered_data = filtered_data.dropna(subset=[ykey])
 
-    # Get number of ROIs in filtered data
-    nROIs_filtered = len(filtered_data.index.unique(level=Label.ROI))
-
     ###################### Process log ######################
     s = []
 
-    # If col set to ROI and only ROI -> remove column assignment 
-    if col == Label.ROI and nROIs_filtered == 1:
-        col = None
+    # If col set to ROI
+    if col == Label.ROI:
+        # if only 1 ROI -> remove column assignment 
+        if len(filtered_data.index.unique(level=Label.ROI)) == 1:
+            col = None
     # If col set to ROI -> remove ROI filter info
     if col == Label.ROI and Label.ROI in filters:
         del filters[Label.ROI]
-
+    
     if col is not None:
         s.append(f'grouping by {col}')
         col_wrap = min(len(filtered_data.groupby(col)), max_colwrap)
@@ -986,7 +1021,6 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             # Return weighted average       
             return (x * weights).sum() / weights.sum()
 
-
     ###################### Mean traces and CIs ######################
 
     # Default plot arguments dictionary
@@ -1023,8 +1057,27 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             col_order = col_order
         ))
         fg = sns.relplot(**plot_kwargs)
+
         axlist = fg.axes.ravel()
         fig = fg.figure
+
+    # Remove column prefix from axes titles, if specified
+    if col is not None and hide_col_prefix:
+        for ax in fig.axes:
+            ax.set_title(ax.get_title().replace(f'{col} = ', ''))
+
+    # Add count per column to axes titles, if specified
+    if col is not None and col_count_key is not None:
+        if col_count_key in filtered_data.index.names:
+            countfunc = lambda s: len(s.index.unique(level=col_count_key))
+        else:
+            countfunc = lambda s: s[col_count_key].nunique()
+        countspercol = filtered_data.groupby(col).apply(countfunc)
+        if col_order is None:
+            col_order = filtered_data.groupby(col).groups.keys()
+        for ax, k in zip(fig.axes, col_order):
+            ax.set_title(f'{ax.get_title()} ({countspercol[k]})')
+        
     # Remove right and top spines
     sns.despine()
 
@@ -1209,25 +1262,20 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
 def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
     ''' Add sample size of each hue category on the plot '''
     counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
-    std_by_hue = counts_by_hue.std(axis=1)
-    counts_by_hue = counts_by_hue.mean(axis=1)
+    counts_by_hue = counts_by_hue.max(axis=1)
     counts_by_hue.index = counts_by_hue.index.astype(str)
-    std_by_hue.index = std_by_hue.index.astype(str) 
     for t in leg.texts:
         s = t.get_text()
         if s in counts_by_hue:
             c = counts_by_hue.loc[s]
-            if std_by_hue.loc[s] == 0.:
-                cs = f'{c:.0f}'
-            else:
-                cs = f'{c:.1f} +/- {std_by_hue.loc[s]:.1f}'
+            cs = f'{c:.0f}'
         else:
             cs = '0'
         t.set_text(f'{s} (n = {cs})')
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None,
-                              add_leg_numbers=True, **kwargs):
+                              add_leg_numbers=True, ci=68, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -1247,7 +1295,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
         raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
     
     # Plot
-    fig = plot_from_data(data, xkey, ykey, **kwargs)
+    fig = plot_from_data(data, xkey, ykey, ci=ci, **kwargs)
 
     # Add numbers on legend if needed
     hue = kwargs.get('hue', None)
@@ -1261,8 +1309,11 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
 
     # Add baseline if specified
     if baseline is not None:
+        if not is_iterable(baseline):
+            baseline = [baseline]
         for ax in fig.axes:
-            ax.axhline(baseline, c='k', ls='--')
+            for b in baseline:
+                ax.axhline(b, c='k', ls='--')
     
     # Return figure
     return fig
@@ -1278,7 +1329,7 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     hue_order = None
     if hue == Label.ROI_RESP_TYPE:
         hue_order = get_default_rtypes()
@@ -1290,38 +1341,48 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     return fig
 
 
-def plot_parameter_dependency_across_datasets(data, xkey, ykey, weighted=False, **kwargs):
+def plot_parameter_dependency_across_datasets(data, xkey, ykey, avg=True, weighted=False, ci=68, **kwargs):
     '''
     Plot the parameter dependency of a specific variable across mouse-region datasets
     
     :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
     :param xkey: name of the stimulation parameter of interest
     :param ykey: name of the output variable of interest
+    :param avg (optional): plot average trace across datasets
+    :param weighted (optional): whether to use a weighted (by number of cells) or 
+        a non-weighted average
     :return: figure handle
     '''
+    ndatasets = len(data.index.unique(Label.MOUSEREG))
+    if ndatasets == 1:
+        avg = False
     # Plot parameter dependency of ykey, grouped by mouse-region and response type
     fig = plot_parameter_dependency(
         data, xkey=xkey, ykey=ykey,
         hue=Label.MOUSEREG, 
         col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
-        add_leg_numbers=False, max_colwrap=2, ci=None, alpha=0.5,
+        add_leg_numbers=False, max_colwrap=2,
+        ci=None if avg else ci,
+        alpha=0.5 if avg else 1, marker=None if avg else 'o',
         **kwargs)
-    # Determine averaging categories
-    categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
-    if not weighted:  # if non-weighted average, add mouse-region
-        categories = [Label.MOUSEREG] + categories
-    # Average across each category and resolve input columns
-    # (avoid "almost-identical" duplicates)
-    avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
-    # Extract non weighted average traces across datasets
-    xdep_avg_data = get_xdep_data(avg_data, xkey)
-    # Add average parameter dependency trace across datasets, for each response type
-    for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
-        sns.lineplot(
-            data=group, x=xkey, y=ykey, ax=ax, color='BLACK', ci='sd',
-            marker='o', lw=4, markersize=10, legend=False)
-        line = ax.get_lines()[-1]
-    fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
+    # If average trace specified
+    if avg:
+        # Determine averaging categories
+        categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
+        if not weighted:  # if non-weighted average, add mouse-region
+            categories = [Label.MOUSEREG] + categories
+        # Average across each category and resolve input columns
+        # (avoid "almost-identical" duplicates)
+        avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
+        # Extract non weighted average traces across datasets
+        xdep_avg_data = get_xdep_data(avg_data, xkey)
+        # Add average parameter dependency trace across datasets, for each response type
+        for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
+            sns.lineplot(
+                data=group, x=xkey, y=ykey, ax=ax, color='BLACK', ci=ci,
+                marker='o', lw=4, markersize=10, legend=False)
+            line = ax.get_lines()[-1]
+        fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
     return fig
 
 
@@ -1692,8 +1753,11 @@ def plot_stat_per_run(data, key, title=None, groupby=None, baseline=None):
 
     # Add baseline if specified
     if baseline is not None:
+        if not is_iterable(baseline):
+            baseline = [baseline]
         for ax in fig.axes:
-            ax.axhline(baseline, c='k', ls='--')
+            for b in baseline:
+                ax.axhline(b, c='k', ls='--')
 
     return fig
 
@@ -1877,7 +1941,7 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     # Determine plotting order
     orders = {
         Label.ROI_RESP_TYPE: get_default_rtypes(),
-        Label.MOUSEREG: data.index.unique(level=Label.MOUSEREG).values.tolist()
+        Label.MOUSEREG: natsorted(data.index.unique(level=Label.MOUSEREG).values.tolist())
     }
     bar2 = f'{bar} '
     barvals = celltypes.index.get_level_values(bar)

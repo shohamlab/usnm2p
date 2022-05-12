@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 13:08:27
+# @Last Modified time: 2022-05-10 20:33:51
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -10,6 +10,7 @@ import os
 import glob
 import pprint
 import datetime
+from weakref import ref
 import pandas as pd
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
@@ -21,7 +22,7 @@ from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak
+from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics, harmonize_run_index
 
 
 def get_data_root():
@@ -35,45 +36,6 @@ def get_data_root():
     if not os.path.isdir(dataroot):
         raise ValueError(f'data root directory "{dataroot}" does not exist')
     return dataroot
-
-
-def get_figs_dir():
-    ''' Get the directory where output figures should be saved '''
-    try:
-        from config import figsdir
-    except ModuleNotFoundError:
-        raise ValueError(f'user-specific "config.py" file is missing')
-    except ImportError:
-        raise ValueError(f'"figsdir" variable is missing from user-specific "config.py" file')
-    if not os.path.isdir(figsdir):
-        raise ValueError(f'figures directory "{figsdir}" does not exist')
-    return figsdir
-
-
-def get_stats_dir():
-    ''' Get the directory where output statistics should be saved '''
-    try:
-        from config import statsdir
-    except ModuleNotFoundError:
-        raise ValueError(f'user-specific "config.py" file is missing')
-    except ImportError:
-        raise ValueError(f'"statsdir" variable is missing from user-specific "config.py" file')
-    if not os.path.isdir(statsdir):
-        raise ValueError(f'statistics directory "{statsdir}" does not exist')
-    return statsdir
-
-
-def get_traces_dir():
-    ''' Get the directory where output average traces should be saved '''
-    try:
-        from config import tracesdir
-    except ModuleNotFoundError:
-        raise ValueError(f'user-specific "config.py" file is missing')
-    except ImportError:
-        raise ValueError(f'"tracesdir" variable is missing from user-specific "config.py" file')
-    if not os.path.isdir(tracesdir):
-        raise ValueError(f'traces directory "{tracesdir}" does not exist')
-    return tracesdir
 
 
 def get_subfolder_names(dirpath):
@@ -531,7 +493,7 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         return peaks
 
 
-def load_mousereg_dataset(fpath, trialavg=True, prefix=None):
+def load_mousereg_dataset(fpath, prefix=None):
     '''
     Load dataset of a particular mouse-region from a CSV file
     
@@ -546,12 +508,18 @@ def load_mousereg_dataset(fpath, trialavg=True, prefix=None):
     logger.info(f'loading {s} from {fname}')
     data = pd.read_csv(fpath)
     # Add dataset ID column
-    data[Label.MOUSEREG] = os.path.splitext(fname)[0]
+    dataset_id = os.path.splitext(fname)[0]
+    if prefix is not None:
+        dataset_id = dataset_id.replace(prefix, '')
+    while dataset_id.startswith('_'):
+        dataset_id = dataset_id[1:]
+    data[Label.MOUSEREG] = dataset_id
     # Re-generate data index 
     data.set_index(Label.MOUSEREG, inplace=True)
     indexcols = [Label.ROI, Label.RUN]
-    if not trialavg:
-        indexcols.append(Label.TRIAL)
+    for k in [Label.TRIAL, Label.FRAME]:
+        if k in data.columns:
+            indexcols.append(Label.FRAME)
     for k in indexcols:
         if k not in data:
             raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
@@ -562,5 +530,30 @@ def load_mousereg_dataset(fpath, trialavg=True, prefix=None):
 
 def load_mousereg_datasets(dirpath, **kwargs):
     ''' Load multiple mouse-region datasets '''
-    fpaths = natsorted([os.path.join(dirpath, item) for item in os.listdir(dirpath)])
-    return pd.concat([load_mousereg_dataset(fpath, **kwargs)  for fpath in fpaths], axis=0)
+    filetypes = ['timeseries', 'stats']
+    # List filepaths of each category
+    fpaths = {
+        k: natsorted(glob.glob(os.path.join(dirpath, f'{k}_*.csv')))
+        for k in filetypes
+    }
+    # Load and concatenate datasets for each category 
+    data = {k: pd.concat([
+        load_mousereg_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
+        for k, v in fpaths.items()
+    }
+    # Sort index for each dataset
+    logger.info('sorting dataset indexes...')
+    data['timeseries'].sort_index(
+        level=[Label.MOUSEREG, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+    data['stats'].sort_index(
+        level=[Label.MOUSEREG, Label.ROI, Label.RUN], inplace=True)
+    # Add missing change metrics, if any
+    for ykey in [Label.ZSCORE, Label.DFF]:
+        ykey_change = f'relative {ykey} change'
+        if ykey_change not in data['stats']:
+            logger.info(f'adding {ykey_change} metrics to stats dataset...')
+            data['stats'] = add_change_metrics(data['timeseries'], data['stats'], ykey)
+    # Harmonize run index for for stats dataset
+    # logger.info('harmonizing stats run indexes...')
+    # data['stats'] = harmonize_run_index(data['stats'])
+    return data
