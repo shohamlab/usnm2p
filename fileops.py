@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 11:19:52
+# @Last Modified time: 2022-05-13 17:26:17
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -10,7 +10,6 @@ import os
 import glob
 import pprint
 import datetime
-from weakref import ref
 import pandas as pd
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
@@ -22,7 +21,7 @@ from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics, harmonize_run_index
+from postpro import slide_along_trial, detect_across_trials, find_response_peak
 
 
 def get_data_root():

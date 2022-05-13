@@ -2,14 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 11:39:27
+# @Last Modified time: 2022-05-13 18:03:37
 
 ''' Utility script to run single region analysis notebook '''
 
 import os
 import logging
 from argparse import ArgumentParser
-from constants import KALMAN_GAIN
+from constants import KALMAN_GAIN, PEAK_CORRECTION_QUANTILE
 
 from fileops import get_data_root, get_dataset_params
 from logger import logger
@@ -42,6 +42,9 @@ if __name__ == '__main__':
     # Add arguments about other execution parameters
     parser.add_argument(
         '-k', '--kalmangain', type=float, default=KALMAN_GAIN, help='Kalman filter gain')
+    parser.add_argument(
+        '-q', '--quantile', type=float, default=PEAK_CORRECTION_QUANTILE, 
+        help='Peak correction quantile')
 
     # Extract command line arguments
     args = vars(parser.parse_args())
@@ -49,7 +52,7 @@ if __name__ == '__main__':
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
     nocheck = args.pop('nocheck')
-    exec_args = ['kalmangain']
+    exec_args = ['kalmangain', 'quantile']
     exec_args = {k: args.pop(k) for k in exec_args}
 
     # Extract candidate datasets combinations from folder structure
