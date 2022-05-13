@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 15:55:09
+# @Last Modified time: 2022-05-13 19:23:29
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1299,7 +1299,7 @@ def add_change_metrics(timeseries, stats, ykey):
         timeseries, FrameIndex.RESPONSE, NSEEDS_PER_TRIAL)
     # Take the 25-th percentile of detected peak values as the baseline
     stats[ykey_peak_baseline] = peaks_along_trial.groupby(
-        [Label.ROI, Label.RUN]).quantile(.25)
+        [Label.ROI, Label.RUN]).quantile(PEAK_CORRECTION_QUANTILE)
     
     # Subtract baseline from peak to get relative increase
     logger.info(f'computing {ykey_peak_corrected}...')
