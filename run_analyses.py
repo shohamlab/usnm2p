@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 13:43:56
+# @Last Modified time: 2022-05-13 08:50:42
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # Create command line parser
     parser = ArgumentParser()
 
-    # Add input / output / mpi arguments
+    # Add input / output / mpi / check arguments
     parser.add_argument(
         '-i', '--input', default='single_region_analysis.ipynb', help='path to input notebook')
     parser.add_argument(
@@ -31,6 +31,8 @@ if __name__ == '__main__':
         help='relative path to output directory w.r.t. this script')    
     parser.add_argument(
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
+    parser.add_argument(
+        '--nocheck', default=False, action='store_true', help='no check before running')
 
     # Add dataset arguments 
     parser.add_argument('-l', '--mouseline', help='mouse line')
@@ -47,6 +49,7 @@ if __name__ == '__main__':
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
+    nocheck = args.pop('nocheck')
     exec_args = ['kalmangain']
     exec_args = {k: args.pop(k) for k in exec_args}
 
@@ -83,4 +86,5 @@ if __name__ == '__main__':
     # Execute notebooks within execution directory (to ensure correct function)
     with DirectorySwicther(exec_dir) as ds:
         # Execute notebooks as a batch with / without multiprocessing
-        output_nbpaths = execute_notebooks(params, input_nbpath, outdir, mpi=mpi, ask_confirm=True)
+        output_nbpaths = execute_notebooks(
+            params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
