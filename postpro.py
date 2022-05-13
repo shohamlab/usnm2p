@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-12 18:38:39
+# @Last Modified time: 2022-05-13 15:25:37
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1091,16 +1091,35 @@ def get_default_rtypes():
     return ['non-responsive', 'responsive']
 
 
-def reclassify(data, ykey, thr=None, nposthr=None, verbose=False):
-    ''' Reclassify dataset based on a new threshold number of responsive conditions '''
+def reclassify(data, ykey, thr=None, nposthr=None):
+    ''' 
+    Reclassify dataset based on a new significance threshold number of responsive conditions
+    
+    :param data: stats dataframe
+    :param ykey: variable to use for significance thresholding
+    :param thr (optional): significance threshold
+    :param nposthr (optional): threshold number of positive conditions
+    :return: updated stats dataframe
+    '''
+    # If new significance threshold is given, reclassify positive conditions
     if thr is not None:
+        # Reclassify positive conditions with new significance threshold
         data[Label.POS_COND] = data[ykey] > thr
+        nposconds_per_roi = data[Label.POS_COND].groupby(
+            [Label.MOUSEREG, Label.ROI]).sum().rename(Label.NPOS_CONDS)
+        data[Label.NPOS_CONDS] = nposconds_per_roi
+        # If nposthr not given, infer ti from dataset
         if nposthr is None:
-            nposthr = NPOSCONDS_THR
+            isresp_vs_npos = data.groupby(Label.NPOS_CONDS).first()[Label.IS_RESP_ROI]
+            nposthr = isresp_vs_npos[isresp_vs_npos == True].index[0]
+    # If threshold number of conditions is given, re-classify cells
     if nposthr is not None:
         data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
         data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
             {True: 'responsive', False: 'non-responsive'})
+    counts_by_type = data.groupby(
+        [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
+    logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
     return data
 
 
@@ -1252,21 +1271,31 @@ def add_change_metrics(timeseries, stats, ykey):
 
     # Determine variable of interest for output metrics
     ykey_peak = f'peak {ykey}'
-    ykey_baseline = f'baseline {ykey}'
-    ykey_change = f'relative {ykey} change'
+    ykey_peak_baseline = f'baseline {ykey_peak}'
+    ykey_peak_corrected = f'corrected {ykey_peak}'
 
     # If change metrics is already present in stats, return
-    if ykey in stats:
-        logger.warning(f'{ykey_change} already in stats dataframe -> ignoring')
+    if ykey_peak_corrected in stats:
+        logger.warning(f'{ykey_peak_corrected} already in stats dataframe -> ignoring')
         return stats
 
-    # Extract stimulus-evoked peak and pre-stimulus baseline
+    # Extract stimulus-evoked peak
     stats[ykey_peak] = apply_in_window(
-        find_response_peak, timeseries, ykey, FrameIndex.RESPONSE)
-    stats[ykey_baseline] = apply_in_window(
-        np.mean, timeseries, ykey, FrameIndex.PRESTIM, log_completion_rate=False)
-    # Subtract baseline from peak to get relative change
-    stats[ykey_change] = stats[ykey_peak] - stats[ykey_baseline]
+        find_max, timeseries, ykey, FrameIndex.RESPONSE)
+    # Detect peaks while sliding detection window along trial interval
+    logger.info('identifying peaks while sliding detection window across trial interval...')
+    peaks_along_trial, iseeds = slide_along_trial(
+        lambda data, w: apply_in_window(
+            find_max, data, ykey, w,
+            verbose=False, log_completion_rate=False),
+        timeseries, FrameIndex.RESPONSE, NSEEDS_PER_TRIAL)
+    # Take the 25-th percentile of detected peak values as the baseline
+    stats[ykey_peak_baseline] = peaks_along_trial.groupby(
+        [Label.ROI, Label.RUN]).quantile(.25)
+    
+    # Subtract baseline from peak to get relative increase
+    logger.info(f'computing {ykey_peak_corrected}...')
+    stats[ykey_peak_corrected] = (stats[ykey_peak] - stats[ykey_peak_baseline])
     
     # Return stats dataframe
     return stats

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-12 18:20:00
+# @Last Modified time: 2022-05-13 15:39:15
 
 ''' Collection of plotting utilities. '''
 
@@ -1068,15 +1068,12 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
 
     # Add count per column to axes titles, if specified
     if col is not None and col_count_key is not None:
-        if col_count_key in filtered_data.index.names:
-            countfunc = lambda s: len(s.index.unique(level=col_count_key))
-        else:
-            countfunc = lambda s: s[col_count_key].nunique()
-        countspercol = filtered_data.groupby(col).apply(countfunc)
+        countfunc = lambda df: len(df.groupby(col_count_key).first())
+        counts_per_col = filtered_data.groupby(col).apply(countfunc)
         if col_order is None:
             col_order = filtered_data.groupby(col).groups.keys()
         for ax, k in zip(fig.axes, col_order):
-            ax.set_title(f'{ax.get_title()} ({countspercol[k]})')
+            ax.set_title(f'{ax.get_title()} ({counts_per_col[k]})')
         
     # Remove right and top spines
     sns.despine()
@@ -1341,7 +1338,8 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     return fig
 
 
-def plot_parameter_dependency_across_datasets(data, xkey, ykey, avg=True, weighted=False, ci=68, **kwargs):
+def plot_parameter_dependency_across_datasets(
+    data, xkey, ykey, show_datasets=True, avg=True, weighted=False, ci=68, **kwargs):
     '''
     Plot the parameter dependency of a specific variable across mouse-region datasets
     
@@ -1356,21 +1354,28 @@ def plot_parameter_dependency_across_datasets(data, xkey, ykey, avg=True, weight
     ndatasets = len(data.index.unique(Label.MOUSEREG))
     if ndatasets == 1:
         avg = False
-    # Plot parameter dependency of ykey, grouped by mouse-region and response type
+    # Determine averaging categories
+    categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
+    if not weighted:  # if non-weighted average, add mouse-region
+        categories = [Label.MOUSEREG] + categories
+    if show_datasets:
+        legend = 'full'
+        alpha = 0.5 if avg else 1
+    else:
+        legend = False
+        alpha = 0
     fig = plot_parameter_dependency(
         data, xkey=xkey, ykey=ykey,
-        hue=Label.MOUSEREG, 
+        hue=Label.MOUSEREG,
         col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
         add_leg_numbers=False, max_colwrap=2,
         ci=None if avg else ci,
-        alpha=0.5 if avg else 1, marker=None if avg else 'o',
+        alpha=alpha, marker=None if avg else 'o',
+        legend=legend,
         **kwargs)
+    
     # If average trace specified
     if avg:
-        # Determine averaging categories
-        categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
-        if not weighted:  # if non-weighted average, add mouse-region
-            categories = [Label.MOUSEREG] + categories
         # Average across each category and resolve input columns
         # (avoid "almost-identical" duplicates)
         avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
@@ -1925,7 +1930,8 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
         return jg.fig
 
 
-def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True):
+def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True,
+                            min_cell_count=None):
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
@@ -1983,6 +1989,11 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
             for i, label in enumerate(labels):
                 n = nperbar.loc[label]
                 ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
+
+    # Add threshold line if specified
+    if min_cell_count is not None:
+        ltype = {'x': 'h', 'y': 'v'}[axdim]
+        getattr(ax, f'ax{ltype}line')(min_cell_count, c='k', ls='--')
             
     return fig
 
