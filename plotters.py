@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 15:39:15
+# @Last Modified time: 2022-05-13 17:11:11
 
 ''' Collection of plotting utilities. '''
 
@@ -1070,8 +1070,9 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     if col is not None and col_count_key is not None:
         countfunc = lambda df: len(df.groupby(col_count_key).first())
         counts_per_col = filtered_data.groupby(col).apply(countfunc)
+        # If no column order provided, assume columns go by decreasing count
         if col_order is None:
-            col_order = filtered_data.groupby(col).groups.keys()
+            col_order = counts_per_col.sort_values(ascending=False).index.values
         for ax, k in zip(fig.axes, col_order):
             ax.set_title(f'{ax.get_title()} ({counts_per_col[k]})')
         

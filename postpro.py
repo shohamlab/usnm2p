@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 15:25:37
+# @Last Modified time: 2022-05-13 15:55:09
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -793,8 +793,16 @@ def gauss_histogram_fit(data, bins=100, plot=False):
     pbounds = tuple(zip(*(Hbounds, Abounds, x0bounds, sigmabounds)))
 
     # Fit gaussian to histogram distribution
-    xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0, bounds=pbounds)
-
+    try:
+        xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0, bounds=pbounds)
+    except ValueError as err:
+        logger.warning(err)
+        xmid = mids
+        plt.figure()
+        plt.hist(data, bins=50)
+        popt = p0
+        plot = True
+        
     # Optional plot
     if plot:
         fig, ax = plt.subplots()
@@ -804,7 +812,7 @@ def gauss_histogram_fit(data, bins=100, plot=False):
             ax.spines[sk].set_visible(False)
         ax.plot(mids, hist, label='histogram')
         ax.plot(mids, gauss(mids, *p0), label='initial guess')
-        ax.plot(xmid, gauss(mids, *popt), label='fit')
+        ax.plot(mids, gauss(mids, *popt), label='fit')
         ax.legend(frameon=False)
 
     # Check that x-axis parameters (mean and std) are correct

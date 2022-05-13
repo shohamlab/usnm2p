@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-12 18:58:52
+# @Last Modified time: 2022-05-13 16:59:56
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -91,7 +91,7 @@ class FrameIndex:
 
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
-PTHR_DETECTION = 0.01  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
+PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
 PTHR_RESPONSIVENESS = 0.05  # significance threshold probability for detection of responsive conditions based on evoked success rate vs. baseline rate
 NPOSCONDS_THR = 5  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
 PTHR_DEPENDENCY = 0.05  # significance threshold probability for parameter dependency detection
