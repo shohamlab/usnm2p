@@ -16,10 +16,7 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 - Download and install the suite2p functional segmentation pipeline in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html.
 - Clone this repository and open a terminal at its root directory.
 - While in the suite2p conda environment, install remaining package dependencies: `pip install -r requirements.txt`
-- Create a user configuration file called `config.py`, and define in it 3 variables:
-	- `dataroot` indicating the root directory for the raw data to be analyzed
-	- `figsdir` indicating the folder in which to save the final figures file.
-	- `statsdir` indicating the folder in which to save the output stats file.
+- Create a user configuration file called `config.py`, and define in a variable called `dataroot` indicating the path to the root directory for the raw data to be analyzed.
 - Save the configuration file in the repository top folder. You're all set!
 
 ### Usage
