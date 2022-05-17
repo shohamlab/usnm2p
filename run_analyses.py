@@ -2,14 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 16:13:24
+# @Last Modified time: 2022-05-17 16:14:22
 
 ''' Utility script to run single region analysis notebook '''
 
 import os
 import logging
 from argparse import ArgumentParser
-from constants import KALMAN_GAIN, PEAK_CORRECTION_QUANTILE
+from constants import KALMAN_GAIN
 
 from fileops import get_data_root, get_dataset_params
 from logger import logger
