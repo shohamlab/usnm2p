@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 17:11:11
+# @Last Modified time: 2022-05-17 16:32:06
 
 ''' Collection of plotting utilities. '''
 
@@ -2022,41 +2022,6 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
         ax.set_xticks([])
     axes[-1].set_xlabel(xkey)
     sns.despine(ax=axes[-1])
-    return fig
-
-
-def plot_correlations(data, xkey, ykeys):
-    '''
-    Plot correlations between 1 variable multiple others.
-    
-    :param data: multi-indexed stats dataframe
-    :param xkey: name of the variable on x-axis
-    :param ykeys: name(s) of the response metrics of interest
-    :return: figure handle
-    '''
-    if not is_iterable(ykeys):
-        ykeys = [ykeys]
-    # Average data across ROI for each run & trial
-    data = data[[xkey, *ykeys]].groupby([Label.RUN, Label.TRIAL]).mean()
-    R = data.corr()
-    n = len(data)
-    # Plot peak z-score as a function of peak displacement velocity
-    fig, axes = plt.subplots(1, len(ykeys), figsize=(4.5 * len(ykeys), 4))
-    if len(ykeys) == 1:
-        axes = [axes]
-    if len(axes) > 1: 
-        fig.suptitle(f'correlations with {xkey} (average across ROIs)')
-    for ax, ykey in zip(axes, ykeys):
-        r = R.loc[xkey, ykey]
-        pval = tscore_to_pvalue(corrcoeff_to_tscore(r, n), n, directional=False)
-        sig = pval <= PTHR_DEPENDENCY
-        sigstr = '*' if sig else ''
-        sns.despine(ax=ax)
-        sns.scatterplot(data=data, x=xkey, y=ykey, ax=ax)
-        # ax.set_title(ykey)
-        ax.text(.9, .95, f'R = {r:.2f}{sigstr}\n(p = {pval:.2e})', va='top', ha='right', fontsize=12, transform=ax.transAxes)
-    fig.subplots_adjust(top=0.85)
-
     return fig
 
 

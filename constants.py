@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 16:01:21
+# @Last Modified time: 2022-05-17 17:02:34
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -86,7 +86,7 @@ NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval t
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 3, STIM - 1)  # indexes used for analysis of pres-stimulus activity per trial.
+    PRESTIM = slice(STIM - 5, STIM)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 # Response & cell type classification

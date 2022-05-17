@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-16 17:46:16
+# @Last Modified time: 2022-05-17 16:39:28
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -21,7 +21,7 @@ from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics
+from postpro import slide_along_trial, detect_across_trials, find_response_peak, apply_in_window
 
 
 def get_data_root():
@@ -546,12 +546,14 @@ def load_mousereg_datasets(dirpath, **kwargs):
         level=[Label.MOUSEREG, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
     data['stats'].sort_index(
         level=[Label.MOUSEREG, Label.ROI, Label.RUN], inplace=True)
-    # # Add missing change metrics, if any
-    # for ykey in [Label.ZSCORE, Label.DFF]:
-    #     ykey_change = f'relative {ykey} change'
-    #     if ykey_change not in data['stats']:
-    #         logger.info(f'adding {ykey_change} metrics to stats dataset...')
-    #         data['stats'] = add_change_metrics(data['timeseries'], data['stats'], ykey)
+
+    # Add missing change metrics, if any
+    for ykey in [Label.ZSCORE, Label.DFF]:
+        ykey_resp = f'average {ykey}'
+        if ykey_resp not in data['stats']:
+            logger.info(f'adding {ykey_resp} metrics to stats dataset...')
+            data['stats'][ykey_resp] = apply_in_window(
+                lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.RESPONSE)
     # Harmonize run index for for stats dataset
     # logger.info('harmonizing stats run indexes...')
     # data['stats'] = harmonize_run_index(data['stats'])
