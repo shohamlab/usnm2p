@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 19:23:29
+# @Last Modified time: 2022-05-16 17:38:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -453,11 +453,15 @@ def slide_along_trial(func, data, ref_wslice, iseeds):
     '''
     # Normalize reference window
     ref_wslice = slice(0, ref_wslice.stop - ref_wslice.start)
+    # Extract available frame indexes
+    iframes = data.index.unique(Label.FRAME)
+    nframes_per_trial = iframes.size
     # Get window length
     wlen = FrameIndex.RESPONSE.stop - FrameIndex.RESPONSE.start
-    # Generate vector of starting positions for the analysis window
+    # If not provided, generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
-        iseeds = np.round(np.linspace(0, NFRAMES_PER_TRIAL - wlen, iseeds)).astype(int)
+        iseeds = np.round(np.linspace(0, nframes_per_trial - wlen, iseeds)).astype(int)
+        iseeds = iframes[iseeds]
     duplicates = set(iseeds) - set(np.unique(iseeds))
     if len(duplicates) > 0:
         raise ValueError(f'duplicate seeding indexes ({duplicates})')
@@ -1099,35 +1103,35 @@ def get_default_rtypes():
     return ['non-responsive', 'responsive']
 
 
-def reclassify(data, ykey, thr=None, nposthr=None):
+def reclassify(data, ykey, ythr=None, nposthr=None):
     ''' 
     Reclassify dataset based on a new significance threshold number of responsive conditions
     
     :param data: stats dataframe
     :param ykey: variable to use for significance thresholding
-    :param thr (optional): significance threshold
+    :param ythr (optional): significance threshold
     :param nposthr (optional): threshold number of positive conditions
     :return: updated stats dataframe
     '''
-    # If new significance threshold is given, reclassify positive conditions
-    if thr is not None:
-        # Reclassify positive conditions with new significance threshold
-        data[Label.POS_COND] = data[ykey] > thr
+    # If nposthr not given, infer it from dataset
+    if nposthr is None:
+        isresp_vs_npos = data.groupby(Label.NPOS_CONDS).first()[Label.IS_RESP_ROI]
+        nposthr = isresp_vs_npos[isresp_vs_npos == True].index[0]
+    # If ythr is given, classify positive conditions according to significance threshold
+    if ythr is not None:
+        data[Label.POS_COND] = data[ykey] > ythr
         nposconds_per_roi = data[Label.POS_COND].groupby(
             [Label.MOUSEREG, Label.ROI]).sum().rename(Label.NPOS_CONDS)
         data[Label.NPOS_CONDS] = nposconds_per_roi
-        # If nposthr not given, infer ti from dataset
-        if nposthr is None:
-            isresp_vs_npos = data.groupby(Label.NPOS_CONDS).first()[Label.IS_RESP_ROI]
-            nposthr = isresp_vs_npos[isresp_vs_npos == True].index[0]
-    # If threshold number of conditions is given, re-classify cells
-    if nposthr is not None:
-        data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
-        data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
-            {True: 'responsive', False: 'non-responsive'})
-    counts_by_type = data.groupby(
-        [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
-    logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
+    # Classify cells according to threshold number of positive conditions
+    data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
+    data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
+        {True: 'responsive', False: 'non-responsive'})
+    # # Log new classification summary
+    # counts_by_type = data.groupby(
+    #     [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
+    # logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
+    # Return new data
     return data
 
 
@@ -1292,12 +1296,12 @@ def add_change_metrics(timeseries, stats, ykey):
         find_max, timeseries, ykey, FrameIndex.RESPONSE)
     # Detect peaks while sliding detection window along trial interval
     logger.info('identifying peaks while sliding detection window across trial interval...')
-    peaks_along_trial, iseeds = slide_along_trial(
+    peaks_along_trial, _ = slide_along_trial(
         lambda data, w: apply_in_window(
             find_max, data, ykey, w,
             verbose=False, log_completion_rate=False),
         timeseries, FrameIndex.RESPONSE, NSEEDS_PER_TRIAL)
-    # Take the 25-th percentile of detected peak values as the baseline
+    # Take the 30-th percentile of detected peak values as the baseline
     stats[ykey_peak_baseline] = peaks_along_trial.groupby(
         [Label.ROI, Label.RUN]).quantile(PEAK_CORRECTION_QUANTILE)
     

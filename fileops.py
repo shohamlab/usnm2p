@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 17:26:17
+# @Last Modified time: 2022-05-16 17:46:16
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -21,7 +21,7 @@ from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak
+from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics
 
 
 def get_data_root():
@@ -522,7 +522,7 @@ def load_mousereg_dataset(fpath, prefix=None):
     for k in indexcols:
         if k not in data:
             raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
-        data.set_index(k, append=True, inplace=True)
+        data.set_index(k, append=True, inplace=True)    
     # Return data
     return data
 

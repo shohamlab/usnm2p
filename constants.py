@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-13 18:01:46
+# @Last Modified time: 2022-05-16 17:26:33
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -92,16 +92,12 @@ class FrameIndex:
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
-PTHR_RESPONSIVENESS = 0.05  # significance threshold probability for detection of responsive conditions based on evoked success rate vs. baseline rate
-PEAK_CORRECTION_QUANTILE = .25  # quantile chosen for correction of stim-evoked peaks
+PEAK_CORRECTION_QUANTILE = .3  # quantile chosen for correction of stim-evoked peaks
 NPOSCONDS_THR = 5  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
 PTHR_DEPENDENCY = 0.05  # significance threshold probability for parameter dependency detection
 
-# Traces & trends
-ZSCORE_QUANTILE_INTERVAL = (0.5, .75)  # quantile interval of peak z-scores per category to select for z-score plots 
-
 # Datasets selection
-MIN_CELL_COUNT = 400
+MIN_CELL_DENSITY = 1500.  # minimum cell density (cells/mm2)
 
 ###################################### PARSING ######################################
 
