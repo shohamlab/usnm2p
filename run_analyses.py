@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 16:14:22
+# @Last Modified time: 2022-05-17 16:21:16
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -51,8 +51,7 @@ if __name__ == '__main__':
     nocheck = args.pop('nocheck')
     exec_args = ['kalman_gain', 'peak_correction_quantile']
     exec_args = {k: args.pop(k) for k in exec_args}
-    q = exec_args['peak_correction_quantile']
-
+    
     # Extract candidate datasets combinations from folder structure
     datasets = get_dataset_params(root=get_data_root())
 
