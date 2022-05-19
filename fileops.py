@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 16:39:28
+# @Last Modified time: 2022-05-17 17:41:22
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -549,11 +549,18 @@ def load_mousereg_datasets(dirpath, **kwargs):
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
-        ykey_resp = f'average {ykey}'
+        ykey_resp = f'diff {ykey}'
         if ykey_resp not in data['stats']:
             logger.info(f'adding {ykey_resp} metrics to stats dataset...')
-            data['stats'][ykey_resp] = apply_in_window(
+            ykey_prestim = f'pre-stim {ykey}'
+            data['stats'][ykey_prestim] = apply_in_window(
+                lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.PRESTIM)
+            ykey_poststim = f'post-stim {ykey}'
+            data['stats'][ykey_poststim] = apply_in_window(
                 lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.RESPONSE)
+            ykey_diff = f'diff {ykey}'
+            data['stats'][ykey_diff] = data['stats'][ykey_poststim] - data['stats'][ykey_prestim]
+
     # Harmonize run index for for stats dataset
     # logger.info('harmonizing stats run indexes...')
     # data['stats'] = harmonize_run_index(data['stats'])

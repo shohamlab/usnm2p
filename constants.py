@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 17:02:34
+# @Last Modified time: 2022-05-19 17:04:57
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -69,12 +69,12 @@ NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells
 ALPHA = 0.7
 
 # Baseline computation
-BASELINE_WLEN = 15.  # window length (in s) to compute the fluorescence baseline
-BASELINE_QUANTILE = .05  # quantile used for the computation of the fluorescence baseline
+BASELINE_WLEN = 5.  # window length (in s) to compute the fluorescence baseline
+BASELINE_QUANTILE = .08  # quantile used for the computation of the fluorescence baseline
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
 
 # Trials discarding
-ITRIALS_DISCARD = []  # indexes of trials to be automatically discarded for each ROI & run 
+ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
 # Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
@@ -86,7 +86,7 @@ NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval t
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 5, STIM)  # indexes used for analysis of pres-stimulus activity per trial.
+    PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
 
 # Response & cell type classification
@@ -145,13 +145,16 @@ class Label:
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
-    F = 'F (a.u.)'
     ALPHA = 'alpha'
     BETA = 'beta'
+    F = 'F (a.u.)'
     F0 = 'F0 (a.u.)'
+    F_DETRENDED = 'F_detrended (a.u.)'
+    F0_DETRENDED = 'F0 detrended (a.u.)'
     DFF = '\u0394F/F0'
     ZSCORE = f'Z({DFF})'
-    REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_prestim'
+    REL_DFF = f'{DFF} - {DFF}_stim'
+    REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
 
     # Displacement & velocities
     X_PX = 'x (pixels)'
@@ -188,6 +191,14 @@ class Label:
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
 
+
+# Stats fields used to compute trial validity  
+TRIAL_VALIDITY_KEYS = [
+    Label.DISCARDED,
+    Label.MOTION,
+    Label.PRESTIM_ACTIVITY,
+    Label.PRESTIM_POP_ACTIVITY
+]
 
 ###################################### PLOTTING ######################################
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 13:45:47
+# @Last Modified time: 2022-05-19 19:01:03
 
 ''' Notebook running utilities '''
 
@@ -25,7 +25,8 @@ def execute_notebook(pdict, input_nbpath, outdir):
     # Extract notebook name and extension
     nbname, nbext = os.path.splitext(input_nbpath)
     # Determine output notebook name from input and parameters
-    pstr = '_'.join([str(x) for x in pdict.values()])
+    pstr = '_'.join([str(v) for k, v in pdict.items() if k != 'no_slack_notify'])
+    pstr = pstr.replace('/', '_')
     output_nbpath = os.path.join(outdir, f'{nbname}_{pstr}{nbext}')
     # Execute notebook
     logger.info(f'executing "{input_nbpath}" with parameters {pdict} as "{output_nbpath}"...')

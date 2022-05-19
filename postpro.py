@@ -2,17 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-16 17:38:51
+# @Last Modified time: 2022-05-19 18:35:53
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 from collections import Counter
+from argon2 import PasswordHasher
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.optimize import curve_fit
-from scipy.signal import find_peaks, peak_widths
+from scipy.signal import butter, filtfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -117,6 +118,9 @@ def discard_indexes(data, ikey=Label.TRIAL, idiscard=None):
     idxs = data.index.unique(level=ikey)
     # Diff the two lists to get indexes to discard from dataset
     idiscard = sorted(list(set(idxs).intersection(set(idiscard))))
+    # If no discard index specified -> return 
+    if len(idiscard) == 0 or idiscard[0] is None:
+        return data
     # Discard them
     logger.info(f'discarding {ikey} index values {idiscard} from dataset')
     data = data.query(f'{ikey} not in {idiscard}')
@@ -251,6 +255,36 @@ def nan_proof(func):
     return wrapper
 
 
+def filter_signal(y, fs, fc, order=2):
+    '''
+    Apply zero-phase filter to signal
+    
+    :param y: signal array
+    :param fs: sampling frequency (Hz)
+    :param fc: tuple of cutoff frequencies (Hz)
+    :param order: filter order
+    '''
+    if isinstance(y, pd.Series):
+        yf = filter_signal(y.values, fs, fc, order=order)
+        return pd.Series(data=yf, index=y.index)
+    fc = np.asarray(fc)
+    # Determine Butterworth type and cutoff
+    btype = 'band'
+    if fc[0] == 0.:
+        btype = 'low'
+        fc = fc[1]
+    elif fc[1] == np.inf:
+        btype = 'high'    
+        fc = fc[0]
+    logger.info(f'{btype}-pass filtering signal (cutoff = {fc} Hz)...')
+    # Determine Nyquist frequency
+    nyq = fs / 2
+    # Calculate Butterworth filter coefficients
+    b, a = butter(order, fc / nyq, btype=btype)
+    # Filter signal forward and backward (to ensure zero-phase) and return
+    return filtfilt(b, a, y)
+
+
 def compute_baseline(data, fps, wlen, q, smooth=True):
     '''
     Compute the baseline of a signal.
@@ -263,35 +297,41 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
         moving average (with half window size) to the sliding window output
     :return: fluorescence baseline series
     '''
-    # Compute window size (in number of frames)
-    w = get_window_size(wlen, fps)
-    if smooth:
-        w2 = w // 2
-        if w2 % 2 == 0:
-            w2 += 1   
-    # Log process info
-    wstr = (f'{wlen:.1f}s ({w} frames) sliding window')
     qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
-    steps_str = [f'{qstr} of {wstr}']
-    if smooth:
-        steps_str.append(f'mean of {w2 / fps:.1f}s ({w2} frames) sliding window')
+    if wlen is None:
+        steps_str = [f'{qstr} of signal']
+        # Define constant baseline computation function
+        def bfunc(s):
+            return s.quantile(q)
+    else:
+        # Compute window size (in number of frames)
+        w = get_window_size(wlen, fps)
+        if smooth:
+            w2 = w // 2
+            if w2 % 2 == 0:
+                w2 += 1
+        wstr = f'{wlen:.1f}s ({w} frames) sliding window'
+        steps_str = [f'{qstr} of {wstr}']
+        if smooth:
+            steps_str.append(f'mean of {w2 / fps:.1f}s ({w2} frames) sliding window')
+        # Define rolling baseline computation function
+        def bfunc(s):
+            b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
+            if smooth:
+                b = apply_rolling_window(b, w2, func=lambda x: x.mean())
+            return b
     if len(steps_str) > 1:
         steps_str = '\n'.join([f'  - {s}' for s in steps_str])
         steps_str = f'successive application of:\n{steps_str}'
+    else:
+        steps_str = steps_str[0]
     logger.info(f'computing signal baseline as {steps_str}')
     # Group data by ROI and run, and apply sliding window on F to compute baseline fluorescence
     groupkeys = [Label.ROI, Label.RUN]
     nconds = np.prod([len(data.index.unique(level=k)) for k in groupkeys])
-    # Define NaN-proof baseline computation function
-    @nan_proof
-    def bfunc(s):
-        b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
-        if smooth:
-            b = apply_rolling_window(b, w2, func=lambda x: x.mean())
-        return b
     # Apply function to each ROI & run, and log progress
     with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
-        baselines = data.groupby(groupkeys).transform(pbar_update(bfunc, pbar))
+        baselines = data.groupby(groupkeys).transform(pbar_update(nan_proof(bfunc), pbar))
     return baselines
 
 
@@ -562,9 +602,9 @@ def get_trial_averaged(data, full_output=False):
         if trialavg_data.name in Label.RENAME_ON_AVERAGING.keys():
             trialavg_data.name = Label.RENAME_ON_AVERAGING[trialavg_data.name]
     if full_output:
-        # Compute average of stat across trials
+        # Compute std of metrics across trials
         trialstd_data = groups.std()
-        # Determine whether stats is a repeated value or a real distribution
+        # Determine whether metrics is a repeated value or a real distribution
         is_repeat = ~(trialstd_data.max() > 0)
         return trialavg_data, is_repeat
     else:
@@ -823,8 +863,8 @@ def gauss_histogram_fit(data, bins=100, plot=False):
     s = popt[3]
     assert s > 0, f'Error: negative standard deviation found during Gaussian fit ({s})'
     mu = popt[2]
-    if mu < 0:
-        logger.warning(f'negative mean found during Gaussian fit ({mu})')
+    # if mu < 0:
+    #     logger.warning(f'negative mean found during Gaussian fit ({mu})')
 
     # Return outputs
     return xmid, popt
@@ -949,34 +989,35 @@ def pvalue_to_zscore(p=.05, directional=True):
     return norm.ppf(1 - p)
 
 
-def included(df):
-    ''' Return a copy of the dataframe with only rows not labeled as discarded. '''
-    logger.info('removing samples labeled as "discarded"...')
-    return df.loc[~df[Label.DISCARDED], :]
-
-
-def nomotion(df):
-    ''' Return a copy of the dataframe with only rows labeled as "motion-free". '''
-    logger.info('discarding samples with significant motion artefact...')
-    return df.loc[~df[Label.MOTION], :]
-
-
-def nopreactive(df):
-    ''' Return a copy of the dataframe with only rows labeled as "no pre-stimulus activity". '''
-    logger.info('discarding samples with pre-stimulus activity...')
-    return df.loc[~df[Label.PRESTIM_ACTIVITY], :]
-
-
-def nopreactive_pop(df):
-    ''' Return a copy of the dataframe with only rows labeled as "no pre-stimulus population activity". '''
-    logger.info('discarding samples with pre-stimulus population activity...')
-    return df.loc[~df[Label.PRESTIM_POP_ACTIVITY], :]
+def is_valid(df):
+    ''' 
+    Return a series with an identical index as that of the input dataframe, indicating
+    which rows are valid and must be included for response analysis.
+    '''
+    cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
+    if len(cols) > 0:
+        logger.info(f'identifying samples not without [{", ".join(cols)}] tags')
+    out = ~df[cols].any(axis=1)
+    return out.rename('valid?')
 
 
 def valid(df):
     ''' Return a copy of the dataframe with only valid rows that must be included for response analysis. '''
-    return nopreactive_pop(nopreactive(nomotion(included(df))))
+    out = df.loc[is_valid(df), :]
+    cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
+    for k in cols:
+        del out[k]
+    return out
 
+
+def valid_timeseries(timeseries, stats):
+    ''' Return a copy of a timeseries dataframe with only valid rows that must be included for response analysis. '''
+    isv = is_valid(stats.copy())
+    logger.info('adding expanded validity index to timeseries ...')
+    isv_exp = expand_to_match(isv, timeseries.index)
+    logger.info('filtering timeseries ...')
+    return timeseries.loc[isv_exp, :]
+    
 
 def nonzero(df):
     ''' Return a copy of the dataframe with only rows corresponding to trials with non-zero pressure '''

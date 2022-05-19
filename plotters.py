@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 16:32:06
+# @Last Modified time: 2022-05-19 17:43:49
 
 ''' Collection of plotting utilities. '''
 
@@ -594,7 +594,7 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
     :param stacked (optional): whether to stack the traces vertically
     :return: figure handle
     '''
-    # Reduce daatset to key of interest
+    # Reduce dataset to key of interest
     data = data[key]
     # Get ROIs indexes
     iROIs = data.index.unique(level=Label.ROI)
@@ -608,10 +608,13 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
     # If number of traces specified, reduce to subset of traces (if applicable)
     if ntraces is not None and ntraces < len(iROIs):
         prefix  = ''
-        iROIs = random.sample(set(iROIs), ntraces)
-        data = data.query(f'{Label.ROI} in {iROIs}')
+        idxs = random.sample(set(np.arange(iROIs.size)), ntraces)
+        iROIs = iROIs[idxs]
+        idx = [slice(None) for i in range(len(data.index.names))]
+        idx[data.index.names.index(Label.ROI)] = iROIs
+        data = data.loc[tuple(idx)]
         if ydelimiters is not None:
-            ydelimiters = ydelimiters[iROIs]
+            ydelimiters = ydelimiters[idxs]
     else:
         prefix = 'all '
     nROIs = len(iROIs)
@@ -643,6 +646,64 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
             ax.axvline(iframe, color='k', linestyle='--')
     # Return figure
     return fig    
+
+
+def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, irun=None,
+                          itrial=None, tbounds=None):
+    ''' Plot ROI-aggregated traces across runs/trials or all dataset '''
+    if not is_iterable(metrics):
+        metrics = [metrics]
+    if not is_iterable(ykey):
+        ykey = [ykey]
+    plt_data = data[ykey]
+    groupby = [Label.RUN, Label.TRIAL]
+    idx = [slice(None) for i in range(len(plt_data.index.names))]
+    groupby = list(filter(lambda k: k in data.index.names, groupby))
+    suptitle = []
+    if irun is not None:
+        idx[plt_data.index.names.index(Label.RUN)] = irun
+        if Label.RUN in groupby:
+            groupby.remove(Label.RUN)
+        suptitle.append(f'run {irun}')
+    if itrial is not None:
+        if Label.TRIAL not in plt_data.index.names:
+            raise ValueError('trial subsets cannot be selected on trial-averaged data')
+        idx[plt_data.index.names.index(Label.TRIAL)] = itrial
+        if Label.TRIAL in groupby:
+            groupby.remove(Label.TRIAL)
+        suptitle.append(f'trial {itrial}')
+    plt_data = plt_data.loc[tuple(idx), :]
+    if hue is not None:
+        groupby = [hue]
+    groupby.append(Label.FRAME)
+    plt_data = plt_data.groupby(groupby).agg(metrics)
+    plt_data[Label.FPS] = fps
+    add_time_to_table(plt_data)
+    fig, axes = plt.subplots(len(metrics), 2, figsize=(10, 4 * len(metrics)))
+    if len(suptitle) > 0:
+        fig.suptitle(', '.join(suptitle))
+    axes = np.atleast_2d(axes)
+    for ax in axes.ravel():
+        sns.despine(ax=ax)
+    for axrow, k in zip(axes, metrics):
+        ax = axrow[0]
+        ax.set_title(f'{k} - traces')
+        ax.set_xlabel(Label.TIME)
+        ax.set_ylabel(ykey[0])
+        if tbounds is not None:
+            ax.set_xlim(tbounds)
+        ax.axvline(0, c='k', ls='--')
+        if yref is not None:
+            ax.axhline(yref, c='k', ls='--')
+        axrow[1].set_title(f'{k} - distributions')
+        for y in ykey:
+            sns.lineplot(
+                data=plt_data, x=Label.TIME, y=(y, k), hue=hue,
+                palette='viridis', legend=False, ax=axrow[0])
+            sns.kdeplot(
+                data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette='viridis')
+    fig.tight_layout()
+    return fig
 
 
 def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
@@ -1238,7 +1299,8 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
 
     # Plot with time on x-axis
     fig = plot_from_data(
-        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc, **kwargs)
+        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc,
+        col_order=get_default_rtypes(), **kwargs)
         
     # Add markers for each axis
     for ax in fig.axes:

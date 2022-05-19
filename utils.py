@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-10 19:36:53
+# @Last Modified time: 2022-05-19 13:04:51
 
 ''' Collection of generic utilities. '''
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 from pandas.api.types import is_numeric_dtype
 import operator
 import abc
@@ -167,8 +168,10 @@ def apply_rolling_window(x, w, func=None, warn_oversize=True):
     # Pad input array on both sides
     x = np.pad(x, w // 2, mode='symmetric')
     # Generate rolling window over array
+    # roll = sliding_window_view(x, w)
     roll = pd.Series(x).rolling(w, center=True)
     # Apply function over rolling window object, drop NaNs and extract output array 
+    # return np.array([func(r) for r in roll])
     return func(roll).dropna().values
 
 
@@ -251,13 +254,21 @@ def expand_to_match(df, mux):
     '''
     Expand dataframe along new index dimensions to match reference index
     '''
+    name = None 
+    if isinstance(df, pd.Series):
+        name = df.name
+        df = df.to_frame()
     refnames = mux.names
     extra_levels = set(refnames) - set(df.index.names)
     if len(extra_levels) == 0:
         raise ValueError('did not find any extra index levels')
     extra_levels = list(filter(lambda x: x in extra_levels, refnames))
     newdims = {k: mux.unique(level=k) for k in extra_levels}
-    return repeat_along_new_dims(df, newdims)
+    newdf = repeat_along_new_dims(df, newdims)
+    if name is not None:
+        return newdf.loc[:, name]
+    else:
+        return newdf
 
 def expand_and_add(dfnew, dfref, prefix=''):
     '''
