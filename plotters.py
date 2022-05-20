@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-19 17:43:49
+# @Last Modified time: 2022-05-20 16:07:02
 
 ''' Collection of plotting utilities. '''
 
@@ -11,6 +11,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
@@ -23,6 +24,8 @@ from constants import *
 from utils import get_singleton, is_iterable, plural
 from postpro import *
 from viewers import get_stack_viewer
+from fileops import loadtif
+from parsers import get_info_table
 
 # Colormaps
 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
@@ -31,6 +34,41 @@ gnrd = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=Tru
 gnrd.set_bad('silver')
 nan_viridis = plt.get_cmap('viridis').copy()
 nan_viridis.set_bad('silver')
+
+
+def get_colors(cmap, N=None, use_index='auto'):
+    ''' Get colors based on a colormap '''
+    if is_iterable(cmap):
+        return np.vstack([get_colors(c) for c in cmap])
+    if isinstance(cmap, str):
+        if use_index == 'auto':
+            if cmap in ['Pastel1', 'Pastel2', 'Paired', 'Accent',
+                        'Dark2', 'Set1', 'Set2', 'Set3',
+                        'tab10', 'tab20', 'tab20b', 'tab20c']:
+                use_index = True
+            else:
+                use_index = False
+        cmap = plt.get_cmap(cmap)
+    if not N:
+        N = cmap.N
+    if use_index == 'auto':
+        if cmap.N > 100:
+            use_index=False
+        elif isinstance(cmap, LinearSegmentedColormap):
+            use_index = False
+        elif isinstance(cmap, ListedColormap):
+            use_index = True
+    if use_index:
+        ind = np.arange(int(N)) % cmap.N
+        colors = cmap(ind)
+    else:
+        colors = cmap(np.linspace(0, 1, N))
+    return colors
+
+
+def get_color_cycle(*args, **kwargs):
+    ''' Get color cycler based on a colormap '''
+    return plt.cycler('color', get_colors(*args, **kwargs))
 
 
 def harmonize_axes_limits(axes, axkey='y'):
@@ -93,6 +131,38 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     ax.set_xlabel('pixel intensity')
     ax.set_yscale(yscale)
     ax.set_ylabel('Count')
+    return fig
+
+
+def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
+                                  cmap=['tab10', 'Dark2']):
+    ''' Plot trial-averaged average stack intensity over runs '''
+    df = get_info_table(fpaths, ntrials_per_run=ntrials_per_run)
+    df = add_intensity_to_table(df)
+    df = df.sort_values(by=Label.ISPTA)
+    fig, ax = plt.subplots()
+    sns.despine(ax=ax)
+    ax.set_xlabel(Label.TIME)
+    ax.set_ylabel(Label.DFF)
+    if tbounds is not None:
+        ax.set_xlim(*tbounds)
+    if title is not None:
+        ax.set_title(title)
+    iframes = np.arange(NFRAMES_PER_TRIAL)
+    ax.axvline(0., c='k', ls='--')
+    cycler = get_color_cycle(cmap, len(df))
+    for c, (irun, run_info) in zip(cycler, df.iterrows()):
+        fpath = fpaths[irun]
+        tplt = (iframes - FrameIndex.STIM) / run_info[Label.FPS]
+        stack = loadtif(fpath, verbose=False)
+        stackavg_trace = stack.mean(axis=-1).mean(axis=-1)  # average across pixels
+        F = stackavg_trace.reshape(   # average across trials
+            (-1, NFRAMES_PER_TRIAL)).mean(axis=0)
+        ax.plot(
+            tplt, (F - F[FrameIndex.STIM]) / F[FrameIndex.STIM],
+            c=c['color'],
+            label=f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)')
+    ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
     return fig
 
 
@@ -649,7 +719,7 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
 
 
 def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, irun=None,
-                          itrial=None, tbounds=None):
+                          itrial=None, tbounds=None, stim_correct=False, cmap='viridis'):
     ''' Plot ROI-aggregated traces across runs/trials or all dataset '''
     if not is_iterable(metrics):
         metrics = [metrics]
@@ -685,6 +755,9 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
     axes = np.atleast_2d(axes)
     for ax in axes.ravel():
         sns.despine(ax=ax)
+    stimidx = [slice(None) for i in range(len(plt_data.index.names))]
+    stimidx[-1] = FrameIndex.STIM
+    stimidx = tuple(stimidx)
     for axrow, k in zip(axes, metrics):
         ax = axrow[0]
         ax.set_title(f'{k} - traces')
@@ -697,11 +770,15 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
             ax.axhline(yref, c='k', ls='--')
         axrow[1].set_title(f'{k} - distributions')
         for y in ykey:
+            if stim_correct:
+                logger.info(f'computing relative traces for {y} {k}...')
+                ystim = plt_data.loc[stimidx, :][(y, k)].droplevel(Label.FRAME)
+                plt_data[(y, k)] = plt_data[(y, k)] - ystim
             sns.lineplot(
                 data=plt_data, x=Label.TIME, y=(y, k), hue=hue,
-                palette='viridis', legend=False, ax=axrow[0])
+                palette=cmap, legend=False, ax=axrow[0])
             sns.kdeplot(
-                data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette='viridis')
+                data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette=cmap)
     fig.tight_layout()
     return fig
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-19 18:35:53
+# @Last Modified time: 2022-05-20 17:24:39
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1115,6 +1115,16 @@ def get_data_subset(data, subset_idx):
         pd.DataFrame(index=subset_idx), Label.FRAME, data.index.unique(level=Label.FRAME)).index
     logger.info('selecting traces data from subset...')
     return data.loc[mux, :]
+
+
+def get_threshold_metric(ykey):
+    ''' Get threshold metrics depending on the variable used for post-processing '''
+    if ykey == Label.ZSCORE:
+        return pvalue_to_zscore(PTHR_DETECTION)
+    elif ykey == Label.DFF:
+        return 0.01
+    else:
+        raise ValueError(f'unknown post-processing variable: {ykey}')
 
 
 def correlations_to_rcode(corrtypes, j=', '):
