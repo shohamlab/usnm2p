@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 18:56:49
+# @Last Modified time: 2022-05-22 19:48:35
 
 ''' Batch processing utilities '''
 
@@ -181,11 +181,21 @@ def create_queue(params):
     :param dims: dictionary of (name: value(s)) for input parameters
     :return: list of (name: value) dictionaries for all parameter combinations
     '''
+    # Get data types
+    dtypes = {k: list(set([type(vv) for vv in v])) for k, v in params.items()}
+    # Make sure data types are uniform for each parameter
+    for k, v in dtypes.items():
+        if len(v) > 1:
+            raise ValueError(f'non-uniform data type for {k} parameter: {v}')
+    # Reduce to 1 data type per parameter
+    dtypes = {k: v[0] for k, v in dtypes.items()}
     # Construct meshgrid array from parameter values
     pgrid = np.meshgrid(*params.values(), indexing='ij')
     # Reshape to 2D array
     queue = np.stack(pgrid, -1).reshape(-1, len(params))
     # Re-assign keys to each row
     queue = [dict(zip(params.keys(), r)) for r in queue]
+    # Re-assign data types
+    queue = [{k: v if v is None else dtypes[k](v) for k, v in item.items()} for item in queue]
     # Return queue
     return queue

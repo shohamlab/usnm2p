@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 19:04:22
+# @Last Modified time: 2022-05-22 19:48:11
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -76,9 +76,10 @@ if __name__ == '__main__':
     exec_args = {k: args.pop(k) for k in exec_args}
     exec_args = {k: v if is_iterable(v) else [v] for k, v in exec_args.items()}
     exec_args['kalman_gain'] = [
-        None if k.lower == 'none' else float(k) for k in exec_args['kalman_gain']]
+        None if k.lower() == 'none' else float(k) for k in exec_args['kalman_gain']]
     exec_args['ykey_postpro'] = [
         {'z': Label.ZSCORE, 'dff': Label.DFF}[y] for y in exec_args['ykey_postpro']]
+    print(exec_args)
     exec_queue = create_queue(exec_args)
 
     # Extract candidate datasets combinations from folder structure
