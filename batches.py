@@ -3,11 +3,12 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-05 09:53:10
+# @Last Modified time: 2022-05-22 18:56:49
 
 ''' Batch processing utilities '''
 
 from datetime import datetime
+import numpy as np
 import logging
 import multiprocessing as mp
 
@@ -170,3 +171,21 @@ class Batch:
         mpistr = 'with' if mpi else 'without'
         answer = input(f'run {self} {mpistr} multiprocessing ? (y/n):')
         return answer.lower() == 'y'
+
+
+def create_queue(params):
+    ''' 
+    Create a serialized 2D array of all parameter combinations for a series
+    of individual parameter sweeps.
+    
+    :param dims: dictionary of (name: value(s)) for input parameters
+    :return: list of (name: value) dictionaries for all parameter combinations
+    '''
+    # Construct meshgrid array from parameter values
+    pgrid = np.meshgrid(*params.values(), indexing='ij')
+    # Reshape to 2D array
+    queue = np.stack(pgrid, -1).reshape(-1, len(params))
+    # Re-assign keys to each row
+    queue = [dict(zip(params.keys(), r)) for r in queue]
+    # Return queue
+    return queue

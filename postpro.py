@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-20 17:24:39
+# @Last Modified time: 2022-05-22 18:00:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1117,12 +1117,12 @@ def get_data_subset(data, subset_idx):
     return data.loc[mux, :]
 
 
-def get_threshold_metric(ykey):
+def get_threshold_metric(ykey, navg=1):
     ''' Get threshold metrics depending on the variable used for post-processing '''
     if ykey == Label.ZSCORE:
         return pvalue_to_zscore(PTHR_DETECTION)
     elif ykey == Label.DFF:
-        return 0.01
+        return 0.1 / navg
     else:
         raise ValueError(f'unknown post-processing variable: {ykey}')
 

@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-19 18:43:44
+# @Last Modified time: 2022-05-22 19:04:22
 
 ''' Utility script to run single region analysis notebook '''
 
 import os
+from itertools import product
 import logging
 from argparse import ArgumentParser
 from constants import *
@@ -14,6 +15,8 @@ from constants import *
 from fileops import get_data_root, get_dataset_params
 from logger import logger
 from nbutils import DirectorySwicther, execute_notebooks
+from utils import is_iterable
+from batches import create_queue
 
 logger.setLevel(logging.INFO)
 
@@ -43,16 +46,22 @@ if __name__ == '__main__':
     parser.add_argument(
         '--no_slack_notify', default=False, action='store_true', help='Do not notify on slack')
     parser.add_argument(
-        '-k', '--kalman_gain', type=str, default=str(KALMAN_GAIN), help='Kalman filter gain')
+        '-k', '--kalman_gain', type=str, default=str(KALMAN_GAIN), nargs='+',
+        help='Kalman filter gain (s)')
     parser.add_argument(
-        '-w', '--baseline_wlen', type=float, default=BASELINE_WLEN, help='Baseline rolling window length (s)')
+        '-w', '--baseline_wlen', type=float, default=BASELINE_WLEN, nargs='+',
+        help='Baseline rolling window length (s)')
     parser.add_argument(
-        '-q', '--baseline_quantile', type=float, default=BASELINE_QUANTILE, help='Baseline evaluation quantile')
+        '-q', '--baseline_quantile', type=float, default=BASELINE_QUANTILE, nargs='+',
+        help='Baseline evaluation quantile')
     parser.add_argument(
-        '-y', '--ykey_postpro', type=str, default='z', choices=['z', 'dff'], help='Post-processing variable')
+        '-y', '--ykey_postpro', type=str, default='z', choices=['z', 'dff'], nargs='+',
+        help='Post-processing variable')
 
     # Extract command line arguments
     args = vars(parser.parse_args())
+
+    # Process execution arguments
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
@@ -65,12 +74,13 @@ if __name__ == '__main__':
         'ykey_postpro'
     ]
     exec_args = {k: args.pop(k) for k in exec_args}
-    if exec_args['kalman_gain'].lower() == 'none':
-        exec_args['kalman_gain'] = None
-    else:
-        exec_args['kalman_gain'] = float(exec_args['kalman_gain'])
-    exec_args['ykey_postpro'] = {'z': Label.ZSCORE, 'dff': Label.DFF}[exec_args['ykey_postpro']]
-    
+    exec_args = {k: v if is_iterable(v) else [v] for k, v in exec_args.items()}
+    exec_args['kalman_gain'] = [
+        None if k.lower == 'none' else float(k) for k in exec_args['kalman_gain']]
+    exec_args['ykey_postpro'] = [
+        {'z': Label.ZSCORE, 'dff': Label.DFF}[y] for y in exec_args['ykey_postpro']]
+    exec_queue = create_queue(exec_args)
+
     # Extract candidate datasets combinations from folder structure
     datasets = get_dataset_params(root=get_data_root())
 
@@ -79,9 +89,9 @@ if __name__ == '__main__':
         if v is not None:
             logger.info(f'restricting datasets to {k} = {v}')
             datasets = list(filter(lambda x: x[k] == v, datasets))
-
+    
     # Compute number of jobs to run 
-    njobs = len(datasets)
+    njobs = len(datasets) * len(exec_queue)
     
     # Log warning message and quit if no job was found
     if njobs == 0:
@@ -92,10 +102,8 @@ if __name__ == '__main__':
         mpi = False
 
     # Merge datasets and execution parameters information
-    params = datasets.copy()
-    for k, v in exec_args.items():
-        for i in range(njobs):
-            params[i][k] = v
+    params = list(product(datasets, exec_queue))
+    params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
 
     # Get absolute path to directory of current file (where code must be executed)
     script_fpath = os.path.realpath(__file__)
