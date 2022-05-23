@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 19:48:11
+# @Last Modified time: 2022-05-23 06:49:31
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--no_slack_notify', default=False, action='store_true', help='Do not notify on slack')
     parser.add_argument(
-        '-k', '--kalman_gain', type=str, default=str(KALMAN_GAIN), nargs='+',
+        '-k', '--kalman_gain', type=float, default=KALMAN_GAIN, nargs='+',
         help='Kalman filter gain (s)')
     parser.add_argument(
         '-w', '--baseline_wlen', type=float, default=BASELINE_WLEN, nargs='+',
@@ -75,8 +75,6 @@ if __name__ == '__main__':
     ]
     exec_args = {k: args.pop(k) for k in exec_args}
     exec_args = {k: v if is_iterable(v) else [v] for k, v in exec_args.items()}
-    exec_args['kalman_gain'] = [
-        None if k.lower() == 'none' else float(k) for k in exec_args['kalman_gain']]
     exec_args['ykey_postpro'] = [
         {'z': Label.ZSCORE, 'dff': Label.DFF}[y] for y in exec_args['ykey_postpro']]
     print(exec_args)
