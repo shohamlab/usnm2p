@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 19:48:35
+# @Last Modified time: 2022-05-23 16:48:26
 
 ''' Batch processing utilities '''
 
@@ -196,6 +196,16 @@ def create_queue(params):
     # Re-assign keys to each row
     queue = [dict(zip(params.keys(), r)) for r in queue]
     # Re-assign data types
-    queue = [{k: v if v is None else dtypes[k](v) for k, v in item.items()} for item in queue]
+    parsed_queue = []
+    for pdict in queue:
+        parsed_pdict = {}
+        for k, v in pdict.items():
+            if v is None:
+                parsed_pdict[k] = None
+            elif dtypes[k] == bool:
+                parsed_pdict[k] = eval(v)
+            else:
+                parsed_pdict[k] = dtypes[k](v)
+        parsed_queue.append(parsed_pdict)
     # Return queue
-    return queue
+    return parsed_queue
