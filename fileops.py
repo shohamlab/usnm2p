@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 11:52:12
+# @Last Modified time: 2022-05-23 16:06:06
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -339,17 +339,21 @@ def get_figdir(figsroot):
     return figsdir
 
 
-def save_figs_book(figsroot, figs, prefix=None):
+def save_figs_book(figsroot, figs, suffix=None):
     ''' Save figures dictionary as consecutive pages in single PDF document. '''
     now = datetime.datetime.now()
-    s = now.strftime('%Y.%m.%d-%H.%M')
-    if prefix is not None:
-        s = f'{prefix}_{s}'
-    fname = f'figs_{s}.pdf'
-    fpath = os.path.join(figsroot, fname)
+    today = now.strftime('%Y.%m.%d')
+    figsdir = os.path.join(figsroot, today)
+    if not os.path.isdir(figsdir):
+        os.mkdir(figsdir)
+    fcode = 'figs'
+    if suffix is not None:
+        fcode = f'{fcode}_{suffix}'
+    fname = f'{fcode}.pdf'
+    fpath = os.path.join(figsdir, fname)
     file = matplotlib.backends.backend_pdf.PdfPages(fpath)
-    for i, (k, v) in enumerate(figs.items()):
-        logger.info(f'saving figure "{k}" on page {i}')
+    logger.info(f'saving figures in {fpath}:')
+    for v in tqdm(figs.values()):
         file.savefig(v, transparent=True, bbox_inches='tight')
     file.close()
 

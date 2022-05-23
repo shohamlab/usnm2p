@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 18:00:31
+# @Last Modified time: 2022-05-23 14:15:09
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -989,6 +989,43 @@ def pvalue_to_zscore(p=.05, directional=True):
     return norm.ppf(1 - p)
 
 
+def get_pvalue_per_sample(p, n):
+    ''' 
+    Return the p-value per sample given a p-value for the aggregate over n samples
+    
+    :param: p: aggregate p-value over sample distribution
+    :param: n: number of samples
+    :return: resolved p-value per sample
+    '''
+    # Get inverse probability 
+    pinv = 1 - p
+    # Probability that all samples are inferior = product of individual probabilities
+    # Assuming all samples are independent, we therefore take the n-th root to get the
+    # probability at the individual sample level
+    pinv_sample = np.power(pinv, 1 / n)
+    # Return inverse probability
+    return 1 - pinv_sample
+
+
+def get_zscore_maximum(pthr, w):
+    '''
+    Get the value of the maximum from a z-score distribution inside a sample window
+    corresponding to a given significance criterion (p-value)
+    
+    :param pthr: significance threshold (p-value)
+    :param w: window size
+    :return: characteristic maximum z-score
+    '''
+    # Vectorize function
+    if isinstance(w, np.ndarray):
+        return np.array([get_zscore_maximum(pthr, ww) for ww in w])
+    # If window size smaller than 1 -> return NaN
+    if w < 1:
+        return np.nan
+    # Compute and return z-score
+    return pvalue_to_zscore(get_pvalue_per_sample(pthr, w), directional=True)
+
+
 def is_valid(df):
     ''' 
     Return a series with an identical index as that of the input dataframe, indicating
@@ -1115,6 +1152,22 @@ def get_data_subset(data, subset_idx):
         pd.DataFrame(index=subset_idx), Label.FRAME, data.index.unique(level=Label.FRAME)).index
     logger.info('selecting traces data from subset...')
     return data.loc[mux, :]
+
+
+def get_threshold_maximum(ykey, w):
+    '''
+    Get a variable-dependent threshold maximum
+    
+    :param ykey: variable
+    :param w: window slice
+    ''' 
+    wlen = w.stop - w.start
+    if ykey == Label.ZSCORE:
+        return get_zscore_maximum(PTHR_DETECTION, wlen)
+    elif ykey == Label.DFF:
+        return 0.1
+    else:
+        raise ValueError(f'unknown post-processing variable: {ykey}')
 
 
 def get_threshold_metric(ykey, navg=1):

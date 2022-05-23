@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-20 16:07:02
+# @Last Modified time: 2022-05-23 15:00:06
 
 ''' Collection of plotting utilities. '''
 
@@ -17,6 +17,7 @@ from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
 import seaborn as sns
 from colorsys import hsv_to_rgb, rgb_to_hsv
+from torch import Value
 from tqdm import tqdm
 
 from logger import logger
@@ -98,7 +99,7 @@ def plot_table(inputs):
     ax.axis('off')
     table = ax.table(cellText, loc='center')
     table.set_fontsize(14)
-    table.scale(1, 3)
+    table.scale(1, 2)
     fig.tight_layout()
     return fig
 
@@ -135,7 +136,7 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
 
 
 def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
-                                  cmap=['tab10', 'Dark2']):
+                                  cmap=['tab10', 'Dark2'], iref=None):
     ''' Plot trial-averaged average stack intensity over runs '''
     df = get_info_table(fpaths, ntrials_per_run=ntrials_per_run)
     df = add_intensity_to_table(df)
@@ -158,8 +159,12 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         stackavg_trace = stack.mean(axis=-1).mean(axis=-1)  # average across pixels
         F = stackavg_trace.reshape(   # average across trials
             (-1, NFRAMES_PER_TRIAL)).mean(axis=0)
+        if iref is not None:
+            Fref = F[iref]
+        else:
+            Fref = np.quantile(F, BASELINE_QUANTILE)
         ax.plot(
-            tplt, (F - F[FrameIndex.STIM]) / F[FrameIndex.STIM],
+            tplt, (F - Fref) / Fref,
             c=c['color'],
             label=f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)')
     ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
@@ -719,7 +724,8 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
 
 
 def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, irun=None,
-                          itrial=None, tbounds=None, stim_correct=False, cmap='viridis'):
+                          itrial=None, tbounds=None, icorrect='baseline', cmap='viridis',
+                          groupbyROI=False, ci=None, **kwargs):
     ''' Plot ROI-aggregated traces across runs/trials or all dataset '''
     if not is_iterable(metrics):
         metrics = [metrics]
@@ -746,6 +752,9 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
     if hue is not None:
         groupby = [hue]
     groupby.append(Label.FRAME)
+    if groupbyROI:
+        groupby.append(Label.ROI)
+    logger.info(f'grouping data by {groupby} and averaging...')
     plt_data = plt_data.groupby(groupby).agg(metrics)
     plt_data[Label.FPS] = fps
     add_time_to_table(plt_data)
@@ -755,9 +764,10 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
     axes = np.atleast_2d(axes)
     for ax in axes.ravel():
         sns.despine(ax=ax)
-    stimidx = [slice(None) for i in range(len(plt_data.index.names))]
-    stimidx[-1] = FrameIndex.STIM
-    stimidx = tuple(stimidx)
+    if icorrect is not None and isinstance(icorrect, int):
+        refidx = [slice(None) for i in range(len(plt_data.index.names))]
+        refidx[-1] = icorrect
+        refidx = tuple(refidx)
     for axrow, k in zip(axes, metrics):
         ax = axrow[0]
         ax.set_title(f'{k} - traces')
@@ -770,13 +780,20 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
             ax.axhline(yref, c='k', ls='--')
         axrow[1].set_title(f'{k} - distributions')
         for y in ykey:
-            if stim_correct:
-                logger.info(f'computing relative traces for {y} {k}...')
-                ystim = plt_data.loc[stimidx, :][(y, k)].droplevel(Label.FRAME)
-                plt_data[(y, k)] = plt_data[(y, k)] - ystim
+            if icorrect is not None:
+                if isinstance(icorrect, int):
+                    ycorrect = plt_data.loc[refidx, :][(y, k)].droplevel(Label.FRAME)
+                elif icorrect == 'baseline':
+                    if hue is not None:
+                        ycorrect = plt_data[(y, k)].groupby(hue).quantile(BASELINE_QUANTILE)
+                    else:
+                        ycorrect = plt_data[(y, k)].quantile(BASELINE_QUANTILE)
+                else:
+                    raise ValueError(f'unknown correction: {icorrect}')
+                plt_data[(y, k)] = plt_data[(y, k)] - ycorrect
             sns.lineplot(
-                data=plt_data, x=Label.TIME, y=(y, k), hue=hue,
-                palette=cmap, legend=False, ax=axrow[0])
+                data=plt_data, x=Label.TIME, y=(y, k), hue=hue, ci=ci,
+                palette=cmap, legend=False, ax=axrow[0], **kwargs)
             sns.kdeplot(
                 data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette=cmap)
     fig.tight_layout()

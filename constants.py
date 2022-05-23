@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-19 17:04:57
+# @Last Modified time: 2022-05-23 15:36:03
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -69,7 +69,7 @@ NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells
 ALPHA = 0.7
 
 # Baseline computation
-BASELINE_WLEN = 5.  # window length (in s) to compute the fluorescence baseline
+BASELINE_WLEN = 10.  # window length (in s) to compute the fluorescence baseline
 BASELINE_QUANTILE = .08  # quantile used for the computation of the fluorescence baseline
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
 
@@ -86,8 +86,9 @@ NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval t
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
+    PRESTIM = slice(STIM - 9, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
+    BASELINE = slice(70, 101)
 
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
