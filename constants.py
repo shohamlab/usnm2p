@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 15:36:03
+# @Last Modified time: 2022-05-23 19:00:54
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -175,6 +175,7 @@ class Label:
     PRESTIM_ACTIVITY = 'pre-stim cell activity?'
     PCT_PREACTIVE_CELLS = '% pre-stim active cells'
     PRESTIM_POP_ACTIVITY = 'pre-stim population activity?'
+    RESP_TYPE = 'response type'
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
     PCT_RESP_CELLS = '% responding cells'
@@ -184,13 +185,17 @@ class Label:
     # ROI classification 
     NPOS_CONDS = f'# {POS_COND[:-1]}s'
     IS_RESP_ROI = 'responsive ROI?'
-    ROI_RESP_TYPE = 'response type'
+    ROI_RESP_TYPE = 'responder type'
 
     # Labels that must be renamed upon averaging 
     RENAME_ON_AVERAGING = {
         IS_RESP: SUCCESS_RATE,
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
+
+
+RESP_TYPES = {
+    -1: 'negative', 0: 'weak', 1: 'positive'}
 
 
 # Stats fields used to compute trial validity  

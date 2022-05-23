@@ -2,19 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 14:15:09
+# @Last Modified time: 2022-05-23 19:01:01
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 from collections import Counter
-from argon2 import PasswordHasher
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.optimize import curve_fit
 from scipy.signal import butter, filtfilt, find_peaks, peak_widths
-from scipy.stats import skew, norm
+from scipy.stats import skew, norm, ttest_ind
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
 from scipy.cluster.hierarchy import linkage, leaves_list
@@ -1026,6 +1025,23 @@ def get_zscore_maximum(pthr, w):
     return pvalue_to_zscore(get_pvalue_per_sample(pthr, w), directional=True)
 
 
+def pre_post_ttest(s, directional=False):
+    '''
+    Select samples from pre- and post-stimulus windows and perform a t-test
+    to test for their statistical significance
+    
+    :param s: input pandas Series
+    :param directional (default: False): whether to expect a directional effect
+    :return tuple with t-statistics and associated p-value
+    '''
+    spre = s.loc[pd.IndexSlice[:, :, FrameIndex.PRESTIM]]
+    spost = s.loc[pd.IndexSlice[:, :, FrameIndex.RESPONSE]]
+    tstat, pval = ttest_ind(
+        spost, spre, equal_var=False, 
+        alternative='greater' if directional else 'two-sided')
+    return tstat, pval
+
+
 def is_valid(df):
     ''' 
     Return a series with an identical index as that of the input dataframe, indicating
@@ -1204,7 +1220,8 @@ def correlations_to_rcode(corrtypes, j=', '):
 
 def get_default_rtypes():
     ''' Get default response type codes '''
-    return ['non-responsive', 'responsive']
+    return ['negative', 'weak', 'positive']
+    # return ['non-responsive', 'responsive']
 
 
 def reclassify(data, ykey, ythr=None, nposthr=None):
