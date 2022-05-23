@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-17 17:41:22
+# @Last Modified time: 2022-05-23 11:52:12
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -164,7 +164,7 @@ def split_path_at(in_path, split_dir):
     return pardir, split_dir, downstream_path
 
 
-def get_output_equivalent(in_path, basein, baseout):
+def get_output_equivalent(in_path, basein, baseout, mkdirs=True):
     '''
     Get the "output equivalent" of a given file or directory, i.e. its corresponding path in
     an identified output branch of the file tree structure, while creating the intermediate
@@ -182,7 +182,7 @@ def get_output_equivalent(in_path, basein, baseout):
     out_path = os.path.join(upstream_path, baseout, downstream_path)
     logger.debug(f'output path: "{out_path}"')
     # Create required subdirectories if output path does not exist
-    if not os.path.exists(out_path):
+    if not os.path.exists(out_path) and mkdirs:
         if os.path.isdir(in_path):  # if input path was a directory -> include all elements
             os.makedirs(out_path)
         else:  # if input path was a file -> fetch parent directory
