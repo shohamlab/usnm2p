@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 10:32:29
+# @Last Modified time: 2022-05-24 12:34:59
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1244,36 +1244,36 @@ def get_default_rtypes():
     # return ['non-responsive', 'responsive']
 
 
-def reclassify(data, ykey, ythr=None, nposthr=None):
+def reclassify(data, ykey, nposthr=None):
     ''' 
-    Reclassify dataset based on a new significance threshold number of responsive conditions
+    Reclassify dataset based on a new number of responsive conditions
     
     :param data: stats dataframe
     :param ykey: variable to use for significance thresholding
-    :param ythr (optional): significance threshold
     :param nposthr (optional): threshold number of positive conditions
     :return: updated stats dataframe
     '''
     # If nposthr not given, infer it from dataset
     if nposthr is None:
-        isresp_vs_npos = data.groupby(Label.NPOS_CONDS).first()[Label.IS_RESP_ROI]
-        nposthr = isresp_vs_npos[isresp_vs_npos == True].index[0]
-    # If ythr is given, classify positive conditions according to significance threshold
-    if ythr is not None:
-        data[Label.POS_COND] = data[ykey] > ythr
-        nposconds_per_roi = data[Label.POS_COND].groupby(
-            [Label.MOUSEREG, Label.ROI]).sum().rename(Label.NPOS_CONDS)
-        data[Label.NPOS_CONDS] = nposconds_per_roi
-    # Classify cells according to threshold number of positive conditions
-    data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
-    data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
-        {True: 'responsive', False: 'non-responsive'})
-    # # Log new classification summary
-    # counts_by_type = data.groupby(
-    #     [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
-    # logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
-    # Return new data
-    return data
+        nposconds_per_rtype = data.groupby(Label.ROI_RESP_TYPE).apply(
+            lambda df: sorted(df['positive'].unique()))
+        nposthr = min(nposconds_per_rtype.loc['positive'])
+    # # If ythr is given, classify positive conditions according to significance threshold
+    # if ythr is not None:
+    #     data[Label.POS_COND] = data[ykey] > ythr
+    #     nposconds_per_roi = data[Label.POS_COND].groupby(
+    #         [Label.MOUSEREG, Label.ROI]).sum().rename(Label.NPOS_CONDS)
+    #     data[Label.NPOS_CONDS] = nposconds_per_roi
+    # # Classify cells according to threshold number of positive conditions
+    # data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
+    # data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
+    #     {True: 'responsive', False: 'non-responsive'})
+    # # # Log new classification summary
+    # # counts_by_type = data.groupby(
+    # #     [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
+    # # logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
+    # # Return new data
+    # return data
 
 
 def get_xdep_data(data, xkey):

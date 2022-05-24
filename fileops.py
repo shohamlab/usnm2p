@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 16:06:06
+# @Last Modified time: 2022-05-24 12:13:55
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -556,10 +556,10 @@ def load_mousereg_datasets(dirpath, **kwargs):
         ykey_resp = f'diff {ykey}'
         if ykey_resp not in data['stats']:
             logger.info(f'adding {ykey_resp} metrics to stats dataset...')
-            ykey_prestim = f'pre-stim {ykey}'
+            ykey_prestim = f'pre-stim avg {ykey}'
             data['stats'][ykey_prestim] = apply_in_window(
                 lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.PRESTIM)
-            ykey_poststim = f'post-stim {ykey}'
+            ykey_poststim = f'post-stim avg {ykey}'
             data['stats'][ykey_poststim] = apply_in_window(
                 lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.RESPONSE)
             ykey_diff = f'diff {ykey}'

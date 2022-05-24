@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 19:01:25
+# @Last Modified time: 2022-05-24 16:35:57
 
 ''' Collection of plotting utilities. '''
 
@@ -1391,10 +1391,13 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     # Add tbounds to filtering criteria
     kwargs['tbounds'] = tbounds
 
+    # Determine col order if column set to ROI response type
+    if 'col' in kwargs and kwargs['col'] == Label.ROI_RESP_TYPE:
+        kwargs['col_order'] = get_default_rtypes()
+
     # Plot with time on x-axis
     fig = plot_from_data(
-        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc,
-        col_order=get_default_rtypes(), **kwargs)
+        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc, **kwargs)
         
     # Add markers for each axis
     for ax in fig.axes:
@@ -1411,6 +1414,56 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
 
     # Return figure
     return fig
+
+
+def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, **kwargs):
+    '''
+    Plot parameter-dependent response traces across datasets, for each response type
+    
+    :param data: multi-indexed dataframe containing timeseries of all datasets
+    :param ykey: dependent variable of interest to plot
+    :param pkey: independent parameter of interest (used as hue)
+    :return: figures dictionary
+    '''
+    # Initialize propagated keyword arguments
+    tracekwargs = dict(
+        col = Label.MOUSEREG, # 1 dataset on each axis
+        hide_col_prefix = True,  # no column prefix
+        max_colwrap = 4, # number of axes per line
+        height = 2.3,  # height of each figure axis
+        aspect = 1.,  # width / height aspect ratio of each axis
+        ci = None,  # no error shading
+    )
+
+    # Determine dataset filter depending on parameter key
+    if pkey == Label.P:
+        tracekwargs['DC'] = DC_REF
+    elif pkey == Label.DC:
+        tracekwargs['P'] = P_REF
+    else:
+        raise ValueError(f'unknown parameter key: "{pkey}"')
+    
+    # Determine y-bounds depending on variable
+    if ykey == Label.DFF:
+        ybounds = [-0.1, 0.15]
+    elif ykey == Label.ZSCORE:
+        ybounds = [-3., 6.]
+    else:
+        raise ValueError(f'unknown variable key: "{ykey}"')
+    
+    # Update with passed keyword arguments
+    tracekwargs.update(kwargs)
+    
+    # Generate 1 figure per responder type
+    figdict = {}
+    for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
+        logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
+        nROIs_group = len(group.groupby([Label.MOUSEREG, Label.ROI]).first())
+        title = f'{resptype} responders ({nROIs_group} cells)'
+        figdict[f'{resptype} {ykey} vs. {pkey} by type'] = plot_responses(
+            group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)
+    
+    return figdict
 
 
 def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
@@ -1496,7 +1549,7 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
 
 
 def plot_parameter_dependency_across_datasets(
-    data, xkey, ykey, show_datasets=True, avg=True, weighted=False, ci=68, **kwargs):
+    data, xkey, ykey, show_datasets=True, avg=True, weighted=True, ci=68, **kwargs):
     '''
     Plot the parameter dependency of a specific variable across mouse-region datasets
     
@@ -1508,7 +1561,19 @@ def plot_parameter_dependency_across_datasets(
         a non-weighted average
     :return: figure handle
     '''
+    # Determine y-bounds based on variable 
+    if ykey == Label.DFF:
+        ybounds = [-.03, +.06]
+    elif ykey == Label.ZSCORE:
+        ybounds = [-1., 2.]
+    else:
+        raise ValueError(f'unknown variable: "{ykey}"')
+    
+    # Determine variable of interest for output metrics
+    ykey_resp = f'diff {ykey}'
+    
     ndatasets = len(data.index.unique(Label.MOUSEREG))
+    col_order = get_default_rtypes()
     if ndatasets == 1:
         avg = False
     # Determine averaging categories
@@ -1522,10 +1587,13 @@ def plot_parameter_dependency_across_datasets(
         legend = False
         alpha = 0
     fig = plot_parameter_dependency(
-        data, xkey=xkey, ykey=ykey,
+        data, xkey=xkey, ykey=ykey_resp,
+        ybounds=ybounds,
         hue=Label.MOUSEREG,
-        col=Label.ROI_RESP_TYPE, col_order=get_default_rtypes(),
-        add_leg_numbers=False, max_colwrap=2,
+        col=Label.ROI_RESP_TYPE, col_order=col_order,
+        hide_col_prefix=True, col_count_key=[Label.MOUSEREG, Label.ROI],
+        baseline=0., height=3.5, aspect=.8,
+        add_leg_numbers=False, max_colwrap=len(col_order),
         ci=None if avg else ci,
         alpha=alpha, marker=None if avg else 'o',
         legend=legend,
@@ -1539,9 +1607,10 @@ def plot_parameter_dependency_across_datasets(
         # Extract non weighted average traces across datasets
         xdep_avg_data = get_xdep_data(avg_data, xkey)
         # Add average parameter dependency trace across datasets, for each response type
-        for ax, (_, group) in zip(fig.axes, xdep_avg_data.groupby(Label.ROI_RESP_TYPE)):
+        for resp_type, group in xdep_avg_data.groupby(Label.ROI_RESP_TYPE):
+            ax = fig.axes[col_order.index(resp_type)]
             sns.lineplot(
-                data=group, x=xkey, y=ykey, ax=ax, color='BLACK', ci=ci,
+                data=group, x=xkey, y=ykey_resp, ax=ax, color='BLACK', ci=ci,
                 marker='o', lw=4, markersize=10, legend=False)
             line = ax.get_lines()[-1]
         fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
@@ -2123,14 +2192,7 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
         nperbar = cellcounts.groupby(bar).sum().astype(int)
         # Get number of responding cells
         ntot = nperhue.sum()
-        neutral_type = get_default_rtypes()[0]
-        if neutral_type in nperhue:
-            nneutral = nperhue.loc[neutral_type]
-        else:
-            nneutral = nperbar.loc[neutral_type]
-        nresp = ntot - nneutral
         ax = fig.axes[0]
-        ax.set_title(f'{nresp} / {ntot} ({nresp / ntot * 1e2:.0f}%) responsive cells')
         # If resp type is hue, add labels to legend
         if hue == Label.ROI_RESP_TYPE:
             leg = fg._legend
