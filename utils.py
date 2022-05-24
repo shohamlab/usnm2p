@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-22 18:38:05
+# @Last Modified time: 2022-05-24 17:55:47
 
 ''' Collection of generic utilities. '''
 
@@ -359,10 +359,13 @@ def find_nearest(array, value):
     return array[idx]
 
 
-def resolve_close_elements(x, **kwargs):
+def resolve_close_elements(x, decimals=8, **kwargs):
     ''' Resolve array by updating "almost-duplicate" elements to their reduced value '''
     xunique = reduce_close_elements(np.unique(x), **kwargs)
-    return np.array([find_nearest(xunique, xx) for xx in x])
+    elems = np.array([find_nearest(xunique, xx) for xx in x])
+    if decimals is not None:
+        elems = np.round(elems, decimals) 
+    return elems
 
 
 def resolve_columns(df, cols, **kwargs):

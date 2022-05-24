@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 16:35:57
+# @Last Modified time: 2022-05-24 18:11:25
 
 ''' Collection of plotting utilities. '''
 
@@ -1416,21 +1416,21 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     return fig
 
 
-def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, **kwargs):
+def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False, **kwargs):
     '''
     Plot parameter-dependent response traces across datasets, for each response type
     
     :param data: multi-indexed dataframe containing timeseries of all datasets
     :param ykey: dependent variable of interest to plot
     :param pkey: independent parameter of interest (used as hue)
-    :return: figures dictionary
+    :return: figures dictionary or figure handle
     '''
     # Initialize propagated keyword arguments
     tracekwargs = dict(
-        col = Label.MOUSEREG, # 1 dataset on each axis
+        col = Label.MOUSEREG if not avg else Label.ROI_RESP_TYPE, # 1 dataset/resp type on each axis
         hide_col_prefix = True,  # no column prefix
         max_colwrap = 4, # number of axes per line
-        height = 2.3,  # height of each figure axis
+        height = 2.3 if not avg else 3,  # height of each figure axis
         aspect = 1.,  # width / height aspect ratio of each axis
         ci = None,  # no error shading
     )
@@ -1454,16 +1454,21 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, **kwargs)
     # Update with passed keyword arguments
     tracekwargs.update(kwargs)
     
-    # Generate 1 figure per responder type
-    figdict = {}
-    for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
-        logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
-        nROIs_group = len(group.groupby([Label.MOUSEREG, Label.ROI]).first())
-        title = f'{resptype} responders ({nROIs_group} cells)'
-        figdict[f'{resptype} {ykey} vs. {pkey} by type'] = plot_responses(
-            group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)
-    
-    return figdict
+    # Detailed mode: generate 1 figure per responder type
+    if not avg:
+        figdict = {}
+        for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
+            logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
+            nROIs_group = len(group.groupby([Label.MOUSEREG, Label.ROI]).first())
+            title = f'{resptype} responders ({nROIs_group} cells)'
+            figdict[f'{resptype} {ykey} vs. {pkey}'] = plot_responses(
+                group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)        
+        return figdict
+    # Average mode: generate a single figure with 1 axis per responder type
+    else:
+        fig = plot_responses(
+            data, ykey=ykey, hue=pkey, ybounds=ybounds, **tracekwargs)
+        return fig 
 
 
 def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):

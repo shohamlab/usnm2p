@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 06:49:31
+# @Last Modified time: 2022-05-24 17:37:59
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -27,7 +27,8 @@ if __name__ == '__main__':
 
     # Add input / output / mpi / check arguments
     parser.add_argument(
-        '-i', '--input', default='single_region_analysis.ipynb', help='path to input notebook')
+        '-i', '--input', default='single_region_analysis.ipynb',
+        help='path to input notebook')
     parser.add_argument(
         '-o', '--outdir', default='outputs', 
         help='relative path to output directory w.r.t. this script')    
@@ -35,6 +36,12 @@ if __name__ == '__main__':
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
     parser.add_argument(
         '--nocheck', default=False, action='store_true', help='no check before running')
+    parser.add_argument(
+        '--batch_input', default='batch_analysis.ipynb',
+        help='path to input batch notebook')
+    parser.add_argument(
+        '-b', '--runbatch', default=False, action='store_true',
+        help='run batch analysis notebook upon completion')
 
     # Add dataset arguments 
     parser.add_argument('-l', '--mouseline', help='mouse line')
@@ -65,7 +72,10 @@ if __name__ == '__main__':
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
+    batch_mpi = mpi
     nocheck = args.pop('nocheck')
+    runbatch = args.pop('runbatch')
+    batch_input_nbpath = args.pop('batch_input')
     exec_args = [
         'no_slack_notify',
         'kalman_gain',
@@ -77,7 +87,6 @@ if __name__ == '__main__':
     exec_args = {k: v if is_iterable(v) else [v] for k, v in exec_args.items()}
     exec_args['ykey_postpro'] = [
         {'z': Label.ZSCORE, 'dff': Label.DFF}[y] for y in exec_args['ykey_postpro']]
-    print(exec_args)
     exec_queue = create_queue(exec_args)
 
     # Extract candidate datasets combinations from folder structure
@@ -89,20 +98,36 @@ if __name__ == '__main__':
             logger.info(f'restricting datasets to {k} = {v}')
             datasets = list(filter(lambda x: x[k] == v, datasets))
     
-    # Compute number of jobs to run 
+    # Compute number of jobs to run
     njobs = len(datasets) * len(exec_queue)
-    
-    # Log warning message and quit if no job was found
+    # Log warning message if no job was found
     if njobs == 0:
-        logger.warning('found no job to run')
-        quit()
-    # Set multiprocessing to False in case of single job
-    elif njobs == 1:
-        mpi = False
+        logger.warning('found no individual job to run')
+    # Otherwise, create execution parameters queue
+    else:
+        params = list(product(datasets, exec_queue))
+        params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
+        # Set multiprocessing to False in case of single job
+        if njobs == 1:
+            mpi = False
 
-    # Merge datasets and execution parameters information
-    params = list(product(datasets, exec_queue))
-    params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
+    # If batch notebooks must also be run
+    if runbatch:
+        # Identify mouselines
+        mouselines = list(set([d['mouseline'] for d in datasets]))
+        mouselines = [{'mouseline': ml for ml in mouselines}]
+        # Compute number of batch jobs to run
+        nbatchjobs = len(mouselines) * len(exec_queue)
+        # Log warning message if no batch job was found
+        if nbatchjobs == 0:
+            logger.warning('found no batch job to run')
+        # Otherwise, create batch execution parameters queue
+        else:
+            batch_params = list(product(mouselines, exec_queue))
+            batch_params = [{**ml, **exec_args} for (ml, exec_args) in batch_params]
+            # Set batch multiprocessing to False in case of single batch job
+            if nbatchjobs == 1:
+                batch_mpi = False
 
     # Get absolute path to directory of current file (where code must be executed)
     script_fpath = os.path.realpath(__file__)
@@ -111,5 +136,12 @@ if __name__ == '__main__':
     # Execute notebooks within execution directory (to ensure correct function)
     with DirectorySwicther(exec_dir) as ds:
         # Execute notebooks as a batch with / without multiprocessing
-        output_nbpaths = execute_notebooks(
-            params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
+        if njobs > 0:
+            output_nbpaths = execute_notebooks(
+                params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
+
+        # If specified, execute batch analysis notebooks once individual ones are completed
+        if runbatch and nbatchjobs > 0:
+            batch_output_nbpaths = execute_notebooks(
+                batch_params, batch_input_nbpath, outdir, mpi=batch_mpi,
+                ask_confirm=not nocheck)
