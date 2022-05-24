@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 19:00:54
+# @Last Modified time: 2022-05-24 10:25:21
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -88,6 +88,7 @@ class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
     PRESTIM = slice(STIM - 9, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
+    RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(70, 101)
 
 # Response & cell type classification

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 19:01:01
+# @Last Modified time: 2022-05-24 10:32:29
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -12,8 +12,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.optimize import curve_fit
-from scipy.signal import butter, filtfilt, find_peaks, peak_widths
-from scipy.stats import skew, norm, ttest_ind
+from scipy.signal import butter, filtfilt, find_peaks, peak_widths, detrend
+from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
 from scipy.cluster.hierarchy import linkage, leaves_list
@@ -138,24 +138,23 @@ def get_window_size(wlen, fps):
     return w
 
 
-def linreg(data, xkey=Label.F_NEU, ykey=Label.F_ROI, norm='HuberT', add_cst=True):
+def linreg(y, x=None, norm='HuberT', add_cst=True):
     '''
-    Perform linear regression on 2 columns of a dataset
+    Perform linear regression on 2 signals
     
-    :param data: pandas dataframe contaning the variables of interest
-    :param xkey: name of the column containing the independent variable X
-    :param ykey: name of the column containing the dependent variable Y
+    :param y: output signal
+    :param x (optional): input signal
     :param norm (default: HuberT): name of the norm used to compute the linear regression
     :param add_cst (default: True): whether to consider an additional constant in the
         linear regression model 
     :return: fitted regression parameter(s)
     '''
-    Y = data[ykey].values
-    X = data[xkey].values
+    if x is None:
+        x = np.arange(y.size)
     if add_cst:
-        X = sm.add_constant(X)
+        x = sm.add_constant(x)
     norm = getattr(sm.robust.norms, norm)()
-    model = sm.RLM(Y, X, M=norm)
+    model = sm.RLM(y, x, M=norm)
     fit = model.fit()
     params = fit.params
     if not add_cst:
@@ -332,6 +331,27 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
     with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
         baselines = data.groupby(groupkeys).transform(pbar_update(nan_proof(bfunc), pbar))
     return baselines
+
+
+def detrend_trial(s, type='linear'):
+    ''' Detrend trial trace '''
+    # Extract values
+    y = s.values
+    # Generate index vector
+    x = np.arange(y.size)
+    # Generate validity vector
+    isvalid = np.ones(y.size, dtype=bool) 
+    isvalid[FrameIndex.RESP_EXT] = False
+    # Perform linear fit on valid indices only
+    if type == 'linear':
+        m, b, *_ = linregress(x[isvalid], y[isvalid])
+        yfit = m * x + b
+    elif type == 'constant':
+        yfit = y[isvalid].mean()
+    else:
+        raise ValueError(f'unknown detrending type: {type}')
+    # Subtract fit to data and return
+    return y - yfit
 
 
 def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
