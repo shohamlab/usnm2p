@@ -8,21 +8,32 @@
 
 ```
 # User-specific environment variables
-export MYID="lemait01"  # Kerberos ID
 export MYNAME="theo"   # Name of your personal directory in your lab space
+export MYCOMPNODE="shohamlab"  # Name of your computation node
 export MYLABNAME="shohamlab"  # Name of your lab space in /gpfs/data/
 export MYLABDRIVE="shohas01labspace"  # Name of your lab's research drive
+export RDRIVE="/mnt/$(whoami)/${MYLABDRIVE}"  # full path to the mounted lab research drive
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"  # Slack webhook
+export JOBFMT="%.12i %.12m %.12P %.12j %.8u %.5t %.10M %.6D %.6C"  # logging format for submitted jobs status
+export NODEFMT="%.10n %.10e %.10m %.10a %.10c %.10C"   # logging format for node status
+export TRANSFERFMT="-a --info=progress2 --info=name0"   # logging format for data transfers with rsync
 
-# Slack webhook
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"
+# Aliases for data transfers
+alias datamover="srun -p data_mover -n 2 --time=8:00:00 --mem-per-cpu=1G --pty bash"  # open special node for file transfer with rsync
+alias mountlab="mount $RDRIVE"  # mount the labs's research drive on your user session (only within data mover node)
 
-# Alias commands
-alias datamover="srun -p data_mover -n 2 -t=8:00:00 --mem-per-cpu=1G --pty bash"  # open special node for file transfer with rsync
-alias mountlab="mount /mnt/$MYID/$MYLABDRIVE/"  # mount the labs's research drive on your BigPurple user session
-alias job="srun -c2 --partition=$MYLABNAME --mem=8G --pty /bin/bash"  # run a normal bash job
-alias xjob="srun --x11 -c2 --partition=$MYLABNAME --mem=16G --pty /bin/bash"  # run an interactive bash job
-alias mpijob="srun -c10 --partition=$MYLABNAME --mem=64G --pty /bin/bash"  # run a massively parallelized bash job
-alias myjobs="squeue -u $MYID"  # list all jobs assosicated to your user ID
+# Aliases for computing jobs
+alias job="srun --partition=$MYCOMPNODE --time=8:00:00 --mem=64G --pty /bin/bash"  # run a normal bash job
+alias xjob="srun --x11 --partition=$MYCOMPNODE --time=8:00:00 --mem=64G --pty /bin/bash"  # run an interactive bash job
+alias mpijob="srun -c 10 --partition=$MYCOMPNODE --time=8:00:00 --mem=640G --pty /bin/bash"  # run a massively parallelized bash job
+alias myjobs="squeue -u $(whoami) -o '$JOBFMT'"  # list all jobs assosicated to your user ID
+alias labjobs="squeue -p $MYCOMPNODE -o '$JOBFMT'"  # list all jobs associated with lab's partition
+alias labspecs="sinfo --partition=$MYCOMPNODE -o '$NODEFMT'"
+
+# Shortucts to bash files
+alias loadmodules="sh ~/$MYNAME/code/bash/loadmodules.sh"  # load essential modules
+alias jbatch="sbatch ~/$MYNAME/code/bash/normalbatch.sh ~/$MYNAME/code/bash/jupyter.sh"  # launch a detached jupyter lab session
+alias jtunnel="cat ~/$MYNAME/tmp/log.log"  # open log file to acces jupyter tunneling information
 ```
 
 - Save and close to file (`Ctrl-o` followed by `Ctrl-x`)
@@ -61,9 +72,10 @@ alias myjobs="squeue -u $MYID"  # list all jobs assosicated to your user ID
 ## Transfer data from the lab research drive to BigPurple
 
 - Log in to bigpurple: `xbigpurple`
+- Move to a data transfer node: `datamover`
 - Mount the lab research drive on your session: `mountlab`
 - Move to the destination directory on BigPurple, e.g.: `cd ~/scratch/data`
-- Transfer the data from the source (i.e. a folder on the mounted research drive) to the destination (e.g. a folder in your scratch directory): `rsync -a --info=progress2 [source] ~/scratch/<folder>`
+- Transfer the data from the source (i.e. a folder on the mounted research drive) to the destination (e.g. a folder in your scratch directory): `rsync $TRANSFERFMT $RDRIVE/<path_to_source_folder> ~/scratch/<path_to_folder_folder>`.
 
 ## Run an analysis notebook interactively on BigPurple
 
