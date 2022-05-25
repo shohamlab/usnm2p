@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 18:11:25
+# @Last Modified time: 2022-05-25 17:07:26
 
 ''' Collection of plotting utilities. '''
 
@@ -464,7 +464,9 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
     ratios = np.power(2, np.round(np.log(ratios) / np.log(2)))  # round ratios to nearest power of 2
     
     # Find index of map with optimal scale for ROI detection 
-    best_scale_px = output_ops['spatscale_pix'][0]
+    best_scale_px = output_ops['spatscale_pix']
+    if isinstance(best_scale_px, np.array):
+        best_scale_px = best_scale_px[0]
     best_scale = np.log(best_scale_px / 3) / np.log(2)
     ibest_scale = np.where(1 / ratios == best_scale)[0][0]
 
