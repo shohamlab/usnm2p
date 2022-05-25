@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 17:13:30
+# @Last Modified time: 2022-05-25 17:34:56
 
 ''' Collection of plotting utilities. '''
 
@@ -1429,7 +1429,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     '''
     # Initialize propagated keyword arguments
     tracekwargs = dict(
-        col = Label.MOUSEREG if not avg else Label.ROI_RESP_TYPE, # 1 dataset/resp type on each axis
+        col = Label.DATASET if not avg else Label.ROI_RESP_TYPE, # 1 dataset/resp type on each axis
         hide_col_prefix = True,  # no column prefix
         max_colwrap = 4, # number of axes per line
         height = 2.3 if not avg else 3,  # height of each figure axis
@@ -1461,7 +1461,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
         figdict = {}
         for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
             logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
-            nROIs_group = len(group.groupby([Label.MOUSEREG, Label.ROI]).first())
+            nROIs_group = len(group.groupby([Label.DATASET, Label.ROI]).first())
             title = f'{resptype} responders ({nROIs_group} cells)'
             figdict[f'{resptype} {ykey} vs. {pkey}'] = plot_responses(
                 group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)        
@@ -1558,9 +1558,9 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
 def plot_parameter_dependency_across_datasets(
     data, xkey, ykey, show_datasets=True, avg=True, weighted=True, ci=68, **kwargs):
     '''
-    Plot the parameter dependency of a specific variable across mouse-region datasets
+    Plot the parameter dependency of a specific variable across date-mouse-region datasets
     
-    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :param data: multi-indexed stats dataframe with date-mouse-region as an extra index dimension
     :param xkey: name of the stimulation parameter of interest
     :param ykey: name of the output variable of interest
     :param avg (optional): plot average trace across datasets
@@ -1579,14 +1579,14 @@ def plot_parameter_dependency_across_datasets(
     # Determine variable of interest for output metrics
     ykey_resp = f'diff {ykey}'
     
-    ndatasets = len(data.index.unique(Label.MOUSEREG))
+    ndatasets = len(data.index.unique(Label.DATASET))
     col_order = get_default_rtypes()
     if ndatasets == 1:
         avg = False
     # Determine averaging categories
     categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
-    if not weighted:  # if non-weighted average, add mouse-region
-        categories = [Label.MOUSEREG] + categories
+    if not weighted:  # if non-weighted average, add dataset level
+        categories = [Label.DATASET] + categories
     if show_datasets:
         legend = 'full'
         alpha = 0.5 if avg else 1
@@ -1596,9 +1596,9 @@ def plot_parameter_dependency_across_datasets(
     fig = plot_parameter_dependency(
         data, xkey=xkey, ykey=ykey_resp,
         ybounds=ybounds,
-        hue=Label.MOUSEREG,
+        hue=Label.DATASET,
         col=Label.ROI_RESP_TYPE, col_order=col_order,
-        hide_col_prefix=True, col_count_key=[Label.MOUSEREG, Label.ROI],
+        hide_col_prefix=True, col_count_key=[Label.DATASET, Label.ROI],
         baseline=0., height=3.5, aspect=.8,
         add_leg_numbers=False, max_colwrap=len(col_order),
         ci=None if avg else ci,
@@ -2168,19 +2168,19 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
-    :param data: multi-indexed stats dataframe with mouse-region as an extra index dimension
+    :param data: multi-indexed stats dataframe with date-mouse-region as an extra index dimension
     :return: figure handle
     '''
     # Restrict dataset to 1 element per ROI for each dataset
-    celltypes = data.groupby([Label.MOUSEREG, Label.ROI]).first()
+    celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
     # Figure out bar variable and plot orientation
-    groups = [Label.MOUSEREG, Label.ROI_RESP_TYPE]
+    groups = [Label.DATASET, Label.ROI_RESP_TYPE]
     bar = list(set(groups) - set([hue]))[0]
-    axdim = {Label.ROI_RESP_TYPE: 'x', Label.MOUSEREG: 'y'}[bar]
+    axdim = {Label.ROI_RESP_TYPE: 'x', Label.DATASET: 'y'}[bar]
     # Determine plotting order
     orders = {
         Label.ROI_RESP_TYPE: get_default_rtypes(),
-        Label.MOUSEREG: natsorted(data.index.unique(level=Label.MOUSEREG).values.tolist())
+        Label.DATASET: natsorted(data.index.unique(level=Label.DATASET).values.tolist())
     }
     bar2 = f'{bar} '
     barvals = celltypes.index.get_level_values(bar)
@@ -2194,7 +2194,7 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     fig = fg.figure
     if add_count_labels:
         # Count number of cells of each bar and hue
-        cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.MOUSEREG]).count().iloc[:, 0].rename('counts')
+        cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
         nperhue = cellcounts.groupby(hue).sum().astype(int)
         nperbar = cellcounts.groupby(bar).sum().astype(int)
         # Get number of responding cells

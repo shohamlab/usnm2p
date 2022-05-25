@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 12:13:55
+# @Last Modified time: 2022-05-25 17:31:03
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -496,12 +496,12 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         return peaks
 
 
-def load_mousereg_dataset(fpath, prefix=None):
+def load_dataset(fpath, prefix=None):
     '''
-    Load dataset of a particular mouse-region from a CSV file
+    Load dataset of a particular date-mouse-region from a CSV file
     
     :param fpath: absolute path to the data file
-    :return: multi-indexed dataframe with mouse-region as an extra index dimension
+    :return: multi-indexed dataframe with date-mouse-region as an extra index dimension
     '''
     fname = os.path.basename(fpath)
     # Load data
@@ -516,9 +516,9 @@ def load_mousereg_dataset(fpath, prefix=None):
         dataset_id = dataset_id.replace(prefix, '')
     while dataset_id.startswith('_'):
         dataset_id = dataset_id[1:]
-    data[Label.MOUSEREG] = dataset_id
+    data[Label.DATASET] = dataset_id
     # Re-generate data index 
-    data.set_index(Label.MOUSEREG, inplace=True)
+    data.set_index(Label.DATASET, inplace=True)
     indexcols = [Label.ROI, Label.RUN]
     for k in [Label.TRIAL, Label.FRAME]:
         if k in data.columns:
@@ -531,7 +531,7 @@ def load_mousereg_dataset(fpath, prefix=None):
     return data
 
 
-def load_mousereg_datasets(dirpath, **kwargs):
+def load_datasets(dirpath, **kwargs):
     ''' Load multiple mouse-region datasets '''
     filetypes = ['timeseries', 'stats']
     # List filepaths of each category
@@ -541,15 +541,15 @@ def load_mousereg_datasets(dirpath, **kwargs):
     }
     # Load and concatenate datasets for each category 
     data = {k: pd.concat([
-        load_mousereg_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
+        load_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
         for k, v in fpaths.items()
     }
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
     data['timeseries'].sort_index(
-        level=[Label.MOUSEREG, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+        level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
     data['stats'].sort_index(
-        level=[Label.MOUSEREG, Label.ROI, Label.RUN], inplace=True)
+        level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 12:34:59
+# @Last Modified time: 2022-05-25 17:33:52
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -645,7 +645,7 @@ def weighted_average(data, avg_name, weight_name):
     return (d * w).sum() / w.sum()
 
 
-def filter_data(data, iROI=None, irun=None, itrial=None, ireg=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
+def filter_data(data, iROI=None, irun=None, itrial=None, idataset=None, rtype=None, P=None, DC=None, tbounds=None, full_output=False):
     ''' Filter data according to specific criteria.
     
     :param data: experiment dataframe
@@ -675,9 +675,9 @@ def filter_data(data, iROI=None, irun=None, itrial=None, ireg=None, rtype=None, 
     if itrial is not None:
         subindex[idxnames.index(Label.TRIAL)] = itrial
         filters[Label.TRIAL] = f'{Label.TRIAL}{plural(itrial)} {itrial}'
-    if ireg is not None:
-        subindex[idxnames.index(Label.MOUSEREG)] = ireg
-        filters[Label.MOUSEREG] = f'{Label.MOUSEREG}{plural(ireg)} {ireg}'
+    if idataset is not None:
+        subindex[idxnames.index(Label.DATASET)] = idataset
+        filters[Label.DATASET] = f'{Label.DATASET}{plural(idataset)} {idataset}'
     # Check for each sub-index level that elements are in global index
     for k, v in zip(data.index.names, subindex):
         if is_iterable(v) or v != slice(None):
@@ -722,8 +722,8 @@ def filter_data(data, iROI=None, irun=None, itrial=None, ireg=None, rtype=None, 
                 logger.warning(err)
     # No ROI selected  but ROI in data index -> indicate number of ROIs
     if iROI is None and Label.ROI in data.index.names:
-        if Label.MOUSEREG in data.index.names:
-            nROIs = len(data.groupby([Label.MOUSEREG, Label.ROI]).first())
+        if Label.DATASET in data.index.names:
+            nROIs = len(data.groupby([Label.DATASET, Label.ROI]).first())
         else:
             nROIs = len(data.index.unique(level=Label.ROI).values)
         filters['nROIs'] = f'({nROIs} ROIs)'
@@ -1262,7 +1262,7 @@ def reclassify(data, ykey, nposthr=None):
     # if ythr is not None:
     #     data[Label.POS_COND] = data[ykey] > ythr
     #     nposconds_per_roi = data[Label.POS_COND].groupby(
-    #         [Label.MOUSEREG, Label.ROI]).sum().rename(Label.NPOS_CONDS)
+    #         [Label.DATASET, Label.ROI]).sum().rename(Label.NPOS_CONDS)
     #     data[Label.NPOS_CONDS] = nposconds_per_roi
     # # Classify cells according to threshold number of positive conditions
     # data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
@@ -1270,7 +1270,7 @@ def reclassify(data, ykey, nposthr=None):
     #     {True: 'responsive', False: 'non-responsive'})
     # # # Log new classification summary
     # # counts_by_type = data.groupby(
-    # #     [Label.MOUSEREG, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
+    # #     [Label.DATASET, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
     # # logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
     # # Return new data
     # return data
@@ -1374,7 +1374,7 @@ def compute_metrics_vs_nposthr(data, nposthrs, ykeys, evalfunc='max'):
         # Re-classify data
         tmp = reclassify(data.copy(), nposthr=nposthr)
         # Group by dataset, ROI and response type and extract columns of interest
-        groups = tmp.groupby([Label.MOUSEREG, Label.ROI, Label.ROI_RESP_TYPE])[ykeys]
+        groups = tmp.groupby([Label.DATASET, Label.ROI, Label.ROI_RESP_TYPE])[ykeys]
         # Extract metrics of interest from these columns
         metrics = groups.agg(evalfunc)
         # Add information about nposthr
@@ -1394,20 +1394,20 @@ def exclude_datasets(data, to_exclude):
     Exclude specific datasets from analysis
     
     :param data: global experiment dataframe
-    :param to_exclude: mouse-region combinations to be discarded
+    :param to_exclude: date-mouse-region combinations to be discarded
     :return: filtered experiment dataframe 
     '''
     default_k = list(data.keys())[0]
-    candidate_mouseregs = data[default_k].index.unique(level=Label.MOUSEREG).values
-    notthere = list(set(to_exclude) - set(candidate_mouseregs))
+    candidate_datasets = data[default_k].index.unique(level=Label.DATASET).values
+    notthere = list(set(to_exclude) - set(candidate_datasets))
     if len(notthere) > 0:
-        logger.warning(f'{notthere} not found in dataset -> ignoring') 
-    to_exclude = list(set(candidate_mouseregs).intersection(set(to_exclude)))
+        logger.warning(f'{notthere} datasets not found -> ignoring') 
+    to_exclude = list(set(candidate_datasets).intersection(set(to_exclude)))
     if len(to_exclude) == 0:
-        logger.warning('did not find any mouse-region to exclude from dataset')
+        logger.warning('did not find any datasets to exclude')
         return data
     logger.info(f'excluding {to_exclude} datasets from analysis')
-    query = f'{Label.MOUSEREG} not in {to_exclude}'
+    query = f'{Label.DATASET} not in {to_exclude}'
     return {k: v.query(query) for k, v in data.items()}
 
 
@@ -1469,14 +1469,6 @@ def harmonize_run_index(data):
     data.set_index(Label.RUN, append=True, inplace=True)
     # Return 
     return data
-
-
-def get_subdataset(data, mousereg):
-    subdata = {}
-    for k, df in data.items():
-        tmp = df[df.index.get_level_values(level=Label.MOUSEREG) == mousereg]
-        subdata[k] = tmp.droplevel(Label.MOUSEREG)
-    return subdata
 
 
 def get_plot_data(timeseries, stats):
