@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 17:37:59
+# @Last Modified time: 2022-05-25 09:51:02
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -144,4 +144,4 @@ if __name__ == '__main__':
         if runbatch and nbatchjobs > 0:
             batch_output_nbpaths = execute_notebooks(
                 batch_params, batch_input_nbpath, outdir, mpi=batch_mpi,
-                ask_confirm=not nocheck)
+                ask_confirm=False)

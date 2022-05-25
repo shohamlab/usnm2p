@@ -1,6 +1,6 @@
-# How to set up BigPurple for analyses with Suite2p
+# How to set up BigPurple for analyses with Python, Jupyter and Suite2p
 
-# Initial setup
+## Initial setup
 
 - Log in to bigpurple: `xbigpurple`
 - Open your `.bashrc` file: `nano .bashrc`
@@ -43,7 +43,7 @@ alias myjobs="squeue -u $MYID"  # list all jobs assosicated to your user ID
     - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.ipython ~/.ipython`
     - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.local ~/.local`
 
-## Set tup the USNM2P analysis coding environment
+## Set up the USNM2P analysis coding environment
 
 - Log in to bigpurple: `xbigpurple`
 - Load git: `module load git`
@@ -58,13 +58,24 @@ alias myjobs="squeue -u $MYID"  # list all jobs assosicated to your user ID
 - Move to that directory: `cd usnm2p`
 - Install the dependencies: `pip install -r requirements.txt`
 
-# Run an analysis notebook interactively on BigPurple
+## Transfer data from the lab research drive to BigPurple
 
 - Log in to bigpurple: `xbigpurple`
+- Mount the lab research drive on your session: `mountlab`
+- Move to the destination directory on BigPurple, e.g.: `cd ~/scratch/data`
+- Transfer the data from the source (i.e. a folder on the mounted research drive) to the destination (e.g. a folder in your scratch directory): `rsync -a --info=progress2 [source] ~/scratch/<folder>`
 
-TO COMPLETE
+## Run an analysis notebook interactively on BigPurple
 
-# Run batch analyses on BigPurple
+- Log in to bigpurple: `xbigpurple`
+- Start an interactive jupyter sbatch job: `jbatch`
+- Wait for a few seconds, and display the jupyter tunneling information: `jtunnel`
+- Copy the SSH tunneling command at the top, which should look something like this: `ssh -N -L <posrt_ID>:<node_ID>:<port_ID> <kerberos_ID>@<bigpurple_host>.nyumc.org`
+- Open a new local terminal session and paste the SSH command. If this is the first you connect to this specific BigPurple host, you will be prompted to validate the connection. You will then be prompted to enter your Kerberos password.
+- Go back to the original terminal window, and copy the localhost HTTP address located just below the line saying "*Or copy and paste one of these URLs*". It should look something like this: `http://127.0.0.1:<port_ID>/lab?token=<token_ID>`
+- Open a new tab in your browser and past the HTTP address. A tunnel jupyter lab session should start.
+
+## Run batch analyses on BigPurple
 
 - Log in to bigpurple: `xbigpurple`
 - Switch node and load resources to run parallelized job: `mpijob`
@@ -74,7 +85,7 @@ TO COMPLETE
 - Go to repository's folder: `cd theo/code/usnm2p`
 - Pull latest changes: `git pull`
 - Start screen session: `screen -S mysession`
-- Detect datsets in file system and run parallel analyses: `python run_analyses.py --mpi --locate` (**the script may be slow to start because of cellpose import attempts**)
+- Detect datsets in file system and run parallel analyses: `python run_analyses.py --mpi -b` (**the script may be slow to start because of cellpose import attempts**)
 - Confirm datasets and multiprocessing: `y`
 - Exit screen session: `Ctrl-a + d`
 - Let analyses run...
