@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 17:43:49
+# @Last Modified time: 2022-05-26 18:09:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1430,49 +1430,6 @@ def exclude_datasets(data, to_exclude):
     logger.info(f'excluding {to_exclude} datasets from analysis')
     query = f'{Label.DATASET} not in {to_exclude}'
     return {k: v.query(query) for k, v in data.items()}
-
-
-def add_change_metrics(timeseries, stats, ykey):
-    '''
-    Add a change metrics to a stats table
-    
-    :param timeseries: mutli-indexed timeseries dataframe
-    :param stats: mutli-indexed stats dataframe
-    :param ykey: name of the variable for which to compute the relative change
-    '''
-    if ykey not in timeseries:
-        raise ValueError(f'{ykey} not in timeseries data')
-
-    # Determine variable of interest for output metrics
-    ykey_peak = f'peak {ykey}'
-    ykey_peak_baseline = f'baseline {ykey_peak}'
-    ykey_peak_corrected = f'corrected {ykey_peak}'
-
-    # If change metrics is already present in stats, return
-    if ykey_peak_corrected in stats:
-        logger.warning(f'{ykey_peak_corrected} already in stats dataframe -> ignoring')
-        return stats
-
-    # Extract stimulus-evoked peak
-    stats[ykey_peak] = apply_in_window(
-        find_max, timeseries, ykey, FrameIndex.RESPONSE)
-    # Detect peaks while sliding detection window along trial interval
-    logger.info('identifying peaks while sliding detection window across trial interval...')
-    peaks_along_trial, _ = slide_along_trial(
-        lambda data, w: apply_in_window(
-            find_max, data, ykey, w,
-            verbose=False, log_completion_rate=False),
-        timeseries, FrameIndex.RESPONSE, NSEEDS_PER_TRIAL)
-    # Take the 30-th percentile of detected peak values as the baseline
-    stats[ykey_peak_baseline] = peaks_along_trial.groupby(
-        [Label.ROI, Label.RUN]).quantile(PEAK_CORRECTION_QUANTILE)
-    
-    # Subtract baseline from peak to get relative increase
-    logger.info(f'computing {ykey_peak_corrected}...')
-    stats[ykey_peak_corrected] = (stats[ykey_peak] - stats[ykey_peak_baseline])
-    
-    # Return stats dataframe
-    return stats
 
 
 def harmonize_run_index(data):
