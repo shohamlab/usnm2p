@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 16:26:06
+# @Last Modified time: 2022-05-26 17:28:15
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -183,6 +183,8 @@ class Label:
     PRESTIM_ACTIVITY = 'pre-stim cell activity?'
     PCT_PREACTIVE_CELLS = '% pre-stim active cells'
     PRESTIM_POP_ACTIVITY = 'pre-stim population activity?'
+    PRESTIM_INHIBITION = 'pre-stim cell inhibition?'
+    PRESTIM_OUTLIER = 'pre-stimulus outlier?'
     RESP_TYPE = 'response type'
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
@@ -212,7 +214,8 @@ TRIAL_VALIDITY_KEYS = [
     Label.MOTION,
     Label.OUTLIER,
     Label.PRESTIM_ACTIVITY,
-    Label.PRESTIM_POP_ACTIVITY
+    Label.PRESTIM_POP_ACTIVITY,
+    Label.PRESTIM_INHIBITION,
 ]
 
 ###################################### PLOTTING ######################################

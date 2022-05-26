@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 16:07:53
+# @Last Modified time: 2022-05-26 17:43:49
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -296,14 +296,16 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
     :return: fluorescence baseline series
     '''
     qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
+    # If window length not given, define constant baseline computation function
     if wlen is None:
         steps_str = [f'{qstr} of signal']
-        # Define constant baseline computation function
         def bfunc(s):
             return s.quantile(q)
+    # Otherwise, define rolling window baseline computation function(s)
     else:
         # Compute window size (in number of frames)
         w = get_window_size(wlen, fps)
+        # If smooth enabled, define window size for smoothing (moving average) step
         if smooth:
             w2 = w // 2
             if w2 % 2 == 0:
@@ -312,11 +314,14 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
         steps_str = [f'{qstr} of {wstr}']
         if smooth:
             steps_str.append(f'mean of {w2 / fps:.1f}s ({w2} frames) sliding window')
-        # Define rolling baseline computation function
         def bfunc(s):
+            # First percentile moving window
             b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
             if smooth:
+                # Second average moving window
                 b = apply_rolling_window(b, w2, func=lambda x: x.mean())
+            # # Correct at stimulus index to compensate for anticipated baseline rise
+            # b[FrameIndex.STIM] = b[FrameIndex.STIM - 1]
             return b
     if len(steps_str) > 1:
         steps_str = '\n'.join([f'  - {s}' for s in steps_str])
