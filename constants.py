@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 09:50:57
+# @Last Modified time: 2022-05-26 16:26:06
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -80,6 +80,7 @@ ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for eac
 # Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
+NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier
 
 # Baseline activity
 NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval to detect activity 
@@ -91,6 +92,7 @@ class FrameIndex:
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(70, 101)
+
 
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
@@ -174,6 +176,7 @@ class Label:
     PEAK_DISP_VEL = 'peak displacement velocity (um/s)'
     DISCARDED = 'discarded'
     MOTION = 'motion'
+    OUTLIER = 'outlier'
     EVENT = 'event'
 
     # Trial activity & related measures
@@ -207,6 +210,7 @@ RESP_TYPES = {
 TRIAL_VALIDITY_KEYS = [
     Label.DISCARDED,
     Label.MOTION,
+    Label.OUTLIER,
     Label.PRESTIM_ACTIVITY,
     Label.PRESTIM_POP_ACTIVITY
 ]

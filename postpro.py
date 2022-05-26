@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 17:33:52
+# @Last Modified time: 2022-05-26 16:07:53
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -387,6 +387,22 @@ def find_max(s, n_neighbors=N_NEIGHBORS_PEAK):
         w = 2 * n_neighbors + 1
         x = np.convolve(x, np.ones(w), 'valid') / w
     return x.max()
+
+
+def is_bounded(x, lb, ub):
+    '''
+    Determine if vector lies within an interval
+    
+    :param x: vector (array or series)
+    :param lb: interval lower bound
+    :param ub: interval upper bound
+    :return: boolean stating whether vector lies within the interval (True) or not (False)
+    '''
+    if x.min() < lb:
+        return False
+    if x.max() > ub:
+        return False
+    return True
 
 
 def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True, full_output=False):
