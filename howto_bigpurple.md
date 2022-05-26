@@ -14,7 +14,7 @@ export MYLABNAME="shohamlab"  # Name of your lab space in /gpfs/data/
 export MYLABDRIVE="shohas01labspace"  # Name of your lab's research drive
 export RDRIVE="/mnt/$(whoami)/${MYLABDRIVE}"  # full path to the mounted lab research drive
 export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"  # Slack webhook
-export JOBFMT="StepID:.12,MinMemory:.12,Partition:.12,Name:.20,UserName:.15,State:.10,TimeUsed:.10,NumNodes:.8,NumCPUs:.8"  # logging format for submitted jobs status
+export JOBFMT="JobID:.12,MinMemory:.12,Partition:.12,Name:.20,UserName:.15,State:.10,TimeUsed:.10,NumNodes:.8,NumCPUs:.8"  # logging format for submitted jobs status
 export NODEFMT="NodeHost:.10,Memory:.10,AllocMem:.10,Available:.10,CPUs:.10,MaxCPUsPerNode:.20"   # logging format for node status
 export TRANSFERFMT="-a --info=progress2 --info=name0"   # logging format for data transfers with rsync
 
