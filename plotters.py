@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 17:34:56
+# @Last Modified time: 2022-05-26 14:19:14
 
 ''' Collection of plotting utilities. '''
 
@@ -91,11 +91,12 @@ def add_unit_diag(ax, c='k', ls='--'):
     ax.plot(lims, lims, c='k', ls='--')
 
 
-def plot_table(inputs):
+def plot_table(inputs, title=None):
     '''Plot a table as a figure '''
     cellText = [[k, v] for k, v in inputs.items()]
     fig, ax = plt.subplots()
-    ax.set_title('Dataset', fontsize=20)
+    if title is not None:
+        ax.set_title(title, fontsize=20)
     ax.axis('off')
     table = ax.table(cellText, loc='center')
     table.set_fontsize(14)
@@ -2164,7 +2165,7 @@ def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, direction
 
 
 def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True,
-                            min_cell_count=None):
+                            min_cell_count=None, title=None):
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
@@ -2220,6 +2221,10 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     if min_cell_count is not None:
         ltype = {'x': 'h', 'y': 'v'}[axdim]
         getattr(ax, f'ax{ltype}line')(min_cell_count, c='k', ls='--')
+    
+    # Add title if specified
+    if title is not None:
+        fig.axes[0].set_title(title, fontsize=20)
             
     return fig
 
