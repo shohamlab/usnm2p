@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 14:19:14
+# @Last Modified time: 2022-05-26 15:15:08
 
 ''' Collection of plotting utilities. '''
 
@@ -1219,10 +1219,16 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         axlist = fg.axes.ravel()
         fig = fg.figure
 
-    # Remove column prefix from axes titles, if specified
-    if col is not None and hide_col_prefix:
+    if col is not None:
+        # Remove column prefix from axes titles, if specified
+        if hide_col_prefix:
+            for ax in fig.axes:
+                ax.set_title(ax.get_title().replace(f'{col} = ', ''))
+        # Reduce title size if too long
         for ax in fig.axes:
-            ax.set_title(ax.get_title().replace(f'{col} = ', ''))
+            s = ax.get_title()
+            if len(s) > 20:
+                ax.set_title(s, fontsize=10)
 
     # Add count per column to axes titles, if specified
     if col is not None and col_count_key is not None:
@@ -1600,7 +1606,7 @@ def plot_parameter_dependency_across_datasets(
         hue=Label.DATASET,
         col=Label.ROI_RESP_TYPE, col_order=col_order,
         hide_col_prefix=True, col_count_key=[Label.DATASET, Label.ROI],
-        baseline=0., height=3.5, aspect=.8,
+        baseline=0., height=3, aspect=.8,
         add_leg_numbers=False, max_colwrap=len(col_order),
         ci=None if avg else ci,
         alpha=alpha, marker=None if avg else 'o',

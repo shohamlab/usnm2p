@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 15:01:20
+# @Last Modified time: 2022-05-26 14:49:50
 
 ''' Notebook running utilities '''
 
@@ -28,14 +28,14 @@ def execute_notebook(pdict, input_nbpath, outdir):
     # Determine output notebook name from input and parameters
     pstr = '_'.join([str(v) for k, v in pdict.items() if k != 'no_slack_notify'])
     pstr = pstr.replace('/', '_')
-    out_nbname = f'{nbname}_{pstr}{nbext}'
-    output_nbpath = os.path.join(outdir, out_nbname)
+    output_nbname = f'{nbname}_{pstr}{nbext}'
+    output_nbpath = os.path.join(outdir, output_nbname)
     # Execute notebook
-    logger.info(f'executing "{input_nbpath}" with parameters {pdict} as "{output_nbpath}"...')
+    logger.info(f'executing "{output_nbname}"...')
     try:
         pm.execute_notebook(input_nbpath, output_nbpath, parameters=pdict)
     except pm.exceptions.PapermillExecutionError as err:
-        s = f'"{out_nbname}" execution error: {err}'
+        s = f'"{output_nbname}" execution error: {err}'
         logger.error(s)
         jupyter_slack.notify_self(s)
         return None
