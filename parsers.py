@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-11-22 11:29:41
+# @Last Modified time: 2022-05-26 09:59:53
 
 ''' Collection of parsing utilities. '''
 
@@ -14,7 +14,7 @@ from constants import *
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
-
+P_DATEMOUSEREG = re.compile(f'{Pattern.DATE}_({Pattern.MOUSE})_({Pattern.REGION})')
 P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.RUN}$', re.IGNORECASE)
 P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
@@ -222,3 +222,20 @@ def parse_aquisition_settings(folders):
         del ref_settings[k]
     # Return common aquisition settings dictionary
     return ref_settings
+
+
+def parse_date_mouse_region(s):
+    '''
+    Parse a date, mouse and region from a concatenated string
+    
+    :param s: concatenated string
+    :return: 3-tuple with (date, mouse, region)
+    '''
+    mo = P_DATEMOUSEREG.match(s)
+    if mo:
+        year, month, day, mouse, region = mo.groups()
+        date = f'{year}{month}{day}'
+        return date, mouse, region
+    else:
+        raise ValueError(
+            f'{s} does not match date-mouse-reg pattern ({P_DATEMOUSEREG.pattern})')

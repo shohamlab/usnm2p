@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 09:51:02
+# @Last Modified time: 2022-05-26 09:42:27
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -62,6 +62,9 @@ if __name__ == '__main__':
         '-q', '--baseline_quantile', type=float, default=BASELINE_QUANTILE, nargs='+',
         help='Baseline evaluation quantile')
     parser.add_argument(
+        '-s', '--baseline_smoothing', type=bool, default=BASELINE_SMOOTHING, nargs='+',
+        help='Baseline smoothing (True or False)')
+    parser.add_argument(
         '-y', '--ykey_postpro', type=str, default='z', choices=['z', 'dff'], nargs='+',
         help='Post-processing variable')
 
@@ -81,6 +84,7 @@ if __name__ == '__main__':
         'kalman_gain',
         'baseline_wlen',
         'baseline_quantile',
+        'baseline_smoothing',
         'ykey_postpro'
     ]
     exec_args = {k: args.pop(k) for k in exec_args}

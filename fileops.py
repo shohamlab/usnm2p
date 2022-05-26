@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 17:31:03
+# @Last Modified time: 2022-05-26 10:00:11
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -16,7 +16,7 @@ import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
 
-from parsers import P_TIFFILE
+from parsers import P_TIFFILE, parse_date_mouse_region
 from logger import logger
 from utils import is_iterable, StackProcessor, NoProcessor
 from viewers import get_stack_viewer
@@ -58,13 +58,13 @@ def get_dataset_params(root='.', excludes=['layer5'], includes=['region']):
     # Loop through lines, dates, mice, and regions, and add data root folders to list  
     for line in get_subfolder_names(root):
         linedir = os.path.join(root, line)
-        for date in get_subfolder_names(linedir):
-            datedir = os.path.join(linedir, date)
-            for mouse in get_subfolder_names(datedir):
-                mousedir = os.path.join(datedir, mouse)
-                for region in get_subfolder_names(mousedir):
-                    regiondir = os.path.join(mousedir, region)
-                    datasets.append((line, date, mouse, region, regiondir))
+        for datemousereg in get_subfolder_names(linedir):
+            try:
+                date, mouse, region = parse_date_mouse_region(datemousereg)
+                dataset_dirpath = os.path.join(linedir, datemousereg)
+                datasets.append((line, date, mouse, region, dataset_dirpath))
+            except ValueError as err:
+                logger.warning(err)
 
     # Remove unwanted patterns from list
     for k in excludes:

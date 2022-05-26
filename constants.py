@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-25 17:30:38
+# @Last Modified time: 2022-05-26 09:50:57
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -71,6 +71,7 @@ ALPHA = 0.7
 # Baseline computation
 BASELINE_WLEN = 10.  # window length (in s) to compute the fluorescence baseline
 BASELINE_QUANTILE = .08  # quantile used for the computation of the fluorescence baseline
+BASELINE_SMOOTHING = True  # whether to smooth the baseline with an extra moving average
 BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
 
 # Trials discarding
@@ -104,6 +105,9 @@ MIN_CELL_DENSITY = 1500.  # minimum cell density (cells/mm2)
 class Pattern:
 
     LINE = '([A-z][A-z0-9]*)'
+    DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
+    MOUSE = 'mouse[1-9][0-9]*'
+    REGION = 'region[1-9][0-9]*[A-z]*'
     TRIAL_LENGTH = '([0-9]+)frames'
     FREQ = '([0-9]+[.]?[0-9]*)Hz'
     DUR = '([0-9]+[.]?[0-9]*)ms'

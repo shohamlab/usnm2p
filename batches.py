@@ -3,17 +3,17 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-23 16:48:26
+# @Last Modified time: 2022-05-26 10:17:43
 
 ''' Batch processing utilities '''
 
-from datetime import datetime
-import numpy as np
 import logging
+from datetime import datetime
 import multiprocessing as mp
+import numpy as np
+import pandas as pd
 
 from logger import logger
-from utils import itemize
 
 
 class Consumer(mp.Process):
@@ -157,14 +157,20 @@ class Batch:
         return outputs
 
     @staticmethod
-    def queue_str(queue, nmax=20):
-        if len(queue) <= nmax:
-            return itemize(queue)
-        else:
-            s_start = itemize(queue[:nmax // 2])
-            s_end = itemize(queue[-nmax // 2:])
-            nbetween = len(queue) - nmax
-            return f'{s_start}\n... {nbetween} more entries ...{s_end}'
+    def queue_str(queue):
+        jobsdf = []
+        for ijob, jobargs in enumerate(queue):
+            jobdict = {}
+            iarg = 0
+            for item in jobargs:
+                if isinstance(item, dict):
+                    jobdict.update(item)
+                else:
+                    jobdict[f'arg{iarg}'] = item
+                    iarg += 1
+            jobsdf.append(pd.DataFrame(jobdict, index=[ijob]))
+        jobsdf = pd.concat(jobsdf, axis=0)
+        return jobsdf
     
     def ask_confirm(self, mpi):
         ''' Ask user for confirmation before running batch '''
