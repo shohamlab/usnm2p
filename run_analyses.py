@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 09:42:27
+# @Last Modified time: 2022-05-26 10:44:43
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -99,8 +99,14 @@ if __name__ == '__main__':
     # Filter datasets to match related input parameters
     for k, v in args.items():
         if v is not None:
+            # For date, apply loose "startswith" matching (e.g. to enable year-month filtering)
+            if k == 'expdate':
+                filtfunc = lambda x: x[k].startswith(v)
+            # For all other arguments, apply strict matching
+            else:
+                filtfunc = lambda x: x[k] == v
             logger.info(f'restricting datasets to {k} = {v}')
-            datasets = list(filter(lambda x: x[k] == v, datasets))
+            datasets = list(filter(filtfunc, datasets))            
     
     # Compute number of jobs to run
     njobs = len(datasets) * len(exec_queue)
