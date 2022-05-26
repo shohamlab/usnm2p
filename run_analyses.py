@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 14:31:32
+# @Last Modified time: 2022-05-26 18:07:30
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         help='path to input notebook')
     parser.add_argument(
         '-o', '--outdir', default='outputs', 
-        help='relative path to output directory w.r.t. this script')    
+        help='relative path to output directory w.r.t. this script')
     parser.add_argument(
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
     parser.add_argument(
@@ -51,7 +51,9 @@ if __name__ == '__main__':
     
     # Add arguments about other execution parameters
     parser.add_argument(
-        '--no_slack_notify', default=False, action='store_true', help='Do not notify on slack')
+        '--slack_notify', action='store_true', help='Notify on slack')
+    parser.add_argument(
+        '--no-slack_notify', dest='slack_notify', action='store_false')
     parser.add_argument(
         '-k', '--kalman_gain', type=float, default=KALMAN_GAIN, nargs='+',
         help='Kalman filter gain (s)')
@@ -65,10 +67,12 @@ if __name__ == '__main__':
         '-s', '--baseline_smoothing', action='store_true', help='Smooth baseline')
     parser.add_argument(
         '-j', '--no-baseline_smoothing', dest='baseline_smoothing', action='store_false')
-    parser.set_defaults(baseline_smoothing=BASELINE_SMOOTHING)
     parser.add_argument(
         '-y', '--ykey_postpro', type=str, default='z', choices=['z', 'dff'], nargs='+',
         help='Post-processing variable')
+    parser.set_defaults(
+        slack_notify=True,
+        baseline_smoothing=BASELINE_SMOOTHING)
 
     # Extract command line arguments
     args = vars(parser.parse_args())
@@ -82,7 +86,7 @@ if __name__ == '__main__':
     runbatch = args.pop('runbatch')
     batch_input_nbpath = args.pop('batch_input')
     exec_args = [
-        'no_slack_notify',
+        'slack_notify',
         'kalman_gain',
         'baseline_wlen',
         'baseline_quantile',
