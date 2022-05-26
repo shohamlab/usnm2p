@@ -14,8 +14,8 @@ export MYLABNAME="shohamlab"  # Name of your lab space in /gpfs/data/
 export MYLABDRIVE="shohas01labspace"  # Name of your lab's research drive
 export RDRIVE="/mnt/$(whoami)/${MYLABDRIVE}"  # full path to the mounted lab research drive
 export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"  # Slack webhook
-export JOBFMT="%.12i %.12m %.12P %.12j %.8u %.5t %.10M %.6D %.6C"  # logging format for submitted jobs status
-export NODEFMT="%.10n %.10e %.10m %.10a %.10c %.10C"   # logging format for node status
+export JOBFMT="StepID:.12,MinMemory:.12,Partition:.12,Name:.20,UserName:.15,State:.10,TimeUsed:.10,NumNodes:.8,NumCPUs:.8"  # logging format for submitted jobs status
+export NODEFMT="NodeHost:.10,Memory:.10,AllocMem:.10,Available:.10,CPUs:.10,MaxCPUsPerNode:.20"   # logging format for node status
 export TRANSFERFMT="-a --info=progress2 --info=name0"   # logging format for data transfers with rsync
 
 # Aliases for data transfers
@@ -28,7 +28,7 @@ alias xjob="srun --x11 --partition=$MYCOMPNODE --time=8:00:00 --mem=64G --pty /b
 alias mpijob="srun -c 10 --partition=$MYCOMPNODE --time=8:00:00 --mem=640G --pty /bin/bash"  # run a massively parallelized bash job
 alias myjobs="squeue -u $(whoami) -o '$JOBFMT'"  # list all jobs assosicated to your user ID
 alias labjobs="squeue -p $MYCOMPNODE -o '$JOBFMT'"  # list all jobs associated with lab's partition
-alias labspecs="sinfo --partition=$MYCOMPNODE -o '$NODEFMT'"
+alias labspecs="sinfo --partition=$MYCOMPNODE -O '$NODEFMT'"
 
 # Shortucts to bash files
 alias loadmodules="sh ~/$MYNAME/code/bash/loadmodules.sh"  # load essential modules

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 10:44:43
+# @Last Modified time: 2022-05-26 12:02:47
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -122,6 +122,7 @@ if __name__ == '__main__':
             mpi = False
 
     # If batch notebooks must also be run
+    nbatchjobs = 0
     if runbatch:
         # Identify mouselines
         mouselines = list(set([d['mouseline'] for d in datasets]))
@@ -151,7 +152,9 @@ if __name__ == '__main__':
                 params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
 
         # If specified, execute batch analysis notebooks once individual ones are completed
-        if runbatch and nbatchjobs > 0:
+        if nbatchjobs > 0:
             batch_output_nbpaths = execute_notebooks(
                 batch_params, batch_input_nbpath, outdir, mpi=batch_mpi,
                 ask_confirm=False)
+
+logger.info('all analyses completed')
