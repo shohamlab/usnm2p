@@ -23,9 +23,8 @@ alias datamover="srun -p data_mover -n 2 --time=8:00:00 --mem-per-cpu=1G --pty b
 alias mountlab="mount $RDRIVE"  # mount the labs's research drive on your user session (only within data mover node)
 
 # Aliases for computing jobs
-alias job="srun --partition=$MYCOMPNODE --time=8:00:00 --mem=64G --pty /bin/bash"  # run a normal bash job
-alias xjob="srun --x11 --partition=$MYCOMPNODE --time=8:00:00 --mem=64G --pty /bin/bash"  # run an interactive bash job
-alias mpijob="srun -c 10 --partition=$MYCOMPNODE --time=8:00:00 --mem=640G --pty /bin/bash"  # run a massively parallelized bash job
+alias job="srun --partition=$MYCOMPNODE --time=8:00:00 --mem=32G --pty /bin/bash"  # run a normal bash job
+alias mpijob="srun -c 10 --partition=$MYCOMPNODE --time=8:00:00 --mem=320G --pty /bin/bash"  # run a massively parallelized bash job
 alias myjobs="squeue -u $(whoami) -o '$JOBFMT'"  # list all jobs assosicated to your user ID
 alias labjobs="squeue -p $MYCOMPNODE -o '$JOBFMT'"  # list all jobs associated with lab's partition
 alias labspecs="sinfo --partition=$MYCOMPNODE -O '$NODEFMT'"
