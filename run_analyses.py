@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 18:07:30
+# @Last Modified time: 2022-05-27 15:53:48
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -51,6 +51,9 @@ if __name__ == '__main__':
     
     # Add arguments about other execution parameters
     parser.add_argument(
+        '--inspect', default=False, action='store_true',
+        help='Inspect data from random run along processing')
+    parser.add_argument(
         '--slack_notify', action='store_true', help='Notify on slack')
     parser.add_argument(
         '--no-slack_notify', dest='slack_notify', action='store_false')
@@ -86,6 +89,7 @@ if __name__ == '__main__':
     runbatch = args.pop('runbatch')
     batch_input_nbpath = args.pop('batch_input')
     exec_args = [
+        'inspect',
         'slack_notify',
         'kalman_gain',
         'baseline_wlen',
