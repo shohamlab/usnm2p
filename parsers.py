@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 09:59:53
+# @Last Modified time: 2022-05-27 11:49:26
 
 ''' Collection of parsing utilities. '''
 
@@ -196,9 +196,9 @@ def simplify_Bruker_settings(settings):
     return settings
     
 
-def parse_aquisition_settings(folders):
+def parse_acquisition_settings(folders):
     '''
-    Extract data aquisition settings from raw data folders.
+    Extract data acquisition settings from raw data folders.
     
     :param folders: full list of data folders containing the raw TIF files.
     :return: dictionary containing data aquisition settings that are common across all data folders 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 18:09:18
+# @Last Modified time: 2022-05-27 14:00:27
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -410,7 +410,7 @@ def is_bounded(x, lb, ub):
     return True
 
 
-def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True, full_output=False):
+def compute_displacement_velocity(ops, mux, um_per_pixel, fps, isubs=None, full_output=False):
     '''
     Compute displacement velocity profiles frrom registration offsets
     
@@ -418,7 +418,7 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True,
     :param mux: (run, trial, frame) multi-index object
     :param um_per_pixel: spatial resolution of the images
     :param fps: sampling frequency (in frames/second)
-    :param substituted (default: True): whether stimulus frames have been substituted
+    :param isubs (optional): indices of frames that have been substituted by 
         by their preceding frames
     :param full_output (default: False): whether to return the entire dataframe of intermediate
         metrics or simply the resulting displacement velocity series 
@@ -437,13 +437,15 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, substituted=True,
     df[Label.DISTANCE_UM] = df[Label.DISTANCE_PX] * um_per_pixel
     # Compute absolute displacement velocity (in um/frame) for each run independently
     df[Label.SPEED_UM_FRAME] = df[Label.DISTANCE_UM].groupby(Label.RUN).diff().abs()
-    # Stimulus frames substitution (if applied) creates consecutive identical frames, resulting
-    # in zero (or very low) displacement velocity artifacts at stimulus index. In this case, we
-    # also substitute displacement velocity at stimulus indexes by values at the preceding indexes.
-    if substituted:
-        logger.info('correcting displacement velocity at stimulus indexes to compensate for stimulus frames substitution...')
-        # Set stimulus frames velocities to NaN
-        df.loc[pd.IndexSlice[:, :, FrameIndex.STIM], Label.SPEED_UM_FRAME] = np.nan
+    # Frames substitution (if applied) can create consecutive identical frames, resulting
+    # in zero (or very low) displacement velocity artifacts at specific indexes. In this case, we
+    # also substitute displacement velocity at these indexes by values at the preceding indexes.
+    if isubs is not None:
+        logger.info(
+            f'correcting displacement velocity at indices {isubs} to compensate '
+            'for frames substitution...')
+        # Set substituted frames velocities to NaN
+        df.loc[pd.IndexSlice[:, :, isubs], Label.SPEED_UM_FRAME] = np.nan
         # Interpolate stimulus frames velocities using forward fill method
         df = df.fillna(method='ffill')
         # Reset first velocity value of each run to NaN

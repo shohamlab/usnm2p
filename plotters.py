@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 15:15:08
+# @Last Modified time: 2022-05-27 14:16:14
 
 ''' Collection of plotting utilities. '''
 
@@ -137,11 +137,13 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
 
 
 def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
-                                  cmap=['tab10', 'Dark2'], iref=None):
+                                  cmap=['tab10', 'Dark2'], iref=None, itrial=None):
     ''' Plot trial-averaged average stack intensity over runs '''
+    # Get runs sorted by I_SPTA
     df = get_info_table(fpaths, ntrials_per_run=ntrials_per_run)
     df = add_intensity_to_table(df)
     df = df.sort_values(by=Label.ISPTA)
+    # Create figure backbone
     fig, ax = plt.subplots()
     sns.despine(ax=ax)
     ax.set_xlabel(Label.TIME)
@@ -153,22 +155,33 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
     iframes = np.arange(NFRAMES_PER_TRIAL)
     ax.axvline(0., c='k', ls='--')
     cycler = get_color_cycle(cmap, len(df))
+    # Loop through runs of increasing intensity
     for c, (irun, run_info) in zip(cycler, df.iterrows()):
+        # Extract run label
+        label = f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)'
+        # Extract movie stack
         fpath = fpaths[irun]
         tplt = (iframes - FrameIndex.STIM) / run_info[Label.FPS]
         stack = loadtif(fpath, verbose=False)
-        stackavg_trace = stack.mean(axis=-1).mean(axis=-1)  # average across pixels
-        F = stackavg_trace.reshape(   # average across trials
-            (-1, NFRAMES_PER_TRIAL)).mean(axis=0)
+        # Average across pixels
+        stackavg_trace = stack.mean(axis=-1).mean(axis=-1)
+        # Reshape as trials x frames
+        stackavg_mat = stackavg_trace.reshape((-1, NFRAMES_PER_TRIAL))
+        # Remove specific trials if specified
+        if itrial is not None:
+            stackavg_mat = stackavg_mat[itrial, :]
+        # Average across trials to get mean trace
+        x = stackavg_mat.mean(axis=0)
+        # Find baseline signal value 
         if iref is not None:
-            Fref = F[iref]
+            xref = x[iref]  # specific index, if provided
         else:
-            Fref = np.quantile(F, BASELINE_QUANTILE)
-        ax.plot(
-            tplt, (F - Fref) / Fref,
-            c=c['color'],
-            label=f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)')
+            xref = np.quantile(x, BASELINE_QUANTILE)  # otherwise, low quantile
+        # Plot normalized mean trace
+        ax.plot(tplt, (x - xref) / xref, c=c['color'], label=label)
+    # Add legend
     ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
+    # Return figure handle
     return fig
 
 

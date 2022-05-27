@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-24 17:55:47
+# @Last Modified time: 2022-05-27 13:32:57
 
 ''' Collection of generic utilities. '''
 
@@ -42,7 +42,7 @@ class StackProcessor(metaclass=abc.ABCMeta):
 class NoProcessor(StackProcessor):
     ''' Dummy class for no-processor objects '''
 
-    def run(self, stack: np.array, iframes):
+    def run(self, stack: np.array, *args):
         raise NotImplementedError
 
     @property
@@ -421,3 +421,34 @@ def normalize_stack(x, bounds=(0, 1000)):
     y = x / norm_factor - input_bounds[0] / norm_factor
     # Cast as input type and return
     return y.astype(dtype)
+
+
+
+def html_wrap(s, wrapper, serialize=True):
+    ''' Wrap HTML content inside an HTML element '''
+    if is_iterable(s) and serialize:
+        s = ''.join(s)
+    return f'<{wrapper}>{s}</{wrapper}>'
+
+def tr(s):
+    return html_wrap(s, 'tr')
+
+def th(s):
+    return html_wrap(s, 'th')
+
+def td(s):
+    return html_wrap(s, 'td', serialize=False)
+
+def table(s):
+    return html_wrap(s, 'table')
+
+def dict_to_html(d):
+    ''' Convert dictionary to an HTML Table object. '''
+    header = tr([th('Key'), td('Value')])
+    rows = [tr([td(key), td(value)]) for key, value in d.items()]
+    return table([header] + rows)
+
+class DictTable(dict):
+    ''' Overriden dict class enabling rendering as HTML Table in IPython notebooks. '''
+    def _repr_html_(self):
+        return dict_to_html(self)
