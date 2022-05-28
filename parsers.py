@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-28 17:29:52
+# @Last Modified time: 2022-05-28 17:47:08
 
 ''' Collection of parsing utilities. '''
 
@@ -234,7 +234,6 @@ def parse_date_mouse_region(s):
     '''
     mo = P_DATEMOUSEREGLAYER.match(s)
     if mo:
-        print(mo.groups())
         year, month, day, mouse, region, layer = mo.groups()
         date = f'{year}{month}{day}'
         if layer is None:
