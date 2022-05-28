@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 17:28:15
+# @Last Modified time: 2022-05-28 16:52:51
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -36,6 +36,8 @@ SI_POWERS = {
 
 ###################################### DATA ACQUISITION ######################################
 
+DEFAULT_LINE = 'line3'
+DEFAULT_LAYER = 'layer2-3'
 REF_NFRAMES = 1600  # reference number of frames in any given experimental run (used to check integrity of input stacks)
 NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
@@ -109,7 +111,8 @@ class Pattern:
     LINE = '([A-z][A-z0-9]*)'
     DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
     MOUSE = 'mouse[1-9][0-9]*'
-    REGION = 'region[1-9][0-9]*[A-z]*'
+    REGION = 'region[1-9][0-9]*[A-z]?'
+    LAYER = 'layer[1-5]-?[1-5]*'
     TRIAL_LENGTH = '([0-9]+)frames'
     FREQ = '([0-9]+[.]?[0-9]*)Hz'
     DUR = '([0-9]+[.]?[0-9]*)ms'

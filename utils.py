@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 13:32:57
+# @Last Modified time: 2022-05-27 16:19:20
 
 ''' Collection of generic utilities. '''
 
@@ -370,8 +370,7 @@ def resolve_close_elements(x, decimals=8, **kwargs):
 
 def resolve_columns(df, cols, **kwargs):
     ''' Resolve specific dataframe columns by updating "almost-duplicate" elements to their reduced value '''
-    if not is_iterable(cols):
-        cols = [cols]
+    cols = as_iterable(cols)
     for col in cols:
         df[col] = resolve_close_elements(df[col], **kwargs)
     return df

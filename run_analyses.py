@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 15:53:48
+# @Last Modified time: 2022-05-28 16:43:32
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -48,7 +48,8 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--expdate', help='experiment date')
     parser.add_argument('-m', '--mouseid', help='mouse number')
     parser.add_argument('-r', '--region', help='brain region')
-    
+    parser.add_argument('--layer', help='Cortical layer')
+
     # Add arguments about other execution parameters
     parser.add_argument(
         '--inspect', default=False, action='store_true',

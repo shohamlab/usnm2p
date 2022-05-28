@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 13:33:36
+# @Last Modified time: 2022-05-28 17:08:12
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -18,7 +18,7 @@ from natsort import natsorted
 
 from parsers import P_TIFFILE, parse_date_mouse_region
 from logger import logger
-from utils import is_iterable, StackProcessor, NoProcessor
+from utils import *
 from viewers import get_stack_viewer
 from constants import *
 from postpro import slide_along_trial, detect_across_trials, find_response_peak, apply_in_window
@@ -42,7 +42,7 @@ def get_subfolder_names(dirpath):
     return [f.name for f in os.scandir(dirpath) if f.is_dir()]
 
 
-def get_dataset_params(root='.', excludes=['layer5'], includes=['region']):
+def get_dataset_params(root='.', excludes=None, includes=['region']):
     '''
     Construct a list of (line, date, mouse, region) combinations that contain
     experiment datasets inside a given root directory.
@@ -58,23 +58,26 @@ def get_dataset_params(root='.', excludes=['layer5'], includes=['region']):
     # Loop through lines, dates, mice, and regions, and add data root folders to list  
     for line in get_subfolder_names(root):
         linedir = os.path.join(root, line)
-        for datemousereg in get_subfolder_names(linedir):
+        for folder in get_subfolder_names(linedir):
+            out = parse_date_mouse_region(folder)
             try:
-                date, mouse, region = parse_date_mouse_region(datemousereg)
-                dataset_dirpath = os.path.join(linedir, datemousereg)
-                datasets.append((line, date, mouse, region, dataset_dirpath))
+                date, mouse, region, layer = parse_date_mouse_region(folder)
+                dataset_dirpath = os.path.join(linedir, folder)
+                datasets.append((line, date, mouse, region, layer, dataset_dirpath))
             except ValueError as err:
                 logger.warning(err)
 
     # Remove unwanted patterns from list
-    for k in excludes:
-        datasets = list(filter(lambda x: k not in os.path.basename(x[-1]), datasets))
+    if excludes is not None:
+        excludes = as_iterable(excludes)
+        for k in excludes:
+            datasets = list(filter(lambda x: k not in os.path.basename(x[-1]), datasets))
     for k in includes:
         datasets = list(filter(lambda x: k in os.path.basename(x[-1]), datasets))
 
     # Return line, date, mouse, region combinations
     return [
-        {'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3]}
+        {'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
         for x in datasets]
 
 
@@ -496,7 +499,7 @@ def get_peaks_along_trial(fpath, data, wlen, nseeds):
         return peaks
 
 
-def load_dataset(fpath, prefix=None):
+def load_processed_dataset(fpath, prefix=None):
     '''
     Load dataset of a particular date-mouse-region from a CSV file
     
@@ -531,17 +534,35 @@ def load_dataset(fpath, prefix=None):
     return data
 
 
-def load_datasets(dirpath, **kwargs):
-    ''' Load multiple mouse-region datasets '''
+def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=None, **kwargs):
+    '''
+    Load multiple mouse-region datasets
+    
+    :param include_patterns (optional): inclusion pattern(s)
+    :param exclude_patterns (optional): exclusion pattern(s)
+    '''
     filetypes = ['timeseries', 'stats']
     # List filepaths of each category
     fpaths = {
         k: natsorted(glob.glob(os.path.join(dirpath, f'{k}_*.csv')))
         for k in filetypes
     }
+
+    # Filter according to inclusion & exclusion patterns, if any
+    if include_patterns is not None:
+        include_patterns = as_iterable(include_patterns)
+        logger.warning(f'excluding datasets not having the following patterns: {include_patterns}')
+        fpaths = {k: list(filter(lambda x: all(e in x for e in include_patterns), v))
+                  for k, v in fpaths.items()}
+    if exclude_patterns is not None:
+        exclude_patterns = as_iterable(exclude_patterns)
+        logger.warning(f'excluding datasets with the following patterns: {exclude_patterns}')
+        fpaths = {k: list(filter(lambda x: not any(e in x for e in exclude_patterns), v))
+                  for k, v in fpaths.items()}
+    
     # Load and concatenate datasets for each category 
     data = {k: pd.concat([
-        load_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
+        load_processed_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
         for k, v in fpaths.items()
     }
     # Sort index for each dataset
@@ -565,7 +586,4 @@ def load_datasets(dirpath, **kwargs):
             ykey_diff = f'diff {ykey}'
             data['stats'][ykey_diff] = data['stats'][ykey_poststim] - data['stats'][ykey_prestim]
 
-    # Harmonize run index for for stats dataset
-    # logger.info('harmonizing stats run indexes...')
-    # data['stats'] = harmonize_run_index(data['stats'])
     return data

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 14:16:14
+# @Last Modified time: 2022-05-28 16:49:42
 
 ''' Collection of plotting utilities. '''
 
@@ -94,7 +94,8 @@ def add_unit_diag(ax, c='k', ls='--'):
 def plot_table(inputs, title=None):
     '''Plot a table as a figure '''
     cellText = [[k, v] for k, v in inputs.items()]
-    fig, ax = plt.subplots()
+    nrows = len(cellText)
+    fig, ax = plt.subplots(figsize=(6, nrows * 0.5))
     if title is not None:
         ax.set_title(title, fontsize=20)
     ax.axis('off')
@@ -743,10 +744,8 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
                           itrial=None, tbounds=None, icorrect='baseline', cmap='viridis',
                           groupbyROI=False, ci=None, **kwargs):
     ''' Plot ROI-aggregated traces across runs/trials or all dataset '''
-    if not is_iterable(metrics):
-        metrics = [metrics]
-    if not is_iterable(ykey):
-        ykey = [ykey]
+    metrics = as_iterable(metrics)
+    ykey = as_iterable(ykey)
     plt_data = data[ykey]
     groupby = [Label.RUN, Label.TRIAL]
     idx = [slice(None) for i in range(len(plt_data.index.names))]
@@ -848,15 +847,11 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
         ionset += itrials[0] * len(iframes)
 
     # Create figure
-    if not is_iterable(iROI):
-        iROI = [iROI]
-    else:
-        iROI = sorted(iROI)  # sort ROIs to ensure consistent looping order 
+    iROI = sorted(as_iterable(iROI))  # sort ROIs to ensure consistent looping order 
     nROIs = len(iROI)
     npersignal /= nROIs
     fig, axes = plt.subplots(nROIs, 1, figsize=(12, nROIs * 4))
-    if not is_iterable(axes):
-        axes = [axes]
+    axes = as_iterable(axes)
     sns.despine()
     for ax in axes[:-1]:
         ax.set_xticks([])
@@ -1543,8 +1538,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
 
     # Add baseline if specified
     if baseline is not None:
-        if not is_iterable(baseline):
-            baseline = [baseline]
+        baseline = as_iterable(baseline)
         for ax in fig.axes:
             for b in baseline:
                 ax.axhline(b, c='k', ls='--')
@@ -1588,13 +1582,16 @@ def plot_parameter_dependency_across_datasets(
         a non-weighted average
     :return: figure handle
     '''
-    # Determine y-bounds based on variable 
-    if ykey == Label.DFF:
-        ybounds = [-.03, +.06]
-    elif ykey == Label.ZSCORE:
-        ybounds = [-1., 2.]
+    if 'ybounds' in kwargs:
+        ybounds = kwargs.pop('ybounds') 
     else:
-        raise ValueError(f'unknown variable: "{ykey}"')
+        # Determine y-bounds based on variable 
+        if ykey == Label.DFF:
+            ybounds = [-.03, +.06]
+        elif ykey == Label.ZSCORE:
+            ybounds = [-1., 2.]
+        else:
+            raise ValueError(f'unknown variable: "{ykey}"')
     
     # Determine variable of interest for output metrics
     ykey_resp = f'diff {ykey}'
@@ -1630,6 +1627,7 @@ def plot_parameter_dependency_across_datasets(
     if avg:
         # Average across each category and resolve input columns
         # (avoid "almost-identical" duplicates)
+        avg_data = data.groupby(categories).mean()
         avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
         # Extract non weighted average traces across datasets
         xdep_avg_data = get_xdep_data(avg_data, xkey)

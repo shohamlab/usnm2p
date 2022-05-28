@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 14:00:27
+# @Last Modified time: 2022-05-27 18:54:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import butter, filtfilt, find_peaks, peak_widths, detrend
 from scipy.stats import skew, norm, ttest_ind, linregress
@@ -108,8 +109,7 @@ def discard_indexes(data, ikey=Label.TRIAL, idiscard=None):
     :return: filtered dataset
     '''
     # Cast indexes to discard as list
-    if not is_iterable(idiscard):
-        idiscard = [idiscard]
+    idiscard = as_iterable(idiscard)
     # If no discard index specified -> return 
     if len(idiscard) == 0 or idiscard[0] is None:
         return data
@@ -220,7 +220,7 @@ def optimize_alpha(data, costfunc, bounds=(0, 1)):
     :return: optimal neuropil subtraction coefficient value
     '''
     # Generate vector of alphas
-    alphas = np.arange(*bounds, .01)
+    alphas = np.linspace(*bounds, 100)
     # Extract fluorescence profiles as 2D arrays
     F_ROI = data[Label.F_ROI].values
     F_NEU = data[Label.F_NEU].values
@@ -292,7 +292,7 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
     :param wlen: window length (in s) to compute the fluorescence baseline
     :param q: quantile used for the computation of the fluorescence baseline 
     :param smooth (default: False): whether to smooth the baseline by applying an additional
-        moving average (with half window size) to the sliding window output
+        gaussian filter (with half window size) to the sliding window output
     :return: fluorescence baseline series
     '''
     qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
@@ -305,23 +305,19 @@ def compute_baseline(data, fps, wlen, q, smooth=True):
     else:
         # Compute window size (in number of frames)
         w = get_window_size(wlen, fps)
-        # If smooth enabled, define window size for smoothing (moving average) step
+        # If smooth enabled, define window size for smoothing (gaussian filter) step
         if smooth:
             w2 = w // 2
-            if w2 % 2 == 0:
-                w2 += 1
         wstr = f'{wlen:.1f}s ({w} frames) sliding window'
         steps_str = [f'{qstr} of {wstr}']
         if smooth:
-            steps_str.append(f'mean of {w2 / fps:.1f}s ({w2} frames) sliding window')
+            steps_str.append(f'result of {w2 / fps:.1f}s ({w2} frames) gaussian filter')
         def bfunc(s):
-            # First percentile moving window
+            # Percentile moving window
             b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
             if smooth:
-                # Second average moving window
-                b = apply_rolling_window(b, w2, func=lambda x: x.mean())
-            # # Correct at stimulus index to compensate for anticipated baseline rise
-            # b[FrameIndex.STIM] = b[FrameIndex.STIM - 1]
+                # Optional gaussian filtering
+                b = gaussian_filter1d(b, w2)
             return b
     if len(steps_str) > 1:
         steps_str = '\n'.join([f'  - {s}' for s in steps_str])

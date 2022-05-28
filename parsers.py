@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 11:49:26
+# @Last Modified time: 2022-05-28 16:38:04
 
 ''' Collection of parsing utilities. '''
 
@@ -14,7 +14,8 @@ from constants import *
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
-P_DATEMOUSEREG = re.compile(f'{Pattern.DATE}_({Pattern.MOUSE})_({Pattern.REGION})')
+P_DATEMOUSEREGLAYER = re.compile(
+    f'{Pattern.DATE}_({Pattern.MOUSE})_({Pattern.REGION})_?({Pattern.LAYER})?')
 P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.RUN}$', re.IGNORECASE)
 P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
@@ -231,11 +232,13 @@ def parse_date_mouse_region(s):
     :param s: concatenated string
     :return: 3-tuple with (date, mouse, region)
     '''
-    mo = P_DATEMOUSEREG.match(s)
+    mo = P_DATEMOUSEREGLAYER.match(s)
     if mo:
-        year, month, day, mouse, region = mo.groups()
+        year, month, day, mouse, region, layer = mo.groups()
         date = f'{year}{month}{day}'
-        return date, mouse, region
+        if layer is None:
+            layer = DEFAULT_LAYER
+        return date, mouse, region, layer
     else:
         raise ValueError(
-            f'{s} does not match date-mouse-reg pattern ({P_DATEMOUSEREG.pattern})')
+            f'{s} does not match date-mouse-reg-layer pattern ({P_DATEMOUSEREGLAYER.pattern})')
