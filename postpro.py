@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 14:54:30
+# @Last Modified time: 2022-05-31 17:52:06
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 from collections import Counter
+from sre_parse import CATEGORIES
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -459,7 +460,14 @@ def shiftslice(s, i):
     return slice(s.start + i, s.stop + i)
 
 
-def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=True):
+def slice_last_dim(mux, wslice):
+    ''' Get a multi-indexed slice with last index dimenions '''
+    idx = [slice(None)] * len(mux.levels)
+    idx[-1] = wslice
+    return tuple(idx)
+
+
+def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=False):
     '''
     Apply function to a given signal within a specific observation window
     
@@ -472,15 +480,7 @@ def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=
         logger.info(
             f'applying {func.__name__} function on {ykey} in {wslice.start}-{wslice.stop} index window '
             f'across {", ".join(idxlevels)} ...')
-    if len(idxlevels) == 1:
-        window_data = data.loc[pd.IndexSlice[:, wslice], ykey]
-    elif len(idxlevels) == 2:
-        window_data = data.loc[pd.IndexSlice[:, :, wslice], ykey]
-    elif len(idxlevels) == 3:
-        window_data = data.loc[pd.IndexSlice[:, :, :, wslice], ykey]
-    else:
-        raise ValueError(f'cannot apply {func} func: too many index levels ({len(idxlevels)}')
-    out = window_data.groupby(idxlevels).agg(func)
+    out = data.loc[slice_last_dim(data.index, wslice), ykey].groupby(idxlevels).agg(func)
     if log_completion_rate:
         outs_found = out.notna().sum()
         nwindows = len(data.groupby(idxlevels).first())
@@ -1073,10 +1073,10 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
     :param directional (default: False): whether to expect a directional effect
     :return tuple with t-statistics and associated p-value
     '''
-    spre = s.loc[pd.IndexSlice[:, :, wpre]]
-    spost = s.loc[pd.IndexSlice[:, :, wpost]]
     tstat, pval = ttest_ind(
-        spost, spre, equal_var=False, nan_policy='raise',
+        s.loc[slice_last_dim(s.index, wpost)], 
+        s.loc[slice_last_dim(s.index, wpre)], 
+        equal_var=False, nan_policy='raise',
         alternative='greater' if directional else 'two-sided')
     return tstat, pval
 
@@ -1265,61 +1265,100 @@ def get_default_rtypes():
 
 def add_change_metrics(timeseries, stats, ykey, 
                        wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
-    ''' Add a change metrics to stats dataframe '''
-    ykey_pre = f'pre-stim avg {ykey}'
-    ykey_post = f'post-stim avg {ykey}'
-    ykey_diff = f'diff {ykey}'
+    '''
+    Add a change metrics to stats dataframe
+    
+    :param timeseries: timeseries dataframe
+    :param stats: stats dataframe
+    :param ykey: evaluation variable
+    :param wpre: pre-stimulus evaluation window (slice)
+    :param wpost: post-stimulus evaluation window (slice)
+    :return: updated stats dataframe
+    '''
+    # Determine new key
+    ykey_poststim_avg = f'post-stim avg {ykey}'
+    ykey_prestim_avg = f'pre-stim avg {ykey}'
+    ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
     logger.info(f'adding {ykey_diff} metrics to stats dataset...')
+    
+    # Define series averaging function
     def series_avg(s):
         return s.mean()
-    stats[ykey_pre] = apply_in_window(
+    
+    # Apply in pre and post stimulus interval windows
+    stats[ykey_prestim_avg] = apply_in_window(
         series_avg, timeseries, ykey, wpre)
-    stats[ykey_post] = apply_in_window(
+    stats[ykey_poststim_avg] = apply_in_window(
         series_avg, timeseries, ykey, wpost)
-    stats[ykey_diff] = stats[ykey_post] - stats[ykey_pre]
+    
+    # Compute difference
+    stats[ykey_diff] = stats[ykey_poststim_avg] - stats[ykey_prestim_avg]
+    
+    # Return
     return stats
 
 
-def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
-    ''' 
-    Classify dataset based on a new number of responsive conditions
+def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
+    '''
+    Classify responses based on a specific response evaluation variable and interval
     
-    :param data: stats dataframe
-    :param ykey: variable to use for significance thresholding
-    :param nposthr: threshold number of positive conditions
+    :param timeseries: timeseries dataframe
+    :param stats: stats dataframe
+    :param ykey: evaluation variable
+    :param wpre: pre-stimulus evaluation window (slice)
+    :param wpost: post-stimulus evaluation window (slice)
     :return: updated stats dataframe
     '''
-    if Label.DATASET in timeseries.index.names and len(timeseries.index.unique(level=Label.DATASET)) > 1:
-        logger.info(f'grouping by {Label.DATASET}')
-        tgroups, sgroups = timeseries.groupby(Label.DATASET), stats.groupby(Label.DATASET)
-        for (idataset, t), (_, s) in zip(tgroups, sgroups):
-            logger.info(idataset)
-            classify(t, s, ykey, nposthr=nposthr, **kwargs)
-        return None
-
+    # Determine groupby categories
+    categories = [Label.ROI, Label.RUN]
+    if Label.DATASET in stats.index.names:
+        categories = [Label.DATASET] + categories
+    
+    # Compute pre and post stimulus averages, and their difference
+    new_stats = add_change_metrics(
+        timeseries, stats, ykey, wpre=wpre, wpost=wpost)
+    
     # Test for significant pre-post differences
     logger.info(f'testing for significant {ykey} differences between pre- '
                 'and post-stimulus windows...')
-    res = timeseries[ykey].groupby([Label.ROI, Label.RUN]).apply(
-        lambda s: pre_post_ttest(s, **kwargs))
-    print(res)
+    res = timeseries[ykey].groupby(categories).apply(
+        lambda s: pre_post_ttest(s, wpre=wpre, wpost=wpost))
     res = pd.DataFrame(
         res.tolist(), columns=['tstat', 'pval'],
-        index=timeseries.groupby([Label.ROI, Label.RUN]).first().index)    
+        index=timeseries.groupby(categories).first().index)    
     # Add these fields to stats
-    ykey_diff = f'diff {ykey}'
+    ykey_poststim_avg = f'post-stim avg {ykey}'
+    ykey_prestim_avg = f'pre-stim avg {ykey}'
+    ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
     for k in res.columns:
-        stats[f'{ykey_diff} {k}'] = res[k]
-    
-    # Classify responses based on pre-post differences
+        new_stats[f'{ykey_diff} {k}'] = res[k]
+
+    # Classify responses based on pre-post statistical differences
     logger.info('classifying responses...')
-    stats[Label.RESP_TYPE] = (
+    new_stats[Label.RESP_TYPE] = (
         (res['pval'] < PTHR_DETECTION).astype(int) * np.sign(res['tstat']).astype(int))
-    stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RESP_TYPES)
+    new_stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RESP_TYPES)
+
+    # Return
+    return new_stats
+
+
+def classify_responders(stats, nposthr=NPOSCONDS_THR):
+    '''
+    Re-classify responders according to new threshold number of conditions
+    
+    :param stats: stats dataframe
+    :param nposthr: threshold number of conditions for non-weak classification
+    :return: updated stats dataframe
+    '''
+    # Determine groupby categories
+    categories = [Label.ROI]
+    if Label.DATASET in stats.index.names:
+        categories = [Label.DATASET] + categories
 
     # Compute number of occurences per response type per ROI
     roistats = stats[Label.RESP_TYPE].groupby(
-        [Label.ROI]).value_counts().unstack().replace(np.nan, 0.).astype(int)
+        categories).value_counts().unstack().replace(np.nan, 0.).astype(int)
 
     # Classify ROIs based on number of responsive conditions
     roistats[Label.ROI_RESP_TYPE] = 'weak'
@@ -1338,8 +1377,22 @@ def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
     logstr = "\n".join(logstr)
     logger.info(f'cell breakdown:\n{logstr}')
 
-    # Return new stats
+    # Return
     return stats
+
+
+def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
+    ''' 
+    Re-classify both responses and responders based on new classification criteria
+    
+    :param data: stats dataframe
+    :param ykey: variable to use for significance thresholding
+    :param nposthr: threshold number of positive conditions
+    :return: updated stats dataframe
+    '''
+    new_stats = classify_responses(timeseries, stats, ykey, **kwargs)
+    new_stats = classify_responders(new_stats, nposthr=nposthr)
+    return new_stats
 
 
 def get_xdep_data(data, xkey):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 14:06:38
+# @Last Modified time: 2022-05-31 18:05:57
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -573,15 +573,15 @@ def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=Non
         level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
 
     # Harmonize run indexes in stats if needed
-    try:
-        check_run_order(data['stats'])
-    except ValueError:
-        data['stats'] = harmonize_run_index(data['stats'])
+    check_run_order(data['stats'])
+    # TODO: CATCH POTENTIAL ERRORS, AND HARMONIZE RUN INDEX ACROSS STATS & TIMESERIES
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
-        ykey_resp = f'diff {ykey}'
-        if ykey_resp not in data['stats']:
+        ykey_avg = f'avg {ykey}' 
+        ykey_prestim_avg, ykey_poststim_avg = f'pre-stim {ykey_avg}', f'post-stim {ykey_avg}'
+        ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
+        if ykey_diff not in data['stats']:
             data['stats'] = add_change_metrics(data['timeseries'], data['stats'], ykey)
     
     # Return stats and timeseries

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 15:44:30
+# @Last Modified time: 2022-05-31 16:55:57
 
 ''' Collection of plotting utilities. '''
 
@@ -1593,7 +1593,9 @@ def plot_parameter_dependency_across_datasets(
             raise ValueError(f'unknown variable: "{ykey}"')
     
     # Determine variable of interest for output metrics
-    ykey_resp = f'diff {ykey}'
+    ykey_pre = f'pre-stim avg {ykey}'
+    ykey_post = f'post-stim avg {ykey}'
+    ykey_diff = f'{ykey_post} - {ykey_pre}'
     
     ndatasets = len(data.index.unique(Label.DATASET))
     col_order = get_default_rtypes()
@@ -1610,7 +1612,7 @@ def plot_parameter_dependency_across_datasets(
         legend = False
         alpha = 0
     fig = plot_parameter_dependency(
-        data, xkey=xkey, ykey=ykey_resp,
+        data, xkey=xkey, ykey=ykey_diff,
         ybounds=ybounds,
         hue=Label.DATASET,
         col=Label.ROI_RESP_TYPE, col_order=col_order,
@@ -1634,7 +1636,7 @@ def plot_parameter_dependency_across_datasets(
         for resp_type, group in xdep_avg_data.groupby(Label.ROI_RESP_TYPE):
             ax = fig.axes[col_order.index(resp_type)]
             sns.lineplot(
-                data=group, x=xkey, y=ykey_resp, ax=ax, color='BLACK', ci=ci,
+                data=group, x=xkey, y=ykey_diff, ax=ax, color='BLACK', ci=ci,
                 marker='o', lw=4, markersize=10, legend=False)
             line = ax.get_lines()[-1]
         fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
