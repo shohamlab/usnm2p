@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-28 16:49:42
+# @Last Modified time: 2022-05-31 15:44:30
 
 ''' Collection of plotting utilities. '''
 
@@ -17,7 +17,6 @@ from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
 import seaborn as sns
 from colorsys import hsv_to_rgb, rgb_to_hsv
-from torch import Value
 from tqdm import tqdm
 
 from logger import logger

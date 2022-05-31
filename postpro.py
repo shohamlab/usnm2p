@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 18:54:51
+# @Last Modified time: 2022-05-31 14:54:30
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1064,7 +1064,7 @@ def get_zscore_maximum(pthr, w):
     return pvalue_to_zscore(get_pvalue_per_sample(pthr, w), directional=True)
 
 
-def pre_post_ttest(s, directional=False):
+def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, directional=False):
     '''
     Select samples from pre- and post-stimulus windows and perform a t-test
     to test for their statistical significance
@@ -1073,10 +1073,10 @@ def pre_post_ttest(s, directional=False):
     :param directional (default: False): whether to expect a directional effect
     :return tuple with t-statistics and associated p-value
     '''
-    spre = s.loc[pd.IndexSlice[:, :, FrameIndex.PRESTIM]]
-    spost = s.loc[pd.IndexSlice[:, :, FrameIndex.RESPONSE]]
+    spre = s.loc[pd.IndexSlice[:, :, wpre]]
+    spost = s.loc[pd.IndexSlice[:, :, wpost]]
     tstat, pval = ttest_ind(
-        spost, spre, equal_var=False, 
+        spost, spre, equal_var=False, nan_policy='raise',
         alternative='greater' if directional else 'two-sided')
     return tstat, pval
 
@@ -1263,36 +1263,83 @@ def get_default_rtypes():
     # return ['non-responsive', 'responsive']
 
 
-def reclassify(data, ykey, nposthr=None):
+def add_change_metrics(timeseries, stats, ykey, 
+                       wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
+    ''' Add a change metrics to stats dataframe '''
+    ykey_pre = f'pre-stim avg {ykey}'
+    ykey_post = f'post-stim avg {ykey}'
+    ykey_diff = f'diff {ykey}'
+    logger.info(f'adding {ykey_diff} metrics to stats dataset...')
+    def series_avg(s):
+        return s.mean()
+    stats[ykey_pre] = apply_in_window(
+        series_avg, timeseries, ykey, wpre)
+    stats[ykey_post] = apply_in_window(
+        series_avg, timeseries, ykey, wpost)
+    stats[ykey_diff] = stats[ykey_post] - stats[ykey_pre]
+    return stats
+
+
+def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
     ''' 
-    Reclassify dataset based on a new number of responsive conditions
+    Classify dataset based on a new number of responsive conditions
     
     :param data: stats dataframe
     :param ykey: variable to use for significance thresholding
-    :param nposthr (optional): threshold number of positive conditions
+    :param nposthr: threshold number of positive conditions
     :return: updated stats dataframe
     '''
-    # If nposthr not given, infer it from dataset
-    if nposthr is None:
-        nposconds_per_rtype = data.groupby(Label.ROI_RESP_TYPE).apply(
-            lambda df: sorted(df['positive'].unique()))
-        nposthr = min(nposconds_per_rtype.loc['positive'])
-    # # If ythr is given, classify positive conditions according to significance threshold
-    # if ythr is not None:
-    #     data[Label.POS_COND] = data[ykey] > ythr
-    #     nposconds_per_roi = data[Label.POS_COND].groupby(
-    #         [Label.DATASET, Label.ROI]).sum().rename(Label.NPOS_CONDS)
-    #     data[Label.NPOS_CONDS] = nposconds_per_roi
-    # # Classify cells according to threshold number of positive conditions
-    # data[Label.IS_RESP_ROI] = data[Label.NPOS_CONDS] >= nposthr
-    # data[Label.ROI_RESP_TYPE] = data[Label.IS_RESP_ROI].map(
-    #     {True: 'responsive', False: 'non-responsive'})
-    # # # Log new classification summary
-    # # counts_by_type = data.groupby(
-    # #     [Label.DATASET, Label.ROI])[Label.ROI_RESP_TYPE].first().value_counts()
-    # # logger.info(f'{counts_by_type.sum()} cells now organized as:\n{counts_by_type}')
-    # # Return new data
-    # return data
+    if Label.DATASET in timeseries.index.names and len(timeseries.index.unique(level=Label.DATASET)) > 1:
+        logger.info(f'grouping by {Label.DATASET}')
+        tgroups, sgroups = timeseries.groupby(Label.DATASET), stats.groupby(Label.DATASET)
+        for (idataset, t), (_, s) in zip(tgroups, sgroups):
+            logger.info(idataset)
+            classify(t, s, ykey, nposthr=nposthr, **kwargs)
+        return None
+
+    # Test for significant pre-post differences
+    logger.info(f'testing for significant {ykey} differences between pre- '
+                'and post-stimulus windows...')
+    res = timeseries[ykey].groupby([Label.ROI, Label.RUN]).apply(
+        lambda s: pre_post_ttest(s, **kwargs))
+    print(res)
+    res = pd.DataFrame(
+        res.tolist(), columns=['tstat', 'pval'],
+        index=timeseries.groupby([Label.ROI, Label.RUN]).first().index)    
+    # Add these fields to stats
+    ykey_diff = f'diff {ykey}'
+    for k in res.columns:
+        stats[f'{ykey_diff} {k}'] = res[k]
+    
+    # Classify responses based on pre-post differences
+    logger.info('classifying responses...')
+    stats[Label.RESP_TYPE] = (
+        (res['pval'] < PTHR_DETECTION).astype(int) * np.sign(res['tstat']).astype(int))
+    stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RESP_TYPES)
+
+    # Compute number of occurences per response type per ROI
+    roistats = stats[Label.RESP_TYPE].groupby(
+        [Label.ROI]).value_counts().unstack().replace(np.nan, 0.).astype(int)
+
+    # Classify ROIs based on number of responsive conditions
+    roistats[Label.ROI_RESP_TYPE] = 'weak'
+    roistats.loc[roistats['negative'] >= nposthr, Label.ROI_RESP_TYPE] = 'negative'
+    roistats.loc[roistats['positive'] >= nposthr, Label.ROI_RESP_TYPE] = 'positive'
+
+    # Add roistats to stats
+    expand_and_add(roistats, stats)
+
+    # Log number and percentage of cells of each type identified
+    ncells_per_type = roistats[Label.ROI_RESP_TYPE].value_counts()
+    ncells_tot = ncells_per_type.sum()
+    logstr = []
+    for rtype, count in ncells_per_type.iteritems():
+        logstr.append(f'  - {rtype}: {count} ({count / ncells_tot * 100:.1f}%)')
+    logstr = "\n".join(logstr)
+    logger.info(f'cell breakdown:\n{logstr}')
+
+    # Return new stats
+    return stats
 
 
 def get_xdep_data(data, xkey):
@@ -1378,36 +1425,6 @@ def anova1d(data, xkey, ykey):
     return p
 
 
-def compute_metrics_vs_nposthr(data, nposthrs, ykeys, evalfunc='max'):
-    '''
-    Compute metrics evolution as a function of nposthr
-    
-    :param data: stats dataframe
-    :param nposthrs: vector of threshold number of positive conditions
-    :param ykeys: columns of interest
-    :param evalfunc: evaluation function applied to get metrics of interest
-    '''
-    metrics_vs_nposthr = []
-    # For each nposthr
-    for nposthr in nposthrs:
-        # Re-classify data
-        tmp = reclassify(data.copy(), nposthr=nposthr)
-        # Group by dataset, ROI and response type and extract columns of interest
-        groups = tmp.groupby([Label.DATASET, Label.ROI, Label.ROI_RESP_TYPE])[ykeys]
-        # Extract metrics of interest from these columns
-        metrics = groups.agg(evalfunc)
-        # Add information about nposthr
-        metrics[Label.NPOS_CONDS] = nposthr
-        # Append to list
-        metrics_vs_nposthr.append(metrics)
-    # Concatenate into single dataframe
-    metrics_vs_nposthr = pd.concat(metrics_vs_nposthr, axis=0)
-    # Add nposthr to index to avoid duplicate indexes
-    metrics_vs_nposthr.set_index(Label.NPOS_CONDS, append=True, inplace=True)
-    # Return metrics dataframe
-    return metrics_vs_nposthr
-
-
 def exclude_datasets(data, to_exclude):
     '''
     Exclude specific datasets from analysis
@@ -1430,24 +1447,95 @@ def exclude_datasets(data, to_exclude):
     return {k: v.query(query) for k, v in data.items()}
 
 
-def harmonize_run_index(data):
-    '''
-    Generate a new harmonized run index in multi-region dataset, based on P-DC combination
-    '''
-    # Remove run index
-    data = data.droplevel(Label.RUN)
+def get_param_code(data):
+    ''' Get a code string from stimulation parameters column '''
     # Parse P and DC columns to strings
     P_str = data[Label.P].map('{:.2f}MPa'.format)
     DC_str = data[Label.DC].map('{:.0f}%DC'.format)
-    # Generate new run column from (P, DC) combination 
-    data[Label.RUN] = P_str + DC_str
-    # Add as index dimension
-    data.set_index(Label.RUN, append=True, inplace=True)
-    # Return 
+    # Generate new column from concatenated (P, DC) combination 
+    return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
+
+
+def check_run_order(data):
+    ''' Check run order consistency across datasets '''
+    logger.info('checking for run order consistency across datasets...')
+    # Extract parameters per run
+    tmp = data.groupby([Label.DATASET, Label.RUN]).first()
+    params_per_run = get_param_code(tmp).unstack()
+    # Drop duplicates to get unique sequences of parameters 
+    unique_param_sequences = params_per_run.drop_duplicates()
+    nseqs = len(unique_param_sequences) 
+    # If differing sequences
+    if nseqs > 1:
+        # Get matches per sequence
+        matches = {}
+        for i, (_, ref_seq) in enumerate(unique_param_sequences.iterrows()):
+            key = f'seq {i}'
+            matches[key] = []
+            for iseq, seq in params_per_run.iterrows():
+                if seq.equals(ref_seq):
+                    matches[key].append(iseq)
+        nmatches = [f'{k} ({len(v)} match{"es" if len(v) > 1 else ""})'
+                    for k, v in matches.items()]
+        unique_param_sequences = unique_param_sequences.transpose()
+        unique_param_sequences.columns = nmatches
+
+        # Raise error
+        raise ValueError(
+            f'different run orders across datasets:\n{unique_param_sequences}')
+
+
+def get_run_mapper(pcodes):
+    '''
+    Get a dictionary mapping string codes based on P-DC combination with run indexes
+    (used to re-mapping datasets)  
+    
+    :param pcodes: parameter codes
+    :return: mapping dictionary
+    '''
+    # Get unique values and assign ieach of them to run index to form mapping dictionary
+    unique_pcodes = pcodes.unique()
+    idxs = np.arange(unique_pcodes.size)
+    return dict(zip(unique_pcodes, idxs))
+
+
+def update_run_index(data, runidx):
+    ''' Get new run indexes column and update appropriate data index level '''
+    mux = data.index.to_frame()
+    muxdict = {k: mux[k].values for k in mux.columns}
+    muxdict[Label.RUN] = runidx
+    new_mux = pd.MultiIndex.from_arrays(list(muxdict.values()), names=muxdict.keys())
+    data.index = new_mux
+    return data
+
+
+def harmonize_run_index(data):
+    '''
+    Generate a new harmonized run index in multi-region dataset, based on P-DC combination
+    
+    :param data: multi-indexed dataframe containing multiple datasets
+    :return: dataframe with aligned run indexes
+    '''
+    logger.info('harmonizing run index across datasets...')
+    # Get parameter codes
+    pcodes = get_param_code(data)
+    # Get stimparams: run-index mapper
+    mapper = get_run_mapper(pcodes)
+    # Get new run indexes column and update appropriate data index level
+    data = update_run_index(data, pcodes.map(mapper))
+    # Return data structure with update run index level
     return data
 
 
 def get_plot_data(timeseries, stats):
+    '''
+    Get ready-to-plot dataframe by merging timeseries and stats dataframes
+    and adding time information.
+
+    :param timeseries: timeseries dataframe
+    :param stats: stats dataframe
+    :return: merged dataframe 
+    '''
     logger.info('merging timeseries and stats information...')
     plt_data = timeseries.copy()
     expand_and_add(stats, plt_data)

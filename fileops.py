@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-28 17:08:12
+# @Last Modified time: 2022-05-31 14:06:38
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -21,7 +21,7 @@ from logger import logger
 from utils import *
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak, apply_in_window
+from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics, check_run_order, harmonize_run_index
 
 
 def get_data_root():
@@ -572,18 +572,17 @@ def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=Non
     data['stats'].sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
 
+    # Harmonize run indexes in stats if needed
+    try:
+        check_run_order(data['stats'])
+    except ValueError:
+        data['stats'] = harmonize_run_index(data['stats'])
+
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
         ykey_resp = f'diff {ykey}'
         if ykey_resp not in data['stats']:
-            logger.info(f'adding {ykey_resp} metrics to stats dataset...')
-            ykey_prestim = f'pre-stim avg {ykey}'
-            data['stats'][ykey_prestim] = apply_in_window(
-                lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.PRESTIM)
-            ykey_poststim = f'post-stim avg {ykey}'
-            data['stats'][ykey_poststim] = apply_in_window(
-                lambda x: x.mean(), data['timeseries'], ykey, FrameIndex.RESPONSE)
-            ykey_diff = f'diff {ykey}'
-            data['stats'][ykey_diff] = data['stats'][ykey_poststim] - data['stats'][ykey_prestim]
-
+            data['stats'] = add_change_metrics(data['timeseries'], data['stats'], ykey)
+    
+    # Return stats and timeseries
     return data
