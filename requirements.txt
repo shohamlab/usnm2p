@@ -8,6 +8,7 @@ ipywidgets
 tifffile
 seaborn
 statsmodels
+black
 papermill
 jupyter-slack
 jupyterlab
