@@ -10,5 +10,7 @@ seaborn
 statsmodels
 papermill
 jupyter-slack
+jupyterlab
 imageio
 natsort
+suite2p==0.10.2

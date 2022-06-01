@@ -13,13 +13,17 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 
 ### Installation
 
-- Download and install the suite2p functional segmentation pipeline in a new conda environment, following the instructions at https://suite2p.readthedocs.io/en/latest/installation.html.
-- Clone this repository and open a terminal at its root directory.
-- While in the suite2p conda environment, install remaining package dependencies: `pip install -r requirements.txt`
+- Create a new anaconda environment called `usnm2p`: `conda create -n usnm2p python=3.8`
+- Activate this anaconda environment: `conda activate usnm2p`
+- Clone this repository: `git clone https://github.com/shohamlab/usnm2p.git`
+- Move inside the repository: `cd usnm2p` 
+- Install the package dependencies: `pip install -r requirements.txt`
 - Create a user configuration file called `config.py`, and define in a variable called `dataroot` indicating the path to the root directory for the raw data to be analyzed.
 - Save the configuration file in the repository top folder. You're all set!
 
 ### Usage
+
+Always start by activating the `usnm2p` anaconda environment: `conda activate usnm2p`
 
 To run the analysis pipeline of a single mouse region interactively:
 - start Jupyter Lab: `jupyter lab`
@@ -99,36 +103,41 @@ The raw data is typically processed in different successive steps, described bel
 	- `iscell.npy`: specifies whether an ROI is a cell, first column is 0/1, and second column is probability that the ROI is a cell based on the default classifier
 	- `data.bin` (optional): registered image stack in binary format format.
 
-3. **Post-processing**: the main aim of this step is to convert the raw fluorescence timeseries of each ROI (extracted from the suite2p output files) into z-score timeseries of the corresponding relative fluorescence variation. This is carried out in successive sub-steps:
+3. **Post-processing**: the main aim of this step is to convert the raw fluorescence timeseries of each ROI (extracted from the suite2p output files) normalized fluorescence timeseries. This is carried out in successive sub-steps:
 	- extraction of cell and associated neuropil fluorescence traces
 	- subtraction of neuropil background with an appropriate coeefficient (currently 0.7) to obtain a corrected flueorescence timecourse (F) of each ROI
-	- baseline (F0) computation and baseline correction of neuropil-corrected fluorescence traces
-	- baseline normalization to obtain relative change fluorescence traces ΔF/F0
-	- noise level and variation range estimation (using gaussian fits of ΔF/F0 distributions) and subsequent noise-normalization of relative change fluorescence traces into z-score traces.
+	- baseline (F0) computation and baseline correction of neuropil-corrected fluorescence traces (on a run-specific basis)
+	- baseline normalization to obtain relative change fluorescence traces ΔF/F0 (also run-specific)
+	- linear signal detrending (at the single trial level)
+	- noise level and variation range estimation and subsequent noise-normalization of relative change fluorescence traces into z-score traces.
 
-	Upon completion, a `/suite2p/processed/` folder is created in which the following post-processing output files are saved:
+	Upon completion, a post-processing folder is created in which the following output files are saved:
 	- `info_table.csv`: summary table of the parameters pertaining to each run
-	- `zscores_run*.csv`: z-score traces of each ROI for a given run (along with their ROI, run, trial and frame index information)
 	- `ROI_masks.csv`: table of the pixel masks of each selected ROI in the reference frame.
+	- `timeseries_run*.csv`: dff and z-score traces of each ROI for a given run (along with their ROI, run, trial and frame index information)
 
 4. **Statistics**: using the extracted z-score timeseries as a basis, transient activity events are detected and used to derive statistics on ultrasound-evoked (& spontaneous) neural activity. This analysis consists of the following sub-steps:
 	- quantification of lateral motion over time (using the registration offsets timeseries outputed by suite2p), detection of motion artifacts, and exclusion of associated trials
-	- detection of transient activity events in defined pre-stimulus and post-stimulus windows, but also on a continous detection window moving along the trial intervals
-	- characterization of baseline, pre-stimulus and stimulus-evoked neural activity (using the peak z-score value as a proxy) for each ROI and each trial, and exclusion of trials with pre-stimulus activity
-	- quantification of success rate & response strength for every ROI & run
-	- classification of cells by response type
-	- derivation of stimulus-evoked transient activity traces for each cell type and stimulus condition
-	- characteriztion of parameter-dependency of success rate & response strength for each cell type.
+	- removal of outlier timeseries (those contaning outlier data points estimated from the global z-score distribution)
+	- quantification of pre-stimulus activity levels, and exclusion of trials with significant activity/inhibition
+	- averaging of traces across valid trials for each ROI & run
+	- characterization of pre-stimulus and post-stimulus activity levels, and their difference
+	- statistical testing of difference between pre- and post-stimulus windows for each ROI & run, and responses classification
+	- classification of cells by responder type based on their response distributions
+	- characteriztion of parameter-dependency of response strength for each cell type.
 
 ## Authors & contributors
 
-The data was acquired by Yi Yuan (???) and Sarah Sarah Haiken (Research Associate).
+The data was acquired by Yi Yuan, Amy LeMessurier and Sarah Rachel Haiken. The analysis code base has received contributions from many people, listed below.
 
-The analysis code base has received contributions from many people, including
+*Past contributors:*
 - Celia Gellman (Project Student)
+- Junhyook Lee (Project Student)
 - Ben Stetler (Research Associate)
 - Diego Asua (Research Associate)
-- Theo Lemaire (Postdoctoral Researcher, theo.lemaire@nyulangone.org): current contributor
+
+*Current contributor:*
+- Theo Lemaire (Postdoctoral Researcher): theo.lemaire@nyulangone.org
 
 ## References
 
