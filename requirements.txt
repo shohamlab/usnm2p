@@ -11,3 +11,4 @@ statsmodels
 papermill
 jupyter-slack
 imageio
+natsort
