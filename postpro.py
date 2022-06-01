@@ -2,12 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 17:52:06
+# @Last Modified time: 2022-06-01 11:51:03
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 from collections import Counter
-from sre_parse import CATEGORIES
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -477,9 +476,14 @@ def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=
     '''
     idxlevels = [k for k in data.index.names if k != Label.FRAME]
     if verbose:
+        wstr = wslice.start
+        if wslice.stop > wslice.start + 1:
+            wstr = f'[{wstr}-{wslice.stop - 1}] index window'
+        else:
+            wstr = f'{wstr} index'
+        istr = ', '.join(idxlevels)
         logger.info(
-            f'applying {func.__name__} function on {ykey} in {wslice.start}-{wslice.stop} index window '
-            f'across {", ".join(idxlevels)} ...')
+            f'applying {func.__name__} function on {ykey} in {wstr} across {istr} ...')
     out = data.loc[slice_last_dim(data.index, wslice), ykey].groupby(idxlevels).agg(func)
     if log_completion_rate:
         outs_found = out.notna().sum()
@@ -880,8 +884,8 @@ def gauss_histogram_fit(data, bins=100, plot=False):
     except ValueError as err:
         logger.warning(err)
         xmid = mids
-        plt.figure()
-        plt.hist(data, bins=50)
+        fig, ax = plt.subplots()
+        ax.hist(data, bins=50)
         popt = p0
         plot = True
         
@@ -1351,6 +1355,7 @@ def classify_responders(stats, nposthr=NPOSCONDS_THR):
     :param nposthr: threshold number of conditions for non-weak classification
     :return: updated stats dataframe
     '''
+    logger.info(f're-classifying responders with threshold number of conditions = {nposthr}')
     # Determine groupby categories
     categories = [Label.ROI]
     if Label.DATASET in stats.index.names:
@@ -1478,26 +1483,27 @@ def anova1d(data, xkey, ykey):
     return p
 
 
-def exclude_datasets(data, to_exclude):
+def exclude_datasets(timeseries, stats, to_exclude):
     '''
     Exclude specific datasets from analysis
     
-    :param data: global experiment dataframe
+    :param timeseries: timeseries dataframe
+    :param stats: stats dataframe
     :param to_exclude: date-mouse-region combinations to be discarded
     :return: filtered experiment dataframe 
     '''
-    default_k = list(data.keys())[0]
-    candidate_datasets = data[default_k].index.unique(level=Label.DATASET).values
-    notthere = list(set(to_exclude) - set(candidate_datasets))
+    candidate_datasets = stats.index.unique(level=Label.DATASET).values
+    notthere = list(set(to_exclude.index) - set(candidate_datasets))
     if len(notthere) > 0:
         logger.warning(f'{notthere} datasets not found -> ignoring') 
-    to_exclude = list(set(candidate_datasets).intersection(set(to_exclude)))
-    if len(to_exclude) == 0:
+    idx = list(set(candidate_datasets).intersection(set(to_exclude.index)))
+    if len(idx) == 0:
         logger.warning('did not find any datasets to exclude')
-        return data
-    logger.info(f'excluding {to_exclude} datasets from analysis')
-    query = f'{Label.DATASET} not in {to_exclude}'
-    return {k: v.query(query) for k, v in data.items()}
+        return timeseries, stats
+    logger.info(
+        f'excluding the following datasets from analysis: \n {to_exclude[idx].to_frame()}')
+    query = f'{Label.DATASET} not in {to_exclude[idx].index.values.tolist()}'
+    return timeseries.query(query), stats.query(query)
 
 
 def get_param_code(data):
@@ -1562,22 +1568,26 @@ def update_run_index(data, runidx):
     return data
 
 
-def harmonize_run_index(data):
+def harmonize_run_index(timeseries, stats):
     '''
     Generate a new harmonized run index in multi-region dataset, based on P-DC combination
     
-    :param data: multi-indexed dataframe containing multiple datasets
-    :return: dataframe with aligned run indexes
+    :param timeseries: multi-indexed timeseries dataframe containing multiple datasets
+    :param stats: multi-indexed stats dataframe containing multiple datasets
+    :return: dataframes tuple with harmonized run indexes
     '''
     logger.info('harmonizing run index across datasets...')
-    # Get parameter codes
-    pcodes = get_param_code(data)
+    # Get parameter codes from stats
+    stats_pcodes = get_param_code(stats).rename('pcode')
+    # Get expanded pcodes compatible with timeseries
+    timeseries_pcodes = expand_to_match(stats_pcodes, timeseries.index)
     # Get stimparams: run-index mapper
-    mapper = get_run_mapper(pcodes)
+    mapper = get_run_mapper(stats_pcodes)
     # Get new run indexes column and update appropriate data index level
-    data = update_run_index(data, pcodes.map(mapper))
-    # Return data structure with update run index level
-    return data
+    stats = update_run_index(stats, stats_pcodes.map(mapper))
+    timeseries = update_run_index(timeseries, timeseries_pcodes.map(mapper))
+    # Return harmonized dataframes
+    return timeseries, stats
 
 
 def get_plot_data(timeseries, stats):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 18:05:57
+# @Last Modified time: 2022-06-01 11:03:20
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -21,8 +21,7 @@ from logger import logger
 from utils import *
 from viewers import get_stack_viewer
 from constants import *
-from postpro import slide_along_trial, detect_across_trials, find_response_peak, add_change_metrics, check_run_order, harmonize_run_index
-
+from postpro import *
 
 def get_data_root():
     ''' Get the root directory for the raw data to analyze '''
@@ -565,24 +564,30 @@ def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=Non
         load_processed_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
         for k, v in fpaths.items()
     }
+    timeseries, stats = data['timeseries'], data['stats']
+
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
-    data['timeseries'].sort_index(
+    timeseries.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
-    data['stats'].sort_index(
+    stats.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
 
-    # Harmonize run indexes in stats if needed
-    check_run_order(data['stats'])
-    # TODO: CATCH POTENTIAL ERRORS, AND HARMONIZE RUN INDEX ACROSS STATS & TIMESERIES
+    try:
+        # Check run order consistency across datasets
+        check_run_order(stats)
+    except ValueError as err:
+        # If needed, harmonize run indexes in stats & timeseries
+        logger.warning(err)
+        timeseries, stats = harmonize_run_index(timeseries, stats) 
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
         ykey_avg = f'avg {ykey}' 
         ykey_prestim_avg, ykey_poststim_avg = f'pre-stim {ykey_avg}', f'post-stim {ykey_avg}'
         ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
-        if ykey_diff not in data['stats']:
-            data['stats'] = add_change_metrics(data['timeseries'], data['stats'], ykey)
+        if ykey_diff not in stats:
+            stats = add_change_metrics(timeseries, stats, ykey)
     
     # Return stats and timeseries
     return data

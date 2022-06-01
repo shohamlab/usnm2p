@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 16:49:12
+# @Last Modified time: 2022-06-01 11:42:00
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -102,7 +102,7 @@ PTHR_DETECTION = 0.05  # significance threshold probability for activity detecti
 NPOSCONDS_THR = 5  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
 
 # Datasets selection
-MIN_CELL_DENSITY = 1500.  # minimum cell density (cells/mm2)
+MIN_CELL_DENSITY = 1000.  # minimum cell density (cells/mm2)
 
 ###################################### PARSING ######################################
 
