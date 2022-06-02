@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-31 16:55:57
+# @Last Modified time: 2022-06-02 14:37:34
 
 ''' Collection of plotting utilities. '''
 
@@ -37,9 +37,19 @@ nan_viridis.set_bad('silver')
 
 
 def get_colors(cmap, N=None, use_index='auto'):
-    ''' Get colors based on a colormap '''
+    '''
+    Get colors based on a colormap
+    
+    :param cmap: colormap (string or matplotlib object). Can also be an iterable of colormaps
+    :param N (optional): number of colors to output
+    :param use_index (optional): whether to use the colormap index to sample colors
+    :return: list of colors
+    '''
+    # Vectorize function
     if is_iterable(cmap):
         return np.vstack([get_colors(c) for c in cmap])
+    
+    # If cmap is string, get corresponding object 
     if isinstance(cmap, str):
         if use_index == 'auto':
             if cmap in ['Pastel1', 'Pastel2', 'Paired', 'Accent',
@@ -49,8 +59,12 @@ def get_colors(cmap, N=None, use_index='auto'):
             else:
                 use_index = False
         cmap = plt.get_cmap(cmap)
+    
+    # Infer number of colors directly from colormap if not given
     if not N:
         N = cmap.N
+    
+    # Determine from colormap type if index should be used 
     if use_index == 'auto':
         if cmap.N > 100:
             use_index=False
@@ -58,11 +72,15 @@ def get_colors(cmap, N=None, use_index='auto'):
             use_index = False
         elif isinstance(cmap, ListedColormap):
             use_index = True
+    
+    # Extract colors from colormap
     if use_index:
         ind = np.arange(int(N)) % cmap.N
         colors = cmap(ind)
     else:
         colors = cmap(np.linspace(0, 1, N))
+    
+    # Return colors
     return colors
 
 
@@ -72,42 +90,94 @@ def get_color_cycle(*args, **kwargs):
 
 
 def harmonize_axes_limits(axes, axkey='y'):
-    ''' Harmonize axes limits'''
+    '''
+    Harmonize x or y limits across a set of axes
+    
+    :param axes: list/array of axes
+    :param axkey: axis key ("x" or "y"
+    '''
+    # Flatten axes array if needed
     if axes.ndim > 1:
         axes = axes.ravel()
-    ymin = min([ax.get_ylim()[0] for ax in axes])
-    ymax = max([ax.get_ylim()[1] for ax in axes])
+    
+    # Determine limits getter and setter functions for appropriate axis
+    limgetter = lambda ax: getattr(ax, f'get_{axkey}lim')
+    limsetter = lambda ax, *bounds: getattr(ax, f'set_{axkey}lim')
+
+    # Get limits, and extract min and max over axes
+    lims = [limgetter(ax)() for ax in axes]
+    mins, maxs = list(zip(*lims))
+    bounds = min(mins), max(maxs)
+
+    # Set as bounds for all axes
     for ax in axes.ravel():
-        ax.set_ylim(ymin, ymax)
+        limsetter(ax)(*bounds)
 
 
 def add_unit_diag(ax, c='k', ls='--'):
-    ''' Add a diagonal line representing the Y = X relationship on the axis '''
+    '''
+    Add a diagonal line representing the Y = X relationship on the axis
+    
+    :param ax: axis object
+    :param c: line color (default = black)
+    :param ls: line style (default = dashed)
+    '''
+    # Get x and y axes limits
     xlims, ylims = ax.get_xlim(), ax.get_ylim()
+
+    # Get min and max across both axes
     lims = (min(xlims[0], ylims[0]), max(xlims[1], ylims[1]))
+
+    # Adjust axes limits
     ax.set_xlim(*lims)
     ax.set_ylim(*lims)
-    ax.plot(lims, lims, c='k', ls='--')
+
+    # Draw diagonal line
+    ax.plot(lims, lims, c=c, ls=ls)
 
 
-def plot_table(inputs, title=None):
-    '''Plot a table as a figure '''
-    cellText = [[k, v] for k, v in inputs.items()]
-    nrows = len(cellText)
+def plot_table(d, title=None):
+    '''
+    Plot a dictionary as a table
+
+    :param d: dictionary
+    :param title (optional): table title
+    :return: figure handle
+    '''
+    # Initialize figure according to number of entries in dict
+    nrows = len(d)
     fig, ax = plt.subplots(figsize=(6, nrows * 0.5))
+
+    # Set title if provided
     if title is not None:
         ax.set_title(title, fontsize=20)
+    
+    # Remove axes rendering
     ax.axis('off')
-    table = ax.table(cellText, loc='center')
+
+    # Render dict content as table
+    table = ax.table([[k, v] for k, v in d.items()], loc='center')
     table.set_fontsize(14)
     table.scale(1, 2)
+
+    # Tighten figure layout
     fig.tight_layout()
+
+    # Return figure
     return fig
 
 
 def data_to_axis(ax, p):
-    ''' Convert data coordinates to axis coordinates '''
+    '''
+    Convert data coordinates to axis coordinates
+    
+    :param ax: axis object
+    :param p: (x, y) point in data coordinates
+    :return: (x, y) point in axis coordinates
+    '''
+    # Transform from data to absolute coordinates
     trans = ax.transData.transform(p)
+    # Transfrom from absolute to axis coordinates and return
     return ax.transAxes.inverted().transform(trans)
 
 
@@ -116,33 +186,121 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     Plot summary histogram from TIF stacks.
     
     :param stacks: dictionary of TIF stacks
-    :param cmap (optional): colormap
+    :param title (optional): figure title
+    :param yscale: scale type for y-axis (default = log) 
     :return: figure handle
     '''
     logger.info('plotting stack(s) histogram...')
+
+    # Initialize figure
     fig, ax = plt.subplots()
+    sns.despine(ax=ax)
     if title is None:
         title = ''
     else:
         title = f'{title} - '
     ax.set_title(f'{title}summary histogram')
-    sns.despine(ax=ax)
-    for k, v in stacks.items():
-        ax.hist(v.ravel(), bins=50, label=k, ec='k', alpha=0.5)
-    ax.legend()
     ax.set_xlabel('pixel intensity')
     ax.set_yscale(yscale)
     ax.set_ylabel('Count')
+
+    # Plot histogram each stack entry 
+    for k, v in stacks.items():
+        ax.hist(v.ravel(), bins=50, label=k, ec='k', alpha=0.5)
+    
+    # Add legend 
+    ax.legend()
+
+    # Return figure handle
+    return fig
+
+
+def plot_stack_timecourse(*args, **kwargs):
+    '''
+    Plot the evolution of the average frame intensity over time, with shaded areas
+    showing its standard deviation
+
+    :param correct (optional): whether to mean-correct the signal before plotting it  
+    '''
+    # Extract args of interest 
+    ax = kwargs.pop('ax', None)  # axis
+    correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
+    title = kwargs.get('title', None)  # title
+    
+    # Extract viewer rendering args
+    ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
+    norm = kwargs.pop('norm', True)  # normalize across frames before rendering
+    cmap = kwargs.pop('cmap', 'viridis')  # colormap
+    bounds = kwargs.pop('bounds', None)  # bounds
+
+    # Initialize viewer and initialize its rendering
+    viewer = get_stack_viewer(*args, **kwargs)
+    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+
+    # Initialize figure if not provided
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 4))
+        sns.despine()
+        if title is None:
+            title = ''
+        ax.set_title(f'{title} spatial average time course')
+        ax.set_xlabel('frames')
+        ylabel = 'average frame intensity'
+        if correct:
+            ylabel = f'mean corrected {ylabel}'
+        ax.set_ylabel(ylabel)
+        # Plot delimiters, if any
+        if ilabels is not None:
+            logger.info(f'adding {len(ilabels)} delimiters')
+            for iframe in ilabels:
+                ax.axvline(iframe, color='k', linestyle='--')
+    else:
+        fig = ax.get_figure()
+    
+    # For each stack file-object provided
+    for i, header in enumerate(viewer.headers):
+        
+        # Get evolution of frame average intensity and its standard deviation
+        mu, sigma = viewer.get_frame_metric_evolution(
+            viewer.fobjs[i], viewer.frange, func=lambda x: (x.mean(), x.std())).T
+        
+        # Mean-correct the signal if needed
+        if correct:
+            mu -= mu.mean()
+        
+        # Plot the signal with the correct label
+        inds = np.arange(mu.size)
+        ax.plot(inds, mu, label=header)
+        ax.fill_between(inds, mu - sigma, mu + sigma, alpha=0.2)
+    
+    # Add/update legend
+    ax.legend(frameon=False)
+    
+    # Return figure handle
     return fig
 
 
 def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
                                   cmap=['tab10', 'Dark2'], iref=None, itrial=None):
-    ''' Plot trial-averaged average stack intensity over runs '''
+    '''
+    Plot trial-averaged, pixel-averaged intensity traces from a list of run stacks
+    
+    :param fpaths: list of paths to TIF stacks for the different runs
+    :param ntrials_per_run: number of trials per run (used for trial-averaging)
+    :param title (optional): figure title
+    :param tbounds (optional): time (x) axis bounds
+    :param cmap (optional): colormap from which to samples traces colors
+    :param iref (optional): reference index at which to align traces on trhe y-axis. If none
+        is provided, traces will be aligned according to a characteristic distribution quantile.
+    :param itrial (optional): trial index(es) to average from. If none is provided, all trials
+        are aggregated.
+    :return: figure handle
+    '''
     # Get runs sorted by I_SPTA
     df = get_info_table(fpaths, ntrials_per_run=ntrials_per_run)
     df = add_intensity_to_table(df)
     df = df.sort_values(by=Label.ISPTA)
+
     # Create figure backbone
     fig, ax = plt.subplots()
     sns.despine(ax=ax)
@@ -155,32 +313,39 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
     iframes = np.arange(NFRAMES_PER_TRIAL)
     ax.axvline(0., c='k', ls='--')
     cycler = get_color_cycle(cmap, len(df))
+
     # Loop through runs of increasing intensity
     for c, (irun, run_info) in zip(cycler, df.iterrows()):
-        # Extract run label
+        
+        # Extract run label and movide stack
         label = f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)'
-        # Extract movie stack
         fpath = fpaths[irun]
         tplt = (iframes - FrameIndex.STIM) / run_info[Label.FPS]
         stack = loadtif(fpath, verbose=False)
-        # Average across pixels
+        
+        # Average across pixels and reshape as trials x frames
         stackavg_trace = stack.mean(axis=-1).mean(axis=-1)
-        # Reshape as trials x frames
         stackavg_mat = stackavg_trace.reshape((-1, NFRAMES_PER_TRIAL))
+        
         # Remove specific trials if specified
         if itrial is not None:
             stackavg_mat = stackavg_mat[itrial, :]
+        
         # Average across trials to get mean trace
         x = stackavg_mat.mean(axis=0)
+        
         # Find baseline signal value 
         if iref is not None:
             xref = x[iref]  # specific index, if provided
         else:
             xref = np.quantile(x, BASELINE_QUANTILE)  # otherwise, low quantile
+        
         # Plot normalized mean trace
         ax.plot(tplt, (x - xref) / xref, c=c['color'], label=label)
+    
     # Add legend
     ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
+    
     # Return figure handle
     return fig
 
@@ -193,15 +358,14 @@ def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
     :param cmap (optional): colormap
     :return: figure handle
     '''
+    # Compute stacks FFTs along time axis
     logger.info('computing stack(s) fft...')
     nframes = stacks[list(stacks.keys())[0]].shape[0]
-    # Compute frequencies
     freqs = np.fft.rfftfreq(nframes, 1 / fs)
-    # Compute FFTs along time axis
     ffts = {k: np.abs(np.fft.rfft(v, axis=0)) for k, v in stacks.items()}
-    # Square FFts and average across pixels to get power spectrum for each frequency
     ps_avg = {k: np.array([(x**2).mean() for x in v]) for k, v in ffts.items()}
 
+    # Initialize figure
     logger.info('plotting stack(s) frequency spectrum...')
     fig, ax = plt.subplots()
     if title is None:
@@ -210,12 +374,18 @@ def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
         title = f'{title} - '
     ax.set_title(f'{title}frequency spectrum')
     sns.despine(ax=ax)
-    for k, v in ps_avg.items():
-        ax.plot(freqs, v, label=k)
-    ax.legend()
     ax.set_xlabel('frequency (Hz)')
     ax.set_yscale(yscale)
     ax.set_ylabel('power spectrum')
+
+    # Plot all FFT profiles for each stack
+    for k, v in ps_avg.items():
+        ax.plot(freqs, v, label=k)
+    
+    # Add legend
+    ax.legend()
+
+    # Return figure handle
     return fig
 
 
@@ -224,21 +394,28 @@ def plot_stack_summary_frames(stack, cmap='viridis', title=None, um_per_px=None)
     Plot summary images from a TIF stack.
     
     :param stack: TIF stack
-    :param cmap (optional): colormap
+    :param cmap (optional): colormap used to plot summary frames
+    :param title (optional): figure title
+    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
+        on each image are replaced by a scale bar on the graph.
     :return: figure handle
     '''
-    plotfuncs = {
-        # 'Median': np.median,
+    # Get projection functions dictionary
+    projfuncs = {
         'Mean': np.mean,
         'Standard deviation': np.std,
         'Max. projection': np.max
     }
-    fig, axes = plt.subplots(1, len(plotfuncs), figsize=(5 * len(plotfuncs), 5))
+
+    # Initialize figure according to number of projections 
+    fig, axes = plt.subplots(1, len(projfuncs), figsize=(5 * len(projfuncs), 5))
     if title is None:
         title = ''
     fig.suptitle(f'{title} - summary frames')
     fig.subplots_adjust(hspace=10)
-    for ax, (title, func) in zip(axes, plotfuncs.items()):
+
+    # Plot each projection function, project movie and plot resulting image
+    for ax, (title, func) in zip(axes, projfuncs.items()):
         ax.set_title(title)
         ax.imshow(func(stack, axis=0), cmap=cmap)
         ax.set_xticks([])
@@ -246,6 +423,8 @@ def plot_stack_summary_frames(stack, cmap='viridis', title=None, um_per_px=None)
         if um_per_px is not None:
             npx = stack.shape[-1]
             add_scale_bar(ax, npx, um_per_px, color='w')
+    
+    # Return figure handle
     return fig
 
 
@@ -255,20 +434,23 @@ def add_scale_bar(ax, npx, um_per_px, color='k'):
     
     :param ax: axis object
     :param npx: number of pixels on each dimension of the axis image
-    :param um_per_pixel: number of microns per pixel
+    :param um_per_pixel: spatial scale (number of microns per pixel)
     :param color: color of the scale bar
     '''
     # Compute scale bar length (in microns)
     npx_bar_length = npx / 4   # starting point (in pxels): 1/4 of the image length
     um_bar_length = um_per_px * npx_bar_length  # conversion to microns
+
     # Round to appropriate power of ten factor
     pow10 = int(np.log10(um_bar_length))
     roundfactor = np.power(10, pow10)
     um_bar_length = np.round(um_bar_length / roundfactor) * roundfactor
+
     # Compute relative length (in axis units)
     npx_bar_length = um_bar_length / um_per_px
     rel_bar_length = npx_bar_length / npx
-    # Define and
+
+    # Define scale bar artist object
     scalebar = AnchoredSizeBar(ax.transAxes,
         rel_bar_length, 
         f'{um_bar_length:.0f} um',
@@ -277,15 +459,24 @@ def add_scale_bar(ax, npx, um_per_px, color='k'):
         color=color,
         frameon=False,
         size_vertical=.01)
+    
     # Add scale bar to axis
     ax.add_artist(scalebar)
 
 
-def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_per_px=None, full_mode=False):
-    ''' Plot summary registration images from suite2p processing output.
+def plot_suite2p_registration_images(ops, title=None, cmap='viridis', um_per_px=None,
+                                     full_mode=False):
+    '''
+    Plot summary registration images from suite2p processing output.
 
-        :param output_ops: suite2p output
-        :return: figure handle    
+    :param ops: suite2p output options dictionary
+    :param title (optional): figure title
+    :param cmap (optional): colormap used to plot registration images
+    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
+        on each image are replaced by a scale bar on the graph.
+    :param full_mode: whether to plot images extracted from the registration process, or only
+        a selected subset (default = False)
+    :return: figure handle    
     '''
     logger.info('plotting suite2p registered images...')    
     
@@ -301,7 +492,7 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
             ** imkeys_dict,
             'Enhanced mean image (median-filtered)': 'meanImgE'
     }
-    imgs_dict = {label: output_ops.get(key, None) for label, key in imkeys_dict.items()}
+    imgs_dict = {label: ops.get(key, None) for label, key in imkeys_dict.items()}
     imgs_dict = {k: v for k, v in imgs_dict.items() if v is not None}
     
     # Create figure
@@ -312,9 +503,11 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     
     # For each available image
     for ax, (label, img) in zip(axes, imgs_dict.items()):
+        
         # Set image title and render image
         ax.set_title(label)
         ax.imshow(img, cmap=cmap)
+        
         # Add scale bar if scale provided
         if um_per_px is not None:
             npx = img.shape[-1]
@@ -327,41 +520,57 @@ def plot_suite2p_registration_images(output_ops, title=None, cmap='viridis', um_
     return fig
 
 
-def plot_suite2p_phase_corr_peak(output_ops):
+def plot_suite2p_phase_corr_peak(ops):
     ''' 
     Plot peak of phase correlation with reference image over time
     from suite2p processing output.
 
-    :param output_ops: suite2p output
+    :param ops: suite2p output options dictionary
     :return: figure handle    
-    '''    
-    if 'corrXY' not in output_ops:
+    '''
+    # Check if registration metrics are present
+    if 'corrXY' not in ops:
         logger.warning('looks like the data was not registered -> ignoring')
         return None
+    
+    # Initialize figure
     logger.info('plotting suite2p registration phase correlation peaks...')
     fig, ax = plt.subplots(figsize=(12, 3))
     sns.despine(ax=ax)
     ax.set_title('peak of phase correlation with ref. image over time')
     ax.set_xlabel('frames')
     ax.set_ylabel('phase correlation peak')
-    ax.plot(output_ops['corrXY'], c='k', label='whole frame', zorder=5)
-    if output_ops['nonrigid']:
-        block_corrs = output_ops[f'corrXY1']
+
+    # Plot rigid phase correlation peaks profiles
+    ax.plot(ops['corrXY'], c='k', label='whole frame', zorder=5)
+
+    # If available, plot non-rigid phase correlation peaks profiles for each sub-block
+    if ops['nonrigid']:
+        block_corrs = ops[f'corrXY1']
         for i, bc in enumerate(block_corrs.T):
             ax.plot(bc, label=f'block {i + 1}')
         ax.legend(bbox_to_anchor=(1, 0), loc='center left')
+    
+    # Return figure handle
     return fig
 
 
-def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
-    ''' Plot registration offsets over time from suite2p processing output.
+def plot_suite2p_registration_offsets(ops, fbounds=None, title=None):
+    '''
+    Plot registration offsets over time from suite2p processing output.
 
-        :param output_ops: suite2p output options dictionary
-        :return: figure handle    
-    '''    
-    if 'yoff' not in output_ops:
+    :param ops: suite2p output options dictionary
+    :param fbounds (optional): frames indexes bounds for which to plot the offsets. If none
+        is provided, the entire recording is selected.
+    :param title (optional): figure title
+    :return: figure handle    
+    '''
+    # Check if registration metrics are present
+    if 'yoff' not in ops:
         logger.warning('looks like the data was not registered -> ignoring')
         return None
+    
+    # Initialize figure
     logger.info('plotting suite2p registration offsets...')
     fig, axes = plt.subplots(2, 1, figsize=(12, 5), sharey=True)
     if title is not None:
@@ -371,41 +580,63 @@ def plot_suite2p_registration_offsets(output_ops, fbounds=None, title=None):
         sns.despine(ax=ax, bottom=True)
     axes[-1].set_xlabel('frames')
     sns.despine(ax=axes[-1], offset={'bottom': 10})
+
+    # Determine frame index boundaries
     if fbounds is None:
-        fbounds = [0, output_ops['nframes'] - 1]
+        fbounds = [0, ops['nframes'] - 1]
+    
+    # For each X-Y dimension
     for ax, key in zip(axes, ['y', 'x']):
-        offsets = output_ops[f'{key}off'][fbounds[0]:fbounds[1] + 1]
+        
+        # Extract and plot rigid offsets for that particular dimension
+        offsets = ops[f'{key}off'][fbounds[0]:fbounds[1] + 1]
         ax.plot(offsets, c='k', label='whole frame', zorder=5)
-        if output_ops['nonrigid']:
-            block_offsets = output_ops[f'{key}off1'][fbounds[0]:fbounds[1] + 1]
+
+        # If available, extract and plot non-rigid offsets for each sub-block
+        if ops['nonrigid']:
+            block_offsets = ops[f'{key}off1'][fbounds[0]:fbounds[1] + 1]
             for i, bo in enumerate(block_offsets.T):
                 ax.plot(bo, label=f'block {i + 1}')
+        
+        # Set zero offset line and ylabel
         ax.axhline(0, c='silver', ls='--')
         ax.set_ylabel(key)
-    if output_ops['nonrigid']: # and output_ops['xoff1'].shape[0] < 40:
+
+    # Move legend to side if it contains many labels
+    if ops['nonrigid']: # and output_ops['xoff1'].shape[0] < 40:
         axes[0].legend(bbox_to_anchor=(1, 0), loc='center left')
+    
+    # Return figure handle
     return fig
 
 
-def plot_suite2p_PCs(output_ops, nPCs=3, um_per_px=None):
+def plot_suite2p_PCs(ops, nPCs=3, um_per_px=None):
     '''
     Plot average of top and bottom 500 frames for each PC across the movie
     
-    :param output_ops: dictionary of outputed suite2p options
+    :param ops: suite2p output options dictionary
+    :param nPCs: number of principal components to plot (default = 3)
     :param um_per_pixel (optional): number of microns per pixel (for scale bar)
     :return: figure handle
     '''
-    if 'regPC' not in output_ops:
+    # Check if principal components metrics are present 
+    if 'regPC' not in ops:
         logger.warning('looks like the data was not registered -> ignoring')
         return None
-    logger.info('plotting suite2p PCs average frames...')
-    PCs = output_ops['regPC']
+    
+    # Extract principal components array for selected number of PCs 
+    PCs = ops['regPC']
     if nPCs is not None:
         PCs = PCs[:, :nPCs]
     nPCs = PCs.shape[1]
+    maxPCs, minPCs = PCs
+
+    # Initialize figure    
+    logger.info('plotting suite2p PCs average frames...')
     fig, axes = plt.subplots(nPCs, 3, figsize=(9, nPCs * 3))
     fig.suptitle(f'top {nPCs} PCs average images across movie')
-    maxPCs, minPCs = PCs
+
+    # Plot bottom and top projection images for each sleect PC
     for iPC, (axrow, minPC, maxPC) in enumerate(zip(axes, minPCs, maxPCs)):
         title = f'PC {iPC + 1}'
         axrow[0].imshow(minPC)
@@ -422,54 +653,71 @@ def plot_suite2p_PCs(output_ops, nPCs=3, um_per_px=None):
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             add_scale_bar(ax, refnpx, um_per_px, color='w')
+    
+    # Return figure handle
     return fig
 
 
-def plot_suite2p_PC_drifts(output_ops):
+def plot_suite2p_PC_drifts(ops):
     '''
     Plot drifts of PCs w.r.t reference image
     
-    :param output_ops: suite2p output options dictionary
+    :param ops: suite2p output options dictionary
     :return: figure handle
     '''
-    if 'regDX' not in output_ops:
+    # Check if principal components drift metrics are present 
+    if 'regDX' not in ops:
         logger.warning('looks like the data was not registered -> ignoring')
         return None
-    PCdrifts = output_ops['regDX'].T
+    
+    # Extract PC drifts as dictionary
+    PCdrifts = ops['regDX'].T
     PCdrifts_dict = {
         'rigid': PCdrifts[0],
         'nonrigid avg': PCdrifts[1],
         'nonrigid max': PCdrifts[2]
     }
+
+    # Initialize figure
     fig, ax = plt.subplots()
     sns.despine(ax=ax)
     ax.set_title('PC drifts w.r.t. reference image')
     ax.set_xlabel('# PC')
     ax.set_ylabel('absolute registration offset')
+
+    # Plot drifts for each PC
     for k, v in PCdrifts_dict.items():
         ax.plot(v, label=k)
+    
+    # Adjust y-lims
     ylims = ax.get_ylim()
     ax.set_ylim(min(ylims[0], -0.1), max(ylims[1], 1.0))
+    
+    # Add legend
     ax.legend(frameon=False)
+
+    # Return figure handle
     return fig
     
 
-def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
+def plot_suite2p_sparse_maps(ops, um_per_px=None):
     ''' 
     Plot the maps of detected peaks generated at various downsampling factors of
     the sparse detection mode
 
-    :param output_ops: dictionary of outputed suite2p options
+    :param ops: suite2p output options dictionary
     :param um_per_pixel (optional): number of microns per pixel (for scale bar)
+    :return: figure handle
     '''
-    if not output_ops['sparse_mode']:
+    # Check if sparse mode maps are present 
+    if not ops['sparse_mode']:
         logger.warning('looks like sparse mode was not turned on -> ignoring')
         return None
     
     logger.info('plotting suite2p sparse projection maps...')
     
     # Extract maps
-    Vcorr, Vmaps = output_ops['Vcorr'], output_ops['Vmap']
+    Vcorr, Vmaps = ops['Vcorr'], ops['Vmap']
     
     # Compute ratios
     refnpx = max(Vcorr.shape)
@@ -478,7 +726,7 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
     ratios = np.power(2, np.round(np.log(ratios) / np.log(2)))  # round ratios to nearest power of 2
     
     # Find index of map with optimal scale for ROI detection 
-    best_scale_px = output_ops['spatscale_pix']
+    best_scale_px = ops['spatscale_pix']
     if isinstance(best_scale_px, np.ndarray):
         best_scale_px = best_scale_px[0]
     best_scale = np.log(best_scale_px / 3) / np.log(2)
@@ -498,7 +746,7 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
     
     # Plot maps
     ths = []
-    for i, (ax, title, img) in enumerate(zip(axes.ravel(), titles, Vmaps)):
+    for ax, title, img in zip(axes.ravel(), titles, Vmaps):
         ths.append(ax.set_title(title))
         ax.imshow(img)
     
@@ -516,30 +764,41 @@ def plot_suite2p_sparse_maps(output_ops, um_per_px=None):
     return fig
 
 
-def get_image_and_cmap(output_ops, key, cmap, pad=True):
-    ''' Extract a reference image from the suite2p options dictionary, pad it if needed '''
+def get_image_and_cmap(ops, key, cmap, pad=True):
+    '''
+    Extract a reference image from the suite2p options dictionary, pad it if needed
+    
+    :param ops: suite2p output options dictionary
+    :param key: key used to access image in options dictionary
+    :param cmap: colormap (string) used to render image
+    :param pad: whether to pad image boundaries truncated by registration (default = True)
+    :return: image array and colormap used to render it
+    '''
     # Get colormap
     cmap = plt.get_cmap(cmap).copy()
     cmap.set_bad(color='silver')
+
     # Extract reference image
-    refimg = output_ops[key]
+    refimg = ops[key]
+    
     # If required, apply NaN padding to match original frame dimensions
     Lyc, Lxc = refimg.shape
-    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    Ly, Lx = ops['Ly'], ops['Lx']
     if (Lxc < Lx) or (Lyc < Ly) and pad:
         dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
         refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+    
     # Return reference image and colormap as a tuple
     return refimg, cmap
 
 
-def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=True,
+def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
                       superimpose=True, mode='contour', refkey='Vcorr', alpha_ROIs=1.,
                       cmap='viridis'):
     ''' Plot regions of interest identified by suite2p.
 
         :param data: data dictionary containing contents outputed by suite2p
-        :param output_ops: dictionary of outputed suite2p options
+        :param ops: suite2p output options dictionary
         :param title (optional): figure title
         :param um_per_pixel (optional): number of microns per pixel (for scale bar)
         :param norm_mask (default: True): whether to normalize mask values for each ROI
@@ -555,7 +814,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     # Fetch parameters from data
     iscell = data['iscell'][:, 0].astype(int)
     stats = data['stat']
-    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    Ly, Lx = ops['Ly'], ops['Lx']
 
     # Initialize pixel matrices
     Z = np.zeros((2, iscell.size, Ly, Lx), dtype=np.float32)
@@ -569,14 +828,18 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     
     # Loop through each ROI coordinates
     for i, stat in enumerate(stats):
+        
         # Get x, y pixels and associated mask values of ROI
         ypix, xpix, lam = stat['ypix'], stat['xpix'], stat['lam']
+        
         # Set Z to ROI 1
         Z[iscell[i], i, ypix, xpix] = 1
         if mode in ['fill', 'both']:
+            
             # Normalize mask values if specified
             if norm_mask:
                 lam /= lam.max()
+            
             # Assign HSV color
             hsvs[iscell[i], ypix, xpix, 0] = hues[i]  # Hue: from random hues array
             hsvs[iscell[i], ypix, xpix, 1] = 1        # Saturation: 1
@@ -585,6 +848,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
     if mode in ['fill', 'both']:
         # Convert HSV -> RGB space
         rgbs = np.array([hsv_to_rgb(*hsv) for hsv in hsvs.reshape(-1, 3)]).reshape(hsvs.shape)
+        
         # Add transparency information to RGB matrices if in superimpose mode
         if superimpose:
             rgbs = np.append(rgbs, np.expand_dims(Z.max(axis=1) * alpha_ROIs, axis=-1), axis=-1)
@@ -601,7 +865,7 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
         fig.suptitle(title)
     
     # Plot reference image 
-    refimg, cmap = get_image_and_cmap(output_ops, refkey, cmap, pad=superimpose)
+    refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=superimpose)
     for ax in axes[iref]:
         if not superimpose:
             ax.set_title('Reference image')
@@ -633,18 +897,28 @@ def plot_suite2p_ROIs(data, output_ops, title=None, um_per_px=None, norm_mask=Tr
 
 
 def plot_suite2p_ROI_probs(iscell):
-    ''' Plot the histogram distribution of posterior probabilities of each ROIdistribution '''
+    '''
+    Plot the histogram distribution of posterior probabilities of each ROIdistribution
+    
+    :param iscell: 2D array of (cell classification, cell probabilty) for each ROI
+        identified by suite2p
+    :return: figure handle
+    '''
     # Transform iscell matrix into dataframe
     data = pd.DataFrame(data=iscell, columns=['cell?', 'probability'])
+
     # Remap the values of the dataframe
     codemap = {1: 'yes', 0: 'no'}
     data = data.replace({'cell?': codemap})
+    
     # Create figure
     fig, ax = plt.subplots()
     ax.set_title('posterior cell probability distributions')
     sns.despine(ax=ax)
+    
     # Plot histogram distribution of both classes 
     sns.histplot(data, x='probability', hue='cell?', hue_order=list(codemap.values()), bins=30)
+    
     # Return figure handle
     return fig
 
@@ -655,30 +929,43 @@ def plot_npix_ratio_distribution(stats, thr=None):
     
     :param stats: suite2p stats dictionary
     :param thr (optional): threshold for outlier detection
-    :return: figure handle
+    :return: figure handle and npix dataframe
     '''
+    # Assemble npix and npix soma into dataframe
     data = pd.DataFrame({
         'npix': [x['npix'] for x in stats],
         'npix_soma': [x['npix_soma'] for x in stats]
     })
+
+    # Compute npix ratio column
     data['npix_ratio'] = data['npix'] / data['npix_soma']
+
+    # Initialize figure
     fig, ax = plt.subplots()
     ax.set_title('Ratios of (# pixels ROI) / (# pixels soma)')
     sns.despine(ax=ax)
+
+    # If classification threshold was given, classify outliers
     hue = None
     if thr is not None:
         ax.axvline(thr, ls='--', c='silver')
         data['is_outlier'] = data['npix_ratio'] > thr
         hue = 'is_outlier'
+    
+    # Plot npix ratio histogram with optional outlier color code
     sns.histplot(data, x='npix_ratio', bins=30, ax=ax, hue=hue)
+
+    # Return figure handle and npix dataframe
     return fig, data
 
 
-def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=None, stacked=False):
+def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
+                    ntraces=None, stacked=False):
     '''
     Plot ROI traces for a particular variable
 
     :param data: fluorescence dataframe
+    :param key: name of the column containing the variable of interest
     :param xdelimiters (optional): temporal delimiters at which to draw vertical lines
     :param ydelimiters (optional): vertical delimiters at which to draw horizontal lines
     :param ntraces (optional): number of traces to plot
@@ -687,8 +974,10 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
     '''
     # Reduce dataset to key of interest
     data = data[key]
+
     # Get ROIs indexes
     iROIs = data.index.unique(level=Label.ROI)
+
     # Check and adapt y-delimiters, if any
     if ydelimiters is not None:
         if ydelimiters.ndim  == 1:
@@ -696,12 +985,13 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
         if ydelimiters.shape[0] != len(iROIs):
             raise ValueError(
                 f'delimiters ({ydelimiters.shape}) do not match number of ROIs ({len(iROIs)})')
+
     # If number of traces specified, reduce to subset of traces (if applicable)
     if ntraces is not None and ntraces < len(iROIs):
         prefix  = ''
         idxs = random.sample(set(np.arange(iROIs.size)), ntraces)
         iROIs = iROIs[idxs]
-        idx = [slice(None) for i in range(len(data.index.names))]
+        idx = get_mux_slice(data.index)
         idx[data.index.names.index(Label.ROI)] = iROIs
         data = data.loc[tuple(idx)]
         if ydelimiters is not None:
@@ -710,6 +1000,7 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
         prefix = 'all '
     nROIs = len(iROIs)
     logger.info(f'plotting {key} traces of {prefix}{nROIs} ROIs...')
+
     # Adjust height vertical delta if stacked
     if stacked:
         dy = data.groupby(Label.ROI).apply(np.ptp).quantile(.2)
@@ -717,12 +1008,14 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
     else:
         dy = 0
         height = 4
-    # Create figure
+
+    # Initialize figure
     fig, ax = plt.subplots(figsize=(12, height))
     ax.set_title(f'{key} traces for {prefix}{nROIs} ROIs')
     sns.despine(ax=ax)
     ax.set_xlabel('frames')
     ax.set_ylabel(key)
+
     # Plot traces of all selected ROIs
     for i, (iROI, y) in enumerate(data.groupby(Label.ROI)):
         ax.plot(y.values + dy * i, lw=1, rasterized=True)
@@ -730,26 +1023,57 @@ def plot_ROIs(data, key=Label.F, xdelimiters=None, ydelimiters=None, ntraces=Non
             for yd in ydelimiters[i]:
                 ax.axhline(yd + dy * i, c='k', ls='--', rasterized=True)
     ax.autoscale(enable=True, tight=True)
+    
     # Plot delimiters, if any
     if xdelimiters is not None:
         logger.info(f'adding {len(xdelimiters)} delimiters')
         for iframe in xdelimiters:
             ax.axvline(iframe, color='k', linestyle='--')
+    
     # Return figure
     return fig    
 
 
-def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, irun=None,
+def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
                           itrial=None, tbounds=None, icorrect='baseline', cmap='viridis',
                           groupbyROI=False, ci=None, **kwargs):
-    ''' Plot ROI-aggregated traces across runs/trials or all dataset '''
-    metrics = as_iterable(metrics)
+    '''
+    Plot ROI-aggregated traces across runs/trials or all dataset
+    
+    :param data: multi-indexed timeseries dataframe
+    :param fps: sampling rate (frames / second) 
+    :param ykey: name of column containing variable of interest
+    :param aggfunc: aggregation function(s) (default: mean)
+    :param yref (optional): vertical at which to draw a "reference" horizontal line
+    :param hue (optional): variable/index dimension used to split the data before aggregating.
+        If none is given, the entire dataset is aggregated
+    :param irun (optonal): run index(es) to consider. If none is given, all runs are considered
+    :param itrial (optonal): trial index(es) to consider. If none is given, all trials are considered      
+    :param tbounds (optional): temporal bounds within the trial interval. If none is given, the entire
+        trial interval is plotted 
+    :param icorrect (optional): index at which to align the traces vertically. If none if given,
+        traces are aligned according to a characteristic quantile of their distribution
+    :param cmap (optional): colormap used to render the different traces
+    :param groupbyROI (optional): whether to group data by ROI before aggregating
+    :param ci: confidence interval used to render shaded areas aroudn traces. If none is given,
+        only mean aggregate traces across ROIs are rendered
+    :return: figure handle
+    '''
+    # Transform aggregation function and variable of interest to iterables
+    aggfuncs = as_iterable(aggfunc)
     ykey = as_iterable(ykey)
+
+    # Extract timeseries for variables of interest
     plt_data = data[ykey]
+
+    # Define initial groupby dimensions and figure title
     groupby = [Label.RUN, Label.TRIAL]
-    idx = [slice(None) for i in range(len(plt_data.index.names))]
+    idx = get_mux_slice(plt_data.index)
     groupby = list(filter(lambda k: k in data.index.names, groupby))
     suptitle = []
+
+    # Modify groupby dimensions, amend figure title and filter data if specific
+    # runs/trials are specified
     if irun is not None:
         idx[plt_data.index.names.index(Label.RUN)] = irun
         if Label.RUN in groupby:
@@ -763,26 +1087,44 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
             groupby.remove(Label.TRIAL)
         suptitle.append(f'trial {itrial}')
     plt_data = plt_data.loc[tuple(idx), :]
+
+    # If hue parameter is provided, change groupby to hue only
     if hue is not None:
         groupby = [hue]
+    
+    # Add frame dimension to groupby to get independent aggregation for each frame index
     groupby.append(Label.FRAME)
+
+    # If specified, add ROIs to groupby to get independent aggretation for each ROI
     if groupbyROI:
         groupby.append(Label.ROI)
+    
+    # Group data and apply aggregation functions
     logger.info(f'grouping data by {groupby} and averaging...')
-    plt_data = plt_data.groupby(groupby).agg(metrics)
+    plt_data = plt_data.groupby(groupby).agg(aggfuncs)
+
+    # Add time column to dataframe
     plt_data[Label.FPS] = fps
     add_time_to_table(plt_data)
-    fig, axes = plt.subplots(len(metrics), 2, figsize=(10, 4 * len(metrics)))
+    
+    # Initialize figure
+    fig, axes = plt.subplots(len(aggfuncs), 2, figsize=(10, 4 * len(aggfuncs)))
     if len(suptitle) > 0:
         fig.suptitle(', '.join(suptitle))
     axes = np.atleast_2d(axes)
     for ax in axes.ravel():
         sns.despine(ax=ax)
+    
+    # If correction index was provided, transform it to multi-index
     if icorrect is not None and isinstance(icorrect, int):
-        refidx = [slice(None) for i in range(len(plt_data.index.names))]
+        refidx = get_mux_slice(plt_data.index)
         refidx[-1] = icorrect
         refidx = tuple(refidx)
-    for axrow, k in zip(axes, metrics):
+    
+    # For each aggregation function
+    for axrow, k in zip(axes, aggfuncs):
+
+        # Initialize axis
         ax = axrow[0]
         ax.set_title(f'{k} - traces')
         ax.set_xlabel(Label.TIME)
@@ -793,31 +1135,51 @@ def plot_aggregate_traces(data, fps, ykey, metrics='mean', yref=None, hue=None, 
         if yref is not None:
             ax.axhline(yref, c='k', ls='--')
         axrow[1].set_title(f'{k} - distributions')
+
+        # For eah variable of interest
         for y in ykey:
+            
+            # If some kind of vertival correction is specified 
             if icorrect is not None:
+
+                # If integer, just correct according to defined frame index
                 if isinstance(icorrect, int):
                     ycorrect = plt_data.loc[refidx, :][(y, k)].droplevel(Label.FRAME)
+                
+                # Otherwise, correct according to distribution quantile
                 elif icorrect == 'baseline':
                     if hue is not None:
                         ycorrect = plt_data[(y, k)].groupby(hue).quantile(BASELINE_QUANTILE)
                     else:
                         ycorrect = plt_data[(y, k)].quantile(BASELINE_QUANTILE)
+                
+                # Othwerwise, throw error
                 else:
                     raise ValueError(f'unknown correction: {icorrect}')
+                
+                # Correct associated traces
                 plt_data[(y, k)] = plt_data[(y, k)] - ycorrect
+            
+            # Plot aggregated traces
             sns.lineplot(
                 data=plt_data, x=Label.TIME, y=(y, k), hue=hue, ci=ci,
                 palette=cmap, legend=False, ax=axrow[0], **kwargs)
+            
+            # Plot kerndel density estimation of aggregate traces 
             sns.kdeplot(
                 data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette=cmap)
+
+    # Tighten figure layout
     fig.tight_layout()
+
+    # Return figurte handle
     return fig
 
 
-def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel=None,
-                ybounds=None, cmap=None, title=None):
+def plot_multivar_traces(data, iROI=None, irun=None, itrial=None, delimiters=None,
+                         ylabel=None, ybounds=None, cmap=None, title=None):
     '''
-    Simple function to plot fluorescence traces from a fluorescence data matrix
+    Plot traces of one or multiple variables from a fluorescence timeseries dataframe
     
     :param data: fluorescence dataframe
     :param iROI (optional): ROI index
@@ -826,6 +1188,8 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     :param delimiters (optional): temporal delimitations (shown as vertical lines)
     :param ylabel: name of the variable to plot
     :param ybounds (optional): y-axis limits
+    :param cmap (optional): colormap used to render traces
+    :param title (optional): figure title 
     :return: figure handle
     '''
     # Filter data based on selection criteria
@@ -840,6 +1204,7 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     # Get value of first frame index as the x-onset
     iframes = filtered_data.index.unique(level=Label.FRAME).values
     ionset = iframes[0]
+    
     # If trials are marked in data -> adjust onset according to 1st trial index
     if Label.TRIAL in filtered_data.index.names:
         itrials = filtered_data.index.unique(level=Label.TRIAL).values
@@ -902,7 +1267,8 @@ def plot_traces(data, iROI=None, irun=None, itrial=None, delimiters=None, ylabel
     if nsignals > 1:
         for ax in axes:
             ax.legend(frameon=False)
-            
+    
+    # Return figure handle
     return fig
 
 
@@ -916,51 +1282,91 @@ def plot_linreg(data, iROI, x=Label.F_NEU, y=Label.F_ROI):
     :param y: name of column containing ROI traces
     :return: figure handle
     '''
+    # Initialize figure
     fig, axes = plt.subplots(1, iROI.size, figsize=(iROI.size * 3.5, 4))
     fig.suptitle('Linear regressions F_ROI = A * F_NEU + B')
+    for ax in axes:
+        sns.despine(ax=ax)
+        ax.set_aspect(1.)
+
+    # For each selected ROI 
     for ax, ir in zip(axes, iROI):
+        
+        # Select sub-data
         logger.info(f'plotting F_ROI = f(F_NEU) with linear regression for ROI {ir}...')
         subdata = data.loc[pd.IndexSlice[ir, :, :, :]]
-        sns.despine(ax=ax)
         ax.set_title(f'ROI {ir}')
-        ax.set_aspect(1.)
+
+        # Plot linear regression and add reference y=x line
         sns.regplot(
             data=subdata, x=x, y=y, ax=ax, label='data',
             robust=True, ci=None)
         add_unit_diag(ax)
-        bopt, aopt = linreg(subdata)
+
+        # Perform robust linear regression and extract fitted parameters
+        bopt, aopt = robust_linreg(subdata)
         logger.info(f'optimal fit: F_ROI = {aopt:.2f} * F_NEU + {bopt:.2f}')
+        
+        # Plot robust linear fit for comparison with standard one
         xvec = np.array([subdata[x].min(), subdata[x].max()])
         ax.plot(xvec, aopt * xvec + bopt, label='linear fit')
+
+        # Add legend
         ax.legend()
+    
+    # Tighten figure
     fig.tight_layout()
+
+    # Return figure handle
     return fig
 
 
-def mark_trials(ax, yconds, iROI, irun, color='C1'):
-    ''' Mark trials on whole-run trace that meet specific stats condition. '''
-    yconds = yconds.loc[pd.IndexSlice[iROI, irun, :]]
-    for (_, _, itrial), ycond in yconds.iteritems():
-        if ycond:
-            istart = NFRAMES_PER_TRIAL * itrial + FrameIndex.STIM
-            iend = istart + NFRAMES_PER_TRIAL
-            ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
+def mark_trials(ax, mask, iROI, irun, color='C1'):
+    '''
+    Mark trials on whole-run trace that meet specific stats condition.
+    
+    :param ax: plot axis
+    :param mask: multi-indexed boolean mask series indicating which trial to mark
+    :param iROI: ROI index
+    :param irun: run index
+    :param color (optional): color used to mark the trials
+    '''
+    # Reduce mask to ROI(s) and run(s) of interest 
+    mask = mask.loc[pd.IndexSlice[iROI, irun, :]]
+
+    # For each trial meeting the condition
+    for (_, _, itrial) in mask[mask == 1].index:
+
+        # Get trial start and end indexes in the run trace
+        istart = NFRAMES_PER_TRIAL * itrial + FrameIndex.STIM
+        iend = istart + NFRAMES_PER_TRIAL
+
+        # Plot shaded area over trial interval 
+        ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
         
 
-def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, refkey='Vcorr',
+def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
                   mode='contour', cmap='viridis', alpha_ROIs=0.7):
-    ''' Plot spatial distribution of cells (per response type) on the recording plane.
+    '''
+    Plot spatial distribution of cells (per response type) on the recording plane.
 
-        :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
-        :param Fstats: statistics dataframe
-        :param output_ops: suite2p output options dictionary
-        :param title (optional): figure title
-        :return: figure handle
+    :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+
+    :param Fstats: statistics dataframe
+    :param ops: suite2p output options dictionary
+    :param title (optional): figure title
+    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
+        on each image are replaced by a scale bar on the graph.
+    :param refkey: key used to access the reference image in the output options dictionary
+    :param mode (default: contour): ROIs render mode ('fill' or 'contour')
+    :param cmap (default: viridis): colormap used to render reference image
+    :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
+    :return: figure handle
     '''
     logger.info('plotting cells map color-coded by response type...')
 
     # Fetch parameters from data
-    Ly, Lx = output_ops['Ly'], output_ops['Lx']
+    Ly, Lx = ops['Ly'], ops['Lx']
     rtypes_per_ROI = get_response_types_per_ROI(Fstats)
     rtypes = get_default_rtypes()
     count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
@@ -979,6 +1385,7 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     else:
         # Stack Z matrices along ROIs to get 1 mask per type
         masks = np.array([z.max(axis=0) for z in Z])
+    
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
         colors = sns.color_palette(Palette.RTYPE)
@@ -991,7 +1398,7 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
         ax.set_title(title)
     
     # Plot reference image 
-    refimg, cmap = get_image_and_cmap(output_ops, refkey, cmap, pad=True)
+    refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
@@ -1024,68 +1431,130 @@ def plot_cell_map(ROI_masks, Fstats, output_ops, title=None, um_per_px=None, ref
     return fig
 
 
-def plot_experiment_heatmap(data, key=Label.DFF, title=None, show_ylabel=True):
+def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
+                       colwrap=4, cmap='viridis', quantile_bounds=(.05, .95), mark_stim=True):
     '''
-    Plot experiment heatmap (average response over time of each cell, culstered by similarity).
+    Plot trial heatmap (average response over time of each cell within trial interval,
+    culstered by similarity).
     
-    :param data: experiment dataframe.
+    :param data: multi-indexed timeseries dataframe.
+    :param key: name of column containing variable of interest
+    :param fps: sampling frequency (frames / second)
+    :param irun (optional): run(s) subset
+    :param itrial (optional): trial(s) subset
+    :param title (optional): figure title
+    :param col (optional): parameter/index dimension used to split the data on different axes.
+        If none is given, the whole dataset is aggregated on to a single heatmap.
+    :param colwrap: maximum of heatmaps per row 
+    :param cmap: colormap used to render heatmap
+    :param quantile_bounds (optional): distirbution quantiles used to set the colorbar limits.
+        If none, the data bounds are taken.
+    :param mark_stim: whether to mark the stimulus onset with a vertical line (default = True)
     :return: figure handle
     '''
-    # Determine rows color labels from response types per cell
-    rtypes = get_response_types_per_ROI(data).values
-    row_cmap = dict(zip(np.unique(rtypes), sns.color_palette(Palette.RTYPE)))
-    row_colors = [row_cmap[rtype] for rtype in rtypes]
-    # Generate 2D table of average dF/F0 response per cell (using roi as index),
-    # across runs and trials
-    logger.info(f'generating (ROI x time) {key} pivot table...')
-    avg_resp_per_cell = data.pivot_table(
-        index=Label.ROI, columns=Label.TIME, values=key, aggfunc=np.mean)
-    # Generate cluster map of trial 
-    # use Voor Hees (complete) algorithm to cluster based on max distance to force
-    # cluster around peak of activity
-    # Chebyshev distance just happens to give better resutls than euclidean
-    logger.info(f'generating {key} cluster map...')
-    cg = sns.clustermap(
-        avg_resp_per_cell, method='complete', metric='chebyshev', cmap='viridis',
-        row_cluster=True, col_cluster=False, row_colors=row_colors)
-    # Hide dendogram axes
-    cg.ax_row_dendrogram.set_visible(False)
-    cg.ax_col_dendrogram.set_visible(False)
-    # Set x-axis precision
-    cg.ax_heatmap.set_xticklabels([
-        f'{float(x.get_text()):.1f}' for x in cg.ax_heatmap.get_xticklabels()])
-    # Hide y-labelling if specified
-    if not show_ylabel:
-        cg.ax_heatmap.set_ylabel('')
-        cg.ax_heatmap.set_yticks([])
-    # Set new y axis label on the left
-    cg.ax_row_colors.set_ylabel(Label.ROI_RESP_TYPE)
-    # Move colobar directly on the right of the heatmap
-    pos = cg.ax_heatmap.get_position()
-    cg.ax_cbar.set_position([pos.x1 + .1, pos.y0, .05, pos.y1 - pos.y0])
-    # Add colormap title
-    cg.ax_cbar.set_title(key)
-    # Add heatmap title, if any
+    # Filter data according to selected run(s) & trial(s)
+    idx = get_mux_slice(data.index)
+    if irun is not None:
+        idx[data.index.names.index(Label.RUN)] = irun
+    if itrial is not None and Label.TRIAL in data.index.names:
+        idx[data.index.names.index(Label.TRIAL)] = itrial
+    data = data.loc[tuple(idx), :]
+
+    # Extract plotting boundaries of variable of interest
+    if quantile_bounds is not None:
+        vmin, vmax = [data[key].quantile(x) for x in quantile_bounds]
+    else:
+        vmin, vmax = data[key].agg(['min', 'max'])
+
+    # Add time column to dataframe
+    data = add_time_to_table(data.copy(), fps=fps)
+
+    # Group data according to col parameter
+    if col is not None:
+        groups = data.groupby(col)
+    else:
+        groups = [('all', data)]
+
+    # Initialize figure
+    naxes = len(groups)
+    nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes) 
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 2.5, nrows * 2.5))
+    if naxes == 1:
+        axes = np.array([axes])
+    fig.tight_layout()
+    top = 0.9 if title is None else 0.8
+    fig.subplots_adjust(bottom=0.1, right=0.8, top=top, hspace=.3)
+    cbar_ax = fig.add_axes([0.85, 0.1, 0.05, top - 0.1])
+    cbar_ax.set_title(key)
+
+    # For each axis and data group
+    logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
+    with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
+        for i, (ax, (glabel, gdata)) in enumerate(zip(axes.ravel(), groups)):
+            # Generate 2D table of average traces per ROI
+            table = gdata.pivot_table(
+                index=Label.ROI, columns=Label.TIME, values=key, aggfunc=np.mean)
+
+            # Plot associated trial heatmap
+            sns.heatmap(
+                data=table, ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, 
+                cbar=i == 0, cbar_ax=cbar_ax, 
+                xticklabels=table.shape[1] - 1, yticklabels=False)
+
+            # Correct x-axis label display
+            ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
+            ax.set_xlabel(ax.get_xlabel(), labelpad=-10)
+
+            # Add column title (only if informative)
+            if glabel != 'all':
+                ax.set_title(f'{col} {glabel}')
+            
+            # Add stimulus onset line, if specified
+            if mark_stim:
+                ax.axvline(FrameIndex.STIM, c='w', ls='--', lw=1.)
+            
+            pbar.update()
+    
+    # Hide remaining axes
+    for ax in axes.ravel()[i + 1:]:
+        ax.set_visible(False)
+    
+    # Add main figure title if specified
     if title is not None:
-        cg.ax_heatmap.set_title(title)
-    return cg
+        fig.suptitle(title)
+
+    # Return figure handle
+    return fig
 
 
 def add_label_mark(ax, x, cmap=None, w=0.1):
-    ''' Add a color marker in the top right corner of a plot '''
+    '''
+    Add a color marker in the top right corner of a plot
+    
+    :param ax: axis object
+    :param x: label value
+    :param cmap: colormap (or dictionary) used to determine label background color
+    :param w: relative width of the marker rectangle w.r.t. axis
+    '''
+    # Extract colormap if not given
     if cmap is None:
         cmap = plt.get_cmap('viridis')
+    
+    # Derive string and background color for label value
     if isinstance(cmap, dict):
         c = cmap[x]
         s = x
     else:
         c = cmap(x)
         s = f'{x:.2f}'
+    
+    # Determine text color depending on background brightness
     brightness = rgb_to_hsv(*c[:3])[-1]
     tcolor = 'w' if brightness < 0.7 else 'k'
+
+    # Add marker and label
     ax.add_patch(Rectangle((1 - w,  1 - w), w, w, transform=ax.transAxes, fc=c, ec=None))
     ax.text(1 - w / 2,  1 - w / 2, s, transform=ax.transAxes, ha='center', va='center', c=tcolor)
-
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
@@ -1131,10 +1600,12 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         # if only 1 ROI -> remove column assignment 
         if len(filtered_data.index.unique(level=Label.ROI)) == 1:
             col = None
+    
     # If col set to ROI -> remove ROI filter info
     if col == Label.ROI and Label.ROI in filters:
         del filters[Label.ROI]
     
+    # Adjust col_wrap and figure height if col was specified
     if col is not None:
         s.append(f'grouping by {col}')
         col_wrap = min(len(filtered_data.groupby(col)), max_colwrap)
@@ -1146,10 +1617,14 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         col_wrap = None
         if height is None:
             height = 4.      
+    
+    # Remove hue parameters from filters, if present 
     if hue is not None:
         s.append(f'grouping by {hue}')
         if hue == Label.ROI and Label.ROI in filters:
             del filters[Label.ROI]
+    
+    # Adjust filters if weightby is specified
     if weightby is not None:
         if weightby not in data:
             raise ValueError(f'weighting variable ({weightby}) not found in data')
@@ -1157,12 +1632,17 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             raise ValueError(f'cannot use {weightby}-weighting with {aggfunc} aggregation')
         s.append(f'weighting by {weightby}')
         filters['weight'] = f'weighted by {weightby}'
+    
+    # Add aggregation and confidence interval information to log, if specified
     if aggfunc is not None:
         s.append('averaging')
     if ci is not None:
         s.append('estimating confidence intervals')
+    
+    # Log
     s = f'{", ".join(s)} and ' if len(s) > 0 else ''
     logger.info(f'{s}plotting {aggfunc} {ykey} vs. {xkey} ...')
+    
     # Determine color palette depending on hue parameter
     if palette is None:
         palette = {
@@ -1203,16 +1683,21 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         palette   = palette,       # color palette
         legend    = legend         # use all hue entries in the legend
     )
+
+    # Adjust traces alpha if specified
     if alpha is not None:
         plot_kwargs['alpha'] = alpha
+
+    # If axis object is provided -> add it to the dictionary and call 
+    # axis-level plotting function
     if ax is not None:
-        # If axis object is provided -> add it to the dictionary and call axis-level plotting function
         plot_kwargs['ax'] = ax
         sns.lineplot(**plot_kwargs)
         axlist = [ax]
         fig = ax.get_figure()
+    
+    # Otherwise, add figure-level plotting arguments and call figure-level plotting function
     else:
-        # Otherwise, add figure-level plotting arguments and call figure-level plotting function
         plot_kwargs.update(dict(
             kind     = 'line',   # kind of plot
             height   = height,   # figure height
@@ -1222,83 +1707,108 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             col_order = col_order
         ))
         fg = sns.relplot(**plot_kwargs)
-
         axlist = fg.axes.ravel()
         fig = fg.figure
 
+    # If col is specified
     if col is not None:
         # Remove column prefix from axes titles, if specified
         if hide_col_prefix:
             for ax in fig.axes:
                 ax.set_title(ax.get_title().replace(f'{col} = ', ''))
+
         # Reduce title size if too long
         for ax in fig.axes:
             s = ax.get_title()
             if len(s) > 20:
                 ax.set_title(s, fontsize=10)
 
-    # Add count per column to axes titles, if specified
-    if col is not None and col_count_key is not None:
-        countfunc = lambda df: len(df.groupby(col_count_key).first())
-        counts_per_col = filtered_data.groupby(col).apply(countfunc)
-        # If no column order provided, assume columns go by decreasing count
-        if col_order is None:
-            col_order = counts_per_col.sort_values(ascending=False).index.values
-        for ax, k in zip(fig.axes, col_order):
-            ax.set_title(f'{ax.get_title()} ({counts_per_col[k]})')
+        # Add count per column to axes titles, if specified
+        if col_count_key is not None:
+            countfunc = lambda df: len(df.groupby(col_count_key).first())
+            counts_per_col = filtered_data.groupby(col).apply(countfunc)            
+            # If no column order provided, assume columns go by decreasing count
+            if col_order is None:
+                col_order = counts_per_col.sort_values(ascending=False).index.values
+            for ax, k in zip(fig.axes, col_order):
+                ax.set_title(f'{ax.get_title()} ({counts_per_col[k]})')
         
     # Remove right and top spines
     sns.despine()
 
     ###################### Individual traces ######################
     
-    # Aggregation keys = all index keys that are not "frame" 
-    aggkeys = list(filter(lambda x: x is not None and x != Label.FRAME, filtered_data.index.names))
-    if xkey in [Label.P, Label.DC] and Label.RUN in aggkeys:
-        aggkeys.remove(Label.RUN)
     if alltraces:
+    
+        # Aggregation keys = all index keys that are not "frame" 
+        aggkeys = list(filter(
+            lambda x: x is not None and x != Label.FRAME,
+            filtered_data.index.names))
+        
+        # Remove run from aggregation keys if xkey is a run-dependent parameter
+        if xkey in [Label.P, Label.DC] and Label.RUN in aggkeys:
+            aggkeys.remove(Label.RUN)
+        
         logger.info(f'plotting individual {ykey} vs. {xkey} traces...')
-        # Getting number of conditions to plot
+
+        # Get number of conditions to plot
         nconds = len(axlist) * len(axlist[0].get_lines())
-        alpha_trace = 0.2  # opacity index of each trace
+        
+        # Default opacity index of individual trace
+        alpha_trace = 0.2
+        
         with tqdm(total=nconds - 1, position=0, leave=True) as pbar:
+            
             # Group data by col, if provided
             if col is not None:
                 logger.debug(f'grouping by {col}')
                 col_groups = filtered_data.groupby(col)
             else:
                 col_groups = [('all', filtered_data)]
+            
             # For each column group
             for (_, colgr), ax in zip(col_groups, axlist):
+                
                 # Group data by hue, if provided
                 if hue is not None:
                     logger.debug(f'grouping by {hue}')
                     groups = colgr.groupby(hue)
                 else:
                     groups = [('all', colgr)]
+                
                 # Use color code for individual traces only if 1 group on the axis
                 use_color_code = len(groups) == 1
+                
                 # For each hue group
                 for l, (_, gr) in zip(ax.get_lines(), groups):
+                    
+                    # Get group color from aggregate trace 
                     group_color = l.get_color()
+                    
                     # Generate pivot table for the value
                     table = gr.pivot_table(
                         index=xkey,  # index = xkey
                         columns=aggkeys,  # each column = 1 line to plot 
                         values=ykey)  # values
+                    
+                    # Randomly select n traces to plot, if more than specified max
                     _, ntraces = table.shape
-                    # Randomly select n traces to plot, if max is reached 
                     itraces = np.arange(ntraces)
                     if nmaxtraces is not None and ntraces > nmaxtraces:
                         itraces = random.sample(set(itraces), nmaxtraces)
+                    
                     # Get response classification of each trace (if available)
                     if Label.IS_RESP in gr:
                         is_resps = gr[Label.IS_RESP].groupby(aggkeys).first()
                     else:
                         is_resps = [None] * ntraces
-                    # Plot a line for each entry in the pivot table
+                    
+                    # Plot a line for each entry in the pivot table that is part of 
+                    # the selected subset
                     for i, (x, is_resp) in enumerate(zip(table, is_resps)):
-                        if i in itraces:  # additional criterion
+                        if i in itraces:
+                            
+                            # Determine trace color
                             if use_color_code:
                                 if is_resp is not None:
                                     color = {True: 'g', False: 'r'}[is_resp]
@@ -1306,12 +1816,32 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
                                     color = None
                             else:
                                 color = group_color
-                            ax.plot(table[x].index, table[x].values, color=color, alpha=alpha_trace,
-                                    zorder=-10)
+                            
+                            # Plot trace in the background
+                            ax.plot(table[x].index, table[x].values, color=color,
+                                    alpha=alpha_trace, zorder=-10)
+                            
                             # Add individual trace markers if specified
                             if markerfunc is not None:
                                 markerfunc(ax, table[x], color=color, alpha=alpha_trace)
+                    
                     pbar.update()
+
+    
+    ###################### Axes limits ######################
+
+    # For each axis
+    for ax in axlist:
+
+        # Adjust x-axis if specified
+        if xbounds is not None:
+            ax.set_xlim(*xbounds)
+        
+        # Adjust y-axis if specified
+        if ybounds is not None:
+            ylims = ax.get_ylim()
+            ybounds_ax = [yb if yb is not None else yl for yb, yl in zip(ybounds, ylims)]
+            ax.set_ylim(*ybounds_ax)
 
     ###################### Markers ######################
 
@@ -1330,28 +1860,22 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         else:
             label_cmap = None
         
-    # For each axis
+    # For each axis, add label for specific field value, if specified and possible
     for iax, ax in enumerate(axlist):
-        # Adjust x-axis if specified
-        if xbounds is not None:
-            ax.set_xlim(*xbounds)
-        # Adjust y-axis if specified
-        if ybounds is not None:
-            ylims = ax.get_ylim()
-            ybounds_ax = [yb if yb is not None else yl for yb, yl in zip(ybounds, ylims)]
-            ax.set_ylim(*ybounds_ax)
-        # Add label for specific field value, if specified and possible
         if label is not None:
             label_values = label_values_per_ax[iax]
             if len(label_values) == 1:
                 add_label_mark(ax, label_values[0], cmap=label_cmap)
 
     ###################### Title & legend ######################
-    
+
+    # Determine title 
     if title is None:
         if filters is None:
             filters = {'misc': 'all responses'}
         title = ' - '.join(filters.values())
+    
+    # Use appropriate title function depending on number of axes
     if col is None: 
         # If only 1 axis (i.e. no column grouping) -> add to axis
         axlist[0].set_title(title)
@@ -1361,18 +1885,29 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         fig.subplots_adjust(top=1 - dy_title / height)
         fig.suptitle(title)
 
-    # Return figure
+    # Return figure handle
     return fig
 
 
-def marks_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
-    ''' Function to mark peaks of a response trace '''
+def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
+    '''
+    Mark the peak of a response trace
+    
+    :param ax: axis object
+    :param trace: pandas Series representing the trace values
+    :param tbounds (optional): boundaries of the time window in which a peak must be detected.
+        If none is given, the entire timseries is taken
+    :param color (optional): color of the peak marker
+    :param alpha (optional): transparency of the peak marker
+    '''
     # Restrict trace to specific time interval (if specified)
     if tbounds is not None:
         trace = trace[(trace.index >= tbounds[0]) & (trace.index <= tbounds[1])]
+
     # Find peak on the response trace
     ipeak, ypeak = find_response_peak(
         trace, return_index=True)
+
     # If peak has been detected, plot it
     if not np.isnan(ipeak):
         ax.scatter(trace.index[ipeak], ypeak, color=color, alpha=alpha)
@@ -1380,7 +1915,8 @@ def marks_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_analysis_window=True,
                    mark_peaks=False, yref=None, **kwargs):
-    ''' Plot trial responses of specific sub-datasets.
+    '''
+    Plot trial responses of specific sub-datasets.
     
     :param data: experiment dataframe
     :param tbounds (optional): time limits for plot
@@ -1388,8 +1924,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     :param mark_stim (optional): whether to add a stimulus mark on the plot
     :param mark_analysis_window (optional): whether to add mark indicating the response analysis interval on the plot
     :param mark_peaks: whether to mark the peaks of each identified response
-    :param label (optional): add a label indicating a specific field value on the plot (when possible)
-    :param title (optional): figure title (deduced if not provided)
+    :param yref (optional): vertical value at which to plot a horizontal reference line
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
@@ -1401,7 +1936,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
         tresponse = [data[Label.TIME].values[i] for i in [FrameIndex.RESPONSE.start, FrameIndex.RESPONSE.stop]]
         # Define marker function if mark_peaks is set to True
         if mark_peaks:
-            markerfunc = lambda *args, **kwargs: marks_response_peak(
+            markerfunc = lambda *args, **kwargs: mark_response_peak(
                 *args, tbounds=tresponse, **kwargs)
 
     # Add tbounds to filtering criteria
@@ -1439,6 +1974,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     :param data: multi-indexed dataframe containing timeseries of all datasets
     :param ykey: dependent variable of interest to plot
     :param pkey: independent parameter of interest (used as hue)
+    :param avg: whether to average responses per category on each dataset.
     :return: figures dictionary or figure handle
     '''
     # Initialize propagated keyword arguments
@@ -1480,6 +2016,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
             figdict[f'{resptype} {ykey} vs. {pkey}'] = plot_responses(
                 group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)        
         return figdict
+    
     # Average mode: generate a single figure with 1 axis per responder type
     else:
         fig = plot_responses(
@@ -1488,10 +2025,25 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
 
 
 def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
-    ''' Add sample size of each hue category on the plot '''
+    '''
+    Add sample size of each hue category on the plot
+    
+    :param leg: leg object
+    :param data: dataframe used to plot graph from which legend was created
+    :param xkey: name of the independent variable on the graph from which legend was created
+    :param ykey: name of the dependent variable on the graph from which legend was created
+    :param hue: hue parameter on the graph from which legend was created
+    '''
+    # Count number of samples per hue and x-axis value
     counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
+
+    # Keep only the max across all x-levels for each hue
     counts_by_hue = counts_by_hue.max(axis=1)
+
+    # Extract counts index as string
     counts_by_hue.index = counts_by_hue.index.astype(str)
+    
+    # Map each legend entry to associated count, and enrich text 
     for t in leg.texts:
         s = t.get_text()
         if s in counts_by_hue:
@@ -1502,13 +2054,17 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
         t.set_text(f'{s} (n = {cs})')
 
 
-def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, baseline=None,
+def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, yref=None,
                               add_leg_numbers=True, ci=68, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
     :param xkey (optional): key indicating the independent variable of the x-axis
     :param ykey (optional): key indicating the dependent variable of the y-axis
+    :param yref (optional): vertical at which to draw a "reference" horizontal line
+    :param add_leg_numbers: whether to add sample counts for each legend entry  
+    :param ci: confidence interval used to plot shaded areas around traces
+        (default = 68 === SEM)
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
@@ -1535,14 +2091,14 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, basel
             leg = fig.legend()
             add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
 
-    # Add baseline if specified
-    if baseline is not None:
-        baseline = as_iterable(baseline)
+    # Add reference line(s) if specified
+    if yref is not None:
+        yref = as_iterable(yref)
         for ax in fig.axes:
-            for b in baseline:
-                ax.axhline(b, c='k', ls='--')
+            for y in yref:
+                ax.axhline(y, c='k', ls='--')
     
-    # Return figure
+    # Return figure handle
     return fig
 
 
@@ -1553,18 +2109,29 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     
     :param data: trial-averaged experiment dataframe
     :param ykey (optional): key indicating the dependent variable of the y-axis
+    :param hue: hue grouping parameter (default: responder type)
+    :param marker (optional): data point marker
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
+    # Initialize figure
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Get hue order
     hue_order = None
     if hue == Label.ROI_RESP_TYPE:
         hue_order = get_default_rtypes()
+    
+    # plot dependency on each parameter on separate axes
     for xkey, ax in zip([Label.P, Label.DC], axes.T):
         plot_parameter_dependency(
             data, xkey=xkey, ykey=ykey, ax=ax, hue=hue, hue_order=hue_order,
             max_colwrap=2, nmaxtraces=150, marker=marker, **kwargs)
+    
+    # Harmonize axes limits
     harmonize_axes_limits(axes)
+
+    # Return figure handle
     return fig
 
 
@@ -1581,10 +2148,10 @@ def plot_parameter_dependency_across_datasets(
         a non-weighted average
     :return: figure handle
     '''
+    # Determine y-bounds (based on variable if not directly provided)
     if 'ybounds' in kwargs:
         ybounds = kwargs.pop('ybounds') 
     else:
-        # Determine y-bounds based on variable 
         if ykey == Label.DFF:
             ybounds = [-.03, +.06]
         elif ykey == Label.ZSCORE:
@@ -1597,27 +2164,34 @@ def plot_parameter_dependency_across_datasets(
     ykey_post = f'post-stim avg {ykey}'
     ykey_diff = f'{ykey_post} - {ykey_pre}'
     
+    # Determine number of datasets
     ndatasets = len(data.index.unique(Label.DATASET))
     col_order = get_default_rtypes()
     if ndatasets == 1:
         avg = False
+    
     # Determine averaging categories
     categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
     if not weighted:  # if non-weighted average, add dataset level
         categories = [Label.DATASET] + categories
+
+    # Adjust traces parameters depending on whether trends of individual datasets must be shown 
     if show_datasets:
         legend = 'full'
-        alpha = 0.5 if avg else 1
+        alpha = 1
+        # alpha = 0.5 if avg else 1
     else:
         legend = False
         alpha = 0
+    
+    # Plot parameter dependency of each dataset, per responder type
     fig = plot_parameter_dependency(
         data, xkey=xkey, ykey=ykey_diff,
         ybounds=ybounds,
-        hue=Label.DATASET,
+        hue=Label.DATASET, palette='tab20',
         col=Label.ROI_RESP_TYPE, col_order=col_order,
         hide_col_prefix=True, col_count_key=[Label.DATASET, Label.ROI],
-        baseline=0., height=3, aspect=.8,
+        yref=0., height=3, aspect=.8,
         add_leg_numbers=False, max_colwrap=len(col_order),
         ci=None if avg else ci,
         alpha=alpha, marker=None if avg else 'o',
@@ -1626,12 +2200,15 @@ def plot_parameter_dependency_across_datasets(
     
     # If average trace specified
     if avg:
+
         # Average across each category and resolve input columns
         # (avoid "almost-identical" duplicates)
         avg_data = data.groupby(categories).mean()
         avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
+
         # Extract non weighted average traces across datasets
         xdep_avg_data = get_xdep_data(avg_data, xkey)
+
         # Add average parameter dependency trace across datasets, for each response type
         for resp_type, group in xdep_avg_data.groupby(Label.ROI_RESP_TYPE):
             ax = fig.axes[col_order.index(resp_type)]
@@ -1639,563 +2216,34 @@ def plot_parameter_dependency_across_datasets(
                 data=group, x=xkey, y=ykey_diff, ax=ax, color='BLACK', ci=ci,
                 marker='o', lw=4, markersize=10, legend=False)
             line = ax.get_lines()[-1]
+
+        # Add legend entry for average trace
         fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
+    
+    # Retrun figure handle
     return fig
-
-
-def plot_stack_timecourse(*args, **kwargs):
-    '''
-    Plot the evolution of the average frame intensity over time, with shaded areas
-    showing its standard deviation
-
-    :param correct (optional): whether to mean-correct the signal before plotting it  
-    '''
-    # Actual args of interest 
-    ax = kwargs.pop('ax', None)  # axis
-    correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
-    title = kwargs.get('title', None)  # title
-    # Viewer rendering args
-    ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
-    norm = kwargs.pop('norm', True)  # normalize across frames before rendering
-    cmap = kwargs.pop('cmap', 'viridis')  # colormap
-    bounds = kwargs.pop('bounds', None)  # bounds
-
-    # Initialize viewer and initialize its rendering
-    viewer = get_stack_viewer(*args, **kwargs)
-    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
-
-    if ax is None:
-        # Create figure if not provided
-        fig, ax = plt.subplots(figsize=(12, 4))
-        sns.despine()
-        if title is None:
-            title = ''
-        ax.set_title(f'{title} spatial average time course')
-        ax.set_xlabel('frames')
-        ylabel = 'average frame intensity'
-        if correct:
-            ylabel = f'mean corrected {ylabel}'
-        ax.set_ylabel(ylabel)
-        # Plot delimiters, if any
-        if ilabels is not None:
-            logger.info(f'adding {len(ilabels)} delimiters')
-            for iframe in ilabels:
-                ax.axvline(iframe, color='k', linestyle='--')
-    else:
-        fig = ax.get_figure()
-    
-    # For each stack file-object provided
-    for i, header in enumerate(viewer.headers):
-        # Get evolution of frame average intensity and its standard deviation
-        mu, sigma = viewer.get_frame_metric_evolution(
-            viewer.fobjs[i], viewer.frange, func=lambda x: (x.mean(), x.std())).T
-        # Mean-correct the signal if needed
-        if correct:
-            mu -= mu.mean()
-        # Plot the signal with the correct label
-        inds = np.arange(mu.size)
-        ax.plot(inds, mu, label=header)
-        ax.fill_between(inds, mu - sigma, mu + sigma, alpha=0.2)
-    
-    # Add/update legend
-    ax.legend(frameon=False)
-    return fig
-
-
-def get_adapted_bounds(x, nstd=None):
-    '''
-    Return plotting boundaries for a dataset, composed of:
-
-    :param x: data distribution
-    :param nstd: number of standard deviations away from the median allowed
-    :return: (lowerbound, upperbound) tuple
-    '''
-    bounds = (x.min(), x.max())
-    if nstd is not None:
-        med, sigma = x.median(), x.std()
-        bounds = (max(bounds[0], med - nstd * sigma), min(bounds[1], med + nstd * sigma))
-    return bounds
-
-
-def plot_stat_heatmap(data, key, expand=False, title=None, groupby=None, nstd=None, cluster=False, sort=None,
-                      **kwargs):
-    '''
-    Plot ROI x run heatmap for some statistics
-    
-    :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :param key: stat column key
-    :param expand (optional): expand figure to clearly see each combination
-    :param groupby: 
-    :return figure handle
-    '''
-    # Determine colormap center based on stat range
-    center = 0 if data[key].min() < 0 else None
-    # Compute trial-averaged data for entire dataset and each groupby subgroup
-    trialavg_data = groupby_and_all(
-        data,
-        lambda df: get_trial_averaged(df[key], full_output=True),
-        groupby=groupby)
-
-    if key in Label.RENAME_ON_AVERAGING.keys():
-        key = Label.RENAME_ON_AVERAGING[key]
-    # Determine figure size and title
-    s = f'{key} per ROI & run'
-    stitle = s
-    naxes = 1
-    if groupby is not None:
-        stitle = f'{stitle} - by {groupby}'
-        naxes += data[groupby].nunique()
-    # Seperate relevant data from is_repeat
-    is_repeat = trialavg_data['all'][1]
-    trialavg_data = {k: v[0] for k, v in trialavg_data.items()}
-    # Compute size of input data
-    nROIs, nruns = [len(trialavg_data['all'].index.unique(level=k)) for k in [Label.ROI, Label.RUN]]
-    # Determine whether stats is a repeated value or a real distribution
-    if not is_repeat:
-        s = f'trial-averaged {s}'
-    # Determine figure size and create figure
-    axsize = (nruns / 2, nROIs / 5) if expand else (6, 5)
-    figsize = (axsize[0] * naxes, axsize[1])
-    fig, axes = plt.subplots(1, naxes, figsize=figsize)
-    if naxes == 1:
-        axes = [axes]
-    # Determine colormap range
-    if key in [Label.SUCCESS_RATE, Label.IS_RESP]:
-        bounds = {k: (0, 1) for k in trialavg_data.keys()}
-    elif nstd is not None:
-        bounds = {k: get_adapted_bounds(v, nstd=nstd) for k, v in trialavg_data.items()}
-    else:
-        bounds = None
-    
-    if sort is not None:
-        sorted_iROIs = sort_ROIs(trialavg_data, sort)
-
-    # Plot trial-averaged stat heatmap for each condition
-    for ax, (k, v) in zip(axes, trialavg_data.items()):
-        logger.info(f'plotting {s} - {k} trials...')
-        if bounds is not None:
-            kwargs.update({'vmin': bounds[k][0], 'vmax': bounds[k][1]})
-        vtable = v.unstack()
-        if cluster:
-            vtable = clusterize_data(vtable)
-        elif sort is not None:
-            vtable = vtable.reindex(sorted_iROIs)
-        sns.heatmap(vtable, center=center, ax=ax, **kwargs)
-        if naxes > 1:
-            ax.set_title(k)
-    # Add title
-    if title is not None:
-        stitle = f'{stitle} ({title})'
-    if naxes == 1:
-        ax.set_title(stitle)
-    else:
-        fig.suptitle(stitle)
-    # Return
-    return fig
-
-
-def plot_metrics_along_trial(data, wlen, fps, tbounds_baseline=(None, None), full_output=True, varkey='sem'):
-    '''
-    Plot a specific output metrics as a function of the sliding window position along the trial
-    
-    :param data: multi-inxexed (ROI, run, frame, istart) series of output metrics
-    :param wlen: window length (in frames)
-    :param fps: frame rate (in frames per second)
-    :return: figure handle (with optional derived baseline and stimulus-evoked values)
-    '''
-    # Compute mean and variation metrics for each start index and ROI
-    ystats = data.groupby([Label.ROI, Label.ISTART]).agg(['mean', varkey])
-    # Extract starting indexes and time vector
-    istarts = ystats.index.unique(level=Label.ISTART)
-    t = (istarts - FrameIndex.STIM) / fps
-    # # Interpolate mean value at stim frame index for each ROI
-    # y_evoked = ystats['mean'].groupby(Label.ROI).agg(lambda s: np.interp(0, t, s.values))
-    # Get indexes of baseline window
-    if tbounds_baseline[0] is None:
-        tbounds_baseline = (t.min(), tbounds_baseline[1])  # s
-    if tbounds_baseline[1] is None:
-        tbounds_baseline = (tbounds_baseline[0], t.max())  # s
-    is_baseline = np.logical_and(t >= tbounds_baseline[0], t <= tbounds_baseline[1])
-    ibaseline = np.where(is_baseline)[0]
-    ibaseline = istarts[ibaseline]
-    # Extract baseline metrics from mean value over baseline interval for each ROI
-    baseline_stats = ystats['mean'].loc[pd.IndexSlice[:, ibaseline]].groupby(Label.ROI).agg(
-        ['mean', 'std'])
-    # Plot on figure
-    fig, ax = plt.subplots()
-    s = data.name
-    if data.dtype == bool:
-        s = f'{s} rate'
-        ax.set_ylim(0, 1)
-    ax.set_title(f'{s} along the trial interval')
-    ax.set_xlabel(f'start time of the {wlen / fps:.1f} s long detection window (s)')
-    ax.set_ylabel(s)
-    sns.despine(ax=ax)
-    for iROI, y in ystats.groupby(Label.ROI):
-        ax.plot(t, y['mean'])
-        ax.fill_between(t, y['mean'] - y[varkey], y['mean'] + y[varkey], alpha=0.2)
-        # ax.axhline(baseline_stats.loc[iROI, 'mean'], ls=':', c='k')
-        # ax.axhline(y_evoked, ls=':', c='k')
-    ax.axvline(0, ls='--', c='k', label='stimulus onset')
-    ax.axvspan(*tbounds_baseline, fc='silver', ec=None, alpha=0.5, label='baseline window')
-    ax.legend()
-    if full_output:
-        return fig, baseline_stats
-    else:
-        return fig
-
-
-def plot_stat_histogram(data, key, trialavg=False, title=None, groupby=None, nstd=None):
-    '''
-    Plot the histogram distribution of a stat
-    
-    :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :return: figure handle
-    '''
-    # Compute trial-averaged data for entire dataset and each groupby subgroup
-    data = groupby_and_all(
-        data,
-        lambda df: get_trial_averaged(df[key]) if trialavg else df[key],
-        groupby=groupby)
-    
-    if trialavg and key in Label.RENAME_ON_AVERAGING.keys():
-        key = Label.RENAME_ON_AVERAGING[key]
-
-    # Restrict data distribution to given range around median, if specified
-    if nstd is not None:
-        bounds = {k: get_adapted_bounds(v, nstd=nstd) for k, v in data.items()}
-        data = {k: v[(v > bounds[k][0]) & (v < bounds[k][1])] for k, v in data.items()}
-    
-    # Re-arrange dataset to enable hist plot
-    for k in data.keys():
-        data[k] = data[k].to_frame()
-        if groupby is not None:
-            data[k][groupby] = k
-    data = pd.concat(data.values(), axis=0)
-    for k in data.index.names:
-        data.reset_index(level=k, inplace=True)
-
-    # Create figure
-    fig, ax = plt.subplots()
-    sns.despine(ax=ax)
-    parsed_title = key
-    if groupby is not None:
-        parsed_title = f'{parsed_title} - by {groupby}'
-    if title is not None:
-        parsed_title = f'{parsed_title} ({title})'
-    ax.set_title(parsed_title)
-
-    # Plot Kernel density estimation for each condition
-    sns.histplot(ax=ax, data=data, x=key, hue=groupby, stat='density', element='poly')
-
-    return fig
-
-
-def plot_stat_per_ROI(data, key, title=None, groupby=None, sort=None, baseline_key=None):
-    '''
-    Plot the distribution of a stat per ROI over all experimental conditions
-    
-    :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :return: figure handle
-    '''
-    # Compute trial-averaged data for entire dataset and each groupby subgroup
-    trialavg_data = groupby_and_all(
-        data,
-        lambda df: get_trial_averaged(df[key], full_output=True),
-        groupby=groupby)
-    if key in Label.RENAME_ON_AVERAGING.keys():
-        key = Label.RENAME_ON_AVERAGING[key]
-    # Seperate relevant data from is_repeat
-    is_repeat = trialavg_data['all'][1]
-    trialavg_data = {k: v[0] for k, v in trialavg_data.items()}
-
-    # If ROI sorting pattern is specified
-    if sort is not None:
-        sorted_iROIs = sort_ROIs(trialavg_data, sort)
-
-    # Determine whether stats is a repeated value or a real distribution
-    s = key
-    s2 = s
-    if not is_repeat:
-        s = f'trial-averaged {s}'
-    # Create figure
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.set_xlabel('# ROI')
-    ax.set_ylabel(s2)
-    parsed_title = f'{s2} per ROI'
-    if groupby is not None:
-        parsed_title = f'{parsed_title} - by {groupby}'
-    if title is not None:
-        parsed_title = f'{parsed_title} ({title})'
-    ax.set_title(parsed_title)
-    if s2 == Label.SUCCESS_RATE:
-        ax.set_ylim(0, 1)
-    sns.despine(ax=ax)
-
-    # Plot mean trace with +/-std shaded area for each condition
-    for k, v in trialavg_data.items():
-        logger.info(f'plotting {s} - {k} trials...')
-        # Group by ROI, get mean and std
-        groups = v.groupby(Label.ROI) 
-        mu, sigma = groups.mean(), groups.std()
-        # Re-order metrics by spsecific ROI sorting pattern if specified
-        if sort is not None:
-            mu, sigma = mu[sorted_iROIs], sigma[sorted_iROIs]
-        # Plot metrics
-        x = np.arange(mu.size)
-        ax.plot(x, mu, label=k)
-        ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
-    
-    if baseline_key is not None:
-        # Extract baseline profiles and sort them according to sorted ROI indexes
-        baseline_stats = data[[f'{baseline_key}_mean', f'{baseline_key}_std']].groupby(Label.ROI).first()
-        baseline_stats = baseline_stats.loc[sorted_iROIs, :]
-        # Plot mu+/-sigma of baseline
-        mu, sigma = [baseline_stats[k] for k in baseline_stats]
-        ax.plot(x, mu, label='baseline')
-        ax.fill_between(x, mu - sigma, mu + sigma, alpha=0.2)
-    
-    # Legend
-    if groupby is not None or baseline_key is not None:
-        ax.legend()
-
-    return fig
-
-
-def plot_stat_per_run(data, key, title=None, groupby=None, baseline=None):
-    '''
-    Plot the distribution of a stat per run over all ROIs
-    
-    :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :return: figure handle
-    '''    
-    # Compute trial-averaged data for entire dataset and each groupby subgroup
-    trialavg_data = groupby_and_all(
-        data,
-        lambda df: get_trial_averaged(df[key], full_output=True),
-        groupby=groupby)
-    if key in Label.RENAME_ON_AVERAGING.keys():
-        key = Label.RENAME_ON_AVERAGING[key]
-    # Seperate relevant data from is_repeat
-    is_repeat = trialavg_data['all'][1]
-    trialavg_data = {k: v[0] for k, v in trialavg_data.items()}
-    # Determine whether stats is a repeated value or a real distribution
-    s = key
-    s2 = s
-    if not is_repeat:
-        s = f'trial-averaged {s}'    
-    # Create figure
-    fig, ax = plt.subplots(figsize=(4 * len(trialavg_data), 4))
-    parsed_title = f'{s2} per run'
-    if title is not None:
-        parsed_title = f'{parsed_title} ({title})'
-    ax.set_title(parsed_title)
-
-    # Re-arrange dataset to enable bar plot
-    for k in trialavg_data.keys():
-        trialavg_data[k] = trialavg_data[k].to_frame()
-        if groupby is not None:
-            trialavg_data[k][groupby] = k
-    trialavg_data = pd.concat(trialavg_data.values(), axis=0)
-    trialavg_data.reset_index(level=Label.RUN, inplace=True)
-    
-    # Plot bar plot with std error bars for each condition
-    sns.barplot(ax=ax, data=trialavg_data, x=Label.RUN, y=key, hue=groupby, ci='sd')
-    ax.set_xlabel('# run')
-    ax.set_ylabel(s2)
-    
-    if s2 == Label.SUCCESS_RATE:
-        ax.set_ylim(0, 1)
-    sns.despine(ax=ax)
-
-    # Add baseline if specified
-    if baseline is not None:
-        if not is_iterable(baseline):
-            baseline = [baseline]
-        for ax in fig.axes:
-            for b in baseline:
-                ax.axhline(b, c='k', ls='--')
-
-    return fig
-
-
-def plot_positive_runs_hist(n_positive_runs, resp_types, nruns, title=None):
-    ''' Plot the histogram of the number of positive conditions for each ROI,
-        per response type.
-    '''
-    # Plot histogram per response type
-    fig, ax = plt.subplots()
-    ax.set_xlabel(Label.NPOS_RUNS)
-    ax.set_ylabel('Count')
-    bins = np.arange(nruns + 2) - 0.5
-    df = pd.DataFrame([resp_types, n_positive_runs]).T
-    colors = sns.color_palette(Palette.RTYPE)
-    for c, (label, group) in zip(colors, df.groupby(Label.ROI_RESP_TYPE)):
-        ax.hist(
-            group[Label.NPOS_RUNS], bins=bins, label=f'{label} (n = {len(group)})',
-            fc=c, ec='k')
-    ax.set_xlim(bins[0], bins[-1])
-    sns.despine(ax=ax)
-    # Add legend
-    ax.legend(title=Label.ROI_RESP_TYPE)
-    # Add separator line
-    # ax.axvline(NPOS_CONDS_THR - .5, ls='--', c='k')
-    # Add title
-    s = 'classification by # positive conditions'
-    if title is not None:
-        s = f'{s} ({title})'
-    ax.set_title(s)
-    return fig
-
-
-def plot_gaussian_histogram_fit(data, fitparams, iROI, irun, ykey=Label.DFF, nbins=100):
-    ''' 
-    Plot histogram distribution and fitted gaussian fit for a particular dataset,
-    for a subset of ROIs of interest.
-    
-    :param data: timeseries data
-    :param fitparams: fitted gaussian parameters data
-    :param iROI: indexes of ROIs of interest
-    :param irun: index of run of interest
-    :param ykey (optional): column of interest in timeseries data
-    :param nbins (optional): number of bins in histogram distributions
-    :return: figure handle
-    '''
-    # Create figure
-    fig, axes = plt.subplots(iROI.size, 1, figsize=(5, 3 * iROI.size), sharex=True)
-    axes[-1].set_xlabel(ykey)
-    # For each ROI of interest
-    for ax, ir in zip(axes, iROI):
-        sns.despine(ax=ax)
-        # Plot histogram distribution
-        ax.set_title(f'ROI {ir}')
-        ax.set_ylabel('Count')
-        _, xedges, _ = ax.hist(
-            data.loc[pd.IndexSlice[ir, irun, :, :], ykey],
-            bins=nbins, alpha=0.5)
-        # Plot fitted gaussian
-        xmids = (xedges[1:] + xedges[:-1]) / 2
-        params = fitparams.loc[pd.IndexSlice[ir, irun]]
-        ax.plot(xmids, gauss(xmids, *params.values), c='k')
-        # Plot markers for mean and width of gaussian fit
-        ax.vlines(
-            params['x0'], 
-            ymin=params['H'], 
-            ymax=params['H'] + params['A'], 
-            ls='--', colors='k')
-        ax.hlines(
-            params['H'] + params['A'] / 2,
-            xmin=params['x0'] - params['sigma'],
-            xmax=params['x0'] + params['sigma'],
-            ls='--', colors='k')
-        # Add text labels for mean and width of gaussian fit
-        ax.text(0.5, 0.6, f'\u03BC({ykey}) = {params["x0"]:.3f}', transform=ax.transAxes)
-        ax.text(0.5, 0.5, f'\u03C3({ykey}) = {params["sigma"]:.3f}', transform=ax.transAxes)
-    # Return figure
-    return fig
-
-
-def plot_params_correlations(data, ykey=Label.SUCCESS_RATE, pthr=None, directional=True):
-    '''
-    Plot the distribution of correlation coefficients of a specific response metrics
-    with input stimulation parameters (pressure & duty cycle) for each ROI.
-
-    :param data: trial-averaged statistics dataframe per ROI & run
-    :param ykey: name of the column containing the metrics of interest
-    :param pthr (optional): significance threshold probability used for ROI classification
-    :param directional (default: True): whether to assume a directional effect (i.e. 1-tailed test) or not (i.e. 2-tailed test)
-    :return: figure handle
-    '''
-    xkeys = [Label.P, Label.DC]
-    
-    # Compute correlation coeficients with stimulation parameters
-    corr_coeffs = pd.concat([
-        compute_correlation_coeffs(data, xkey, ykey) for xkey in xkeys], axis=1)
-
-    # If significance threshold probability is provided
-    if pthr is not None:
-        # Compute threshold correlation coefficients for statistical significance in both dimensions
-        # using appropriate t-value depending on effect directionality constraint  
-        rthrs = {}
-        srthrs = []
-        for xkey in xkeys:
-            n = data[xkey].nunique()
-            rthrs[xkey] = tscore_to_corrcoeff(pvalue_to_tscore(pthr, n, directional=directional), n)
-            srthrs.append(f'r({xkey}, p = {pthr:.3f}, n = {n}, {"1" if directional else "2"}-tailed) = {rthrs[xkey]:.2f}')
-        srthrs = '\n'.join([f'-   {x}' for x in srthrs])
-        logger.info(f'setting thresholds correlation coefficients for significant dependency along each dimension:\n{srthrs}')
-
-        # Identify significantly correlated samples across both dimensions
-        corrtypes = pd.DataFrame()
-        for (xkey, rthr), col in zip(rthrs.items(), corr_coeffs):
-            # By default, consider only positive correlation
-            corrtypes[xkey] = (corr_coeffs[col] > rthr).astype(int)
-            # If specified, consider also negative correlation
-            if not directional:
-                corrtypes[xkey] -= (corr_coeffs[col] < -rthr).astype(int)
-        # Convert both informations into string code for graphical representation
-        corr_coeffs[Label.ROI_RESP_TYPE] = correlations_to_rcode(corrtypes, j=', ')
-        hue = Label.ROI_RESP_TYPE
-        palette = Palette.RTYPE
-        legend = 'full'
-    else:
-        # Otherwise, use mean value of the metrics as a color code
-        corr_coeffs['avg'] = data[ykey].groupby(Label.ROI).mean()
-        hue = 'avg'
-        palette = Palette.DEFAULT
-        legend = None
-
-    # Plot joint distributions of correlation coefficients with P & DC for each ROI
-    # using correlation type as color code
-    jg = sns.jointplot(
-        data=corr_coeffs, **dict(zip(['x', 'y'], corr_coeffs.columns.values)),
-        xlim=[-1, 1], ylim=[-1, 1], hue=hue, hue_order=get_default_rtypes(), palette=palette, legend=legend)
-    
-    # If significance-based classification was performed
-    if pthr is not None:
-        # Add sample size for each category in legend
-        counts = corr_coeffs[Label.ROI_RESP_TYPE].value_counts()
-        labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
-        leg = jg.ax_joint.get_legend()
-        for t in leg.texts:
-            txt = t.get_text()
-            t.set_text(labels.get(txt, f'{txt} (0)'))
-
-        # Plot statistical significance threshold lines
-        for ax_marg, xkey, k in zip([jg.ax_marg_x, jg.ax_marg_y], xkeys, ['v', 'h']):
-            rthr = rthrs[xkey]
-            for ax in [ax_marg, jg.ax_joint]:
-                linefunc = getattr(ax, f'ax{k}line')
-                linefunc(rthr, c='k', ls='--')
-                if not directional:
-                    linefunc(-rthr, c='k', ls='--')
-        
-    # Add title
-    # jg.fig.suptitle(f'{ykey} - correlation with stimulus parameters across ROIs')
-    jg.fig.tight_layout()
-    jg.fig.subplots_adjust(top=0.92)
-
-    # Return figure
-    if pthr is not None:
-        return jg.fig, corr_coeffs[Label.ROI_RESP_TYPE]
-    else:
-        return jg.fig
 
 
 def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True,
-                            min_cell_count=None, title=None):
+                            countref=None, title=None):
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
-    :param data: multi-indexed stats dataframe with date-mouse-region as an extra index dimension
+    :param data: multi-indexed stats dataframe with dataset as an extra index dimension
+    :param hue: hue parameter
+    :param add_count_labels: whether to add counts on each legend entry
+    :param countref (optional): specified count value at which to draw a "reference" line 
+    :param title (optional): figure title
     :return: figure handle
     '''
     # Restrict dataset to 1 element per ROI for each dataset
     celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
+
     # Figure out bar variable and plot orientation
     groups = [Label.DATASET, Label.ROI_RESP_TYPE]
     bar = list(set(groups) - set([hue]))[0]
     axdim = {Label.ROI_RESP_TYPE: 'x', Label.DATASET: 'y'}[bar]
+
     # Determine plotting order
     orders = {
         Label.ROI_RESP_TYPE: get_default_rtypes(),
@@ -2206,19 +2254,25 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     barvals = pd.Categorical(barvals, categories=orders[bar])
     celltypes[bar2] = barvals
     pltkwargs = {axdim: bar2, 'hue_order': orders[hue]}
+
     # Plot stacked count bars
     fg = sns.displot(
         data=celltypes, multiple='stack', hue=hue, **pltkwargs)
     sns.despine()
     fig = fg.figure
+
+    # If label counts specified 
     if add_count_labels:
+
         # Count number of cells of each bar and hue
         cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
         nperhue = cellcounts.groupby(hue).sum().astype(int)
         nperbar = cellcounts.groupby(bar).sum().astype(int)
+
         # Get number of responding cells
         ntot = nperhue.sum()
         ax = fig.axes[0]
+
         # If resp type is hue, add labels to legend
         if hue == Label.ROI_RESP_TYPE:
             leg = fg._legend
@@ -2227,6 +2281,7 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
                 n = nperhue.loc[s]
                 t.set_text(f'{s} (n={n}, {n / ntot * 100:.0f}%)')
             leg.set_bbox_to_anchor([1.2, 0.5])
+
         # If resp type is bar, add labels on top of bars
         else:
             labels = [l.get_text() for l in ax.get_xticklabels()]
@@ -2235,15 +2290,16 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
                 n = nperbar.loc[label]
                 ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
 
-    # Add threshold line if specified
-    if min_cell_count is not None:
+    # Add reference line if specified
+    if countref is not None:
         ltype = {'x': 'h', 'y': 'v'}[axdim]
-        getattr(ax, f'ax{ltype}line')(min_cell_count, c='k', ls='--')
+        getattr(ax, f'ax{ltype}line')(countref, c='k', ls='--')
     
     # Add title if specified
     if title is not None:
         fig.axes[0].set_title(title, fontsize=20)
-            
+    
+    # Return figure handle
     return fig
 
 
@@ -2251,67 +2307,30 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
     '''
     Plot the evolution of stimulus parameters over time
     
-    :param info_table: summary table of the parameters pertaining to each run
+    :param table: summary table of the parameters pertaining to each run
     :param xkey: reference variable for time evolution (run or runID)
     :param ykey: reference variable for parameters evolution (e.g. Pressure, DC, intensity, ...)
     :return: figure handle
     '''
+    # Extract x-axis variable as either table index or column 
     try:
         x = table[xkey]
     except KeyError:
         x = table.index.get_level_values(level=xkey)
+    
+    # Initialize figure
     fig, axes = plt.subplots(len(ykeys), 1, figsize=(5, 2 * len(ykeys)))
     axes[0].set_title('evolution of stimulation parameters over runs')
-    for ax, ykey in zip(axes, ykeys):
-        ax.scatter(x, table[ykey])
-        ax.set_ylabel(ykey)
     for ax in axes[:-1]:
         sns.despine(ax=ax, bottom=True)
         ax.set_xticks([])
     axes[-1].set_xlabel(xkey)
     sns.despine(ax=axes[-1])
-    return fig
 
-
-def plot_pvalues_per_response_type(data, xkey, ykey, scale='lin', pthr=None):
-    '''
-    Plot the 2D distribution of p-values for pressure and duty cycle dependencies for each ROI,
-    color-coded by response type.
-
-    :param data: p-values and response type dataframe
-    :param xkey: independent stimulus variable to use on x-axis
-    :param ykey: independent stimulus variable to use on y-axis
-    :param scale: axes scale (linear / logarithmic)
-    :param pthr: threshold p-value for parameter dependency assessment
-    :return: figure handle 
-    '''
-    # Rescale to log-space if required
-    if scale == 'log':
-        for key in [xkey, ykey]:
-            data[f'log-{key}'] = np.log(data[key])
-        if pthr is not None:
-            pthr = np.log(pthr)
-    xkey, ykey = f'log-{xkey}', f'log-{ykey}'
-
-    # Plot distribution across 2D space (along with marginal plots)
-    rtypes = get_default_rtypes()
-    jg = sns.jointplot(
-        data=data, x=xkey, y=ykey, hue=Label.ROI_RESP_TYPE, hue_order=rtypes,
-        palette=Palette.RTYPE)
-
-    # Plot statistical significance threshold lines
-    if pthr is not None:
-        for ax_marg, k in zip([jg.ax_marg_x, jg.ax_marg_y], ['v', 'h']):
-            for ax in [ax_marg, jg.ax_joint]:
-                getattr(ax, f'ax{k}line')(pthr, c='k', ls='--')
-
-    # Add sample size for each category in legend
-    counts = data[Label.ROI_RESP_TYPE].value_counts()
-    labels = {t: f'{t} ({n})' for t, n in zip(counts.index, counts.values)}
-    leg = jg.ax_joint.get_legend()
-    for t in leg.texts:
-        txt = t.get_text()
-        t.set_text(labels.get(txt, f'{txt} (0)'))
-
+    # Plot evolution of each variable of interest along protocol
+    for ax, ykey in zip(axes, ykeys):
+        ax.scatter(x, table[ykey])
+        ax.set_ylabel(ykey)
+    
     # Return figure handle
-    return jg.figure
+    return fig

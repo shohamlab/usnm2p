@@ -17,22 +17,24 @@ export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/TBFC815F0/B03ECRYS9FW
 export JOBFMT="JobID:.12,MinMemory:.12,Partition:.12,Name:.20,UserName:.15,State:.10,TimeUsed:.10,NumNodes:.8,NumCPUs:.8"  # logging format for submitted jobs status
 export NODEFMT="NodeHost:.10,Memory:.10,AllocMem:.10,Available:.10,CPUs:.10,MaxCPUsPerNode:.20"   # logging format for node status
 export TRANSFERFMT="-a --info=progress2 --info=name0"   # logging format for data transfers with rsync
+export CONDAMODULE="miniconda3/cpu/4.9.2"
 
 # Aliases for data transfers
-alias datamover="srun -p data_mover -n 2 --time=8:00:00 --mem-per-cpu=1G --pty bash"  # open special node for file transfer with rsync
+alias datamover="srun -p data_mover -n 2 --time=8:00:00 --mem=64G --pty bash"  # open special node for file transfer with rsync
 alias mountlab="mount $RDRIVE"  # mount the labs's research drive on your user session (only within data mover node)
 
 # Aliases for computing jobs
+alias usnm2p="module load $CONDAMODULE; conda activate usnm2p"
 alias job="srun --partition=$MYCOMPNODE --time=8:00:00 --mem=32G --pty /bin/bash"  # run a normal bash job
-alias mpijob="srun -c 10 --partition=$MYCOMPNODE --time=8:00:00 --mem=320G --pty /bin/bash"  # run a massively parallelized bash job
-alias myjobs="squeue -u $(whoami) -o '$JOBFMT'"  # list all jobs assosicated to your user ID
-alias labjobs="squeue -p $MYCOMPNODE -o '$JOBFMT'"  # list all jobs associated with lab's partition
+alias mpijob="srun -c 15 --partition=$MYCOMPNODE --time=8:00:00 --mem=320G --pty /bin/bash"  # run a massively parallelized bash job
+alias myjobs="squeue -u $(whoami) -O '$JOBFMT'"  # list all jobs assosicated to your user ID
+alias labjobs="squeue -p $MYCOMPNODE -O '$JOBFMT'"  # list all jobs associated with lab's partition
 alias labspecs="sinfo --partition=$MYCOMPNODE -O '$NODEFMT'"
 
 # Shortucts to bash files
-alias loadmodules="sh ~/$MYNAME/code/bash/loadmodules.sh"  # load essential modules
 alias jbatch="sbatch ~/$MYNAME/code/bash/normalbatch.sh ~/$MYNAME/code/bash/jupyter.sh"  # launch a detached jupyter lab session
 alias jtunnel="cat ~/$MYNAME/tmp/log.log"  # open log file to acces jupyter tunneling information
+alias 3lrename="bash ~/$MYNAME/code/bash/rename_3_levels.sh"
 ```
 
 - Save and close to file (`Ctrl-o` followed by `Ctrl-x`)

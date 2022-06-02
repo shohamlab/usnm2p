@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-01 11:42:00
+# @Last Modified time: 2022-06-02 09:22:16
 
 ''' Collection of constants used throughout the code base. '''
 
 from string import ascii_lowercase
+import pandas as pd
 
 ###################################### MISCELLANEOUS ######################################
 
@@ -207,8 +208,11 @@ class Label:
     }
 
 
-RESP_TYPES = {
+# Response and responders type
+RTYPE_MAP = {
     -1: 'negative', 0: 'weak', 1: 'positive'}
+RTYPE = pd.api.types.CategoricalDtype(
+    categories=list(RTYPE_MAP.values()), ordered=True)
 
 
 # Stats fields used to compute trial validity  

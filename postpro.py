@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-01 11:51:03
+# @Last Modified time: 2022-06-02 14:22:29
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, filtfilt, find_peaks, peak_widths, detrend
+from scipy.signal import butter, filtfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -138,7 +138,7 @@ def get_window_size(wlen, fps):
     return w
 
 
-def linreg(y, x=None, norm='HuberT', add_cst=True):
+def robust_linreg(y, x=None, norm='HuberT', add_cst=True):
     '''
     Perform linear regression on 2 signals
     
@@ -459,9 +459,14 @@ def shiftslice(s, i):
     return slice(s.start + i, s.stop + i)
 
 
+def get_mux_slice(mux):
+    ''' Get a neutral multi-indexed slice '''
+    return [slice(None)] * len(mux.names)
+
+
 def slice_last_dim(mux, wslice):
     ''' Get a multi-indexed slice with last index dimenions '''
-    idx = [slice(None)] * len(mux.levels)
+    idx = get_mux_slice(mux)
     idx[-1] = wslice
     return tuple(idx)
 
@@ -777,40 +782,6 @@ def groupby_and_all(data, func, groupby=None):
         for cond, cond_data in data.groupby(groupby):
             out[cond] = func(cond_data)
     return out
-
-
-def get_clustered_index(data, metric='euclidean', method='single'):
-    '''
-    Compute a clustered index list according observations across dimensions
-    
-    :param data: (observations x dimensions) dataframe for some specific variable.
-    :return: index of observations outputed by the clustering algorithm
-    '''
-    logger.info('computing new index according to hierarchical clustering...')
-    # Get dataset index
-    index = data.index
-    # Compute pairwise distance matrix
-    Y = pdist(data, metric=metric, out=None)
-    # If NaNs in matrix -> return original index
-    if np.isnan(np.sum(Y)):
-        logger.warning('cannot clusterize dataset with NaNs -> ignoring')
-        return index
-    # Cluster hierarchically using the pairwise distance matrix
-    Z = linkage(Y, method=method, optimal_ordering=False)
-    # Return index list from cluster output 
-    return index[leaves_list(Z)]
-
-
-def clusterize_data(data, **kwargs):
-    '''
-    Re-arrange dataset along the ROI dimension according observations across runs 
-    
-    :param data: (nROIs x nruns) dataframe for some specific variable.
-    :return: dataframe re-indexed alonmg according to ROI clustering process 
-    '''
-    iROIs_clustered = get_clustered_index(data, **kwargs)
-    logger.info('re-arranging dataset...')
-    return data.reindex(iROIs_clustered)
 
 
 def gauss(x, H, A, x0, sigma):
@@ -1263,14 +1234,13 @@ def correlations_to_rcode(corrtypes, j=', '):
 
 def get_default_rtypes():
     ''' Get default response type codes '''
-    return ['negative', 'weak', 'positive']
-    # return ['non-responsive', 'responsive']
+    return RTYPE.categories.values.tolist()
 
 
 def add_change_metrics(timeseries, stats, ykey, 
                        wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
     '''
-    Add a change metrics to stats dataframe
+    Compute change in a given variable between pre and post-stimulation windows
     
     :param timeseries: timeseries dataframe
     :param stats: stats dataframe
@@ -1341,7 +1311,7 @@ def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=F
     logger.info('classifying responses...')
     new_stats[Label.RESP_TYPE] = (
         (res['pval'] < PTHR_DETECTION).astype(int) * np.sign(res['tstat']).astype(int))
-    new_stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RESP_TYPES)
+    new_stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RTYPE_MAP)
 
     # Return
     return new_stats
@@ -1493,16 +1463,16 @@ def exclude_datasets(timeseries, stats, to_exclude):
     :return: filtered experiment dataframe 
     '''
     candidate_datasets = stats.index.unique(level=Label.DATASET).values
-    notthere = list(set(to_exclude.index) - set(candidate_datasets))
+    notthere = list(set(to_exclude) - set(candidate_datasets))
     if len(notthere) > 0:
         logger.warning(f'{notthere} datasets not found -> ignoring') 
-    idx = list(set(candidate_datasets).intersection(set(to_exclude.index)))
-    if len(idx) == 0:
+    to_exclude = list(set(candidate_datasets).intersection(set(to_exclude)))
+    if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
         return timeseries, stats
     logger.info(
-        f'excluding the following datasets from analysis: \n {to_exclude[idx].to_frame()}')
-    query = f'{Label.DATASET} not in {to_exclude[idx].index.values.tolist()}'
+        f'excluding the following datasets from analysis: {to_exclude}')
+    query = f'{Label.DATASET} not in {to_exclude}'
     return timeseries.query(query), stats.query(query)
 
 

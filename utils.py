@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-01 11:17:27
+# @Last Modified time: 2022-06-02 09:23:53
 
 ''' Collection of generic utilities. '''
 
@@ -76,7 +76,11 @@ def as_iterable(x):
 
 def plural(x):
     return 's' if is_iterable(x) else ''
-    
+
+
+def swapdict(d):
+    ''' Swap keys and values in a dictionary '''
+    return {v: k for k, v in d.items()}
 
 si_prefixes = {k: np.power(10., v) for k, v in SI_POWERS.items()}
 sorted_si_prefixes = sorted(si_prefixes.items(), key=operator.itemgetter(1))
