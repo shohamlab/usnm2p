@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-02 14:22:29
+# @Last Modified time: 2022-06-03 13:22:24
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -53,7 +53,7 @@ def separate_runs(data, nruns):
     # Re-arrange frame indexes on a per-run basis
     iframes_per_run = np.arange(nframes_per_run)
     iframes_per_run_ext = np.tile(iframes_per_run, (nROIs * nruns, 1)).flatten()
-    # Re-generate data index with new "run" level 
+    # Re-generate data index with new "run" level
     data = data.droplevel(Label.FRAME)
     data = data.set_index(Label.RUN, append=True)
     data[Label.FRAME] = iframes_per_run_ext
@@ -283,48 +283,67 @@ def filter_signal(y, fs, fc, order=2):
     return filtfilt(b, a, y)
 
 
-def compute_baseline(data, fps, wlen, q, smooth=True):
-    '''
-    Compute the baseline of a signal.
+def apply_quantile_window(x, w, q):
+    return apply_rolling_window(x, w, func=lambda x: x.quantile(q))
 
-    :param data: multi-indexed Series object contaning the signal of interest
-    :param fps: frame rate of the signal (in fps)
+
+def get_baseline_func(fps, wlen, q, smooth=True):
+    '''
+    Construct a baseline computation function
+    
+    :param fps: sampling rate of the signal (in fps)
     :param wlen: window length (in s) to compute the fluorescence baseline
     :param q: quantile used for the computation of the fluorescence baseline 
     :param smooth (default: False): whether to smooth the baseline by applying an additional
         gaussian filter (with half window size) to the sliding window output
-    :return: fluorescence baseline series
+    :return: baseliunbe function object
     '''
+    # Define quantile description string
     qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
-    # If window length not given, define constant baseline computation function
+
+    # If window length not given, return constant baseline computation function
     if wlen is None:
-        steps_str = [f'{qstr} of signal']
-        def bfunc(s):
-            return s.quantile(q)
+        logger.info(f'defining baseline function as {qstr} of signal')
+        return lambda s: s.quantile(q)
+
     # Otherwise, define rolling window baseline computation function(s)
     else:
-        # Compute window size (in number of frames)
+        # Compute window size (in number of frames) and descriptor
         w = get_window_size(wlen, fps)
-        # If smooth enabled, define window size for smoothing (gaussian filter) step
-        if smooth:
-            w2 = w // 2
         wstr = f'{wlen:.1f}s ({w} frames) sliding window'
-        steps_str = [f'{qstr} of {wstr}']
+        bstr = f'{qstr} of {wstr}'
+
+        # Construct quantile moving window function
+        bfunc = lambda s: apply_quantile_window(s.values, w, q)
+        
+        # If smooth enabled
         if smooth:
-            steps_str.append(f'result of {w2 / fps:.1f}s ({w2} frames) gaussian filter')
-        def bfunc(s):
-            # Percentile moving window
-            b = apply_rolling_window(s.values, w, func=lambda x: x.quantile(q))
-            if smooth:
-                # Optional gaussian filtering
-                b = gaussian_filter1d(b, w2)
-            return b
-    if len(steps_str) > 1:
-        steps_str = '\n'.join([f'  - {s}' for s in steps_str])
-        steps_str = f'successive application of:\n{steps_str}'
+            # define window size for smoothing (gaussian filter) step
+            w2 = w // 2
+            bstr = [bstr] + [f'result of {w2 / fps:.1f}s ({w2} frames) gaussian filter']
+            bstr = '\n'.join([f'  - {s}' for s in bstr])
+            bstr = f'successive application of:\n{bstr}'
+        
+            # Add gaussian filter to function
+            bfunc_smooth = lambda s: gaussian_filter1d(bfunc(s), w2)
+    
+    logger.info(f'defining baseline function as {bstr}')
+    
+    # Return appropriate baseline function
+    if smooth:
+        return bfunc_smooth
     else:
-        steps_str = steps_str[0]
-    logger.info(f'computing signal baseline as {steps_str}')
+        return bfunc
+
+
+def compute_baseline(data, bfunc):
+    '''
+    Compute the baseline of a signal.
+
+    :param data: multi-indexed Series object contaning the signal of interest
+    :param bfunc: baseline function
+    :return: fluorescence baseline series
+    '''
     # Group data by ROI and run, and apply sliding window on F to compute baseline fluorescence
     groupkeys = [Label.ROI, Label.RUN]
     nconds = np.prod([len(data.index.unique(level=k)) for k in groupkeys])
