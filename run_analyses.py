@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-28 16:43:32
+# @Last Modified time: 2022-06-06 18:30:35
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '-j', '--no-baseline_smoothing', dest='baseline_smoothing', action='store_false')
     parser.add_argument(
-        '-y', '--ykey_postpro', type=str, default='z', choices=['z', 'dff'], nargs='+',
+        '-y', '--ykey_postpro', type=str, default='dff', choices=['dff', 'z'], nargs='+',
         help='Post-processing variable')
     parser.set_defaults(
         slack_notify=True,

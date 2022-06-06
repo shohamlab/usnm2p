@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-03 13:22:24
+# @Last Modified time: 2022-06-06 18:33:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1045,12 +1045,15 @@ def get_zscore_maximum(pthr, w):
     corresponding to a given significance criterion (p-value)
     
     :param pthr: significance threshold (p-value)
-    :param w: window size
+    :param w: window size (or window slice)
     :return: characteristic maximum z-score
     '''
     # Vectorize function
     if isinstance(w, np.ndarray):
-        return np.array([get_zscore_maximum(pthr, ww) for ww in w])
+        return np.array([get_zscore_maximum(pthr, ww) for ww in w]) 
+    # If slice is given, compute size
+    if isinstance(w, slice):
+        w = w.stop - w.start
     # If window size smaller than 1 -> return NaN
     if w < 1:
         return np.nan
@@ -1201,32 +1204,6 @@ def get_data_subset(data, subset_idx):
         pd.DataFrame(index=subset_idx), Label.FRAME, data.index.unique(level=Label.FRAME)).index
     logger.info('selecting traces data from subset...')
     return data.loc[mux, :]
-
-
-def get_threshold_maximum(ykey, w):
-    '''
-    Get a variable-dependent threshold maximum
-    
-    :param ykey: variable
-    :param w: window slice
-    ''' 
-    wlen = w.stop - w.start
-    if ykey == Label.ZSCORE:
-        return get_zscore_maximum(PTHR_DETECTION, wlen)
-    elif ykey == Label.DFF:
-        return 0.1
-    else:
-        raise ValueError(f'unknown post-processing variable: {ykey}')
-
-
-def get_threshold_metric(ykey, navg=1):
-    ''' Get threshold metrics depending on the variable used for post-processing '''
-    if ykey == Label.ZSCORE:
-        return pvalue_to_zscore(PTHR_DETECTION)
-    elif ykey == Label.DFF:
-        return 0.1 / navg
-    else:
-        raise ValueError(f'unknown post-processing variable: {ykey}')
 
 
 def correlations_to_rcode(corrtypes, j=', '):
@@ -1507,9 +1484,10 @@ def get_param_code(data):
 def check_run_order(data):
     ''' Check run order consistency across datasets '''
     logger.info('checking for run order consistency across datasets...')
-    # Extract parameters per run
+    # Extract parameters per run for each dataset
     tmp = data.groupby([Label.DATASET, Label.RUN]).first()
     params_per_run = get_param_code(tmp).unstack()
+    # TODO: Ensure that no dataset contains duplicated runs
     # Drop duplicates to get unique sequences of parameters 
     unique_param_sequences = params_per_run.drop_duplicates()
     nseqs = len(unique_param_sequences) 

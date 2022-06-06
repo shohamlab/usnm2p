@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 11:47:15
+# @Last Modified time: 2022-06-06 13:54:46
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -527,7 +527,7 @@ def load_processed_dataset(fpath, prefix=None):
     for k in indexcols:
         if k not in data:
             raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
-        data.set_index(k, append=True, inplace=True)    
+        data.set_index(k, append=True, inplace=True)
     # Return data
     return data
 
