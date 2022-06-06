@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-02 14:37:34
+# @Last Modified time: 2022-06-06 12:33:34
 
 ''' Collection of plotting utilities. '''
 
@@ -1731,7 +1731,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             if col_order is None:
                 col_order = counts_per_col.sort_values(ascending=False).index.values
             for ax, k in zip(fig.axes, col_order):
-                ax.set_title(f'{ax.get_title()} ({counts_per_col[k]})')
+                ax.set_title(f'{ax.get_title()} ({counts_per_col.get(k, 0)})')
         
     # Remove right and top spines
     sns.despine()
