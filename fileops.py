@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-01 11:03:20
+# @Last Modified time: 2022-06-06 11:47:15
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -58,7 +58,6 @@ def get_dataset_params(root='.', excludes=None, includes=['region']):
     for line in get_subfolder_names(root):
         linedir = os.path.join(root, line)
         for folder in get_subfolder_names(linedir):
-            out = parse_date_mouse_region(folder)
             try:
                 date, mouse, region, layer = parse_date_mouse_region(folder)
                 dataset_dirpath = os.path.join(linedir, folder)
