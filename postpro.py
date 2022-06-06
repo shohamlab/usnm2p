@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 18:33:51
+# @Last Modified time: 2022-06-06 18:52:00
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -17,8 +17,6 @@ from scipy.signal import butter, filtfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
-from scipy.cluster.hierarchy import linkage, leaves_list
-from scipy.spatial.distance import pdist
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from functools import wraps
