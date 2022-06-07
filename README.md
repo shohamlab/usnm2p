@@ -112,10 +112,10 @@ The raw data is typically processed in different successive steps, described bel
 	- linear signal detrending (at the single trial level)
 	- noise level and variation range estimation and subsequent noise-normalization of relative change fluorescence traces into z-score traces.
 
-	Upon completion, a post-processing folder is created in which the following output files are saved:
-	- `info_table.csv`: summary table of the parameters pertaining to each run
-	- `ROI_masks.csv`: table of the pixel masks of each selected ROI in the reference frame.
-	- `timeseries_run*.csv`: dff and z-score traces of each ROI for a given run (along with their ROI, run, trial and frame index information)
+	Upon completion, a post-processed file is created named after the dataset (date, mouse, region) ID, in which the following outputs are saved:
+	- `info_table`: summary table of the parameters pertaining to each run
+	- `ROI_masks`: table of the pixel masks of each selected ROI in the reference frame.
+	- `timeseries`: dff and z-score timeseries (along with their ROI, run, trial and frame index information)
 
 4. **Statistics**: using the extracted z-score timeseries as a basis, transient activity events are detected and used to derive statistics on ultrasound-evoked (& spontaneous) neural activity. This analysis consists of the following sub-steps:
 	- quantification of lateral motion over time (using the registration offsets timeseries outputed by suite2p), detection of motion artifacts, and exclusion of associated trials
@@ -126,6 +126,10 @@ The raw data is typically processed in different successive steps, described bel
 	- statistical testing of difference between pre- and post-stimulus windows for each ROI & run, and responses classification
 	- classification of cells by responder type based on their response distributions
 	- characteriztion of parameter-dependency of response strength for each cell type.
+
+	Upon completion, a trial-averaged file is created named after the dataset (date, mouse, region) ID, in which the following outputs are saved:
+	- `timeseries`: dff and z-score trial-averaged timeseries (along with their ROI, run, trial and frame index information)
+	- `stats`: trial-averaged statistics dataframe
 
 ## Authors & contributors
 
