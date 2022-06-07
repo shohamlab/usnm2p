@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 13:54:46
+# @Last Modified time: 2022-06-07 11:26:46
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -381,189 +381,136 @@ def save_stack_to_gif(figsroot, *args, **kwargs):
     viewer.save_as_gif(figsdir, fps)
 
 
-def save_timeseries_data(timeseries, info_table, ROI_masks, outdir):
+def save_postpro_dataset(fpath, timeseries, info_table, ROI_masks):
     '''
-    Save processed timeseries data
+    Save processed dataset into HDF5 file. 
     
-    :param timeseries: multi-indexed (ROI, run, trial, frame) dataframe containing the z-score timeseries
+    :param fpath: absolute path to data file
+    :param timeseries: multi-indexed (ROI, run, trial, frame) timeseries dataframe
     :param info_table: dataframe containing the information about experimental parameters for each run
-    :param outdir: output directory
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
     '''
-    # Create output directory if needed
-    if not os.path.isdir(outdir):
-        logger.info(f'creating "{outdir}" folder...')
-        os.makedirs(outdir)
-    # Save experiment info table
-    logger.info('saving experiment info table...')
-    info_table.to_csv(os.path.join(outdir, f'info_table.csv'))
-    # Save timeseries split by run
-    logger.info('saving processed timeseries data (split by run)...')
-    for ir, df in tqdm(timeseries.groupby(Label.RUN)):
-        fpath = os.path.join(outdir, f'timeseries_run{ir}.csv')
-        df.to_csv(fpath)
-    # Save ROI masks
-    logger.info('saving ROI masks...')
-    ROI_masks.to_csv(os.path.join(outdir, f'ROI_masks.csv'))
+    # Remove output file if it exists
+    if os.path.isfile(fpath):
+        os.remove(fpath)
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Save experiment info table
+        logger.info('saving experiment info table...')
+        store['info_table'] = info_table 
+        # Save timeseries table
+        logger.info('saving processed timeseries data...')
+        store['timeseries'] = timeseries
+        # Save ROI masks
+        logger.info('saving ROI masks...')
+        store['ROI_masks'] = ROI_masks
     logger.info('data successfully saved')
 
 
-def load_timeseries_data(outdir, nruns, check=False):
+def load_postpro_dataset(fpath):
     '''
-    Load processed timeseries data
+    Load processed dataset from HDF5 file
     
-    :param outdir: output directory
-    :param nruns: number of runs
-    :param check (default: False): whether to sjut check for data availability or to actually load it
-    :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) timeseries per ROI,
+    :param fpath: absolute path to data file
+    :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) timeseries dataframe,
         experiment info dataframe, and ROI-indexed dataframe of (x, y) coordinates and weights.
     '''
-    # Check that output directory exists
-    if not os.path.isdir(outdir):
-        raise ValueError(f'"{outdir}" does not exist')
-    # Check that info table file is present in directory
-    info_table_fpath = os.path.join(outdir, f'info_table.csv')
-    if not os.path.isfile(info_table_fpath):
-        raise ValueError('info table file not found in directory')
-    # Check that ROI masks file is present in directory
-    ROI_masks_fpath = os.path.join(outdir, f'ROI_masks.csv')
-    if not os.path.isfile(ROI_masks_fpath):
-        raise ValueError('ROI masks file not found in directory')
-    # Check that all timeseries files are present in directory
-    timeseriesfiles = glob.glob(os.path.join(outdir, 'timeseries_run*.csv'))
-    if len(timeseriesfiles) != nruns:
-        raise ValueError(f'number of saved timeseries files ({len(timeseriesfiles)}) does not correspond to number of runs ({nruns})')
-    if check:  # check mode -> return None
-        return None
-    # Load experiment info table
-    logger.info('loading experiment info table...')
-    info_table = pd.read_csv(info_table_fpath).set_index(Label.RUN, drop=True)
-    # Load timeseries split by run
-    timeseries = []
-    logger.info(f'loading processed timeseries data for {nruns} runs...')
-    for ir in tqdm(range(nruns)):
-        fpath = os.path.join(outdir, f'timeseries_run{ir}.csv')
-        timeseries.append(pd.read_csv(fpath))
-    # Concatenate and re-order index
-    timeseries = pd.concat(timeseries, axis=0)
-    logger.info('re-organizing timeseries index...')
-    timeseries.set_index([Label.ROI, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True)
-    timeseries.sort_index(inplace=True)
-    # Load ROI masks
-    logger.info('loading ROI masks...')
-    ROI_masks = pd.read_csv(ROI_masks_fpath).set_index(Label.ROI, drop=True)
+    # Check that output file is present in directory
+    if not os.path.isfile(fpath):
+        raise FileNotFoundError('post-processed data file not found in directory')
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Load experiment info table
+        logger.info('loading experiment info table...')
+        info_table = store['info_table']
+        # Load timeseries table
+        logger.info('loading processed timeseries data...')
+        timeseries = store['timeseries']
+        # Load ROI masks
+        logger.info('loading ROI masks...')
+        ROI_masks = store['ROI_masks']
     logger.info('data successfully loaded')
     return timeseries, info_table, ROI_masks
 
 
-def check_timeseries_data(outdir, nruns):
+def save_trialavg_dataset(fpath, timeseries, stats):
     '''
-    Check for availability of processed output data
+    Save trial-averaged dataset to a HDF5 file
     
-    :return: boolean stating whether the data is available
+    :param fpath: absolute path to data file
+    :param timeseries: multi-indexed (ROI, run, frame) trial-averaged timeseries dataframe
+    :param stats: multi-indexed (ROI, run) trial-averaged stats dataframe
     '''
-    try:
-        load_timeseries_data(outdir, nruns, check=True)
-        logger.info(f'processed timeseries data is available in "{outdir}" directory')
-        return True
-    except ValueError:
-        logger.info(f'processed timeseries data not found in "{outdir}" directory')
-        return False
-
-
-def get_peaks_along_trial(fpath, data, wlen, nseeds):
-    '''
-    Compute (or load) the detected activity peaks by sliding a detection window
-    along the trial interval for evey trial
-
-    :param fpath: output filepath
-    :param data: z-score timeseries data
-    :param wlen: window length (number of samples)
-    :param nseeds: number of starting indexes for the detection window along the interval
-    :return: multi-indexed series of detected peaks for each window position
-    '''
+    # Remove output file if it exists
     if os.path.isfile(fpath):
-        logger.info('loading detected peaks data...')
-        return pd.read_csv(fpath).set_index(
-            [Label.ROI, Label.RUN, Label.TRIAL, Label.ISTART])
-    else:
-        logger.info(f'detecting activity events in {nseeds} windows along the trial interval for each trial...')
-        peaks = slide_along_trial(
-            lambda *args, **kwargs: detect_across_trials(find_response_peak, *args, **kwargs),
-            data, wlen, nseeds)
-        peaks.rename(columns={Label.ZSCORE: Label.PEAK_ZSCORE}, inplace=True)
-        logger.info('saving detected peaks data...')
-        peaks.to_csv(fpath)
-        return peaks
+        os.remove(fpath)
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Save timeseries table
+        logger.info('saving trial-averaged timeseries data...')
+        store['timeseries'] = timeseries
+        # Save stats table
+        logger.info('saving trial-averaged stats data...')
+        store['stats'] = stats
+    logger.info('data successfully saved')
 
 
-def load_processed_dataset(fpath, prefix=None):
+def load_trialavg_dataset(fpath):
     '''
-    Load dataset of a particular date-mouse-region from a CSV file
+    Load dataset of a particular date-mouse-region from a HDF5 file
     
-    :param fpath: absolute path to the data file
-    :return: multi-indexed dataframe with date-mouse-region as an extra index dimension
+    :param fpath: absolute path to data file
+    :return: multi-indexed timeseries and stats dataframes
     '''
-    fname = os.path.basename(fpath)
-    # Load data
-    s = 'data'
-    if prefix is not None:
-        s = f'{prefix} {s}'
-    logger.info(f'loading {s} from {fname}')
-    data = pd.read_csv(fpath)
-    # Add dataset ID column
-    dataset_id = os.path.splitext(fname)[0]
-    if prefix is not None:
-        dataset_id = dataset_id.replace(prefix, '')
-    while dataset_id.startswith('_'):
-        dataset_id = dataset_id[1:]
-    data[Label.DATASET] = dataset_id
-    # Re-generate data index 
-    data.set_index(Label.DATASET, inplace=True)
-    indexcols = [Label.ROI, Label.RUN]
-    for k in [Label.TRIAL, Label.FRAME]:
-        if k in data.columns:
-            indexcols.append(Label.FRAME)
-    for k in indexcols:
-        if k not in data:
-            raise ValueError(f'index field "{k}" not found in "{fname}" dataframe')
-        data.set_index(k, append=True, inplace=True)
-    # Return data
-    return data
+    # Check that output file is present in directory
+    if not os.path.isfile(fpath):
+        raise FileNotFoundError('trial-averaged data file not found in directory')
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Load data
+        logger.info(f'loading trial-averaged data from {os.path.basename(fpath)}')
+        timeseries = store['timeseries']
+        stats = store['stats']
+    return timeseries, stats
 
 
-def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=None, **kwargs):
+def load_trialavg_datasets(dirpath, include_patterns=None, exclude_patterns=None, **kwargs):
     '''
     Load multiple mouse-region datasets
     
     :param include_patterns (optional): inclusion pattern(s)
     :param exclude_patterns (optional): exclusion pattern(s)
     '''
-    filetypes = ['timeseries', 'stats']
-    # List filepaths of each category
-    fpaths = {
-        k: natsorted(glob.glob(os.path.join(dirpath, f'{k}_*.csv')))
-        for k in filetypes
-    }
+    # List data filepaths
+    fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.h5')))
 
     # Filter according to inclusion & exclusion patterns, if any
     if include_patterns is not None:
         include_patterns = as_iterable(include_patterns)
         logger.warning(f'excluding datasets not having the following patterns: {include_patterns}')
-        fpaths = {k: list(filter(lambda x: all(e in x for e in include_patterns), v))
-                  for k, v in fpaths.items()}
+        fpaths = list(filter(lambda x: all(e in x for e in include_patterns), fpaths))
     if exclude_patterns is not None:
         exclude_patterns = as_iterable(exclude_patterns)
         logger.warning(f'excluding datasets with the following patterns: {exclude_patterns}')
-        fpaths = {k: list(filter(lambda x: not any(e in x for e in exclude_patterns), v))
-                  for k, v in fpaths.items()}
+        fpaths = list(filter(lambda x: not any(e in x for e in exclude_patterns), fpaths))
     
-    # Load and concatenate datasets for each category 
-    data = {k: pd.concat([
-        load_processed_dataset(fpath, prefix=k, **kwargs) for fpath in v], axis=0)
-        for k, v in fpaths.items()
-    }
-    timeseries, stats = data['timeseries'], data['stats']
+    # Load timeseries and stats datasets
+    datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
+    timeseries, stats = list(zip(*datasets))
+
+    # Get dataset IDs
+    logger.info('gathering dataset IDs...')
+    dataset_ids = []
+    for fpath in fpaths:
+        fname = os.path.basename(fpath)
+        dataset_id = os.path.splitext(fname)[0]
+        while dataset_id.startswith('_'):
+            dataset_id = dataset_id[1:]
+        dataset_ids.append(dataset_id)
+    
+    # Concatenate datasets while adding their respective IDs
+    timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
+    stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
 
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
@@ -588,5 +535,5 @@ def load_processed_datasets(dirpath, include_patterns=None, exclude_patterns=Non
         if ykey_diff not in stats:
             stats = add_change_metrics(timeseries, stats, ykey)
     
-    # Return stats and timeseries
-    return data
+    # Return stats and timeseries as a dictionary
+    return {'timeseries': timeseries, 'stats': stats}
