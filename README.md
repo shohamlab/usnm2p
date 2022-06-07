@@ -18,6 +18,7 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 - Clone this repository: `git clone https://github.com/shohamlab/usnm2p.git`
 - Move inside the repository: `cd usnm2p` 
 - Install the package dependencies: `pip install -r requirements.txt`
+- Install the pre-built package for PyTables directly from conda: `conda install pytables`
 - Create a user configuration file called `config.py`, and define in a variable called `dataroot` indicating the path to the root directory for the raw data to be analyzed.
 - Save the configuration file in the repository top folder. You're all set!
 
