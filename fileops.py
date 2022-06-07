@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-07 11:26:46
+# @Last Modified time: 2022-06-07 12:14:34
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -474,15 +474,31 @@ def load_trialavg_dataset(fpath):
     return timeseries, stats
 
 
-def load_trialavg_datasets(dirpath, include_patterns=None, exclude_patterns=None, **kwargs):
+def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None):
     '''
     Load multiple mouse-region datasets
     
+    :param layer: cortical layer
     :param include_patterns (optional): inclusion pattern(s)
     :param exclude_patterns (optional): exclusion pattern(s)
     '''
     # List data filepaths
     fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.h5')))
+
+    # If layer specified
+    if layer is not None:
+        # If default layer, remove any files with "layer" in filename 
+        if layer == DEFAULT_LAYER:
+            if exclude_patterns is not None:
+                exclude_patterns.append('layer')
+            else:
+                exclude_patterns = ['layer']
+        # Otherwise, add it to include patterns
+        else:
+            if include_patterns is not None:
+                include_patterns.append(layer)
+            else:
+                include_patterns = [layer]
 
     # Filter according to inclusion & exclusion patterns, if any
     if include_patterns is not None:
@@ -536,4 +552,5 @@ def load_trialavg_datasets(dirpath, include_patterns=None, exclude_patterns=None
             stats = add_change_metrics(timeseries, stats, ykey)
     
     # Return stats and timeseries as a dictionary
+    logger.info('datasets successfully loaded')
     return {'timeseries': timeseries, 'stats': stats}

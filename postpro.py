@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 18:52:00
+# @Last Modified time: 2022-06-07 13:11:49
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1456,6 +1456,9 @@ def exclude_datasets(timeseries, stats, to_exclude):
     :param to_exclude: date-mouse-region combinations to be discarded
     :return: filtered experiment dataframe 
     '''
+    if len(to_exclude) == 0:
+        logger.warning('empty exclude list -> ignoring')
+        return timeseries, stats
     candidate_datasets = stats.index.unique(level=Label.DATASET).values
     notthere = list(set(to_exclude) - set(candidate_datasets))
     if len(notthere) > 0:
@@ -1464,8 +1467,9 @@ def exclude_datasets(timeseries, stats, to_exclude):
     if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
         return timeseries, stats
+    to_exclude_str = '\n'.join([f' - {x}' for x in to_exclude])
     logger.info(
-        f'excluding the following datasets from analysis: {to_exclude}')
+        f'excluding the following datasets from analysis:\n{to_exclude_str}')
     query = f'{Label.DATASET} not in {to_exclude}'
     return timeseries.query(query), stats.query(query)
 
