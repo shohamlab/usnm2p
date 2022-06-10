@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 12:33:34
+# @Last Modified time: 2022-06-10 15:01:25
 
 ''' Collection of plotting utilities. '''
 
@@ -1432,7 +1432,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
 
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, cmap='viridis', quantile_bounds=(.05, .95), mark_stim=True):
+                       colwrap=4, cmap='viridis', vmin=None, vmax=None,
+                       quantile_bounds=(.01, .99), mark_stim=True):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
     culstered by similarity).
@@ -1462,9 +1463,13 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
     # Extract plotting boundaries of variable of interest
     if quantile_bounds is not None:
-        vmin, vmax = [data[key].quantile(x) for x in quantile_bounds]
+        vmin_est, vmax_est = [data[key].quantile(x) for x in quantile_bounds]
     else:
-        vmin, vmax = data[key].agg(['min', 'max'])
+        vmin_est, vmax_est = data[key].agg(['min', 'max'])
+    if vmin is None:
+        vmin = vmin_est
+    if vmax is None:
+        vmax = vmax_est
 
     # Add time column to dataframe
     data = add_time_to_table(data.copy(), fps=fps)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-02 09:23:53
+# @Last Modified time: 2022-06-10 17:25:19
 
 ''' Collection of generic utilities. '''
 
@@ -286,6 +286,23 @@ def expand_and_add(dfnew, dfref, prefix=''):
         key = f'{prefix}_{k}' if prefix else k
         dfref[key] = dfexp[k]
     return dfref
+
+
+def shiftslice(s, i):
+    ''' Shift a slice by some integer '''
+    return slice(s.start + i, s.stop + i)
+
+
+def get_mux_slice(mux):
+    ''' Get a neutral multi-indexed slice '''
+    return [slice(None)] * len(mux.names)
+
+
+def slice_last_dim(mux, wslice):
+    ''' Get a multi-indexed slice with last index dimenions '''
+    idx = get_mux_slice(mux)
+    idx[-1] = wslice
+    return tuple(idx)
     
 
 def reindex_dataframe_level(df, level=0):
@@ -293,6 +310,36 @@ def reindex_dataframe_level(df, level=0):
     old_vals = df.index.unique(level=level)
     new_vals = np.arange(old_vals.size)
     return df.reindex(new_vals, level=level)
+
+
+def discard_indexes(data, ikey, idiscard=None):
+    '''
+    Discard specific values from a specific index level in a multi-indexed dataset
+    
+    :param data: multi-index dataframe with 4D (ROI, run, trial, frame) index
+    :param ikey: index level key
+    :param idiscard: index values to discard at this index level
+    :return: filtered dataset
+    '''
+    # Cast indexes to discard as list
+    idiscard = as_iterable(idiscard)
+    # If no discard index specified -> return 
+    if len(idiscard) == 0 or idiscard[0] is None:
+        return data
+    # Get indexes values present in dataset at that level
+    idxs = data.index.unique(level=ikey)
+    # Diff the two lists to get indexes to discard from dataset
+    idiscard = sorted(list(set(idxs).intersection(set(idiscard))))
+    # If no discard index specified -> return 
+    if len(idiscard) == 0 or idiscard[0] is None:
+        return data
+    # Discard them
+    logger.info(f'discarding {ikey} index values {idiscard} from dataset')
+    data = data.query(f'{ikey} not in {idiscard}')
+    # Return data
+    logger.info(f'filtered data ({describe_dataframe_index(data)})')
+    return data
+
 
 
 def mean_str(s):
@@ -455,3 +502,39 @@ class DictTable(dict):
     ''' Overriden dict class enabling rendering as HTML Table in IPython notebooks. '''
     def _repr_html_(self):
         return dict_to_html(self)
+
+
+def nan_proof(func):
+    '''
+    Wrapper around cost function that makes it NaN-proof
+    
+    :param func: function taking a input a pandas Series and outputing a pandas Series
+    :return: modified, NaN-proof function object
+    '''
+    @wraps(func)
+    def wrapper(s, *args, **kwargs):
+        # Remove NaN values
+        s2 = s.dropna()
+        # Call function on cleaned input series
+        out = func(s2, *args, **kwargs)
+        # If output is of the same size as the cleaned input, add it to original input to retain same dimensions
+        if (is_iterable(out) or isinstance(out, pd.Series)) and len(out) == s2.size:
+            s[s2.index] = out
+            return s
+        # Otherwise return output as is
+        else:
+            return out
+    return wrapper
+
+
+def gauss(x, H, A, x0, sigma):
+    '''
+    Gaussian function
+    
+    :param x: independent variable
+    :param H: vertical offset
+    :param A: gaussian amplitude
+    :param x0: horizontal offset
+    :param sigma: gaussian width
+    '''
+    return H + A * np.exp(-(x - x0) ** 2 / (2 * sigma**2))

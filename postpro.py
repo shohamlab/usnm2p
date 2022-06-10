@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-07 13:11:49
+# @Last Modified time: 2022-06-10 17:26:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -94,35 +94,6 @@ def separate_trials(data, ntrials):
     data[Label.FRAME] = iframes_per_trial_ext
     data = data.set_index(Label.FRAME, append=True) 
     # Return data
-    return data
-
-
-def discard_indexes(data, ikey=Label.TRIAL, idiscard=None):
-    '''
-    Discard specific values from a specific index level in a multi-indexed dataset
-    
-    :param data: multi-index dataframe with 4D (ROI, run, trial, frame) index
-    :param ikey: index level key
-    :param idiscard: index values to discard at this index level
-    :return: filtered dataset
-    '''
-    # Cast indexes to discard as list
-    idiscard = as_iterable(idiscard)
-    # If no discard index specified -> return 
-    if len(idiscard) == 0 or idiscard[0] is None:
-        return data
-    # Get indexes values present in dataset at that level
-    idxs = data.index.unique(level=ikey)
-    # Diff the two lists to get indexes to discard from dataset
-    idiscard = sorted(list(set(idxs).intersection(set(idiscard))))
-    # If no discard index specified -> return 
-    if len(idiscard) == 0 or idiscard[0] is None:
-        return data
-    # Discard them
-    logger.info(f'discarding {ikey} index values {idiscard} from dataset')
-    data = data.query(f'{ikey} not in {idiscard}')
-    # Return data
-    logger.info(f'filtered data ({describe_dataframe_index(data)})')
     return data
 
 
@@ -226,29 +197,6 @@ def optimize_alpha(data, costfunc, bounds=(0, 1)):
     costs = np.array([costfunc(F_ROI, F_NEU, alpha) for alpha in alphas])
     # Return alpha corresponding to minimum cost
     return alphas[np.argmin(costs)]
-
-
-def nan_proof(func):
-    '''
-    Wrapper around cost function that makes it NaN-proof
-    
-    :param func: function taking a input a pandas Series and outputing a pandas Series
-    :return: modified, NaN-proof function object
-    '''
-    @wraps(func)
-    def wrapper(s, *args, **kwargs):
-        # Remove NaN values
-        s2 = s.dropna()
-        # Call function on cleaned input series
-        out = func(s2, *args, **kwargs)
-        # If output is of the same size as the cleaned input, add it to original input to retain same dimensions
-        if (is_iterable(out) or isinstance(out, pd.Series)) and len(out) == s2.size:
-            s[s2.index] = out
-            return s
-        # Otherwise return output as is
-        else:
-            return out
-    return wrapper
 
 
 def filter_signal(y, fs, fc, order=2):
@@ -470,22 +418,6 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, isubs=None, full_
         return df
     else:
         return df[Label.SPEED_UM_S]
-
-
-def shiftslice(s, i):
-    return slice(s.start + i, s.stop + i)
-
-
-def get_mux_slice(mux):
-    ''' Get a neutral multi-indexed slice '''
-    return [slice(None)] * len(mux.names)
-
-
-def slice_last_dim(mux, wslice):
-    ''' Get a multi-indexed slice with last index dimenions '''
-    idx = get_mux_slice(mux)
-    idx[-1] = wslice
-    return tuple(idx)
 
 
 def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=False):
@@ -782,36 +714,6 @@ def filter_data(data, iROI=None, irun=None, itrial=None, idataset=None, rtype=No
         return data, filters
     else:
         return data
-    
-
-def groupby_and_all(data, func, groupby=None):
-    '''
-    Wrapper around pandas "groupby" that applies a function on the input dataset for
-    each sub-group of the groupby category, but also on the entire dataset.
-    
-    :param data: dataframe
-    :param func: function to apply to the dataset and each sub-dataset
-    :param groupby (optional): variable defining the sub-groups
-    :retrun: dictionary of function output per sub-group and for the entire dataset (key "all")
-    '''
-    out = {'all': func(data)}
-    if groupby is not None:
-        for cond, cond_data in data.groupby(groupby):
-            out[cond] = func(cond_data)
-    return out
-
-
-def gauss(x, H, A, x0, sigma):
-    '''
-    Gaussian function
-    
-    :param x: independent variable
-    :param H: vertical offset
-    :param A: gaussian amplitude
-    :param x0: horizontal offset
-    :param sigma: gaussian width
-    '''
-    return H + A * np.exp(-(x - x0) ** 2 / (2 * sigma**2))
 
 
 def histogram_fit(data, func, bins=100, p0=None, bounds=None):
@@ -898,17 +800,6 @@ def gauss_histogram_fit(data, bins=100, plot=False):
 
     # Return outputs
     return xmid, popt
-
-
-def sort_ROIs(data, pattern):
-    ''' Get sorted ROI index from dataset according to specific metrics '''
-    # Compute average metrics per ROI on the 'all' condition
-    avg_per_ROI = data['all'].groupby(Label.ROI).mean()
-    # sort average metrics in specified direction
-    ascending = {'ascend': True, 'descend': False}[pattern]
-    avg_per_ROI = avg_per_ROI.sort_values(ascending=ascending)
-    # Extract sorted ROI indexes
-    return avg_per_ROI.index
 
 
 def compute_correlation_coeffs(data, xkey, ykey):
@@ -1380,73 +1271,6 @@ def get_xdep_data(data, xkey):
     raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
 
 
-def compute_1way_anova(data, xkey, ykey):
-    '''
-    Perform a 1-way ANOVA to assess whether a dependent variable is dependent
-    on a given independent variable (i.e. group, factor).
-
-    :param data: pandas dataframe
-    :param xkey: name of column containing the independent variable
-    :param ykey: name of column containing the dependent variable
-    :return: p-value for dependency
-    '''
-    # Rename columns of interest to ensure statsmodels compatibility
-    data = data.rename(columns={xkey: 'x', ykey: 'y'})
-    # Construct OLS model with data
-    model = ols('y ~ x', data=data).fit()
-    # Extract results table for 1-way ANOVA 
-    anova_table = sm.stats.anova_lm(model, typ=2)
-    # Extract relevant p-value for dependency
-    F = anova_table.loc['x', 'PR(>F)']
-    return F
-
-
-def sum_of_square_devs(x):
-    return ((x - x.mean())**2).sum()
-
-
-def anova1d(data, xkey, ykey):
-    '''
-    Detailed 1-way ANOVA
-    
-    :param data: multi-indexed experiment dataframe
-    :param xkey: name of column holding the values of the independent variable
-    :param ykey: name of column holding the values of the dependent variable
-    :return: p-value computing from F-score
-    '''
-    # Compute problem dimensions
-    k = data[xkey].nunique()  # number of conditions
-    npergroup = data.groupby(xkey)[ykey].agg(lambda s: s.notna().sum())  # number of valid (non-NaN) observations in each condition
-    N = npergroup.sum()  # overall number of valid observations
-    
-    # Compute degrees of freedom
-    df_between = k - 1
-    df_within = N - k
-    df_total = N - 1
-
-    # Compute means
-    Gm = data[ykey].mean()  # grand mean
-    M = data.groupby(xkey)[ykey].mean()  # means per group
-
-    # Compute sums of squares
-    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).sum()
-    ss_between = (npergroup * (M - Gm)**2).sum()
-    ss_total = ss_between + ss_within
-
-    # Compute F-score
-    ms_within = ss_within / df_within
-    ms_between = ss_between / df_between
-    F = ms_between / ms_within
-
-    # Compute resulting statistics
-    p = fstats.sf(F, df_between, df_within)  # p-value
-    # eta_sqrd = ss_between / ss_total  # effect size
-    # om_sqrd = (ss_between - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
-
-    # Return p-value
-    return p
-
-
 def exclude_datasets(timeseries, stats, to_exclude):
     '''
     Exclude specific datasets from analysis
@@ -1573,3 +1397,71 @@ def get_plot_data(timeseries, stats):
     expand_and_add(stats, plt_data)
     add_time_to_table(plt_data)
     return plt_data
+
+
+def compute_1way_anova(data, xkey, ykey):
+    '''
+    Perform a 1-way ANOVA to assess whether a dependent variable is dependent
+    on a given independent variable (i.e. group, factor).
+
+    :param data: pandas dataframe
+    :param xkey: name of column containing the independent variable
+    :param ykey: name of column containing the dependent variable
+    :return: p-value for dependency
+    '''
+    # Rename columns of interest to ensure statsmodels compatibility
+    data = data.rename(columns={xkey: 'x', ykey: 'y'})
+    # Construct OLS model with data
+    model = ols('y ~ x', data=data).fit()
+    # Extract results table for 1-way ANOVA 
+    anova_table = sm.stats.anova_lm(model, typ=2)
+    # Extract relevant p-value for dependency
+    F = anova_table.loc['x', 'PR(>F)']
+    return F
+
+
+
+def sum_of_square_devs(x):
+    return ((x - x.mean())**2).sum()
+
+
+def anova1d(data, xkey, ykey):
+    '''
+    Detailed 1-way ANOVA
+    
+    :param data: multi-indexed experiment dataframe
+    :param xkey: name of column holding the values of the independent variable
+    :param ykey: name of column holding the values of the dependent variable
+    :return: p-value computing from F-score
+    '''
+    # Compute problem dimensions
+    k = data[xkey].nunique()  # number of conditions
+    npergroup = data.groupby(xkey)[ykey].agg(lambda s: s.notna().sum())  # number of valid (non-NaN) observations in each condition
+    N = npergroup.sum()  # overall number of valid observations
+    
+    # Compute degrees of freedom
+    df_between = k - 1
+    df_within = N - k
+    df_total = N - 1
+
+    # Compute means
+    Gm = data[ykey].mean()  # grand mean
+    M = data.groupby(xkey)[ykey].mean()  # means per group
+
+    # Compute sums of squares
+    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).sum()
+    ss_between = (npergroup * (M - Gm)**2).sum()
+    ss_total = ss_between + ss_within
+
+    # Compute F-score
+    ms_within = ss_within / df_within
+    ms_between = ss_between / df_between
+    F = ms_between / ms_within
+
+    # Compute resulting statistics
+    p = fstats.sf(F, df_between, df_within)  # p-value
+    # eta_sqrd = ss_between / ss_total  # effect size
+    # om_sqrd = (ss_between - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
+
+    # Return p-value
+    return p
