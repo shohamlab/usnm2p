@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-10 15:01:25
+# @Last Modified time: 2022-06-13 08:47:29
 
 ''' Collection of plotting utilities. '''
 
@@ -1346,7 +1346,7 @@ def mark_trials(ax, mask, iROI, irun, color='C1'):
         
 
 def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
-                  mode='contour', cmap='viridis', alpha_ROIs=0.7):
+                  mode='contour', cmap='viridis', alpha_ROIs=0.7, ax=None):
     '''
     Plot spatial distribution of cells (per response type) on the recording plane.
 
@@ -1393,7 +1393,10 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
             rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
     # Create figure
-    fig, ax = plt.subplots(figsize=(6, 6))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+    else:
+        fig = ax.get_figure()
     if title is not None:
         ax.set_title(title)
     

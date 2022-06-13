@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-07 12:14:34
+# @Last Modified time: 2022-06-13 09:05:51
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -22,6 +22,7 @@ from utils import *
 from viewers import get_stack_viewer
 from constants import *
 from postpro import *
+
 
 def get_data_root():
     ''' Get the root directory for the raw data to analyze '''
@@ -433,13 +434,15 @@ def load_postpro_dataset(fpath):
     return timeseries, info_table, ROI_masks
 
 
-def save_trialavg_dataset(fpath, timeseries, stats):
+def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks):
     '''
     Save trial-averaged dataset to a HDF5 file
     
     :param fpath: absolute path to data file
     :param timeseries: multi-indexed (ROI, run, frame) trial-averaged timeseries dataframe
     :param stats: multi-indexed (ROI, run) trial-averaged stats dataframe
+    :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+    :param s2p_ops: suite2p output options dictionary
     '''
     # Remove output file if it exists
     if os.path.isfile(fpath):
@@ -452,6 +455,9 @@ def save_trialavg_dataset(fpath, timeseries, stats):
         # Save stats table
         logger.info('saving trial-averaged stats data...')
         store['stats'] = stats
+        # Save ROI masks
+        logger.info('saving ROI masks...')
+        store['ROI_masks'] = ROI_masks
     logger.info('data successfully saved')
 
 
@@ -471,7 +477,8 @@ def load_trialavg_dataset(fpath):
         logger.info(f'loading trial-averaged data from {os.path.basename(fpath)}')
         timeseries = store['timeseries']
         stats = store['stats']
-    return timeseries, stats
+        ROI_masks = store['ROI_masks']
+    return timeseries, stats, ROI_masks
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None):
@@ -512,7 +519,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # Load timeseries and stats datasets
     datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
-    timeseries, stats = list(zip(*datasets))
+    timeseries, stats, ROI_masks = list(zip(*datasets))
 
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
@@ -527,6 +534,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     # Concatenate datasets while adding their respective IDs
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
     stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
+    ROI_masks = pd.concat(ROI_masks, keys=dataset_ids, names=[Label.DATASET])
 
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
@@ -534,6 +542,8 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
     stats.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
+    ROI_masks.sort_index(
+        level=[Label.DATASET, Label.ROI], inplace=True)
 
     try:
         # Check run order consistency across datasets
@@ -553,4 +563,4 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # Return stats and timeseries as a dictionary
     logger.info('datasets successfully loaded')
-    return {'timeseries': timeseries, 'stats': stats}
+    return {'timeseries': timeseries, 'stats': stats, 'ROI_masks': ROI_masks}
