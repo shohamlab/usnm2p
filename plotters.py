@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-13 08:47:29
+# @Last Modified time: 2022-06-13 12:33:01
 
 ''' Collection of plotting utilities. '''
 
@@ -1346,7 +1346,7 @@ def mark_trials(ax, mask, iROI, irun, color='C1'):
         
 
 def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
-                  mode='contour', cmap='viridis', alpha_ROIs=0.7, ax=None):
+                  mode='contour', cmap='viridis', legend=True, alpha_ROIs=0.7, ax=None):
     '''
     Plot spatial distribution of cells (per response type) on the recording plane.
 
@@ -1421,7 +1421,54 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         add_scale_bar(ax, Lx, um_per_px, color='w')
 
     # Add legend
-    labels = [f'{k} ({v})' for k, v in count_by_type.items()]
+    if legend:
+        labels = [f'{k} ({v})' for k, v in count_by_type.items()]
+        if mode == 'contour':
+            legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
+        else:
+            legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
+        leg_items = [
+            Line2D([0], [0], label=label, ms=10, **legfunc(c))
+            for c, label in zip(colors, labels)]
+        ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+    
+    return fig
+
+
+def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour', **kwargs):
+
+    # Divide inputs per dataset
+    masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
+    stats_groups = stats.groupby(Label.DATASET)
+    ndatasets = stats_groups.ngroups
+
+    # Create figure
+    ncols = min(ndatasets, colwrap)
+    nrows = int(np.ceil(ndatasets / colwrap))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 5, nrows * 5))
+    axes = axes.ravel()
+
+    # Plot map for each dataset
+    for ax, (dataset_id, sgroup) in zip(axes, stats_groups):
+        mgroup = masks_groups[dataset_id]
+        ogroup = ops[dataset_id]
+        plot_cell_map(
+            mgroup, sgroup, ogroup, title=dataset_id, mode=mode, 
+            um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, **kwargs)
+        ax.set_aspect(1.)
+
+    # Hide remaining axes
+    for ax in axes[ndatasets:]:
+        ax.set_visible(False)
+    
+    # Add title
+    fig.suptitle(title)
+
+    # Add legend
+    if ndatasets % colwrap > 0:
+        fig.subplots_adjust(right=0.8)
+    labels = get_default_rtypes()
+    colors = plt.get_cmap('tab10').colors[:3]
     if mode == 'contour':
         legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
     else:
@@ -1429,7 +1476,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     leg_items = [
         Line2D([0], [0], label=label, ms=10, **legfunc(c))
         for c, label in zip(colors, labels)]
-    ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+    axes[ndatasets - 1].legend(
+        handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
     return fig
 
@@ -2005,7 +2053,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     
     # Determine y-bounds depending on variable
     if ykey == Label.DFF:
-        ybounds = [-0.1, 0.15]
+        ybounds = [-0.1, 0.15] if not avg else [-.05, .07]
     elif ykey == Label.ZSCORE:
         ybounds = [-3., 6.]
     else:
@@ -2111,7 +2159,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, yref=
 
 
 def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_TYPE,
-                                                 marker='o', **kwargs):
+                                                 marker='o', title=None, **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -2138,6 +2186,9 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     
     # Harmonize axes limits
     harmonize_axes_limits(axes)
+
+    if title is not None:
+        fig.suptitle(title)
 
     # Return figure handle
     return fig
@@ -2214,7 +2265,7 @@ def plot_parameter_dependency_across_datasets(
         avg_data = data.groupby(categories).mean()
         avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
 
-        # Extract non weighted average traces across datasets
+        # Extract average traces across datasets
         xdep_avg_data = get_xdep_data(avg_data, xkey)
 
         # Add average parameter dependency trace across datasets, for each response type
