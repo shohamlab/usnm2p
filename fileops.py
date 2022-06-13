@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-13 09:05:51
+# @Last Modified time: 2022-06-13 09:31:43
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -11,6 +11,7 @@ import glob
 import pprint
 import datetime
 import pandas as pd
+import h5py
 from tifffile import imread, imsave
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
@@ -434,7 +435,7 @@ def load_postpro_dataset(fpath):
     return timeseries, info_table, ROI_masks
 
 
-def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks):
+def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks, map_ops):
     '''
     Save trial-averaged dataset to a HDF5 file
     
@@ -442,12 +443,12 @@ def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks):
     :param timeseries: multi-indexed (ROI, run, frame) trial-averaged timeseries dataframe
     :param stats: multi-indexed (ROI, run) trial-averaged stats dataframe
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
-    :param s2p_ops: suite2p output options dictionary
+    :param map_ops: dictionary containing the necessary fields to plot cell maps
     '''
     # Remove output file if it exists
     if os.path.isfile(fpath):
         os.remove(fpath)
-    # Create HDF store object
+    # Create HDF stream to store pandas objects
     with pd.HDFStore(fpath) as store:
         # Save timeseries table
         logger.info('saving trial-averaged timeseries data...')
@@ -458,7 +459,9 @@ def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks):
         # Save ROI masks
         logger.info('saving ROI masks...')
         store['ROI_masks'] = ROI_masks
-    logger.info('data successfully saved')
+        # Save map_ops in the same object
+        logger.info('saving mapping options...')
+        store['map_ops'] = pd.Series(map_ops)
 
 
 def load_trialavg_dataset(fpath):
@@ -478,7 +481,8 @@ def load_trialavg_dataset(fpath):
         timeseries = store['timeseries']
         stats = store['stats']
         ROI_masks = store['ROI_masks']
-    return timeseries, stats, ROI_masks
+        map_ops = store['map_ops'].to_dict()
+    return timeseries, stats, ROI_masks, map_ops
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None):
@@ -519,7 +523,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # Load timeseries and stats datasets
     datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
-    timeseries, stats, ROI_masks = list(zip(*datasets))
+    timeseries, stats, ROI_masks, map_ops = list(zip(*datasets))
 
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
@@ -535,6 +539,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
     stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
     ROI_masks = pd.concat(ROI_masks, keys=dataset_ids, names=[Label.DATASET])
+    map_ops = dict(zip(dataset_ids, map_ops))
 
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
@@ -563,4 +568,9 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # Return stats and timeseries as a dictionary
     logger.info('datasets successfully loaded')
-    return {'timeseries': timeseries, 'stats': stats, 'ROI_masks': ROI_masks}
+    return {
+        'timeseries': timeseries,
+        'stats': stats,
+        'ROI_masks': ROI_masks,
+        'map_ops': map_ops
+    }
