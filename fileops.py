@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-14 10:47:29
+# @Last Modified time: 2022-06-14 10:52:14
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -552,6 +552,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     ROI_masks.sort_index(
         level=[Label.DATASET, Label.ROI], inplace=True)
 
+    check_run_order(stats)
     try:
         # Check run order consistency across datasets
         check_run_order(stats)
