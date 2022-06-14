@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-13 12:48:42
+# @Last Modified time: 2022-06-14 10:47:29
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -215,17 +215,19 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     datafolders = []
     # Loop through content of base directory 
     for item in os.listdir(basedir):
-        absitem = os.path.join(basedir, item)
-        # If content item is a directory containing TIF files, add to list
-        if is_tif_dir(absitem):
-            datafolders.append(absitem)
-        # If content item is a directory and recursive call enabled, call function
-        # recursively on child folder and add output to list
-        if recursive and os.path.isdir(absitem):
-            datafolders += get_data_folders(
-                absitem,
-                exclude_patterns=exclude_patterns, include_patterns=include_patterns,
-                rec_call=True)
+        # Only consider folders that are not directly an exclusion pattern
+        if item not in exclude_patterns:
+            absitem = os.path.join(basedir, item)
+            # If content item is a directory containing TIF files, add to list
+            if is_tif_dir(absitem):
+                datafolders.append(absitem)
+            # If content item is a directory and recursive call enabled, call function
+            # recursively on child folder and add output to list
+            if recursive and os.path.isdir(absitem):
+                datafolders += get_data_folders(
+                    absitem,
+                    exclude_patterns=exclude_patterns, include_patterns=include_patterns,
+                    rec_call=True)
     logger.debug(f'raw list: {datafolders}')
     # Filter out excluded folders
     for k in exclude_patterns:
