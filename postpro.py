@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-10 17:26:31
+# @Last Modified time: 2022-06-14 17:08:34
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -974,7 +974,7 @@ def is_valid(df):
     '''
     cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
     if len(cols) > 0:
-        logger.info(f'identifying samples not without [{", ".join(cols)}] tags')
+        logger.info(f'identifying samples without [{", ".join(cols)}] tags')
     out = ~df[cols].any(axis=1)
     return out.rename('valid?')
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-13 12:33:01
+# @Last Modified time: 2022-06-15 13:01:15
 
 ''' Collection of plotting utilities. '''
 
@@ -2053,7 +2053,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     
     # Determine y-bounds depending on variable
     if ykey == Label.DFF:
-        ybounds = [-0.1, 0.15] if not avg else [-.05, .07]
+        ybounds = [-0.1, 0.15] if not avg else [-.1, .12]
     elif ykey == Label.ZSCORE:
         ybounds = [-3., 6.]
     else:
@@ -2212,7 +2212,7 @@ def plot_parameter_dependency_across_datasets(
         ybounds = kwargs.pop('ybounds') 
     else:
         if ykey == Label.DFF:
-            ybounds = [-.03, +.06]
+            ybounds = [-.05, +.1]
         elif ykey == Label.ZSCORE:
             ybounds = [-1., 2.]
         else:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-14 10:52:14
+# @Last Modified time: 2022-06-14 17:10:54
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -552,7 +552,6 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     ROI_masks.sort_index(
         level=[Label.DATASET, Label.ROI], inplace=True)
 
-    check_run_order(stats)
     try:
         # Check run order consistency across datasets
         check_run_order(stats)
@@ -560,6 +559,15 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         # If needed, harmonize run indexes in stats & timeseries
         logger.warning(err)
         timeseries, stats = harmonize_run_index(timeseries, stats) 
+
+        # Sort index for each dataset AGAIN
+        logger.info('sorting dataset indexes...')
+        timeseries.sort_index(
+            level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+        stats.sort_index(
+            level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
+        ROI_masks.sort_index(
+            level=[Label.DATASET, Label.ROI], inplace=True)
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
