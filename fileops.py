@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-14 17:10:54
+# @Last Modified time: 2022-08-15 13:38:53
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -12,7 +12,7 @@ import pprint
 import datetime
 import pandas as pd
 import h5py
-from tifffile import imread, imsave
+from tifffile import imread, imsave, TiffFile
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
@@ -255,13 +255,26 @@ def sort_folders_by_runID(datafolders, pdicts):
     return datafolders, pdicts
 
 
-def loadtif(fpath, verbose=True):
+def loadtif(fpath, verbose=True, metadata=False):
     ''' Load stack/image from .tif file '''
-    stack = imread(fpath)
+    # stack = imread(fpath)
+    with TiffFile(fpath) as tif:
+        # Load tiff stack
+        stack = tif.asarray()
+        # Load metadata if specified
+        if metadata:
+            meta = tif.scanimage_metadata    
+        else:
+            meta = None
+    # If stack has more than 2 dimensions (i.e. contains multiple frames), log info
     if stack.ndim > 2:
         func = logger.info if verbose else logger.debug
         func(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
-    return stack
+    # Return
+    if meta is None:
+        return stack
+    else:
+        return stack, meta
 
 
 def savetif(fpath, stack, overwrite=True):

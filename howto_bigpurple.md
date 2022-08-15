@@ -47,7 +47,7 @@ alias 3lrename="bash ~/$MYNAME/code/bash/rename_3_levels.sh"
 - Create directories that will contain your configuration files: `mkdir .conda .config .ipython .local`
 - Go to home folder: `cd ~`
 - Add a symbolic link to your personal directory: `ln -s /gpfs/data/$MYLABNAME/$MYNAME ~/$MYNAME`
-- Add a symbolic link to your scratch directory (where you will store computation data): `ln -s /gpfs/scratch/$MYID ~/scratch`
+- Add a symbolic link to your scratch directory (where you will store computation data): `ln -s /gpfs/scratch/$(whoami) ~/scratch`
 - Remove placeholders added by default upon creation of your user space: `rm .conda .config .ipython .local`
 - Replace these placeholders with symbolic links towards directories in your personal space:
     - `ln -s /gpfs/data/$MYLABNAME/$MYNAME/.conda ~/.conda`

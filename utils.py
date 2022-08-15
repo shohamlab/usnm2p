@@ -2,13 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-10 17:25:19
+# @Last Modified time: 2022-08-15 13:52:16
 
 ''' Collection of generic utilities. '''
 
 import numpy as np
 import pandas as pd
-from numpy.lib.stride_tricks import sliding_window_view
+from scipy.interpolate import interp1d
 from pandas.api.types import is_numeric_dtype
 import operator
 import abc
@@ -145,6 +145,56 @@ def float_to_uint8(arr):
     return (arr * 255).astype(np.uint8)
 
 
+def resample_stack(x, ref_sr, target_sr):
+    '''
+    Resample array to a specific sampling rate along first axis
+    
+    :param x: n-dimensional array
+    :param ref_sr: reference sampling rate of the input array (Hz)
+    :param target_sr: target sampling rate for the output array (Hz)
+    :return: resampled array
+    '''
+    s = f'resampling {x.shape} stack from {ref_sr} Hz to {target_sr} Hz...'
+    if x.ndim > 1:
+        s = f'{s} along axis 0'
+    logger.info(s)
+    # Compute sampling rate ratio
+    sr_ratio = target_sr / ref_sr
+    # Create reference and target time vectors
+    tref = np.arange(x.shape[0]) / ref_sr  # s
+    ntarget = int(np.ceil(tref.size * sr_ratio))
+    ttarget = np.linspace(tref[0], tref[-1], ntarget)
+    # Interpolate each pixel along target time vector
+    return interp1d(tref, x, axis=0)(ttarget)
+
+
+def moving_average(x, n=3):
+    '''
+    Apply moving average on first axis of a n-dimensional array
+    
+    :param x: n-dimensional array
+    :param n: moving average window size (in number of frames)
+    :return: smoothed array with exact same dimensions as x
+    '''
+    # Logging string
+    s = f'smoothing {x.shape} array with {n} samples moving average'
+    if x.ndim > 1:
+        s = f'{s} along axis 0'
+    logger.info(s)
+    # Pad input array on both sides
+    if n % 2 == 0:
+        n -= 1
+    w = n // 2
+    wvec = [(0, 0)] * x.ndim
+    wvec[0] = (w, w)
+    xpad = np.pad(x, wvec, mode='symmetric')
+    # Apply moving average along first axis
+    ret = np.cumsum(xpad, axis=0)
+    ret[n:] = ret[n:] - ret[:-n]
+    # Return output
+    return ret[n - 1:] / n
+
+
 def apply_rolling_window(x, w, func=None, warn_oversize=True):
     '''
     Generate a rolling window over an array an apply a specific function to the result.
@@ -172,7 +222,6 @@ def apply_rolling_window(x, w, func=None, warn_oversize=True):
     # Pad input array on both sides
     x = np.pad(x, w // 2, mode='symmetric')
     # Generate rolling window over array
-    # roll = sliding_window_view(x, w)
     roll = pd.Series(x).rolling(w, center=True)
     # Apply function over rolling window object, drop NaNs and extract output array 
     # return np.array([func(r) for r in roll])
