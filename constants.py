@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 14:55:09
+# @Last Modified time: 2022-08-16 19:03:49
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -39,6 +39,9 @@ SI_POWERS = {
 
 DEFAULT_LINE = 'line3'
 DEFAULT_LAYER = 'layer2-3'
+BERGAMO_SR = 30.00  # data sampling rate on Bergamo resonant scanning system (Hz)
+BRUKER_SR = 3.56    # data sampling rate on Bruker galvo scanning system (Hz)
+FUNC_CHANNEL = 1  # index of functional channel in multi-channel Bergamo recordings
 REF_NFRAMES = 1600  # reference number of frames in any given experimental run (used to check integrity of input stacks)
 NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
