@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-15 13:38:53
+# @Last Modified time: 2022-08-16 16:43:44
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -312,6 +312,8 @@ def process_and_save(processor, input_fpath, input_root, *args, overwrite=False,
     # Get output filepath
     output_fpath = get_output_equivalent(
         input_fpath, input_root, f'{processor.rootcode}/{processor.code}')
+    # Modify output filepath according to processor
+    output_fpath = processor.get_target_fpath(output_fpath)
     # If already existing, act according to overwrite parameter
     if os.path.isfile(output_fpath):
         logger.warning(f'"{output_fpath}" already exists')

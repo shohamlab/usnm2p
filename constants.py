@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 18:38:39
+# @Last Modified time: 2022-08-16 14:55:09
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -109,7 +109,7 @@ MIN_CELL_DENSITY = 1000.  # minimum cell density (cells/mm2)
 
 class Pattern:
 
-    LINE = '([A-z][A-z0-9]*)'
+    LINE = '([A-z][A-z0-9_]*)'
     DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
     MOUSE = 'mouse[1-9][0-9]*'
     REGION = 'region[1-9][0-9]*[a-zA-Z]?'
@@ -120,6 +120,8 @@ class Pattern:
     MPA = '([0-9]+[.]?[0-9]*)MPA'
     DC = '([0-9]+)DC'
     RUN = '([0-9]+)'
+    NAMED_RUN = 'run([0-9]+)'
+    TRIAL = '([0-9]+)'
     CYCLE = 'Cycle([0-9]+)'
     CHANNEL = 'Ch([0-9])'
     FRAME = '([0-9]+)'

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-14 11:21:59
+# @Last Modified time: 2022-08-16 15:24:59
 
 ''' Collection of parsing utilities. '''
 
@@ -19,6 +19,10 @@ P_DATEMOUSEREGLAYER = re.compile(
 P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.RUN}$', re.IGNORECASE)
 P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
+P_TRIALFILE = re.compile(
+    f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.NAMED_RUN}_{Pattern.TRIAL}.tif$', re.IGNORECASE)
+P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{sr:.2f}Hz_\6MPa_\7DC-run\8_\9.tif'
+P_RUNFILE_SUB = r'\1_\2frames_\3Hz_\4ms_\5Hz_\6MPa_\7DC-run\8.tif'
 
 
 def parse_experiment_parameters(name):

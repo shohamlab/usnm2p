@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-15 13:52:16
+# @Last Modified time: 2022-08-16 15:10:00
 
 ''' Collection of generic utilities. '''
 
+import os
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -37,6 +38,15 @@ class StackProcessor(metaclass=abc.ABCMeta):
     def rootcode(self):
         ''' Abstract root code attribute '''
         raise NotImplementedError
+
+    def get_target_fname(self, fname):
+        ''' Default method for target file name, conserving input name '''
+        return fname
+
+    def get_target_fpath(self, fpath):
+        fdir, fname = os.path.split(fpath)
+        return os.path.join(fdir, self.get_target_fname(fname))
+
 
 
 class NoProcessor(StackProcessor):
@@ -154,10 +164,10 @@ def resample_stack(x, ref_sr, target_sr):
     :param target_sr: target sampling rate for the output array (Hz)
     :return: resampled array
     '''
-    s = f'resampling {x.shape} stack from {ref_sr} Hz to {target_sr} Hz...'
+    s = f'resampling {x.shape} stack from {ref_sr} Hz to {target_sr} Hz'
     if x.ndim > 1:
         s = f'{s} along axis 0'
-    logger.info(s)
+    logger.info(f'{s} ...')
     # Compute sampling rate ratio
     sr_ratio = target_sr / ref_sr
     # Create reference and target time vectors
