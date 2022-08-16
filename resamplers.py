@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 17:37:56
+# @Last Modified time: 2022-08-16 17:53:55
 
 ''' Collection of image stacking utilities. '''
 
@@ -122,6 +122,8 @@ class StackResampler(StackProcessor):
         '''
         # Extract nframes from file name
         mo = P_TRIALFILE.match(fname)
+        if mo is None:
+            raise ValueError(f'file "{fname}" does not fit {P_TRIALFILE.pattern} pattern')
         nframes = int(mo.group(2))
         # Replace by new values in file name, and return
         return P_TRIALFILE.sub(
