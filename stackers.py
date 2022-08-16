@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 16:49:47
+# @Last Modified time: 2022-08-16 17:37:22
 
 ''' Collection of image stacking utilities. '''
 
@@ -147,18 +147,20 @@ def stack_tifs(inputdir, pattern=P_TIFFILE, input_key='raw', **kwargs):
     return TifStacker().stack(fpaths, output_fpath, **kwargs)
 
 
-def group_by_run(files):
+def group_by_run(fpaths):
     '''
     Group a large file list into consecutive trial files for each run
     
-    :param files: input files list
-    :return: dictionary of files list per run index
+    :param fpaths: list of full paths to input files
+    :return: dictionary of filepaths list per run index
     '''
     # Create output dictionary
     fbyrun = {}
-    # For each file
-    for fname in files:
-        # Extract run and trial index from name
+    # For each file path
+    for fpath in fpaths:
+        # Split directory and filename
+        fdir, fname = os.path.split(fpath)
+        # Extract run and trial index from file name
         mo = P_TRIALFILE.match(fname)
         *_, irun, itrial = mo.groups()
         irun, itrial = int(irun), int(itrial)
@@ -167,56 +169,49 @@ def group_by_run(files):
             # Get run filename
             run_fname = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
             fbyrun[irun] = [run_fname, []]
-        # Add filename to appropriate run list
-        fbyrun[irun][1].append(fname)
+        # Add filepath to appropriate run list
+        fbyrun[irun][1].append(fpath)
     # Return dictionary
     return fbyrun
 
 
-def stack_trial_tifs(inputdir, pattern=P_TIFFILE, input_key='resampled', **kwargs):
+def stack_trial_tifs(input_fpaths, input_key='resampled', **kwargs):
     '''
-    Stack TIFs of consecutive trials together for each run in a data folder
+    Stack TIFs of consecutive trials together per for each run identified in a file list
     
-    :param inputdir: absolute path to directory containing the input stacks
-    :param pattern: filename matching pattern 
+    :param input_fpaths: absolute paths to input stacks
     :param input_key: input key for output path replacement
     :return: filepaths to the created tif stacks per run
     '''
-    # Get equivalent output directory
-    outdir = get_output_equivalent(inputdir, input_key, 'stacked')
-    output_fpaths = []
-    # Get filelist by run
-    flist = get_sorted_filelist(inputdir, pattern=pattern)
-    flist_by_run = group_by_run(flist)
+    # Get input and output directories
+    input_dir = os.path.split(input_fpaths[0])[0]
+    outdir = get_output_equivalent(input_dir, input_key, 'stacked')
+    # Get file paths by run
+    fpaths_by_run = group_by_run(input_fpaths)
     # For each run
-    for irun, (out_fname, files) in flist_by_run.items():
-        # Get input and output filepaths
-        input_fpaths = [os.path.join(inputdir, f) for f in files]
+    output_fpaths = []
+    for irun, (out_fname, fpaths) in fpaths_by_run.items():
+       # Get output filepath
         output_fpath = os.path.join(outdir, out_fname)
         # Stack trial TIFs together
-        TifStacker(input_type='stack').stack(input_fpaths, output_fpath, **kwargs)
+        TifStacker(input_type='stack').stack(fpaths, output_fpath, **kwargs)
         output_fpaths.append(output_fpath)
     # Return list of output filepaths
     return output_fpaths
 
 
-
-def split_multichannel_tifs(inputdir, pattern=P_TIFFILE, input_key='stacked', **kwargs):
+def split_multichannel_tifs(input_fpaths, input_key='stacked', **kwargs):
     '''
-    Split channels Stack TIFs of consecutive trials together for each run in a data folder
+    Split channels for each stack file in a list
     
-    :param inputdir: absolute path to directory containing the input stacks
-    :param pattern: filename matching pattern 
+    :param input_fpaths: list of absolute paths to input stack files 
     :param input_key: input key for output path replacement
     :return: filepaths to the created tif stacks per run
     '''
     output_fpaths = []
-    # Get input filelist
-    flist = get_sorted_filelist(inputdir, pattern=pattern)
     # For each file
-    for input_fname in flist:
+    for input_fpath in input_fpaths:
         # Load input stack
-        input_fpath = os.path.join(inputdir, input_fname)
         stack = loadtif(input_fpath)
         # If stack has more than 3 dimensions (i.e. multi-channel)
         if stack.ndim > 3:

@@ -2,12 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 15:07:54
+# @Last Modified time: 2022-08-16 17:37:56
 
 ''' Collection of image stacking utilities. '''
 
-import os
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -147,22 +145,18 @@ class StackResampler(StackProcessor):
         return fig
 
 
-def resample_tifs(inputdir, ref_sr, target_sr, input_root='raw'):
+def resample_tifs(input_fpaths, ref_sr, target_sr, input_root='raw'):
     '''
     High-level stack resampling function
 
-    :param inputdir: input directory containing TIF stacks
+    :param input_fpaths: list of full paths to input TIF stacks
     :param ref_sr: reference sampling rate of the input array (Hz)
     :param target_sr: target sampling rate for the output array (Hz)
     :return: list of resampled TIF stacks
     '''
     # Create stack resampler object
     sr = StackResampler(ref_sr=ref_sr, target_sr=target_sr)
-    # Loop through each subfolder
-    logger.info(f'resampling TIF files in "{inputdir}"')
-    # List and sort TIF files
-    raw_stack_fpaths = sorted(glob.glob(os.path.join(inputdir, '*.tif')))
-    # Resample each file
+    # Resample each stack file
     resampled_stack_fpaths = process_and_save(
-        sr, raw_stack_fpaths, input_root, overwrite=False)
+        sr, input_fpaths, input_root, overwrite=False)
     return resampled_stack_fpaths
