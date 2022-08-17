@@ -2,14 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 15:10:00
+# @Last Modified time: 2022-08-17 09:50:04
 
 ''' Collection of generic utilities. '''
 
 import os
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
 from pandas.api.types import is_numeric_dtype
 import operator
 import abc
@@ -153,29 +152,6 @@ def get_singleton(df, key, delete=False):
 def float_to_uint8(arr):
     ''' Transform a floating point (0 to 1) array to an 8-bit unsigned integer (0 to 255) array. '''
     return (arr * 255).astype(np.uint8)
-
-
-def resample_stack(x, ref_sr, target_sr):
-    '''
-    Resample array to a specific sampling rate along first axis
-    
-    :param x: n-dimensional array
-    :param ref_sr: reference sampling rate of the input array (Hz)
-    :param target_sr: target sampling rate for the output array (Hz)
-    :return: resampled array
-    '''
-    s = f'resampling {x.shape} stack from {ref_sr} Hz to {target_sr} Hz'
-    if x.ndim > 1:
-        s = f'{s} along axis 0'
-    logger.info(f'{s} ...')
-    # Compute sampling rate ratio
-    sr_ratio = target_sr / ref_sr
-    # Create reference and target time vectors
-    tref = np.arange(x.shape[0]) / ref_sr  # s
-    ntarget = int(np.ceil(tref.size * sr_ratio))
-    ttarget = np.linspace(tref[0], tref[-1], ntarget)
-    # Interpolate each pixel along target time vector
-    return interp1d(tref, x, axis=0)(ttarget)
 
 
 def moving_average(x, n=3):

@@ -2,16 +2,17 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 17:53:55
+# @Last Modified time: 2022-08-17 10:10:52
 
 ''' Collection of image stacking utilities. '''
 
 import numpy as np
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
 from constants import *
 from logger import logger
-from utils import resample_stack, moving_average
+from utils import moving_average
 from utils import StackProcessor, NoProcessor
 from fileops import process_and_save
 from parsers import P_TRIALFILE, P_TRIALFILE_SUB
@@ -25,7 +26,7 @@ class NoResamplerFilter(NoProcessor):
 class StackResampler(StackProcessor):
     ''' Generic interface to an stack resampler. '''
 
-    def __init__(self, ref_sr, target_sr, smooth=True):
+    def __init__(self, ref_sr, target_sr, smooth=True, nsub=NFRAMES_CORRUPTED_BERGAMO):
         '''
         Constructor
         
@@ -33,13 +34,15 @@ class StackResampler(StackProcessor):
         :param target_sr: target sampling rate for the output array (Hz)
         :param smooth: whether to apply pre-smoothing with moving average 
             to avoid sub-sampling outlier values 
+        :param nsub: number of frames to substitute at beginning of stack
         '''
         self.ref_sr = ref_sr
         self.target_sr = target_sr
         self.smooth = smooth
+        self.nsub = nsub
     
     def __str__(self) -> str:
-        return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth})'
+        return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth}, nsub={self.nsub})'
     
     @property
     def rootcode(self):
@@ -83,20 +86,53 @@ class StackResampler(StackProcessor):
         if not isinstance(value, bool):
             raise ValueError('smooth must be a boolean')
         self._smooth = value
+    
+    @property
+    def nsub(self):
+        return self._nsub
+
+    @nsub.setter
+    def nsub(self, value):
+        if not isinstance(value, int) or value < 0:
+            raise ValueError('nsub must be a positive integer')
+        self._nsub = value
 
     def preprocess(self, stack):
         ''' Preprocess stack '''
-        # Replace first 10 frames by 11th
-        logger.info('substituting erroneous first 10 frames of stack...')
-        stack[:10] = stack[11]
+        if self.nsub > 0:
+            # Replace first nsub frames by (nsub+1)-th frame on each channel
+            logger.info(f'substituting corrupted first {self.nsub} frames of stack...')
+            stack[:self.nsub] = stack[self.nsub + 1]
         return stack
+    
+    def resample(self, x):
+        '''
+        Resample array to a specific sampling rate along first axis
+        
+        :param x: n-dimensional array
+        :param ref_sr: reference sampling rate of the input array (Hz)
+        :param target_sr: target sampling rate for the output array (Hz)
+        :return: resampled array
+        '''
+        s = f'resampling {x.shape} stack from {self.ref_sr} Hz to {self.target_sr} Hz'
+        if x.ndim > 1:
+            s = f'{s} along axis 0'
+        logger.info(f'{s} ...')
+        # Compute sampling rate ratio
+        sr_ratio = self.target_sr / self.ref_sr
+        # Create reference and target time vectors
+        tref = np.arange(x.shape[0]) / self.ref_sr  # s
+        ntarget = int(np.ceil(tref.size * sr_ratio))
+        ttarget = np.linspace(tref[0], tref[-1], ntarget)
+        # Interpolate each pixel along target time vector
+        return interp1d(tref, x, axis=0)(ttarget)
 
     def run(self, stack):
         '''
-        Resample image stack.
+        Pre-process, smooth and resample image stack.
 
         :param stack: input image stack
-        :return: resampled image stack
+        :return: processed image stack
         '''
         ref_dtype = stack.dtype
         stack = self.preprocess(stack)
@@ -105,7 +141,7 @@ class StackResampler(StackProcessor):
             stack = moving_average(
                 stack, n=int(np.round(self.ref_sr / self.target_sr)))
         # Resample at target sampling rate
-        res_stack = resample_stack(stack, self.ref_sr, self.target_sr)
+        res_stack = self.resample(stack)
         # Round, cast as input integer type and return
         return np.round(res_stack).astype(ref_dtype)
     

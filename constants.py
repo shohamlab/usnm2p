@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 19:03:49
+# @Last Modified time: 2022-08-17 09:53:43
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -49,6 +49,7 @@ P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
 ####################################### PRE-PROCESSING ######################################
 
+NFRAMES_CORRUPTED_BERGAMO = 10  # number of corrupted frames at the beginning of each acquisition file on Bergamo due to Pockle cell malfunction
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
