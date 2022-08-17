@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 09:53:43
+# @Last Modified time: 2022-08-17 16:01:41
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -63,7 +63,7 @@ REWRITTEN_S2P_KEYS = {  # suite2p options keys that are rewritten upon suite2p p
     # 'block_size'
 }  
 TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s) 
-
+TAU_GCAMP7F_DECAY = 0.7  # GCaMP7f exponential decay time constant (s)
 
 ###################################### POST-PROCESSING ######################################
 

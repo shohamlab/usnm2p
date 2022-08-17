@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-01-03 09:28:03
+# @Last Modified time: 2022-08-17 16:07:36
 
 ''' Notebook image viewing utilities. '''
 
@@ -33,7 +33,7 @@ class StackViewer:
     npix_label = 10 # number of pixels used for upper-right labeling
     
     def __init__(self, fpaths, headers, title=None, continuous_update=True,
-                 display_width=240, display_height=240, ):
+                 display_width=240, display_height=240, scaling_factor=S2P_UINT16_NORM_FACTOR):
         '''
         Initialization.
 
@@ -45,6 +45,7 @@ class StackViewer:
         :param display_height: diplay height (in pixels)
         '''
         self.fpaths = fpaths
+        self.scaling_factor = scaling_factor
         logger.info('initializing stack viewer')
         self.fobjs = [self.get_fileobj(fp) for fp in self.fpaths]
         self.headers = headers
@@ -94,7 +95,7 @@ class StackViewer:
     def get_frame(self, fobj, i):
         '''Get a particular frame in the stack '''
         if isinstance(fobj, BinaryFile):
-            return fobj[i][0] * S2P_UINT16_NORM_FACTOR
+            return fobj[i][0] * self.scaling_factor
         elif isinstance(fobj, np.ndarray):
             return fobj[i]
         else:
@@ -162,8 +163,7 @@ class StackViewer:
                         refindex = index
                     real_index = index - refindex
                     if real_index >= frange.start and real_index < frange.stop:
-                        # Multiply stack by factor 2 to compensate for suite2p input normalization
-                        out.append(func(real_index, frame[0] * S2P_UINT16_NORM_FACTOR))
+                        out.append(func(real_index, frame[0] * self.scaling_factor))
                         pbar.update()
             # FIX: reload binary file object to reset internal index and make sure
             # next iter_frames works correctly

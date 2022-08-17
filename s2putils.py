@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-02-25 10:17:26
+# @Last Modified time: 2022-08-17 16:05:28
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -219,12 +219,14 @@ def open_binary_file(ops):
     return BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file'])
 
 
-def get_s2p_stack(ops, bounds=None):
+def get_s2p_stack(ops, bounds=None, factor=S2P_UINT16_NORM_FACTOR):
     '''
     Get the stack resulting from suite2p processing
     
     :param ops: suite2p output options dictionary
     :param bounds (optional): frame range boundaries
+    :param factor: output scaling factor (can be used to compensate
+    for suite2p input normalization)
     :return: (nframes, ny, nx) data array
     '''
     with open_binary_file(ops) as fobj:
@@ -233,8 +235,7 @@ def get_s2p_stack(ops, bounds=None):
     if bounds is not None:
         logger.info(f'extracting {bounds} stack slice...')
         data = data[bounds[0]:bounds[1] + 1]
-    # Multiply stack by factor 2 to compensate for suite2p input normalization
-    return data * S2P_UINT16_NORM_FACTOR
+    return data * factor
 
 
 def get_s2p_stack_label(ops):
