@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 19:26:15
+# @Last Modified time: 2022-08-17 13:46:30
 
 ''' Collection of plotting utilities. '''
 
@@ -299,6 +299,7 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
     # Get runs sorted by I_SPTA
     df = get_info_table(fpaths, ntrials_per_run=ntrials_per_run)
     df = add_intensity_to_table(df)
+    npertrial = df.loc[0, Label.NPERTRIAL]
     df = df.sort_values(by=Label.ISPTA)
 
     # Create figure backbone
@@ -310,7 +311,7 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         ax.set_xlim(*tbounds)
     if title is not None:
         ax.set_title(title)
-    iframes = np.arange(NFRAMES_PER_TRIAL)
+    iframes = np.arange(npertrial)
     ax.axvline(0., c='k', ls='--')
     cycler = get_color_cycle(cmap, len(df))
 
@@ -325,7 +326,7 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         
         # Average across pixels and reshape as trials x frames
         stackavg_trace = stack.mean(axis=-1).mean(axis=-1)
-        stackavg_mat = stackavg_trace.reshape((-1, NFRAMES_PER_TRIAL))
+        stackavg_mat = stackavg_trace.reshape((-1, npertrial))
         
         # Remove specific trials if specified
         if itrial is not None:
@@ -1321,7 +1322,7 @@ def plot_linreg(data, iROI, x=Label.F_NEU, y=Label.F_ROI):
     return fig
 
 
-def mark_trials(ax, mask, iROI, irun, color='C1'):
+def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
     '''
     Mark trials on whole-run trace that meet specific stats condition.
     
@@ -1329,6 +1330,7 @@ def mark_trials(ax, mask, iROI, irun, color='C1'):
     :param mask: multi-indexed boolean mask series indicating which trial to mark
     :param iROI: ROI index
     :param irun: run index
+    :param npertrial: number of frames per trial
     :param color (optional): color used to mark the trials
     '''
     # Reduce mask to ROI(s) and run(s) of interest 
@@ -1338,8 +1340,8 @@ def mark_trials(ax, mask, iROI, irun, color='C1'):
     for (_, _, itrial) in mask[mask == 1].index:
 
         # Get trial start and end indexes in the run trace
-        istart = NFRAMES_PER_TRIAL * itrial + FrameIndex.STIM
-        iend = istart + NFRAMES_PER_TRIAL
+        istart = npertrial * itrial + FrameIndex.STIM
+        iend = istart + npertrial
 
         # Plot shaded area over trial interval 
         ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
