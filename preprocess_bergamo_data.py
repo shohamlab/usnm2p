@@ -2,17 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 18:31:45
+# @Last Modified time: 2022-08-18 17:02:28
 
 import os
 import logging
 from argparse import ArgumentParser
 
 from config import dataroot
-from constants import BERGAMO_SR, BRUKER_SR
+from constants import BERGAMO_SR, BRUKER_SR, NSUBS_CORRUPTED, NEXPS_DECAY_DETREND
 from logger import logger
 from fileops import get_data_folders, get_sorted_filelist
 from parsers import P_TIFFILE
+from correctors import correct_tifs
 from resamplers import resample_tifs
 from stackers import stack_trial_tifs, split_multichannel_tifs
 
@@ -56,8 +57,11 @@ if __name__ == '__main__':
         # Get TIF stack files inside that folder
         fnames = get_sorted_filelist(tif_folder, pattern=P_TIFFILE)
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames] 
+        # Detrend & correct stacks for initial exponential decay
+        corrected_fpaths = correct_tifs(
+            raw_fpaths, NEXPS_DECAY_DETREND, NSUBS_CORRUPTED, input_root='raw')
         # Resample TIF stacks
-        resampled_fpaths = resample_tifs(raw_fpaths, ref_sr, target_sr)
+        resampled_fpaths = resample_tifs(corrected_fpaths, ref_sr, target_sr, input_root='corrected')
         # Stack trial TIFs of every run in the stack list
         stacked_paths = stack_trial_tifs(resampled_fpaths, overwrite=False)
         # Split channels from run stacks
