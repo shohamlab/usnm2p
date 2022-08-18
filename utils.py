@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 09:50:04
+# @Last Modified time: 2022-08-18 14:50:43
 
 ''' Collection of generic utilities. '''
 
@@ -560,6 +560,30 @@ def nan_proof(func):
         else:
             return out
     return wrapper
+
+
+def expdecay(x, H, A, x0):
+    '''
+    Exponential decay function
+    
+    :param x: independent variable
+    :param H: vertical offset
+    :param A: scaling factor
+    :param x0: horizontal offset
+    '''
+    return H + np.exp(-(x - x0) / A)
+
+
+def biexpdecay(x, H, A1, A2, x1, x2):
+    ''' 
+    Bi-exponential decay function
+
+    :param x: independent variable
+    :param H: vertical offset
+    :param A1, A2: scaling factors
+    :param x1, x2: horizontal offsets
+    '''
+    return expdecay(x, H / 2, A1, x1) + expdecay(x, H / 2, A2, x2)
 
 
 def gauss(x, H, A, x0, sigma):

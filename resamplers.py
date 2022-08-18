@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 10:10:52
+# @Last Modified time: 2022-08-18 15:42:55
 
 ''' Collection of image stacking utilities. '''
 
@@ -26,7 +26,7 @@ class NoResamplerFilter(NoProcessor):
 class StackResampler(StackProcessor):
     ''' Generic interface to an stack resampler. '''
 
-    def __init__(self, ref_sr, target_sr, smooth=True, nsub=NFRAMES_CORRUPTED_BERGAMO):
+    def __init__(self, ref_sr, target_sr, smooth=True):
         '''
         Constructor
         
@@ -34,15 +34,13 @@ class StackResampler(StackProcessor):
         :param target_sr: target sampling rate for the output array (Hz)
         :param smooth: whether to apply pre-smoothing with moving average 
             to avoid sub-sampling outlier values 
-        :param nsub: number of frames to substitute at beginning of stack
         '''
         self.ref_sr = ref_sr
         self.target_sr = target_sr
         self.smooth = smooth
-        self.nsub = nsub
     
     def __str__(self) -> str:
-        return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth}, nsub={self.nsub})'
+        return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth})'
     
     @property
     def rootcode(self):
@@ -86,25 +84,7 @@ class StackResampler(StackProcessor):
         if not isinstance(value, bool):
             raise ValueError('smooth must be a boolean')
         self._smooth = value
-    
-    @property
-    def nsub(self):
-        return self._nsub
-
-    @nsub.setter
-    def nsub(self, value):
-        if not isinstance(value, int) or value < 0:
-            raise ValueError('nsub must be a positive integer')
-        self._nsub = value
-
-    def preprocess(self, stack):
-        ''' Preprocess stack '''
-        if self.nsub > 0:
-            # Replace first nsub frames by (nsub+1)-th frame on each channel
-            logger.info(f'substituting corrupted first {self.nsub} frames of stack...')
-            stack[:self.nsub] = stack[self.nsub + 1]
-        return stack
-    
+        
     def resample(self, x):
         '''
         Resample array to a specific sampling rate along first axis
@@ -135,7 +115,6 @@ class StackResampler(StackProcessor):
         :return: processed image stack
         '''
         ref_dtype = stack.dtype
-        stack = self.preprocess(stack)
         # If specified, smooth stack with moving average along time axis
         if self.smooth:
             stack = moving_average(

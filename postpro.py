@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 19:30:54
+# @Last Modified time: 2022-08-18 15:05:16
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -735,7 +735,6 @@ def histogram_fit(data, func, bins=100, p0=None, bounds=None):
         logger.warning('histogram fit requires more iterations than expected...')
         popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds, max_nfev=1000)
     return xmid, popt
-
 
 def gauss_histogram_fit(data, bins=100, plot=False):
     '''

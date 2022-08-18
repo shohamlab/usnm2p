@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 16:01:41
+# @Last Modified time: 2022-08-18 16:16:56
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -49,7 +49,9 @@ P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
 ####################################### PRE-PROCESSING ######################################
 
-NFRAMES_CORRUPTED_BERGAMO = 10  # number of corrupted frames at the beginning of each acquisition file on Bergamo due to Pockle cell malfunction
+NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
+NSUBS_CORRUPTED = 25  # number of initial frames to substitute after detrending on corrupted Bergamo acquisitions
+DECAY_FIT_MAX_REL_RMSE = 0.35  # max relative RMSE allowed during stack decay detrending process
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
