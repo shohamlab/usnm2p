@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 17:36:25
+# @Last Modified time: 2022-08-18 17:37:43
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -13,6 +13,7 @@ import datetime
 import pandas as pd
 import h5py
 from tifffile import imsave, TiffFile
+import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
 
