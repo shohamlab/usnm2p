@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 16:16:56
+# @Last Modified time: 2022-08-18 18:26:46
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -117,7 +117,7 @@ class Pattern:
 
     LINE = '([A-z][A-z0-9_]*)'
     DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
-    MOUSE = 'mouse[1-9][0-9]*'
+    MOUSE = '[A-z][a-z]*[1-9][0-9]*'
     REGION = 'region[1-9][0-9]*[a-zA-Z]?'
     LAYER = 'layer[1-5]-?[1-5]*'
     TRIAL_LENGTH = '([0-9]+)frames'
