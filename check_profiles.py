@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 16:14:10
+# @Last Modified time: 2022-08-19 16:28:46
 
 import os
 import logging
@@ -32,8 +32,8 @@ def get_stack_framemed(fpath):
     return np.median(stack, axis=(-2, -1))
 
 
-def plot_frameavg_profiles(ytrials, nchannels=2):
-    ''' Plot frame-average profiles '''
+def plot_profiles(ytrials, nchannels=2):
+    ''' Plot frame-summary profiles '''
     fig, axes = plt.subplots(nchannels, 1, figsize=(6, 2 * nchannels))
     axes[-1].set_xlabel('frames')
     for i, (ax, ychannel) in enumerate(zip(axes, ytrials.T)):
@@ -80,15 +80,15 @@ if __name__ == '__main__':
         # Get TIF stack files inside that folder
         fnames = get_sorted_filelist(tif_folder, pattern=P_TIFFILE)
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
-        # Get frame-average profiles per channel for every stack file
+        # Get frame-summary profiles per channel for every stack file
         if args.mpi:
             with Pool() as pool:
                 ytrials = pool.map(get_stack_framemed, raw_fpaths)
         else:
             ytrials = list(map(get_stack_framemed, raw_fpaths))
-        fig = plot_frameavg_profiles(np.stack(ytrials))
+        fig = plot_profiles(np.stack(ytrials))
         dmr = os.path.basename(tif_folder)
         fig.suptitle(dmr)
-        save_fpath = os.path.join(figsdir, 'frameavg', f'{dmr}.png')
-        logger.info(f'saving {dmr} frame-average profiles figure...')
+        save_fpath = os.path.join(figsdir, 'frameprofiles', f'{dmr}.png')
+        logger.info(f'saving {dmr} frame-median profiles figure...')
         fig.savefig(save_fpath)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 16:13:17
+# @Last Modified time: 2022-08-19 16:28:18
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -193,7 +193,11 @@ def get_output_equivalent(in_path, basein, baseout, mkdirs=True):
         else:  # if input path was a file -> fetch parent directory
             pardir = os.path.split(out_path)[0]
             if not os.path.isdir(pardir):
-                os.makedirs(pardir)
+                # Adding exception handling to make process MPI-proof
+                try:
+                    os.makedirs(pardir)
+                except FileExistsError as err:
+                    logger.warning(err)
     # Return output path
     return out_path
 
