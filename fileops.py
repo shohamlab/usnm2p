@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 15:13:23
+# @Last Modified time: 2022-08-19 16:13:17
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -286,13 +286,6 @@ def savetif(fpath, stack, overwrite=True):
     if stack.ndim > 2:
         logger.info(f'saving {stack.shape} {stack.dtype} stack as "{fpath}"...')
     imsave(fpath, stack)
-
-
-
-def get_stack_frameavg(fpath):
-    ''' Load a TIF stack and extract its frame-average profile(s) '''
-    stack = loadtif(fpath)
-    return stack.mean(axis=(-2, -1))
 
 
 class StackProcessor(metaclass=abc.ABCMeta):

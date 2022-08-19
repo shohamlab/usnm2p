@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 13:31:00
+# @Last Modified time: 2022-08-19 16:14:10
 
 import os
 import logging
@@ -13,12 +13,23 @@ from argparse import ArgumentParser
 from config import dataroot
 from logger import logger
 from multiprocessing import Pool
-from fileops import get_output_equivalent, get_data_folders, get_sorted_filelist, get_stack_frameavg
+from fileops import get_output_equivalent, get_data_folders, get_sorted_filelist, loadtif
 from parsers import P_TIFFILE
 
 logger.setLevel(logging.INFO)
 
 ''' Command line script to check Bergamo USNM2P data '''
+
+def get_stack_frameavg(fpath):
+    ''' Load a TIF stack and extract its frame-average profile(s) '''
+    stack = loadtif(fpath)
+    return stack.mean(axis=(-2, -1))
+
+
+def get_stack_framemed(fpath):
+    ''' Load a TIF stack and extract its frame-median profile(s) '''
+    stack = loadtif(fpath)
+    return np.median(stack, axis=(-2, -1))
 
 
 def plot_frameavg_profiles(ytrials, nchannels=2):
@@ -56,6 +67,7 @@ if __name__ == '__main__':
 
     # Input directory for raw data
     datadir = os.path.join(dataroot, args.mouseline)
+    datadir = get_output_equivalent(datadir, 'raw', 'corrected/median')
     figsdir = get_output_equivalent(dataroot, 'raw', 'figs')  # Directory for output figures
 
     # List subfolders containing TIF files
@@ -71,9 +83,9 @@ if __name__ == '__main__':
         # Get frame-average profiles per channel for every stack file
         if args.mpi:
             with Pool() as pool:
-                ytrials = pool.map(get_stack_frameavg, raw_fpaths)
+                ytrials = pool.map(get_stack_framemed, raw_fpaths)
         else:
-            ytrials = list(map(get_stack_frameavg, raw_fpaths))
+            ytrials = list(map(get_stack_framemed, raw_fpaths))
         fig = plot_frameavg_profiles(np.stack(ytrials))
         dmr = os.path.basename(tif_folder)
         fig.suptitle(dmr)
