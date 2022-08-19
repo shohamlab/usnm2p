@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 17:02:28
+# @Last Modified time: 2022-08-19 13:31:16
 
 import os
 import logging
@@ -56,7 +56,7 @@ if __name__ == '__main__':
         logger.info(f'processing files in "{tif_folder}"')
         # Get TIF stack files inside that folder
         fnames = get_sorted_filelist(tif_folder, pattern=P_TIFFILE)
-        raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames] 
+        raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
         # Detrend & correct stacks for initial exponential decay
         corrected_fpaths = correct_tifs(
             raw_fpaths, NEXPS_DECAY_DETREND, NSUBS_CORRUPTED, input_root='raw')
