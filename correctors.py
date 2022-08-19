@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 15:16:56
+# @Last Modified time: 2022-08-19 16:35:17
 
 ''' Collection of image stacking utilities. '''
 
@@ -68,6 +68,29 @@ class MedianCorrector(Corrector):
         ymed = np.median(stack, axis=(1, 2))
         # Subtract median-corrected fit from each pixel to detrend stack
         return (stack.T - ymed).T + ymed.mean()
+
+
+class MeanCorrector(Corrector):
+        
+    def __str__(self) -> str:        
+        return self.__class__.__name__
+        
+    @property
+    def code(self):
+        return 'mean'
+        
+    def correct(self, stack):
+        '''
+        Correct image stack for with mean-subtraction.
+
+        :param stack: input image stack
+        :return: processed image stack
+        '''
+        logger.info(f'applying mean correction to {stack.shape[0]}-frames stack...')
+        # Compute frame mean over time
+        ymean = np.mean(stack, axis=(1, 2))
+        # Subtract mean-corrected fit from each pixel to detrend stack
+        return (stack.T - ymean).T + ymean.mean()
 
 
 class ExponentialCorrector(Corrector):
@@ -188,6 +211,7 @@ def correct_tifs(input_fpaths, input_root='raw', **kwargs):
     '''
     # Create stack corrector object
     # sc = ExponentialCorrector(nexps=nexps, nsubs=nsubs)
+    # sc = MeanCorrector()
     sc = MedianCorrector()
     # Detrend each stack file
     corrected_stack_fpaths = process_and_save(
