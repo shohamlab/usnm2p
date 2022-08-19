@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 11:42:12
+# @Last Modified time: 2022-08-19 15:16:56
 
 ''' Collection of image stacking utilities. '''
 
@@ -12,8 +12,8 @@ from scipy.optimize import curve_fit
 
 from constants import *
 from logger import logger
-from utils import StackProcessor, NoProcessor, expdecay, biexpdecay
-from fileops import process_and_save
+from utils import expdecay, biexpdecay
+from fileops import StackProcessor, NoProcessor, process_and_save
 
 
 class NoCorrector(NoProcessor):
@@ -21,7 +21,56 @@ class NoCorrector(NoProcessor):
     pass
 
 
-class ExponentialCorrector(StackProcessor):
+class Corrector(StackProcessor):
+
+    @property
+    def rootcode(self):
+        return 'corrected'
+
+    def run(self, stack):
+        '''
+        Correct image stack.
+
+        :param stack: input image stack
+        :return: processed image stack
+        '''
+        # For multi-channel stack, process each channel separately
+        if stack.ndim > 3:
+            outstack = np.stack([
+                self.run(stack[:, i]) for i in range(stack.shape[1])])
+            return np.swapaxes(outstack, 0, 1)            
+        # Save input data type
+        ref_dtype = stack.dtype
+        # Apply correction function
+        res_stack = self.correct(stack)
+        # Round, cast as input integer type and return
+        return np.round(res_stack).astype(ref_dtype)
+
+
+class MedianCorrector(Corrector):
+        
+    def __str__(self) -> str:        
+        return self.__class__.__name__
+        
+    @property
+    def code(self):
+        return 'median'
+        
+    def correct(self, stack):
+        '''
+        Correct image stack for with median-subtraction.
+
+        :param stack: input image stack
+        :return: processed image stack
+        '''
+        logger.info(f'applying median correction to {stack.shape[0]}-frames stack...')
+        # Compute frame median over time
+        ymed = np.median(stack, axis=(1, 2))
+        # Subtract median-corrected fit from each pixel to detrend stack
+        return (stack.T - ymed).T + ymed.mean()
+
+
+class ExponentialCorrector(Corrector):
     ''' Generic interface to an stack exponential decay corrector. '''
 
     def __init__(self, nexps=1, nsubs=0):
@@ -36,10 +85,6 @@ class ExponentialCorrector(StackProcessor):
     
     def __str__(self) -> str:        
         return f'{self.__class__.__name__}(nexps={self.nexps}, nsubs={self.nsubs})'
-    
-    @property
-    def rootcode(self):
-        return 'corrected'
 
     @property
     def code(self):
@@ -116,20 +161,13 @@ class ExponentialCorrector(StackProcessor):
             raise ValueError(f'{self} fit quality too poor (relative RMSE = {rel_rmse:.2f})')
         return yfit
 
-    def run(self, stack):
+    def correct(self, stack):
         '''
         Correct image stack for initial exponential decay.
 
         :param stack: input image stack
         :return: processed image stack
         '''
-        # For multi-channel stack, process each channel separately
-        if stack.ndim > 3:
-            outstack = np.stack([
-                self.run(stack[:, i]) for i in range(stack.shape[1])])
-            return np.swapaxes(outstack, 0, 1)            
-        # Save input data type
-        ref_dtype = stack.dtype
         # Compute frame average over time
         y = stack.mean(axis=(1, 2))
         # Compute exponential decay fit on frame average profile
@@ -138,22 +176,20 @@ class ExponentialCorrector(StackProcessor):
         res_stack = (stack.T - yfit).T + yfit.mean()
         # Substitute first n frames to avoid false transients created by detrending
         res_stack[:self.nsubs] = res_stack[self.nsubs + 1]
-        # Round, cast as input integer type and return
-        return np.round(res_stack).astype(ref_dtype)
+        return res_stack
 
 
-def correct_tifs(input_fpaths, nexps, nsubs, input_root='raw'):
+def correct_tifs(input_fpaths, input_root='raw', **kwargs):
     '''
     High-level stack detrending function
 
     :param input_fpaths: list of full paths to input TIF stacks
-    :param nexps: number of exponentials for decay fit
-    :param nsubs: number of frames to substitute after detrending 
     :return: list of detrended TIF stacks
     '''
     # Create stack corrector object
-    sr = ExponentialCorrector(nexps=nexps, nsubs=nsubs)
+    # sc = ExponentialCorrector(nexps=nexps, nsubs=nsubs)
+    sc = MedianCorrector()
     # Detrend each stack file
     corrected_stack_fpaths = process_and_save(
-        sr, input_fpaths, input_root, overwrite=False)
+        sc, input_fpaths, input_root, overwrite=False, **kwargs)
     return corrected_stack_fpaths

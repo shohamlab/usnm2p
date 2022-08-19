@@ -2,72 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 14:50:43
+# @Last Modified time: 2022-08-19 14:50:09
 
 ''' Collection of generic utilities. '''
 
-import os
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 import operator
-import abc
 from functools import wraps
 
 from constants import SI_POWERS, IND_LETTERS
 from logger import logger
-
-
-class StackProcessor(metaclass=abc.ABCMeta):
-    ''' Generic intrface for processor objects '''
-
-    @abc.abstractmethod
-    def run(self, stack: np.array) -> np.ndarray:
-        ''' Abstract run method. '''
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def code(self):
-        ''' Abstract code attribute. '''
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def rootcode(self):
-        ''' Abstract root code attribute '''
-        raise NotImplementedError
-
-    def get_target_fname(self, fname):
-        ''' Default method for target file name, conserving input name '''
-        return fname
-
-    def get_target_fpath(self, fpath):
-        fdir, fname = os.path.split(fpath)
-        return os.path.join(fdir, self.get_target_fname(fname))
-
-
-
-class NoProcessor(StackProcessor):
-    ''' Dummy class for no-processor objects '''
-
-    def run(self, stack: np.array, *args):
-        raise NotImplementedError
-
-    @property
-    def ptype(self):
-        return self.__class__.__name__[2:].lower()
-
-    def __str__(self) -> str:
-        return f'no {self.ptype}'
-
-    @property
-    def code(self):
-        return f'no_{self.ptype}'
-    
-    @property
-    def rootcode(self):
-        raise NotImplementedError
 
 
 def is_iterable(x):

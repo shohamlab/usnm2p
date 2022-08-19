@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 15:42:55
+# @Last Modified time: 2022-08-19 15:07:20
 
 ''' Collection of image stacking utilities. '''
 
@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 from constants import *
 from logger import logger
 from utils import moving_average
-from utils import StackProcessor, NoProcessor
-from fileops import process_and_save
+from fileops import StackProcessor, NoProcessor, process_and_save
 from parsers import P_TRIALFILE, P_TRIALFILE_SUB
 
 
@@ -26,7 +25,7 @@ class NoResamplerFilter(NoProcessor):
 class StackResampler(StackProcessor):
     ''' Generic interface to an stack resampler. '''
 
-    def __init__(self, ref_sr, target_sr, smooth=True):
+    def __init__(self, ref_sr, target_sr, *args, smooth=True, **kwargs):
         '''
         Constructor
         
@@ -38,6 +37,7 @@ class StackResampler(StackProcessor):
         self.ref_sr = ref_sr
         self.target_sr = target_sr
         self.smooth = smooth
+        super().__init__(*args, **kwargs)
     
     def __str__(self) -> str:
         return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth})'
@@ -162,7 +162,7 @@ class StackResampler(StackProcessor):
         return fig
 
 
-def resample_tifs(input_fpaths, ref_sr, target_sr, input_root='raw'):
+def resample_tifs(input_fpaths, ref_sr, target_sr, input_root='raw', **kwargs):
     '''
     High-level stack resampling function
 
@@ -175,5 +175,5 @@ def resample_tifs(input_fpaths, ref_sr, target_sr, input_root='raw'):
     sr = StackResampler(ref_sr=ref_sr, target_sr=target_sr)
     # Resample each stack file
     resampled_stack_fpaths = process_and_save(
-        sr, input_fpaths, input_root, overwrite=False)
+        sr, input_fpaths, input_root, overwrite=False, **kwargs)
     return resampled_stack_fpaths

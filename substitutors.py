@@ -2,19 +2,20 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-28 16:29:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-27 13:31:30
+# @Last Modified time: 2022-08-19 14:55:14
 
 ''' Collection of stack substitutors utilities. '''
 
 import numpy as np
 
 from logger import logger
-from utils import StackProcessor
+from fileops import StackProcessor
+
 
 class StackSubstitutor(StackProcessor):
     '''Main interface to stack substitutor. '''
 
-    def __init__(self, submap, repeat_every=None):
+    def __init__(self, submap, *args, repeat_every=None, **kwargs):
         '''
         Initialization
 
@@ -24,7 +25,7 @@ class StackSubstitutor(StackProcessor):
         '''
         self.submap = submap
         self.repeat_every = repeat_every
-        super().__init__()
+        super().__init__(*args, **kwargs)
     
     def submap_str(self):
         l  =[]

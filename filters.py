@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:41:59
+# @Last Modified time: 2022-08-19 14:54:06
 
 ''' Collection of filtering utilities. '''
 
@@ -11,7 +11,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from logger import logger
-from utils import StackProcessor, NoProcessor
+from fileops import StackProcessor, NoProcessor
 
 
 class StackFilter(StackProcessor):
@@ -85,7 +85,7 @@ class KalmanDenoiser(StackFilter):
     - Khmou, Y., and Safi, S. (2013). Estimating 3D Signals with Kalman Filter. ArXiv:1307.4801 [Cs, Math].
     '''
 
-    def __init__(self, G=0.5, V=0.05, npad: np.uint8=10):
+    def __init__(self, G=0.5, V=0.05, npad: np.uint8=10, *args, **kwargs):
         '''
         Initialization
 
@@ -96,7 +96,7 @@ class KalmanDenoiser(StackFilter):
         self.G = G
         self.V = V
         self.npad = npad
-        super().__init__()
+        super().__init__(*args, **kwargs)
 
     def __str__(self) -> str:
         return f'{self.__class__.__name__}(gain={self.G}, var={self.V}, npad={self.npad})'

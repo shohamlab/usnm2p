@@ -2,16 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 13:29:22
+# @Last Modified time: 2022-08-19 15:13:23
 
 ''' Collection of utilities for operations on files and directories. '''
 
 import os
+import abc
 import glob
 import pprint
 import datetime
 import pandas as pd
 import h5py
+from multiprocessing import Pool
 from tifffile import imsave, TiffFile
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
@@ -293,45 +295,116 @@ def get_stack_frameavg(fpath):
     return stack.mean(axis=(-2, -1))
 
 
-def process_and_save(processor, input_fpath, input_root, *args, overwrite=False, **kwargs):
-    '''
-    Load input stack file, apply processing function and save output stack in specific directory.
+class StackProcessor(metaclass=abc.ABCMeta):
+    ''' Generic intrface for processor objects '''
+
+    def __init__(self, overwrite=False):
+        self.overwrite = overwrite
+
+    @abc.abstractmethod
+    def run(self, stack: np.array) -> np.ndarray:
+        ''' Abstract run method. '''
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def code(self):
+        ''' Abstract code attribute. '''
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def rootcode(self):
+        ''' Abstract root code attribute '''
+        raise NotImplementedError
+
+    def get_target_fname(self, fname):
+        ''' Default method for target file name, conserving input name '''
+        return fname
+
+    def get_target_fpath(self, fpath):
+        fdir, fname = os.path.split(fpath)
+        return os.path.join(fdir, self.get_target_fname(fname))
     
+    def load_run_save(self, input_fpath):
+        '''
+        Load input stack file, apply processing function and save output stack in specific directory.
+        
+        :param input_fpath: absolute filepath to the input TIF stack (or list of TIF stacks).
+        :return: absolute filepath to the output TIF stack (or list of TIF stacks).
+        '''
+        # Check that input root is indeed found in input filepath
+        if self.input_root not in input_fpath:
+            raise ValueError(f'input root "{self.input_root}" not found in input file path "{input_fpath}"')
+        # If NoProcessor object provided -> do nothing and return input file path
+        if isinstance(self, NoProcessor):
+            return input_fpath
+        # Get output filepath
+        output_fpath = get_output_equivalent(
+            input_fpath, self.input_root, f'{self.rootcode}/{self.code}')
+        # Modify output filepath according to processor
+        output_fpath = self.get_target_fpath(output_fpath)
+        # If already existing, act according to overwrite parameter
+        if os.path.isfile(output_fpath):
+            logger.warning(f'"{output_fpath}" already exists')
+            overwrite = parse_overwrite(self.overwrite)
+            if not overwrite:
+                return output_fpath
+        else:
+            overwrite = self.overwrite
+        # Load input, process stack, and save output
+        input_stack = loadtif(input_fpath)
+        output_stack = self.run(input_stack)
+        savetif(output_fpath, output_stack, overwrite=overwrite)
+        # Return output filepath
+        return output_fpath
+
+
+class NoProcessor(StackProcessor):
+    ''' Dummy class for no-processor objects '''
+
+    def run(self, stack: np.array, *args):
+        raise NotImplementedError
+
+    @property
+    def ptype(self):
+        return self.__class__.__name__[2:].lower()
+
+    def __str__(self) -> str:
+        return f'no {self.ptype}'
+
+    @property
+    def code(self):
+        return f'no_{self.ptype}'
+    
+    @property
+    def rootcode(self):
+        raise NotImplementedError
+
+
+def process_and_save(processor, input_fpath, input_root, overwrite=False, mpi=False):
+    '''
+    Wrapper around StackProcessor load_run_save method
+
     :param processor: processor object
     :param input_fpath: absolute filepath to the input TIF stack (or list of TIF stacks).
     :param input_root: name of the directory that constitutes the root level of the input filepath
     :param overwrite: one of (True, False, '?') defining what to do if file already exists.
+    :param: whether to use multiprocessing or not
     :return: absolute filepath to the output TIF stack (or list of TIF stacks).
     '''
+    # Pass on overwrite and input_root to processor
+    processor.overwrite = overwrite
+    processor.input_root = input_root
     # If list of filepaths provided as input -> apply function to all of them
     if is_iterable(input_fpath):
-        return [process_and_save(processor, x, input_root, *args, overwrite=overwrite, **kwargs) for x in input_fpath]
-    # Check that input root is indeed found in input filepath
-    if input_root not in input_fpath:
-        raise ValueError(f'input root "{input_root}" not found in input file path "{input_fpath}"')
-    # Check that processor instance is a known class type
-    if not isinstance(processor, StackProcessor):
-        raise ValueError(f'unknown processor type: {processor}')
-    # If NoProcessor object provided -> do nothing and return input file path
-    if isinstance(processor, NoProcessor):
-        return input_fpath
-    # Get output filepath
-    output_fpath = get_output_equivalent(
-        input_fpath, input_root, f'{processor.rootcode}/{processor.code}')
-    # Modify output filepath according to processor
-    output_fpath = processor.get_target_fpath(output_fpath)
-    # If already existing, act according to overwrite parameter
-    if os.path.isfile(output_fpath):
-        logger.warning(f'"{output_fpath}" already exists')
-        overwrite = parse_overwrite(overwrite)
-        if not overwrite:
-            return output_fpath
-    # Load input, process stack, and save output
-    input_stack = loadtif(input_fpath)
-    output_stack = processor.run(input_stack, *args, **kwargs)
-    savetif(output_fpath, output_stack, overwrite=overwrite)
-    # Return output filepath
-    return output_fpath
+        if mpi:
+            with Pool() as pool:
+                return pool.map(processor.load_run_save, input_fpath)
+        else:
+            return list(map(processor.load_run_save, input_fpath))
+    # Call processor method
+    return processor.load_run_save(input_fpath)
 
 
 def parse_overwrite(overwrite):

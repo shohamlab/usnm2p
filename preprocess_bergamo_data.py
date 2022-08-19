@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 13:31:16
+# @Last Modified time: 2022-08-19 15:12:08
 
 import os
 import logging
@@ -33,6 +33,9 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--region', help='brain region')
     parser.add_argument('--layer', help='Cortical layer')
 
+    parser.add_argument(
+        '--mpi', default=False, action='store_true', help='enable multiprocessing')
+
     # Add resampling arguments
     parser.add_argument('--refsr', help='reference sampling rate (Hz)', default=BERGAMO_SR)
     parser.add_argument('--targetsr', help='target sampling rate (Hz)', default=BRUKER_SR)
@@ -58,10 +61,10 @@ if __name__ == '__main__':
         fnames = get_sorted_filelist(tif_folder, pattern=P_TIFFILE)
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
         # Detrend & correct stacks for initial exponential decay
-        corrected_fpaths = correct_tifs(
-            raw_fpaths, NEXPS_DECAY_DETREND, NSUBS_CORRUPTED, input_root='raw')
+        corrected_fpaths = correct_tifs(raw_fpaths, input_root='raw', mpi=args.mpi)
         # Resample TIF stacks
-        resampled_fpaths = resample_tifs(corrected_fpaths, ref_sr, target_sr, input_root='corrected')
+        resampled_fpaths = resample_tifs(
+            corrected_fpaths, ref_sr, target_sr, input_root='corrected', mpi=args.mpi)
         # Stack trial TIFs of every run in the stack list
         stacked_paths = stack_trial_tifs(resampled_fpaths, overwrite=False)
         # Split channels from run stacks

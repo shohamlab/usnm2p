@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-28 16:29:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-12-29 12:42:06
+# @Last Modified time: 2022-08-19 14:54:21
 
 ''' Collection of stack interpolators utilities. '''
 
@@ -11,7 +11,7 @@ from tqdm import tqdm
 from scipy.interpolate import interp1d
 
 from logger import logger
-from utils import StackProcessor, NoProcessor
+from fileops import StackProcessor, NoProcessor
 
 
 class NoInterpolator(NoProcessor):
@@ -29,7 +29,7 @@ class StackInterpolator(StackProcessor):
         3: 'cubic'
     }
 
-    def __init__(self, order: np.uint8=3, npast:np.uint8=5):
+    def __init__(self, order: np.uint8=3, npast:np.uint8=5, *args, **kwargs):
         '''
         Initialization
 
@@ -38,7 +38,7 @@ class StackInterpolator(StackProcessor):
         '''
         self.order = order
         self.npast = npast
-        super().__init__()
+        super().__init__(*args, **kwargs)
 
     def __str__(self) -> str:
         return f'{self.__class__.__name__}(order={self.order}, npast={self.npast})'
