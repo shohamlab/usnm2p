@@ -2,12 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 16:19:32
+# @Last Modified time: 2022-08-19 11:42:12
 
 ''' Collection of image stacking utilities. '''
 
-from multiprocessing.dummy import Value
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 from constants import *
@@ -108,6 +108,11 @@ class ExponentialCorrector(StackProcessor):
         rel_rmse = rmse / np.median(y)
         # Raise error if too high
         if rel_rmse > DECAY_FIT_MAX_REL_RMSE:
+            fig, ax = plt.subplots()
+            ax.plot(y, label='data')
+            ax.plot(yfit, label='fit')
+            ax.legend()
+            plt.show()
             raise ValueError(f'{self} fit quality too poor (relative RMSE = {rel_rmse:.2f})')
         return yfit
 
