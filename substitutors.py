@@ -114,4 +114,4 @@ class StackSubstitutor(StackProcessor):
         stack[idests] = stack[isources]
 
         # Return
-        return stack 
+        return stack

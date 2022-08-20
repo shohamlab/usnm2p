@@ -9,13 +9,16 @@ import logging
 from argparse import ArgumentParser
 
 from config import dataroot
-from constants import BERGAMO_SR, BRUKER_SR, NSUBS_CORRUPTED, NEXPS_DECAY_DETREND
+from constants import *
+from utils import get_singleton
 from logger import logger
 from fileops import get_data_folders, get_sorted_filelist
-from parsers import P_TIFFILE
+from parsers import P_TIFFILE, get_info_table
 from correctors import correct_tifs
 from resamplers import resample_tifs
 from stackers import stack_trial_tifs, split_multichannel_tifs
+from substitutors import StackSubstitutor
+from fileops import process_and_save
 
 logger.setLevel(logging.INFO)
 
@@ -62,10 +65,21 @@ if __name__ == '__main__':
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
         # Detrend & correct stacks for initial exponential decay
         corrected_fpaths = correct_tifs(raw_fpaths, input_root='raw', mpi=args.mpi)
-        # # Resample TIF stacks
-        # resampled_fpaths = resample_tifs(
-        #     corrected_fpaths, ref_sr, target_sr, input_root='corrected', mpi=args.mpi)
-        # # Stack trial TIFs of every run in the stack list
-        # stacked_paths = stack_trial_tifs(resampled_fpaths, overwrite=False)
-        # # Split channels from run stacks
-        # split_fpaths = split_multichannel_tifs(stacked_paths, overwrite=False)
+        # Resample TIF stacks
+        resampled_fpaths = resample_tifs(
+            corrected_fpaths, ref_sr, target_sr, input_root='corrected', mpi=args.mpi)
+        # Stack trial TIFs of every run in the stack list
+        stacked_fpaths = stack_trial_tifs(resampled_fpaths, overwrite=False)
+        # Extract number of frames per trial 
+        raw_info_table = get_info_table(stacked_fpaths)
+        nframes_per_trial = get_singleton(raw_info_table, Label.NPERTRIAL)
+        logger.info(f'number of frames per trial: {nframes_per_trial}')
+        # Split channels from run stacks
+        split_fpaths = split_multichannel_tifs(stacked_fpaths, overwrite=False)
+        # Define substitutor object
+        submap = [(NSUBS_CORRUPTED, i) for i in range(NSUBS_CORRUPTED)] + [(FrameIndex.STIM - 1, FrameIndex.STIM)]
+        ss = StackSubstitutor(submap, repeat_every=nframes_per_trial)
+        # Substitute problematic frames in every TIF stack and save outputs in specific directory 
+        input_root = 'split'
+        substituted_fpaths = process_and_save(
+            ss, split_fpaths, input_root, overwrite=False, mpi=args.mpi)

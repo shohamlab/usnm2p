@@ -281,7 +281,7 @@ def plot_stack_timecourse(*args, **kwargs):
 
 
 def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
-                                  cmap=['tab10', 'Dark2'], iref=None, itrial=None):
+                                  cmap=['tab10', 'Dark2', 'Accent'], iref=None, itrial=None):
     '''
     Plot trial-averaged, pixel-averaged intensity traces from a list of run stacks
     
