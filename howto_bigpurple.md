@@ -13,22 +13,25 @@ export MYCOMPNODE="shohamlab"  # Name of your computation node
 export MYLABNAME="shohamlab"  # Name of your lab space in /gpfs/data/
 export MYLABDRIVE="shohas01labspace"  # Name of your lab's research drive
 export RDRIVE="/mnt/$(whoami)/${MYLABDRIVE}"  # full path to the mounted lab research drive
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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"  # Slack webhook
 export JOBFMT="JobID:.12,MinMemory:.12,Partition:.12,Name:.20,UserName:.15,State:.10,TimeUsed:.10,NumNodes:.8,NumCPUs:.8"  # logging format for submitted jobs status
-export NODEFMT="NodeHost:.10,Memory:.10,AllocMem:.10,Available:.10,CPUs:.10,MaxCPUsPerNode:.20"   # logging format for node status
+export NODEFMT="NodeHost:.10,Memory:.10,AllocMem:.10,FreeMem:.10,Available:.10,CPUs:.10,MaxCPUsPerNode:.20"   # logging format for node status
 export TRANSFERFMT="-a --info=progress2 --info=name0"   # logging format for data transfers with rsync
+export SRUNFMT="--partition=${MYCOMPNODE} --time=24:00:00 --mem-per-cpu=16G --gpus-per-node 0 --pty /bin/bash"
 export CONDAMODULE="miniconda3/cpu/4.9.2"
 
 # Aliases for data transfers
 alias datamover="srun -p data_mover -n 2 --time=8:00:00 --mem=64G --pty bash"  # open special node for file transfer with rsync
 alias mountlab="mount $RDRIVE"  # mount the labs's research drive on your user session (only within data mover node)
 
-# Aliases for computing jobs
+# Aliases for launching computing jobs
 alias usnm2p="module load $CONDAMODULE; conda activate usnm2p"
-alias job="srun --partition=$MYCOMPNODE --time=8:00:00 --mem=32G --pty /bin/bash"  # run a normal bash job
-alias mpijob="srun -c 15 --partition=$MYCOMPNODE --time=8:00:00 --mem=320G --pty /bin/bash"  # run a massively parallelized bash job
+alias job="srun --job-name=job $SRUNFMT" # run a normal bash job
+alias xjob="srun --x11 --job-name=xjob $SRUNFMT"  # run a bash job with X11 forwarding
+alias mpijob="srun -c 37 --job-name=mpijob $SRUNFMT" # run a massively parallelized bash job
+
+# Aliases for checking on jobs & resources
 alias myjobs="squeue -u $(whoami) -O '$JOBFMT'"  # list all jobs assosicated to your user ID
-alias labjobs="squeue -p $MYCOMPNODE -O '$JOBFMT'"  # list all jobs associated with lab's partition
+alias labjobs="squeue --partition=$MYCOMPNODE -O '$JOBFMT'"  # list all jobs associated with lab's partition
 alias labspecs="sinfo --partition=$MYCOMPNODE -O '$NODEFMT'"
 
 # Shortucts to bash files
