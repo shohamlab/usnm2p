@@ -36,15 +36,36 @@ class Corrector(StackProcessor):
         '''
         # For multi-channel stack, process each channel separately
         if stack.ndim > 3:
-            outstack = np.stack([
-                self.run(stack[:, i]) for i in range(stack.shape[1])])
+            outstack = []
+            for i in range(stack.shape[1]):
+                logger.info(f'working on channel {i + 1}...')
+                outstack.append(self.run(stack[:, i]))
+            outstack = np.stack(outstack)
             return np.swapaxes(outstack, 0, 1)            
         # Save input data type
         ref_dtype = stack.dtype
-        # Apply correction function
-        res_stack = self.correct(stack)
+        # Cast as float64 and apply correction function
+        res_stack = self.correct(stack.astype(np.float64))
         # Round, cast as input integer type and return
         return np.round(res_stack).astype(ref_dtype)
+    
+    def subtract_vector(self, stack, y):
+        ''' Detrend stack using a frame-average subtraction vector '''
+        assert y.size == stack.shape[0], f'inputs incompatibility:{y.size} and {stack.shape}'
+        # Subtract mean from vector
+        y -= y.mean()
+        # Subtract mean-corrected vector from stack
+        return (stack.T - y).T
+
+    def plot(self, y, yfit):
+        fig, ax = plt.subplots()
+        ax.plot(y, label='data')
+        ax.plot(yfit, label='fit')
+        ax.plot(y - yfit + yfit.mean(), label='detrended')
+        ax.legend()
+        for sk in ['top', 'right']:
+            ax.spines[sk].set_visible(False)
+        plt.show()
 
 
 class MedianCorrector(Corrector):
@@ -67,8 +88,8 @@ class MedianCorrector(Corrector):
         # Compute frame median over time
         ymed = np.median(stack, axis=(1, 2))
         # Subtract median-corrected fit from each pixel to detrend stack
-        return (stack.T - ymed).T + ymed.mean()
-
+        return self.subtract_vector(stack, ymed)
+    
 
 class MeanCorrector(Corrector):
         
@@ -90,33 +111,35 @@ class MeanCorrector(Corrector):
         # Compute frame mean over time
         ymean = np.mean(stack, axis=(1, 2))
         # Subtract mean-corrected fit from each pixel to detrend stack
-        return (stack.T - ymean).T + ymean.mean()
+        return self.subtract_vector(stack, ymean)
 
 
 class ExponentialCorrector(Corrector):
     ''' Generic interface to an stack exponential decay corrector. '''
 
-    def __init__(self, nexps=1, nsubs=0):
+    def __init__(self, nexps=1, nfit=None, ncorrupted=0):
         '''
         Constructor
         
         :param nexps: number of exponentials in the decay function
-        :param nsubs: number of frames to substitute after detrending 
+        :param nfit: number of initial frames on which to perform exponential fit  
+        :param ncorrupted: number of initial corrupted frames to substitute after detrending 
         '''
         self.nexps = nexps
-        self.nsubs = nsubs
+        self.nfit = nfit
+        self.ncorrupted = ncorrupted
     
     def __str__(self) -> str:        
-        return f'{self.__class__.__name__}(nexps={self.nexps}, nsubs={self.nsubs})'
+        return f'{self.__class__.__name__}(nexps={self.nexps}, nfit={self.nfit}, ncorrupted={self.ncorrupted})'
 
     @property
     def code(self):
         nexps_str = {1: 'mono',2: 'bi'}[self.nexps]
         s = f'{nexps_str}expdecay'
-        if self.nsubs > 0:
-            s = f'{s}_{self.nsubs}sub'
-        if self.nsubs > 1:
-            s = f'{s}s'
+        if self.nfit is not None:
+            s = f'{s}_{self.nfit}fit'            
+        if self.ncorrupted > 0:
+            s = f'{s}_{self.ncorrupted}corrupted'
         return s
 
     @property
@@ -133,16 +156,26 @@ class ExponentialCorrector(Corrector):
         elif value == 2:
             self.decayfunc = biexpdecay
         self._nexps = value
+    
+    @property
+    def nfit(self):
+        return self._nfit
+
+    @nfit.setter
+    def nfit(self, value):
+        if value is not None and value < 0:
+            raise ValueError('number of initial frames for fit must be positive')
+        self._nfit = value
 
     @property
-    def nsubs(self):
-        return self._nsubs
+    def ncorrupted(self):
+        return self._ncorrupted
 
-    @nsubs.setter
-    def nsubs(self, value):
+    @ncorrupted.setter
+    def ncorrupted(self, value):
         if value < 0:
-            raise ValueError('number of initial substituted frames must be positive')
-        self._nsubs = value
+            raise ValueError('number of initial corrupted frames must be positive')
+        self._ncorrupted = value
     
     def expdecayfit(self, y):
         ''' 
@@ -151,38 +184,52 @@ class ExponentialCorrector(Corrector):
         :param y: signal array
         :return: fitted decay array
         '''
-        # Input vector
-        x = np.arange(y.size)
+        # Get signal size
+        nsamples = y.size
+        # Determine number of samples on which to perform the fit
+        if self.nfit is not None:
+            nfit = self.nfit
+        else:
+            nfit = nsamples + 1
+        # Reduce input signal to nfit samples
+        y = y[:nfit]
+        # Compute signal statistics
+        ptp = np.ptp(y)
+        ymed = np.median(y)
+        ystd = y.std()
         # Initial parameters guess
-        H0 = y.min()
-        A0 = 1
-        x0 = 0
+        H0 = ymed  # vertical offset: signal median
+        A0 = 1  # amplitude: 1
+        tau0 = 1 # decay time constant: 1 sample
+        x0 = 0  # horizontal offset: 0 sample
         # Parameters bounds
-        Hbounds = (y.min(), np.median(y))
-        Abounds = (0, 1e3)
-        # x0bounds = (0, y.size // 4)
-        x0bounds = (-np.inf, np.inf)
+        Hbounds = (ymed - 0.1 * ptp, ymed + 0.1 * ptp)  # vertical offset: within median +/-10% of variation range 
+        Abounds = (-1e3, 1e3)  # amplitude: within +/- 1000
+        taubounds = (1e-3, nfit / 2) # decay time constant: 0.001 - half-signal length 
+        x0bounds = (-nfit, nfit)  # horizontal offset: within +/- signal length
         # Adapt inputs to number of exponentials
-        p0 = (H0,) + (A0,) * self.nexps + (x0,) * self.nexps
-        pbounds = (Hbounds, *([Abounds] * self.nexps), *([x0bounds] * self.nexps))
+        p0 = (H0,) + (A0,) * self.nexps + (tau0,) * self.nexps + (x0,) * self.nexps
+        pbounds = (Hbounds, *([Abounds] * self.nexps), *([taubounds] * self.nexps), *([x0bounds] * self.nexps))
         pbounds = tuple(zip(*pbounds))
-        # Least-square fit
-        popt, _ = curve_fit(self.decayfunc, x, y, p0=p0, bounds=pbounds)
+        # Least-square fit over restricted signal
+        xfit = np.arange(nfit)
+        popt, _ = curve_fit(self.decayfunc, xfit, y, p0=p0, bounds=pbounds, max_nfev=20000)
+        logger.info(f'popt: {popt}')
         # Compute fitted profile
-        yfit = self.decayfunc(x, *popt)
+        yfit = self.decayfunc(xfit, *popt)
         # Compute rmse of fit
         rmse = np.sqrt(((y - yfit) ** 2).mean())
-        # Compute ratio of rmse fo signal median
-        rel_rmse = rmse / np.median(y)
-        # Raise error if too high
+        # Compute ratio of rmse to signal standard deviation
+        rel_rmse = rmse / ystd
+        s = f'RMSE = {rmse:.2f}, STD = {ystd:.2f}, RMSE / STD = {rmse / ystd:.2f}'
+        logger.info(s)
+        # Raise error if ratio is too high
         if rel_rmse > DECAY_FIT_MAX_REL_RMSE:
-            fig, ax = plt.subplots()
-            ax.plot(y, label='data')
-            ax.plot(yfit, label='fit')
-            ax.legend()
-            plt.show()
-            raise ValueError(f'{self} fit quality too poor (relative RMSE = {rel_rmse:.2f})')
-        return yfit
+            self.plot(y, yfit)
+            raise ValueError(f'{self} fit quality too poor: {s}')
+        # Return fit over entire signal
+        xfull = np.arange(nsamples)
+        return self.decayfunc(xfull, *popt)
 
     def correct(self, stack):
         '''
@@ -191,15 +238,17 @@ class ExponentialCorrector(Corrector):
         :param stack: input image stack
         :return: processed image stack
         '''
+        logger.info(f'applying exponential detrending to {stack.shape[0]}-frames stack...')
         # Compute frame average over time
         y = stack.mean(axis=(1, 2))
-        # Compute exponential decay fit on frame average profile
-        yfit = self.expdecayfit(y)
-        # Subtract mean-corrected fit from each pixel to detrend stack
-        res_stack = (stack.T - yfit).T + yfit.mean()
-        # Substitute first n frames to avoid false transients created by detrending
-        res_stack[:self.nsubs] = res_stack[self.nsubs + 1]
-        return res_stack
+        # Compute exponential decay fit on frame average profile beyond corrupted frames
+        yfit = self.expdecayfit(y[self.ncorrupted:].copy())
+        # Subtract fit from each pixel to detrend stack beyond corrupted frames
+        stack[self.ncorrupted:] = self.subtract_vector(stack[self.ncorrupted:], yfit)
+        # Substitute corrupted first n frames
+        stack[:self.ncorrupted] = stack[self.ncorrupted]
+        # Return stack
+        return stack
 
 
 def correct_tifs(input_fpaths, input_root='raw', **kwargs):
@@ -209,11 +258,14 @@ def correct_tifs(input_fpaths, input_root='raw', **kwargs):
     :param input_fpaths: list of full paths to input TIF stacks
     :return: list of detrended TIF stacks
     '''
-    # Create stack corrector object
-    # sc = ExponentialCorrector(nexps=nexps, nsubs=nsubs)
-    # sc = MeanCorrector()
-    sc = MedianCorrector()
-    # Detrend each stack file
+    # Apply median correction
+    mc = MedianCorrector()
+    median_corrected_stack_fpaths = process_and_save(
+        mc, input_fpaths, input_root, overwrite=False, **kwargs)
+    # Apply exponential detrending
+    ec = ExponentialCorrector(
+        nexps=NEXPS_DECAY_DETREND, nfit=NSAMPLES_DECAY_DETREND, ncorrupted=NCORRUPTED_BERGAMO)
     corrected_stack_fpaths = process_and_save(
-        sc, input_fpaths, input_root, overwrite=False, **kwargs)
+        ec, median_corrected_stack_fpaths, 'corrected', overwrite=False, **kwargs)
+    # Return output filepaths     
     return corrected_stack_fpaths

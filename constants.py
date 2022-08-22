@@ -50,9 +50,10 @@ P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 ####################################### PRE-PROCESSING ######################################
 
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
-DECAY_FIT_MAX_REL_RMSE = 0.35  # max relative RMSE allowed during stack decay detrending process
+NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
+DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
+NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
 
-NSUBS_CORRUPTED = 5  # number of initial frames to substitute after detrending on corrupted Bergamo acquisitions
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################

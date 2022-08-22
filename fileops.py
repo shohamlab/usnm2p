@@ -295,8 +295,9 @@ def savetif(fpath, stack, overwrite=True):
 class StackProcessor(metaclass=abc.ABCMeta):
     ''' Generic intrface for processor objects '''
 
-    def __init__(self, overwrite=False):
+    def __init__(self, overwrite=False, warn_if_exists=True):
         self.overwrite = overwrite
+        self.warn_if_exists = warn_if_exists
 
     @abc.abstractmethod
     def run(self, stack: np.array) -> np.ndarray:
@@ -320,6 +321,11 @@ class StackProcessor(metaclass=abc.ABCMeta):
         return fname
 
     def get_target_fpath(self, fpath):
+        ''' Get target (i.e. post-prtocessing) file path for an input filepath '''
+        # Get output filepath
+        fpath = get_output_equivalent(
+            fpath, self.input_root, f'{self.rootcode}/{self.code}')
+        # Modify output filepath according to processor
         fdir, fname = os.path.split(fpath)
         return os.path.join(fdir, self.get_target_fname(fname))
     
@@ -336,14 +342,12 @@ class StackProcessor(metaclass=abc.ABCMeta):
         # If NoProcessor object provided -> do nothing and return input file path
         if isinstance(self, NoProcessor):
             return input_fpath
-        # Get output filepath
-        output_fpath = get_output_equivalent(
-            input_fpath, self.input_root, f'{self.rootcode}/{self.code}')
-        # Modify output filepath according to processor
-        output_fpath = self.get_target_fpath(output_fpath)
+        # Get post-processing output filepath
+        output_fpath = self.get_target_fpath(input_fpath)
         # If already existing, act according to overwrite parameter
         if os.path.isfile(output_fpath):
-            logger.warning(f'"{output_fpath}" already exists')
+            if self.warn_if_exists:
+                logger.warning(f'"{output_fpath}" already exists')
             overwrite = parse_overwrite(self.overwrite)
             if not overwrite:
                 return output_fpath
@@ -379,7 +383,7 @@ class NoProcessor(StackProcessor):
         raise NotImplementedError
 
 
-def process_and_save(processor, input_fpath, input_root, overwrite=False, mpi=False):
+def process_and_save(processor, input_fpath, input_root, overwrite=False, warn_if_exists=True, mpi=False):
     '''
     Wrapper around StackProcessor load_run_save method
 
@@ -393,13 +397,21 @@ def process_and_save(processor, input_fpath, input_root, overwrite=False, mpi=Fa
     # Pass on overwrite and input_root to processor
     processor.overwrite = overwrite
     processor.input_root = input_root
-    # If list of filepaths provided as input -> apply function to all of them
+    processor.warn_if_exists = warn_if_exists
+    # If list of filepaths provided as input
     if is_iterable(input_fpath):
-        if mpi:
-            with Pool() as pool:
-                return pool.map(processor.load_run_save, input_fpath)
+        # If they all exist already and overwrite set to False -> return directly
+        output_fpaths = list(map(processor.get_target_fpath, input_fpath))
+        if overwrite == False and all(os.path.isfile(x) for x in output_fpaths):
+            logger.info('all output files already exist -> skipping')
+            return output_fpaths
+        # Otherwise, apply function to all of them, with/without multiprocessing 
         else:
-            return list(map(processor.load_run_save, input_fpath))
+            if mpi:
+                with Pool() as pool:
+                    return pool.map(processor.load_run_save, input_fpath)
+            else:
+                return list(map(processor.load_run_save, input_fpath))
     # Call processor method
     return processor.load_run_save(input_fpath)
 

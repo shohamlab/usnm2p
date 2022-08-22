@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     # Input directory for raw data
     datadir = os.path.join(dataroot, args.mouseline)
-    datadir = get_output_equivalent(datadir, 'raw', 'corrected/median')
+    datadir = get_output_equivalent(datadir, 'raw', 'corrected/biexpdecay_200fit_2corrupted/median')
     figsdir = get_output_equivalent(dataroot, 'raw', 'figs')  # Directory for output figures
 
     # List subfolders containing TIF files
@@ -83,12 +83,12 @@ if __name__ == '__main__':
         # Get frame-summary profiles per channel for every stack file
         if args.mpi:
             with Pool() as pool:
-                ytrials = pool.map(get_stack_framemed, raw_fpaths)
+                ytrials = pool.map(get_stack_frameavg, raw_fpaths)
         else:
-            ytrials = list(map(get_stack_framemed, raw_fpaths))
+            ytrials = list(map(get_stack_frameavg, raw_fpaths))
         fig = plot_profiles(np.stack(ytrials))
         dmr = os.path.basename(tif_folder)
         fig.suptitle(dmr)
         save_fpath = os.path.join(figsdir, 'frameprofiles', f'{dmr}.png')
-        logger.info(f'saving {dmr} frame-median profiles figure...')
+        logger.info(f'saving {dmr} frame-average profiles figure...')
         fig.savefig(save_fpath)

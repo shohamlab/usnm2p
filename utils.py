@@ -508,28 +508,30 @@ def nan_proof(func):
     return wrapper
 
 
-def expdecay(x, H, A, x0):
+def expdecay(x, H, A, tau, x0):
     '''
     Exponential decay function
     
     :param x: independent variable
     :param H: vertical offset
     :param A: scaling factor
+    :param tau: decay time constant
     :param x0: horizontal offset
     '''
-    return H + np.exp(-(x - x0) / A)
+    return H + A * np.exp(-(x - x0) / tau)
 
 
-def biexpdecay(x, H, A1, A2, x1, x2):
+def biexpdecay(x, H, A1, A2, tau1, tau2, x1, x2):
     ''' 
     Bi-exponential decay function
 
     :param x: independent variable
     :param H: vertical offset
     :param A1, A2: scaling factors
+    :param tau1, tau2: decay time constants
     :param x1, x2: horizontal offsets
     '''
-    return expdecay(x, H / 2, A1, x1) + expdecay(x, H / 2, A2, x2)
+    return expdecay(x, H / 2, A1, tau1, x1) + expdecay(x, H / 2, A2, tau2, x2)
 
 
 def gauss(x, H, A, x0, sigma):

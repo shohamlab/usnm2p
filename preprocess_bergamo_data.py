@@ -76,10 +76,9 @@ if __name__ == '__main__':
         logger.info(f'number of frames per trial: {nframes_per_trial}')
         # Split channels from run stacks
         split_fpaths = split_multichannel_tifs(stacked_fpaths, overwrite=False)
-        # Define substitutor object
-        submap = [(NSUBS_CORRUPTED, i) for i in range(NSUBS_CORRUPTED)] + [(FrameIndex.STIM - 1, FrameIndex.STIM)]
-        ss = StackSubstitutor(submap, repeat_every=nframes_per_trial)
         # Substitute problematic frames in every TIF stack and save outputs in specific directory 
+        submap = [(FrameIndex.STIM - 1, FrameIndex.STIM)]
+        ss = StackSubstitutor(submap, repeat_every=nframes_per_trial)
         input_root = 'split'
         substituted_fpaths = process_and_save(
             ss, split_fpaths, input_root, overwrite=False, mpi=args.mpi)
