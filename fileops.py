@@ -366,6 +366,9 @@ class NoProcessor(StackProcessor):
 
     def run(self, stack: np.array, *args):
         raise NotImplementedError
+    
+    def get_target_fpath(self, fpath):
+        return fpath
 
     @property
     def ptype(self):
