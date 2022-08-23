@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 16:35:17
+# @Last Modified time: 2022-08-23 15:19:32
 
 ''' Collection of image stacking utilities. '''
 
@@ -14,6 +14,7 @@ from constants import *
 from logger import logger
 from utils import expdecay, biexpdecay
 from fileops import StackProcessor, NoProcessor, process_and_save
+from postpro import robust_linreg
 
 
 class NoCorrector(NoProcessor):
@@ -66,6 +67,39 @@ class Corrector(StackProcessor):
         for sk in ['top', 'right']:
             ax.spines[sk].set_visible(False)
         plt.show()
+
+
+class LinRegCorrector(Corrector):
+
+    def __init__(self, iref, *args, **kwargs):
+        self.iref = iref
+        super().__init__(*args, **kwargs)
+
+    def linreg(self, frame, ref_frame):
+        '''
+        Perform robust linear regression between a frame and a reference frame
+        
+        :param frame: frame 2D array
+        :param ref_frame: reference frame 2D array
+        :return: linear fit parameters (offset and slope)
+        '''
+        return robust_linreg(frame.ravel(), x=ref_frame.ravel())
+    
+    def correct(self, stack):
+        ''' Correct image stack with linear regresion to reference frame '''
+        # Compute average reference frame within predefined frame range
+        ref_frame = stack[self.iref].mean(axis=0)
+        corrected_frames = []
+        linreg_params = []
+        # For each frame
+        for frame in stack:
+            # Compute linear regression to reference frame
+            offset, slope = self.linreg(frame, ref_frame)
+            linreg_params.append([offset, slope])
+            # Correct frame accordingly
+            corrected_frames.append(frame * slope + offset)
+        # Return corrected stack
+        return np.stack(corrected_frames)
 
 
 class MedianCorrector(Corrector):
