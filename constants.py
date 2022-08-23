@@ -49,6 +49,7 @@ P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 
 ####################################### PRE-PROCESSING ######################################
 
+IREF_FRAMES_BERGAMO = slice(-200, None)  # index range of reference frames for detrending on corrupted Bergamo acquisitions 
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process

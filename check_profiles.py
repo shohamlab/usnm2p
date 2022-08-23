@@ -67,7 +67,8 @@ if __name__ == '__main__':
 
     # Input directory for raw data
     datadir = os.path.join(dataroot, args.mouseline)
-    datadir = get_output_equivalent(datadir, 'raw', 'corrected/biexpdecay_200fit_2corrupted/median')
+    # datadir = get_output_equivalent(datadir, 'raw', 'corrected/biexpdecay_200fit_2corrupted/median')
+    datadir = get_output_equivalent(datadir, 'raw', 'corrected/linreg_iref_-200_None')
     figsdir = get_output_equivalent(dataroot, 'raw', 'figs')  # Directory for output figures
 
     # List subfolders containing TIF files

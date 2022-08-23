@@ -63,8 +63,8 @@ if __name__ == '__main__':
         # Get TIF stack files inside that folder
         fnames = get_sorted_filelist(tif_folder, pattern=P_TIFFILE)
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
-        # Detrend & correct stacks for initial exponential decay
-        corrected_fpaths = correct_tifs(raw_fpaths, input_root='raw', mpi=args.mpi)
+        # Detrend TIF stacks using linear regression
+        corrected_fpaths = correct_tifs(raw_fpaths, input_root='raw', overwrite=True, mpi=args.mpi)
         # Resample TIF stacks
         resampled_fpaths = resample_tifs(
             corrected_fpaths, ref_sr, target_sr, input_root='corrected', mpi=args.mpi)

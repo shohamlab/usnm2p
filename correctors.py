@@ -14,7 +14,9 @@ from constants import *
 from logger import logger
 from utils import expdecay, biexpdecay
 from fileops import StackProcessor, NoProcessor, process_and_save
-from postpro import robust_linreg
+from scipy.stats import linregress
+import statsmodels.api as sm
+from tqdm import tqdm
 
 
 class NoCorrector(NoProcessor):
@@ -74,6 +76,13 @@ class LinRegCorrector(Corrector):
     def __init__(self, iref, *args, **kwargs):
         self.iref = iref
         super().__init__(*args, **kwargs)
+        
+    def __str__(self) -> str:        
+        return f'{self.__class__.__name__}(iref={self.iref})'
+        
+    @property
+    def code(self):
+        return f'linreg_iref_{self.iref.start}_{self.iref.stop}'
 
     def linreg(self, frame, ref_frame):
         '''
@@ -81,9 +90,26 @@ class LinRegCorrector(Corrector):
         
         :param frame: frame 2D array
         :param ref_frame: reference frame 2D array
-        :return: linear fit parameters (offset and slope)
+        :return: linear fit parameters (offset and slope, such that frame = slope * ref_frame + intercept) 
         '''
-        return robust_linreg(frame.ravel(), x=ref_frame.ravel())
+        res = linregress(ref_frame.ravel(), frame.ravel())
+        slope, intercept = res.slope, res.intercept
+        # x, y = ref_frame.ravel(), frame.ravel()
+        # x = sm.add_constant(x)
+        # model = sm.RLM(y, x, M=sm.robust.norms.HuberT())
+        # fit = model.fit()
+        # intercept, slope = fit.params
+        return slope, intercept
+    
+    def plot_linreg_params(self, linreg_params):
+        ''' Plot linear regression parameters over time '''
+        fig, ax = plt.subplots()
+        slopes, intercepts = list(zip(*linreg_params))
+        iframes = np.arange(len(slopes))
+        ax.plot(iframes, intercepts, label='intercept')
+        ax.plot(iframes, slopes, label='slope')
+        ax.legend()
+        return fig
     
     def correct(self, stack):
         ''' Correct image stack with linear regresion to reference frame '''
@@ -94,10 +120,12 @@ class LinRegCorrector(Corrector):
         # For each frame
         for frame in stack:
             # Compute linear regression to reference frame
-            offset, slope = self.linreg(frame, ref_frame)
-            linreg_params.append([offset, slope])
-            # Correct frame accordingly
-            corrected_frames.append(frame * slope + offset)
+            slope, intercept = self.linreg(frame, ref_frame)
+            linreg_params.append([slope, intercept])
+            # Correct frame accordingly: corrected_frame = (frame - intercept) / slope             
+            corrected_frames.append((frame - intercept) / slope)
+        # fig = self.plot_linreg_params(linreg_params)
+        # plt.show()
         # Return corrected stack
         return np.stack(corrected_frames)
 
@@ -292,14 +320,18 @@ def correct_tifs(input_fpaths, input_root='raw', **kwargs):
     :param input_fpaths: list of full paths to input TIF stacks
     :return: list of detrended TIF stacks
     '''
-    # Apply median correction
-    mc = MedianCorrector()
-    median_corrected_stack_fpaths = process_and_save(
-        mc, input_fpaths, input_root, overwrite=False, **kwargs)
-    # Apply exponential detrending
-    ec = ExponentialCorrector(
-        nexps=NEXPS_DECAY_DETREND, nfit=NSAMPLES_DECAY_DETREND, ncorrupted=NCORRUPTED_BERGAMO)
+    # Apply linear regression correction     
+    lrc = LinRegCorrector(IREF_FRAMES_BERGAMO)
     corrected_stack_fpaths = process_and_save(
-        ec, median_corrected_stack_fpaths, 'corrected', overwrite=False, **kwargs)
+        lrc, input_fpaths, input_root, **kwargs)
+    # # Apply median correction
+    # mc = MedianCorrector()
+    # median_corrected_stack_fpaths = process_and_save(
+    #     mc, input_fpaths, input_root, overwrite=False, **kwargs)
+    # # Apply exponential detrending
+    # ec = ExponentialCorrector(
+    #     nexps=NEXPS_DECAY_DETREND, nfit=NSAMPLES_DECAY_DETREND, ncorrupted=NCORRUPTED_BERGAMO)
+    # corrected_stack_fpaths = process_and_save(
+    #     ec, median_corrected_stack_fpaths, 'corrected', overwrite=False, **kwargs)
     # Return output filepaths     
     return corrected_stack_fpaths
