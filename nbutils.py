@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-05-26 14:49:50
+# @Last Modified time: 2022-08-23 10:27:43
 
 ''' Notebook running utilities '''
 
 import jupyter_slack
 import os
 import papermill as pm
+from nbclient.exceptions import DeadKernelError
 
 from logger import logger
 from batches import Batch
@@ -34,7 +35,7 @@ def execute_notebook(pdict, input_nbpath, outdir):
     logger.info(f'executing "{output_nbname}"...')
     try:
         pm.execute_notebook(input_nbpath, output_nbpath, parameters=pdict)
-    except pm.exceptions.PapermillExecutionError as err:
+    except (pm.exceptions.PapermillExecutionError, DeadKernelError) as err:
         s = f'"{output_nbname}" execution error: {err}'
         logger.error(s)
         jupyter_slack.notify_self(s)
