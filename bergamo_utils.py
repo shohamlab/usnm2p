@@ -46,15 +46,15 @@ def preprocess_bergamo_dataset(
     resampled_fpaths = resample_tifs(
             input_fpaths, ref_sr, target_sr, input_root=input_root, mpi=mpi, **kwargs)
     # Stack trial TIFs of every run in the stack list
-    stacked_fpaths = stack_trial_tifs(resampled_fpaths, overwrite=overwrite)
-    # Extract number of frames per trial 
+    stacked_fpaths = stack_trial_tifs(resampled_fpaths, align=True, overwrite=overwrite)
+    # Extract number of frames per trial
     raw_info_table = get_info_table(stacked_fpaths)
     nframes_per_trial = get_singleton(raw_info_table, Label.NPERTRIAL)
     logger.info(f'number of frames per trial: {nframes_per_trial}')
     # Split channels from run stacks
     split_fpaths = split_multichannel_tifs(stacked_fpaths, overwrite=overwrite)
     # Substitute problematic frames in every TIF stack and save outputs in specific directory 
-    submap = [(FrameIndex.STIM - 1, FrameIndex.STIM)]
+    submap = [(1, 0), (FrameIndex.STIM - 1, FrameIndex.STIM)]
     ss = StackSubstitutor(submap, repeat_every=nframes_per_trial)
     input_root = 'split'
     substituted_fpaths = process_and_save(

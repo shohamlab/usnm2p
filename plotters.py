@@ -1109,11 +1109,11 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
     add_time_to_table(plt_data)
     
     # Initialize figure
-    fig, axes = plt.subplots(len(aggfuncs), 2, figsize=(10, 4 * len(aggfuncs)))
+    fig, axes = plt.subplots(1, len(aggfuncs), figsize=(6 * len(aggfuncs), 4))
     if len(suptitle) > 0:
         fig.suptitle(', '.join(suptitle))
-    axes = np.atleast_2d(axes)
-    for ax in axes.ravel():
+    axes = np.atleast_1d(axes)
+    for ax in axes:
         sns.despine(ax=ax)
     
     # If correction index was provided, transform it to multi-index
@@ -1123,11 +1123,10 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
         refidx = tuple(refidx)
     
     # For each aggregation function
-    for axrow, k in zip(axes, aggfuncs):
+    for ax, k in zip(axes, aggfuncs):
 
         # Initialize axis
-        ax = axrow[0]
-        ax.set_title(f'{k} - traces')
+        ax.set_title(f'{k} traces')
         ax.set_xlabel(Label.TIME)
         ax.set_ylabel(ykey[0])
         if tbounds is not None:
@@ -1135,7 +1134,6 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
         ax.axvline(0, c='k', ls='--')
         if yref is not None:
             ax.axhline(yref, c='k', ls='--')
-        axrow[1].set_title(f'{k} - distributions')
 
         # For eah variable of interest
         for y in ykey:
@@ -1164,11 +1162,7 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
             # Plot aggregated traces
             sns.lineplot(
                 data=plt_data, x=Label.TIME, y=(y, k), hue=hue, ci=ci,
-                palette=cmap, legend=False, ax=axrow[0], **kwargs)
-            
-            # Plot kerndel density estimation of aggregate traces 
-            sns.kdeplot(
-                data=plt_data, x=(y, k), hue=hue, ax=axrow[1], palette=cmap)
+                palette=cmap, legend='auto', ax=ax, **kwargs)
 
     # Tighten figure layout
     fig.tight_layout()

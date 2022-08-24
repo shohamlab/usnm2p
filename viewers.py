@@ -32,8 +32,7 @@ class StackViewer:
 
     npix_label = 10 # number of pixels used for upper-right labeling
     
-    def __init__(self, fpaths, headers, title=None, continuous_update=True,
-                 display_width=240, display_height=240, scaling_factor=S2P_UINT16_NORM_FACTOR):
+    def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, scaling_factor=S2P_UINT16_NORM_FACTOR):
         '''
         Initialization.
 
@@ -41,8 +40,7 @@ class StackViewer:
         :param headers: list of header(s) associated to each stack file
         :param title: optional title to render above the image(s)
         :param continuous_update: update the image while dragging the mouse (default: True)
-        :param display_width: diplay width (in pixels)
-        :param display_height: diplay height (in pixels)
+        :param display_size: size of the render (in pixels per axis)
         '''
         self.fpaths = fpaths
         self.scaling_factor = scaling_factor
@@ -61,8 +59,7 @@ class StackViewer:
         logger.info(f'stack size: {(self.nframes, *self.shape)}')
 
         # Initialize other attributes
-        self.display_width = display_width
-        self.display_height = display_height
+        self.display_width = self.display_height = display_size
         self.continuous_update = continuous_update
 
     def get_fileobj(self, fpath):
@@ -304,7 +301,7 @@ def get_stack_viewer(fpaths, *args, **kwargs):
         headers, fpaths = zip(*fpaths.items())
         # Get title from input arguments
         title = kwargs.pop('title', None)
-
+        kwargs['display_size'] = 600 / len(fpaths)
     # If fpaths is a single file instance or a suite2p output options dictionary
     else:
         # Extract header from title and populate single filepaths list
