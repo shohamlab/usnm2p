@@ -14,7 +14,7 @@ import numpy as np
 from constants import *
 from logger import logger
 from fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence, split_path_at
-from parsers import P_TIFFILE, P_TRIALFILE, P_RUNFILE_SUB
+from parsers import P_TIFFILE, group_by_run
 
 
 class ImageStacker(metaclass=abc.ABCMeta):
@@ -180,34 +180,6 @@ def stack_tifs(inputdir, pattern=P_TIFFILE, input_key='raw', **kwargs):
         return None
     fpaths = [os.path.join(inputdir, fname) for fname in fnames]
     return TifStacker().stack(fpaths, output_fpath, **kwargs)
-
-
-def group_by_run(fpaths):
-    '''
-    Group a large file list into consecutive trial files for each run
-    
-    :param fpaths: list of full paths to input files
-    :return: dictionary of filepaths list per run index
-    '''
-    # Create output dictionary
-    fbyrun = {}
-    # For each file path
-    for fpath in fpaths:
-        # Split directory and filename
-        fdir, fname = os.path.split(fpath)
-        # Extract run and trial index from file name
-        mo = P_TRIALFILE.match(fname)
-        *_, irun, itrial = mo.groups()
-        irun, itrial = int(irun), int(itrial)
-        # Create run list if not already there
-        if irun not in fbyrun:
-            # Get run filename
-            run_fname = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
-            fbyrun[irun] = [run_fname, []]
-        # Add filepath to appropriate run list
-        fbyrun[irun][1].append(fpath)
-    # Return dictionary
-    return fbyrun
 
 
 def stack_trial_tifs(input_fpaths, input_key='resampled', align=True, **kwargs):

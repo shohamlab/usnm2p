@@ -255,3 +255,31 @@ def parse_date_mouse_region(s):
     else:
         raise ValueError(
             f'{s} does not match date-mouse-reg-layer pattern ({P_DATEMOUSEREGLAYER.pattern})')
+        
+
+def group_by_run(fpaths):
+    '''
+    Group a large file list into consecutive trial files for each run
+    
+    :param fpaths: list of full paths to input files
+    :return: dictionary of filepaths list per run index
+    '''
+    # Create output dictionary
+    fbyrun = {}
+    # For each file path
+    for fpath in fpaths:
+        # Split directory and filename
+        fdir, fname = os.path.split(fpath)
+        # Extract run and trial index from file name
+        mo = P_TRIALFILE.match(fname)
+        *_, irun, itrial = mo.groups()
+        irun, itrial = int(irun), int(itrial)
+        # Create run list if not already there
+        if irun not in fbyrun:
+            # Get run filename
+            run_fname = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
+            fbyrun[irun] = [run_fname, []]
+        # Add filepath to appropriate run list
+        fbyrun[irun][1].append(fpath)
+    # Return dictionary
+    return fbyrun
