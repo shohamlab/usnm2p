@@ -11,18 +11,7 @@ import matplotlib.pyplot as plt
 from multiprocessing import Pool
 from dialog import open_folder_dialog
 from logger import logger
-
-
-def loadtif(fpath):
-    ''' Load TIF and potentially reshape it according to number of channels '''
-    with TiffFile(fpath) as f:
-        meta = f.scanimage_metadata
-        y = f.asarray()
-    nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
-    if y.ndim < 4 and nchannels > 1:
-        logger.info(f'splitting {nchannels} from {y.shape} shaped array')
-        y = np.reshape(y, (y.shape[0] // nchannels, nchannels, *y.shape[1:]))
-    return y
+from fileops import loadtif
 
 
 def get_frameavg(fpath):

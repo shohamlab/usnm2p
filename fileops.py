@@ -266,10 +266,18 @@ def loadtif(fpath, verbose=True, metadata=False):
     with TiffFile(fpath) as tif:
         # Load tiff stack
         stack = tif.asarray()
-        # Load metadata if specified
-        if metadata:
-            meta = tif.scanimage_metadata    
-        else:
+        # If TIF is from scanimage
+        if tif.is_scanimage:
+            # Load metadata
+            meta = tif.scanimage_metadata
+            # Check number of channels and reshape TIF stack if necessary
+            nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
+            if stack.ndim < 4 and nchannels > 1:
+                logger.info(f'splitting {nchannels} channels {stack.shape} shaped array')
+                stack = np.reshape(
+                    stack, (stack.shape[0] // nchannels, nchannels, *stack.shape[1:]))
+        # Reassign metadata to None if not requested for output 
+        if not metadata:
             meta = None
     # If stack has more than 2 dimensions (i.e. contains multiple frames), log info
     if stack.ndim > 2:
