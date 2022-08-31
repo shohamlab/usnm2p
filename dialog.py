@@ -36,7 +36,7 @@ def open_file_dialog(filetype, dirname='', title='Open a file', multiple=False):
     return fpath
 
 
-def open_folder_dialog(title='Select folder'):
+def open_folder_dialog(title='Select folder', **kwargs):
     '''
     Open a dialog box to select directory.
 
@@ -45,7 +45,7 @@ def open_folder_dialog(title='Select folder'):
     '''
     root = tk.Tk()
     root.withdraw()
-    dirpath = filedialog.askdirectory()
+    dirpath = filedialog.askdirectory(**kwargs)
     root.destroy()
     if len(dirpath) == 0:
         return None

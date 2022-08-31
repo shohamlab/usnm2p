@@ -215,6 +215,61 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     return fig
 
 
+def plot_frameavg_profiles(frameavgs, details=False, title=None):
+    '''
+    Plot frame-average profiles of a given acquisition
+    
+    :param frameavgs: array of frame-average profiles
+    :param details: whether to plot individual traces
+    :return: frame average profiles figure
+    '''
+    nacqs, nframes = frameavgs.shape[:2]
+    # If multiple channels are present, re-arrange array to have channels on axis 0 
+    if frameavgs.ndim > 2:
+        nchannels = frameavgs.shape[2]
+        frameavgs = np.moveaxis(frameavgs, 2, 0)
+    # Otherwise, add dummy axis 0 for single channel
+    else:
+        nchannels = 1
+        frameavgs = frameavgs[np.newaxis, :]
+
+    # Create figure backbone
+    fig, axes = plt.subplots(nchannels, figsize=(10, 3 * nchannels))
+    if nchannels == 1:
+        axes = [axes]
+    stitle = f'{nacqs} acquisitions'
+    if title is not None:
+        stitle = f'{title} ({stitle})'
+    axes[0].set_title(stitle)
+    for i, ax in enumerate(axes):
+        ax.set_xlabel('frames')
+        ax.set_ylabel(f'channel {i + 1}')
+
+    # Plot frame average profiles
+    logger.info(f'plotting {nacqs} frame-average profiles...')
+    iframes = np.arange(nframes)
+    for ax, ychannel in zip(axes, frameavgs):
+        sns.despine(ax=ax)
+        # Calculate mean and SEM
+        ymean = ychannel.mean(axis=0)
+        ysem = ychannel.std(axis=0, ddof=1) / np.sqrt(ychannel.shape[0])
+        # Plot mean profile
+        ax.plot(iframes, ymean, label='avg', c='k')
+        # Plot individual traces if specified
+        if details:
+            for i, yacq in enumerate(ychannel):
+                ax.plot(iframes, yacq, label=f'acq {i + 1}', alpha=0.5, lw=1)
+            if nacqs <= 10:
+                ax.legend(loc='center right')
+        # Otherwise, plot mean +/- sem shaded area
+        else:
+            ax.fill_between(
+                iframes, ymean - ysem, ymean + ysem, fc='k', alpha=0.3)
+    
+    # Return figure handle
+    return fig
+
+
 def plot_stack_timecourse(*args, **kwargs):
     '''
     Plot the evolution of the average frame intensity over time, with shaded areas
@@ -325,7 +380,7 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         stack = loadtif(fpath, verbose=False)
         
         # Average across pixels and reshape as trials x frames
-        stackavg_trace = stack.mean(axis=-1).mean(axis=-1)
+        stackavg_trace = stack.mean(axis=(-2, -1))
         stackavg_mat = stackavg_trace.reshape((-1, npertrial))
         
         # Remove specific trials if specified

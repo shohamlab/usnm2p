@@ -46,7 +46,8 @@ def preprocess_bergamo_dataset(
     resampled_fpaths = resample_tifs(
             input_fpaths, ref_sr, target_sr, input_root=input_root, mpi=mpi, **kwargs)
     # Stack trial TIFs of every run in the stack list
-    stacked_fpaths = stack_trial_tifs(resampled_fpaths, align=True, overwrite=overwrite)
+    stacked_fpaths = stack_trial_tifs(
+        resampled_fpaths, align=is_corrupted, overwrite=overwrite)
     # Extract number of frames per trial
     raw_info_table = get_info_table(stacked_fpaths)
     nframes_per_trial = get_singleton(raw_info_table, Label.NPERTRIAL)

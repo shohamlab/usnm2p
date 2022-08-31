@@ -14,7 +14,6 @@ from tqdm import tqdm
 import numpy_image_widget as niw
 from ipywidgets import IntSlider, VBox, HBox, HTML, Button, Output
 from IPython.display import display
-
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
 import imageio as iio

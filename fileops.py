@@ -263,6 +263,8 @@ def sort_folders_by_runID(datafolders, pdicts):
 
 def loadtif(fpath, verbose=True, metadata=False):
     ''' Load stack/image from .tif file '''
+    logfunc = logger.info if verbose else logger.debug
+    logfunc(f'loading data from {os.path.basename(fpath)}')
     with TiffFile(fpath) as tif:
         # Load tiff stack
         stack = tif.asarray()
@@ -281,8 +283,7 @@ def loadtif(fpath, verbose=True, metadata=False):
             meta = None
     # If stack has more than 2 dimensions (i.e. contains multiple frames), log info
     if stack.ndim > 2:
-        func = logger.info if verbose else logger.debug
-        func(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
+        logfunc(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
     # Return
     if meta is None:
         return stack
@@ -298,6 +299,22 @@ def savetif(fpath, stack, overwrite=True):
     if stack.ndim > 2:
         logger.info(f'saving {stack.shape} {stack.dtype} stack as "{fpath}"...')
     imsave(fpath, stack)
+
+
+def get_stack_frame_aggregate(fpath, aggfunc=None):
+    '''
+    Load TIF file and compute frame-aggregate metrics for each frame
+    
+    :param fpath: full path to input TIF file
+    :param aggfunc: aggregation function (default = average)
+    :return: frame-average array
+    '''
+    if aggfunc is None:
+        aggfunc = np.mean
+    # Load TIF stack
+    stack = loadtif(fpath)
+    # Return frame aggregate metrics
+    return aggfunc(stack, axis=(-2, -1))
 
 
 class StackProcessor(metaclass=abc.ABCMeta):
