@@ -33,6 +33,8 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
+    parser.add_argument(
+        '-c', '--corrupted', default=False, action='store_true', help='corrupted dataset to be detrended')
 
     # Add resampling arguments
     parser.add_argument('--refsr', help='reference sampling rate (Hz)', default=BERGAMO_SR)
@@ -60,4 +62,4 @@ if __name__ == '__main__':
         raw_fpaths = [os.path.join(tif_folder, fname) for fname in fnames]
         # Pre-process Bergamo TIF stacks
         preprocess_bergamo_dataset(
-            raw_fpaths, ref_sr, target_sr, is_corrupted=True, mpi=args.mpi, overwrite=False)
+            raw_fpaths, ref_sr, target_sr, is_corrupted=args.corrupted, mpi=args.mpi, overwrite=False)

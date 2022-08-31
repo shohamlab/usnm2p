@@ -21,7 +21,7 @@ P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHA
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 P_RUNFILE = re.compile(
     f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.NAMED_RUN}.tif$', re.IGNORECASE)
-P_TRIALFILE = re.compile(f'{P_RUNFILE.pattern[:-5]}_{Pattern.TRIAL}.tif$', re.IGNORECASE)
+P_TRIALFILE = re.compile(f'{P_RUNFILE.pattern[:-5]}_[0-9]*_?{Pattern.TRIAL}.tif$', re.IGNORECASE)
 P_RUNFILE_SUB = r'\1_\2frames_\3Hz_\4ms_\5Hz_\6MPa_\7DC-run\8.tif'
 P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{sr:.2f}Hz_\6MPa_\7DC-run\8_\9.tif'
 
