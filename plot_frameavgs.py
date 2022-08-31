@@ -1,19 +1,16 @@
 
+import logging
 import numpy as np
 import glob
-import sys
+import time
+from random import sample
 import os
-from tifffile import imread, TiffFile
+from argparse import ArgumentParser
+from tifffile import TiffFile
 import matplotlib.pyplot as plt
-from packaging import version
+from multiprocessing import Pool
 from dialog import open_folder_dialog
-# from lab_instruments.logger import logger
-
-# Check that python version enables correct ScanImage data parsing
-VCRITICAL = version.parse('3.8.10')
-v = version.parse(sys.version.split(' ')[0])
-if v < VCRITICAL:
-    print(f'error: python version should be greater than {VCRITICAL}')
+from logger import logger
 
 
 def loadtif(fpath):
@@ -23,12 +20,34 @@ def loadtif(fpath):
         y = f.asarray()
     nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
     if y.ndim < 4 and nchannels > 1:
-        print(f'splitting {nchannels} from {y.shape} shaped array')
+        logger.info(f'splitting {nchannels} from {y.shape} shaped array')
         y = np.reshape(y, (y.shape[0] // nchannels, nchannels, *y.shape[1:]))
     return y
 
 
-def plot_frameavg_profiles(tif_fpaths, save=False):
+def get_frameavg(fpath):
+    '''
+    Load TIF file and compute frame-average profile per channel
+    
+    :param fpath: full path to input TIF file
+    :return: frame-average array
+    '''
+    # Load TIF stack
+    logger.info(f'loading data from {os.path.basename(fpath)}')
+    stack = loadtif(fpath)
+    logger.info(f'loaded {stack.shape} stack')
+
+    # Compute frame average for each channel
+    frameavg = stack.mean(axis=(-2, -1))
+    if frameavg.ndim == 1:
+        frameavg = np.array([frameavg]).T
+    logger.info(f'computed {frameavg.shape[0]} frame average vector on {frameavg.shape[1]} channels')
+
+    # Return
+    return frameavg
+
+
+def plot_frameavg_profiles(tif_fpaths, save=False, mpi=False):
     '''
     Plot frame-average profiles of a given acquisition
     
@@ -36,27 +55,17 @@ def plot_frameavg_profiles(tif_fpaths, save=False):
     :param save: whether to save the output figure to disk
     :return: frame average profiles figure
     '''
+    nfiles = len(tif_fpaths)
+    logger.info(f'plotting frame-average profiles from {nfiles} files...')
     # Find common prefix
     out_fpath = os.path.commonprefix(tif_fpaths)
     acqname = os.path.basename(out_fpath)
-    # For each file
-    frameavgs = []
-    for i, f in enumerate(tif_fpaths):
-        # Load TIF stack
-        print(f'loading data from {os.path.basename(f)}')
-        # stack = imread(f)
-        stack = loadtif(f)
-        print(f'loaded {stack.shape} stack')
-
-        # Compute frame average for each channel
-        frameavg = stack.mean(axis=(-2, -1))
-        if frameavg.ndim == 1:
-            frameavg = np.array([frameavg]).T
-        print(f'computed {frameavg.shape[0]} frame average vector on {frameavg.shape[1]} channels')
-
-        # Append to list
-        frameavgs.append(frameavg)
-
+    # Get frame-average profiles
+    if mpi:
+        with Pool() as pool:
+            frameavgs = pool.map(get_frameavg, tif_fpaths)
+    else:
+        frameavgs = list(map(get_frameavg, tif_fpaths))
     # Transform frame averages list to array, and swap axes
     frameavgs = np.stack(frameavgs)
     frameavgs = np.swapaxes(frameavgs, 1, 2)
@@ -65,7 +74,7 @@ def plot_frameavg_profiles(tif_fpaths, save=False):
     isamples = np.arange(nsamples)
 
     # Plot
-    print('plotting frame-average profiles...')
+    logger.info('plotting frame-average profiles...')
     fig, axes = plt.subplots(nchannels, figsize=(10, 3 * nchannels))
     if nchannels == 1:
         axes = [axes]
@@ -80,30 +89,57 @@ def plot_frameavg_profiles(tif_fpaths, save=False):
         ystd = ychannel.std(axis=0)
         ax.plot(isamples, yavg, label='avg', c='k')
         ax.fill_between(isamples, yavg - ystd, yavg + ystd, fc='k', alpha=0.3)
-    for ax in axes:
-        ax.legend(loc='center right')    
+    if nfiles <= 10:
+        for ax in axes:
+            ax.legend(loc='center right')    
     if save:
-        fig.savefig(f'{out_fpath}.png')
+        outfpath = f'{out_fpath}.png'
+        logger.info(f'saving output figure as {outfpath}')
+        fig.savefig(outfpath)
     
     return fig
 
 
-# Select root data directory
-datadir = open_folder_dialog()
-if datadir is None:
-    print('no input data directory chosen')
-    quit()
+if __name__ == '__main__':
 
-# Look for a batch of files in that directory
-print(f'looking for TIF files in {datadir}...')
-tif_files = glob.glob(os.path.join(datadir, '*.tif'))
-# Find common root
-root = os.path.commonprefix(tif_files)
-# Make sure all file have the same size
-sizes = [os.path.getsize(f) for f in tif_files]
-assert all(x == sizes[0] for x in sizes), 'differing stack sizes'
-print(f'found {len(tif_files)} files under the common root {root}*.tif')
+    # Parse command line arguments
+    parser = ArgumentParser()
+    parser.add_argument('--mpi', default=False, action='store_true', help='run with multiprocessing')
+    parser.add_argument('-s', '--save', default=False, action='store_true', help='save output figure as PNG')
+    parser.add_argument('-n', '--nfilesmax', type=int, default=-1, help='max number of files')
+    args = parser.parse_args()
+    logger.setLevel(logging.INFO)
 
-# Plot stacks frame-average profiles
-fig = plot_frameavg_profiles(tif_files, save=True)
-plt.show()
+    # Select root data directory
+    datadir = open_folder_dialog()
+    if datadir is None:
+        logger.error('no input data directory chosen')
+        quit()
+
+    # Look for a batch of files in that directory
+    logger.info(f'looking for TIF files in {datadir}...')
+    tif_files = glob.glob(os.path.join(datadir, '*.tif'))
+    nfiles = len(tif_files)
+    
+    # Make sure all file have the same (or very close) size
+    sizes = list(set([os.path.getsize(f) for f in tif_files]))
+    if len(sizes) > 1:
+        atol = 10  # absolute tolerance (in bytes)
+        diffs = [abs(x - sizes[0]) for x in sizes]
+        assert all(x <= atol for x in diffs), f'differing stack sizes: {sizes}'
+    
+    # Find common root
+    root = os.path.commonprefix(tif_files)
+    logger.info(f'found {nfiles} files under the common root {root}*.tif')
+    
+    # Select random subset of files if number of files exceeds limit 
+    if nfiles > args.nfilesmax:
+        logger.info(f'restricting input to subset of {args.nfilesmax} files...')
+        tif_files = sample(tif_files, args.nfilesmax)
+    
+    # Plot stacks frame-average profiles
+    t0 = time.perf_counter()
+    fig = plot_frameavg_profiles(tif_files, save=args.save, mpi=args.mpi)
+    tcomp = time.perf_counter() - t0
+    logger.info(f'completed in {tcomp:.2f}s')
+    plt.show()
