@@ -70,7 +70,10 @@ if __name__ == '__main__':
         tif_folders = get_data_folders(datadir, include_patterns=filters)
     
     # Get directory for figure output
-    figsdir = get_output_equivalent(dataroot, 'raw', 'figs')
+    if 'raw' in dataroot:
+        figsdir = get_output_equivalent(dataroot, 'raw', 'figs')
+    else:
+        figsdir = datadir
     
     # Loop through each folder containing TIF files
     for tif_folder in tif_folders:
