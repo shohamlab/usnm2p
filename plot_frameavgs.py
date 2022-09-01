@@ -72,6 +72,7 @@ if __name__ == '__main__':
     # Get directory for figure output
     if 'raw' in dataroot:
         figsdir = get_output_equivalent(dataroot, 'raw', 'figs')
+        figsdir = os.path.join(figsdir, 'frameprofiles')
     else:
         figsdir = datadir
     
@@ -123,8 +124,10 @@ if __name__ == '__main__':
         # Plot frame-average profiles
         title = os.path.basename(tif_folder)
         fig = plot_frameavg_profiles(frameavgs, details=args.details, title=title)
+        for ax in fig.axes:
+            ax.axvline(83, ls='--', c='k')
         if args.save:
-            save_fpath = os.path.join(figsdir, 'frameprofiles', f'{title}.png')
+            save_fpath = os.path.join(figsdir, f'{title}.png')
             logger.info(f'saving output figure as {save_fpath}')
             fig.savefig(save_fpath)
     
