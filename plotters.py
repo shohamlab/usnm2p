@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 13:46:30
+# @Last Modified time: 2022-09-09 15:26:29
 
 ''' Collection of plotting utilities. '''
 
@@ -1120,7 +1120,10 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
     ykey = as_iterable(ykey)
 
     # Extract timeseries for variables of interest
-    plt_data = data[ykey]
+    subkeys = ykey.copy()
+    if hue is not None and hue not in data.index.names:
+        subkeys.append(hue)
+    plt_data = data[subkeys]
 
     # Define initial groupby dimensions and figure title
     groupby = [Label.RUN, Label.TRIAL]
@@ -1190,9 +1193,9 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
         if yref is not None:
             ax.axhline(yref, c='k', ls='--')
 
-        # For eah variable of interest
-        for y in ykey:
-            
+        # For each variable of interest
+        for y in ykey: 
+                       
             # If some kind of vertival correction is specified 
             if icorrect is not None:
 
@@ -1534,7 +1537,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, cmap='viridis', vmin=None, vmax=None,
+                       colwrap=4, cmap='icefire', vmin=None, vmax=None,
                        quantile_bounds=(.01, .99), mark_stim=True):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
@@ -1604,8 +1607,8 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
             # Plot associated trial heatmap
             sns.heatmap(
-                data=table, ax=ax, cmap=cmap, vmin=vmin, vmax=vmax, 
-                cbar=i == 0, cbar_ax=cbar_ax, 
+                data=table, ax=ax, vmin=vmin, vmax=vmax, 
+                cbar=i == 0, cbar_ax=cbar_ax, center=0, cmap=cmap,
                 xticklabels=table.shape[1] - 1, yticklabels=False)
 
             # Correct x-axis label display
