@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-09 15:26:29
+# @Last Modified time: 2022-09-21 12:09:31
 
 ''' Collection of plotting utilities. '''
 
@@ -2327,7 +2327,7 @@ def plot_parameter_dependency_across_datasets(
             ax = fig.axes[col_order.index(resp_type)]
             sns.lineplot(
                 data=group, x=xkey, y=ykey_diff, ax=ax, color='BLACK', ci=ci,
-                marker='o', lw=4, markersize=10, legend=False)
+                marker='o', lw=2, markersize=5, legend=False, err_style='bars')
             line = ax.get_lines()[-1]
 
         # Add legend entry for average trace

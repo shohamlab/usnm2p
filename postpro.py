@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-18 15:05:16
+# @Last Modified time: 2022-09-21 13:21:10
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1304,6 +1304,18 @@ def get_param_code(data):
     DC_str = data[Label.DC].map('{:.0f}%DC'.format)
     # Generate new column from concatenated (P, DC) combination 
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
+
+
+def check_run_duplicates(data):
+    ''' Check that a dataset does not contain any duplicated runs '''
+    # Extract parameters per run
+    params_per_run = get_param_code(data.groupby([Label.RUN]).first())
+    # Check for duplicates
+    isdup = params_per_run.duplicated(keep=False)
+    # Raise error if duplicates are found
+    if isdup.sum() > 0:
+        duprows = params_per_run[isdup]
+        raise ValueError(f'duplicated runs:\n{duprows}')
 
 
 def check_run_order(data):

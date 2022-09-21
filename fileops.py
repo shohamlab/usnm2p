@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 16:28:18
+# @Last Modified time: 2022-09-21 13:22:57
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -668,6 +668,13 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
             dataset_id = dataset_id[1:]
         dataset_ids.append(dataset_id)
     
+    # Check for run duplicates
+    for df, dataset_id in zip(stats, dataset_ids):
+        try:
+            check_run_duplicates(df)
+        except ValueError as err:
+            logger.warning(f'error in {dataset_id}: {err}')
+
     # Concatenate datasets while adding their respective IDs
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
     stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
