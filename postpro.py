@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-21 13:21:10
+# @Last Modified time: 2022-09-21 15:54:56
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1306,26 +1306,29 @@ def get_param_code(data):
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
 
 
-def check_run_duplicates(data):
-    ''' Check that a dataset does not contain any duplicated runs '''
+def get_duplicated_runs(data):
+    '''
+    Get potential duplicated runs in a dataset 
+    '''
     # Extract parameters per run
     params_per_run = get_param_code(data.groupby([Label.RUN]).first())
     # Check for duplicates
     isdup = params_per_run.duplicated(keep=False)
-    # Raise error if duplicates are found
-    if isdup.sum() > 0:
-        duprows = params_per_run[isdup]
-        raise ValueError(f'duplicated runs:\n{duprows}')
+    # Return none if no duplicates are found
+    if isdup.sum() == 0:
+        return None
+    else:
+        # Otherwise, return duplicate table
+        return params_per_run[isdup]
 
 
 def check_run_order(data):
     ''' Check run order consistency across datasets '''
     logger.info('checking for run order consistency across datasets...')
     # Extract parameters per run for each dataset
-    tmp = data.groupby([Label.DATASET, Label.RUN]).first()
-    params_per_run = get_param_code(tmp).unstack()
-    # TODO: Ensure that no dataset contains duplicated runs
-    # Drop duplicates to get unique sequences of parameters 
+    params_per_run = get_param_code(
+        data.groupby([Label.DATASET, Label.RUN]).first()).unstack()
+    # Drop duplicates to get unique sequences of parameters
     unique_param_sequences = params_per_run.drop_duplicates()
     nseqs = len(unique_param_sequences) 
     # If differing sequences

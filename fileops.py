@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-21 13:22:57
+# @Last Modified time: 2022-09-21 16:17:22
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -618,13 +618,15 @@ def load_trialavg_dataset(fpath):
     return timeseries, stats, ROI_masks, map_ops
 
 
-def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None):
+def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
+                           on_duplicate_runs='raise'):
     '''
     Load multiple mouse-region datasets
     
     :param layer: cortical layer
     :param include_patterns (optional): inclusion pattern(s)
     :param exclude_patterns (optional): exclusion pattern(s)
+    :param on_duplicate_runs (optional): what to do if duplicate runs are found
     '''
     # List data filepaths
     fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.h5')))
@@ -657,6 +659,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     # Load timeseries and stats datasets
     datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
     timeseries, stats, ROI_masks, map_ops = list(zip(*datasets))
+    stats, timeseries = list(stats), list(timeseries)
 
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
@@ -668,12 +671,23 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
             dataset_id = dataset_id[1:]
         dataset_ids.append(dataset_id)
     
-    # Check for run duplicates
-    for df, dataset_id in zip(stats, dataset_ids):
-        try:
-            check_run_duplicates(df)
-        except ValueError as err:
-            logger.warning(f'error in {dataset_id}: {err}')
+    # For each dataset
+    for i, dataset_id in enumerate(dataset_ids):
+        # Check for potential run duplicates in stats
+        dup_table = get_duplicated_runs(stats[i])
+        # If dupliactes are found
+        if dup_table is not None:
+            dupstr = f'duplicated runs in {dataset_id}:\n{dup_table}'
+            # Raise error if specified
+            if on_duplicate_runs == 'raise':
+                raise ValueError(dupstr)
+            # Otherwise, drop a run
+            elif on_duplicate_runs == 'drop':
+                logger.warning(dupstr)
+                idrop = dup_table.index[0]
+                logger.warning(f'dropping run {idrop} from stats and timeseries...')
+                stats[i] = stats[i].drop(idrop, level=Label.RUN)
+                timeseries[i] = timeseries[i].drop(idrop, level=Label.RUN)
 
     # Concatenate datasets while adding their respective IDs
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
