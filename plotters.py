@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-30 20:50:04
+# @Last Modified time: 2022-09-30 22:43:02
 
 ''' Collection of plotting utilities. '''
 
@@ -1609,7 +1609,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
             sns.heatmap(
                 data=table, ax=ax, vmin=vmin, vmax=vmax, 
                 cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
-                xticklabels=table.shape[1] - 1, # only render 2 x labels at extremities
+                xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
                 yticklabels=False)
 
             # Correct x-axis label display
