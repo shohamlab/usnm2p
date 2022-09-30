@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-20 16:26:52
+# @Last Modified time: 2022-09-30 20:13:05
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -54,7 +54,6 @@ NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending o
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
 NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
-
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
@@ -89,13 +88,14 @@ BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluore
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
+# Activity events detection
+MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
+EVENTS_BIN_INTERVAL = 1.  # binning interval for events density quantification (s)
+
 # Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
-NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier
-
-# Baseline activity
-NSEEDS_PER_TRIAL = 50  # number of detection windows along each trial interval to detect activity 
+NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 
 # Frame indexes
 class FrameIndex:
@@ -178,6 +178,7 @@ class Label:
     ZSCORE = f'Z({DFF})'
     REL_DFF = f'{DFF} - {DFF}_stim'
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
+    EVENT_RATE = 'event rate (Hz)'
 
     # Displacement & velocities
     X_PX = 'x (pixels)'

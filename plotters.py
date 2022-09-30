@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-21 12:09:31
+# @Last Modified time: 2022-09-30 20:50:04
 
 ''' Collection of plotting utilities. '''
 
@@ -1537,7 +1537,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, cmap='icefire', vmin=None, vmax=None,
+                       colwrap=4, cmap='icefire', center=0, vmin=None, vmax=None,
                        quantile_bounds=(.01, .99), mark_stim=True):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
@@ -1593,7 +1593,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         axes = np.array([axes])
     fig.tight_layout()
     top = 0.9 if title is None else 0.8
-    fig.subplots_adjust(bottom=0.1, right=0.8, top=top, hspace=.3)
+    fig.subplots_adjust(bottom=0.1, right=0.8, top=top, hspace=.5)
     cbar_ax = fig.add_axes([0.85, 0.1, 0.05, top - 0.1])
     cbar_ax.set_title(key)
 
@@ -1608,8 +1608,9 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
             # Plot associated trial heatmap
             sns.heatmap(
                 data=table, ax=ax, vmin=vmin, vmax=vmax, 
-                cbar=i == 0, cbar_ax=cbar_ax, center=0, cmap=cmap,
-                xticklabels=table.shape[1] - 1, yticklabels=False)
+                cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
+                xticklabels=table.shape[1] - 1, # only render 2 x labels at extremities
+                yticklabels=False)
 
             # Correct x-axis label display
             ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
@@ -1621,7 +1622,8 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
             
             # Add stimulus onset line, if specified
             if mark_stim:
-                ax.axvline(FrameIndex.STIM, c='w', ls='--', lw=1.)
+                istim = np.where(table.columns.values == 0.)[0][0]
+                ax.axvline(istim, c='w', ls='--', lw=1.)
             
             pbar.update()
     
