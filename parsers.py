@@ -238,7 +238,7 @@ def parse_acquisition_settings(folders):
     if len(diffkeys) > 0:
         diffkeys_str = '\n'.join([f' - {k}: {v}' for k, v in diffkeys.items()])
         logger.warning(
-            f'varying acquisition parameters across runs:\n{diffkeys}')
+            f'varying acquisition parameters across runs:\n{diffkeys_str}')
     # Remove those fields from reference settings dictionary
     for k in diffkeys:
         del ref_settings[k]
