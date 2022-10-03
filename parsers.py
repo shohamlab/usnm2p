@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 15:38:58
+# @Last Modified time: 2022-10-03 15:47:32
 
 ''' Collection of parsing utilities. '''
 
@@ -103,7 +103,8 @@ def get_info_table(folders, index_key=Label.RUN, ntrials_per_run=None, discard_u
     if ntrials_per_run is not None:
         info_table[Label.NTRIALS] = ntrials_per_run
     if discard_unknown:
-        del info_table[Label.UNKNOWN]
+        if Label.UNKNOWN in info_table:
+            del info_table[Label.UNKNOWN]
     return info_table
 
 
@@ -241,7 +242,7 @@ def parse_acquisition_settings(folders):
     if len(diffkeys) > 0:
         diffkeys_str = '\n'.join([f' - {k}: {v}' for k, v in diffkeys.items()])
         logger.warning(
-            f'varying acquisition parameters across runs:\n{diffkeys_str}')
+            f'varying acquisition parameters across runs:\n{diffkeys}')
     # Remove those fields from reference settings dictionary
     for k in diffkeys:
         del ref_settings[k]
