@@ -11,6 +11,7 @@ import re
 import os
 import pandas as pd
 from constants import *
+from logger import logger
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
@@ -223,14 +224,21 @@ def parse_acquisition_settings(folders):
     ref_settings, *other_settings_list = daq_settings_list
     # Check that aquisition settings keys are identical across data folders
     assert all(x.keys() == ref_settings.keys() for x in daq_settings_list), 'inconsistent settings list'
-    # Gather keys of settings fields that vary across folders
-    diffkeys = []
+    # Gather keys and values of settings fields that vary across folders
+    diffkeys = {}
     for settings in other_settings_list:
         if settings != ref_settings:
             for k in settings.keys():
                 if settings[k] != ref_settings[k]:
                     if k not in diffkeys:
-                        diffkeys.append(k)
+                        diffkeys[k] = [ref_settings[k], settings[k]]
+                    else:
+                        if settings[k] not in diffkeys[k]:
+                            diffkeys[k].append(settings[k])
+    if len(diffkeys) > 0:
+        diffkeys_str = '\n'.join([f' - {k}: {v}' for k, v in diffkeys.items()])
+        logger.warning(
+            f'varying acquisition parameters across runs:\n{diffkeys}')
     # Remove those fields from reference settings dictionary
     for k in diffkeys:
         del ref_settings[k]
