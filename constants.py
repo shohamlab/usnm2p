@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-30 20:13:05
+# @Last Modified time: 2022-10-03 15:38:15
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -128,6 +128,7 @@ class Pattern:
     DUR = '([0-9]+[.]?[0-9]*)ms'
     MPA = '([0-9]+[.]?[0-9]*)MPA'
     DC = '([0-9]+)DC'
+    OPTIONAL_SUFFIX = '_?(.*)'
     RUN = '([0-9]+)'
     NAMED_RUN = 'run([0-9]+)'
     TRIAL = '([0-9]+)'
@@ -146,6 +147,7 @@ class Label:
     DC = 'DC (%)'
     ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
     ISPTA = 'I_SPTA (W/cm2)'  # spatial peak, temporal average acoustic intensity
+    PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
     FPS = 'fps'
     RUNID = 'run ID'
@@ -153,6 +155,7 @@ class Label:
     NPERTRIAL = 'trial_length'
     NTRIALS = 'ntrials'
     CYCLE = 'cycle'
+    SUFFIX = 'suffix'
     FRAME = 'frame'
     CH = 'channel'
     DATASET = 'dataset'

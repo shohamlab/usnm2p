@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 19:30:37
+# @Last Modified time: 2022-10-03 15:38:58
 
 ''' Collection of parsing utilities. '''
 
@@ -17,7 +17,7 @@ from logger import logger
 P_TIFFILE = re.compile('.*tif')
 P_DATEMOUSEREGLAYER = re.compile(
     f'{Pattern.DATE}_({Pattern.MOUSE})_({Pattern.REGION})_?({Pattern.LAYER})?')
-P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.RUN}$', re.IGNORECASE)
+P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}{Pattern.OPTIONAL_SUFFIX}-{Pattern.RUN}$', re.IGNORECASE)
 P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 P_RUNFILE = re.compile(
@@ -56,13 +56,16 @@ def parse_experiment_parameters(name):
     params = {
         Label.LINE: mo.group(1),  # line name
         Label.NPERTRIAL: int(mo.group(2)),
-        Label.UNKNOWN: float(mo.group(3)),
+        Label.PRF: float(mo.group(3)),
         Label.DUR: float(mo.group(4)) * 1e-3,  # s
         Label.FPS: float(mo.group(5)),  
         Label.P: mo.group(6),  # MPa
-        Label.DC: float(mo.group(7)),  # %
-        Label.RUNID: int(mo.group(8))
+        Label.DC: float(mo.group(7)),  # % 
+        Label.RUNID: int(mo.group(9))
     }
+    # Fix for folders with suffix
+    if len(mo.group(8)) > 0:
+        params[Label.SUFFIX] = mo.group(8)
     # Fix for pressure (replacing first zero by decimal dot)
     if '.' not in params[Label.P]:
         params[Label.P] = f'.{params[Label.P][1:]}'
