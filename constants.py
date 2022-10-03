@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 15:38:15
+# @Last Modified time: 2022-10-03 18:25:07
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -46,6 +46,7 @@ REF_NFRAMES = 1600  # reference number of frames in any given experimental run (
 NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
+OFFSET_DIRECTIONS = ('backward', 'left', 'right') # Potential lateral offset directions
 
 ####################################### PRE-PROCESSING ######################################
 
@@ -111,9 +112,6 @@ N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "a
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
 NPOSCONDS_THR = 5  # minimum number of "positive" conditions for a cell to be classified as "US-responsive"  
 
-# Datasets selection
-MIN_CELL_DENSITY = 1000.  # minimum cell density (cells/mm2)
-
 ###################################### PARSING ######################################
 
 class Pattern:
@@ -135,6 +133,7 @@ class Pattern:
     CYCLE = 'Cycle([0-9]+)'
     CHANNEL = 'Ch([0-9])'
     FRAME = '([0-9]+)'
+    OFFSET = f'({"|".join(OFFSET_DIRECTIONS)})_([0-9]+[.]?[0-9]*)mm'
 
 
 ###################################### LABELS ######################################
@@ -159,6 +158,7 @@ class Label:
     FRAME = 'frame'
     CH = 'channel'
     DATASET = 'dataset'
+    OFFSET = 'offset (mm)'
 
     # Data indexes
     ROI = 'ROI'
@@ -252,3 +252,25 @@ class Palette:
 
 
 CI = 95  # default confidence interval for bootstrapping
+
+###################################### DATASETS ######################################
+
+# Common pattern for Sarah's datasets
+LINE3_SARAH_DATASETS = ['2021']
+
+# SST datasets used to evaluate lateral offset effects 
+SST_OFFSET_DATASETS = [
+    '20190518_mouse6_region1',
+    '20190518_mouse7_region1',
+    '20190601_mouse2_region1',
+    '20190601_mouse7_region1',
+    '20190601_mouse8_region1'
+]
+
+
+# Minimum cell density (cells/mm2) per cell line
+MIN_CELL_DENSITY = {
+    'line3': 1000.,
+    'sst': 400., 
+    'pv': 200.,
+}

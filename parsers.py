@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 15:47:32
+# @Last Modified time: 2022-10-03 18:12:56
 
 ''' Collection of parsing utilities. '''
 
@@ -12,6 +12,7 @@ import os
 import pandas as pd
 from constants import *
 from logger import logger
+from utils import itemize
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
@@ -240,9 +241,9 @@ def parse_acquisition_settings(folders):
                         if settings[k] not in diffkeys[k]:
                             diffkeys[k].append(settings[k])
     if len(diffkeys) > 0:
-        diffkeys_str = '\n'.join([f' - {k}: {v}' for k, v in diffkeys.items()])
+        diffkeys_str = itemize([f'{k}: {v}' for k, v in diffkeys.items()])
         logger.warning(
-            f'varying acquisition parameters across runs:\n{diffkeys}')
+            f'varying acquisition parameters across runs:\n{diffkeys_str}')
     # Remove those fields from reference settings dictionary
     for k in diffkeys:
         del ref_settings[k]
@@ -295,3 +296,15 @@ def group_by_run(fpaths):
         fbyrun[irun][1].append(fpath)
     # Return dictionary
     return fbyrun
+
+
+def parse_offset(s):
+    ''' Get lateral offset value (in mm) from string descriptor '''
+    if s == 'center':
+        return 0.
+    else:
+        mo = re.match(Pattern.OFFSET, s)
+        if mo is None:
+            raise ValueError(f'unrecognized offset: {s}')
+        direction, magnitude = mo.groups()
+        return float(magnitude)

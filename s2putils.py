@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 16:05:28
+# @Last Modified time: 2022-10-03 17:03:39
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -19,6 +19,7 @@ from suite2p.io import BinaryFile
 from constants import *
 from logger import logger
 from fileops import parse_overwrite
+from utils import itemize
 
 default_output_files = ['ops.npy', 'data.bin']
 roidetect_output_files = [f'{k}.npy' for k in ['iscell', 'stat', 'F', 'Fneu', 'spks']]
@@ -131,8 +132,7 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
             # Check for existence of all suite2p output files
             missing_files = [k for k in suite2p_output_files if not os.path.isfile(os.path.join(plane0dir, k))]
             if len(missing_files) > 0:
-                missing_files_str = '\n'.join([f'- {x}' for x in missing_files])
-                logger.warning(f'the following output files are missing in "{plane0dir}": {missing_files_str}')
+                logger.warning(f'the following output files are missing in "{plane0dir}":\n{itemize(missing_files)}')
             else:
                 # Warn user if any exists, and act according to defined overwrite behavior
                 logger.info(f'found all suite2p output files in "{plane0dir}"')

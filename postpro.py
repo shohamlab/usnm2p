@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-21 15:54:56
+# @Last Modified time: 2022-10-03 18:25:22
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -24,6 +24,7 @@ from functools import wraps
 from constants import *
 from logger import logger
 from utils import *
+from parsers import parse_offset
 
 
 def separate_runs(data, nruns):
@@ -267,8 +268,7 @@ def get_baseline_func(fps, wlen, q, smooth=True):
             # define window size for smoothing (gaussian filter) step
             w2 = w // 2
             bstr = [bstr] + [f'result of {w2 / fps:.1f}s ({w2} frames) gaussian filter']
-            bstr = '\n'.join([f'  - {s}' for s in bstr])
-            bstr = f'successive application of:\n{bstr}'
+            bstr = f'successive application of:\n{itemize(bstr)}'
         
             # Add gaussian filter to function
             bfunc_smooth = lambda s: gaussian_filter1d(bfunc(s), w2)
@@ -1290,9 +1290,8 @@ def exclude_datasets(timeseries, stats, to_exclude):
     if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
         return timeseries, stats
-    to_exclude_str = '\n'.join([f' - {x}' for x in to_exclude])
     logger.info(
-        f'excluding the following datasets from analysis:\n{to_exclude_str}')
+        f'excluding the following datasets from analysis:\n{itemize(to_exclude)}')
     query = f'{Label.DATASET} not in {to_exclude}'
     return timeseries.query(query), stats.query(query)
 
@@ -1304,51 +1303,67 @@ def get_param_code(data):
     DC_str = data[Label.DC].map('{:.0f}%DC'.format)
     # Generate new column from concatenated (P, DC) combination 
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
+        
+
+def get_offset_code(data):
+    ''' Get a code string from the suffix column '''
+    return data[Label.SUFFIX].apply(parse_offset).rename(Label.OFFSET)
 
 
-def get_duplicated_runs(data):
+def get_duplicated_runs(data, condition='param'):
     '''
     Get potential duplicated runs in a dataset 
     '''
-    # Extract parameters per run
-    params_per_run = get_param_code(data.groupby([Label.RUN]).first())
+    # Extract condition per run
+    first_by_run = data.groupby([Label.RUN]).first()
+    if condition == 'param':
+        cond_per_run = get_param_code(first_by_run)
+    elif condition == 'offset':
+        cond_per_run = get_offset_code(first_by_run)
+    else:
+        raise ValueError(f'unknown condition: "{condition}"')
     # Check for duplicates
-    isdup = params_per_run.duplicated(keep=False)
+    isdup = cond_per_run.duplicated(keep=False)
     # Return none if no duplicates are found
     if isdup.sum() == 0:
         return None
     else:
         # Otherwise, return duplicate table
-        return params_per_run[isdup]
+        return cond_per_run[isdup]
 
 
-def check_run_order(data):
+def check_run_order(data, condition='param'):
     ''' Check run order consistency across datasets '''
     logger.info('checking for run order consistency across datasets...')
-    # Extract parameters per run for each dataset
-    params_per_run = get_param_code(
-        data.groupby([Label.DATASET, Label.RUN]).first()).unstack()
+    # Extract condition per run for each dataset
+    first_by_dataset_and_run = data.groupby([Label.DATASET, Label.RUN]).first()
+    if condition == 'param':
+        cond_per_run = get_param_code(first_by_dataset_and_run).unstack()
+    elif condition == 'offset':
+        cond_per_run = get_offset_code(first_by_dataset_and_run).unstack()
+    else:
+        raise ValueError(f'unrecognized condition: "{condition}"')
     # Drop duplicates to get unique sequences of parameters
-    unique_param_sequences = params_per_run.drop_duplicates()
-    nseqs = len(unique_param_sequences) 
+    unique_cond_sequences = cond_per_run.drop_duplicates()
+    nseqs = len(unique_cond_sequences) 
     # If differing sequences
     if nseqs > 1:
         # Get matches per sequence
         matches = {}
-        for i, (_, ref_seq) in enumerate(unique_param_sequences.iterrows()):
+        for i, (_, ref_seq) in enumerate(unique_cond_sequences.iterrows()):
             key = f'seq {i}'
             matches[key] = []
-            for iseq, seq in params_per_run.iterrows():
+            for iseq, seq in cond_per_run.iterrows():
                 if seq.equals(ref_seq):
                     matches[key].append(iseq)
         nmatches = [f'{k} ({len(v)} match{"es" if len(v) > 1 else ""})'
                     for k, v in matches.items()]
-        unique_param_sequences = unique_param_sequences.transpose()
-        unique_param_sequences.columns = nmatches
+        unique_cond_sequences = unique_cond_sequences.transpose()
+        unique_cond_sequences.columns = nmatches
 
         # Raise error
         raise ValueError(
-            f'different run orders across datasets:\n{unique_param_sequences}')
+            f'different run orders across datasets:\n{unique_cond_sequences}')
 
 
 def get_run_mapper(pcodes):
@@ -1375,24 +1390,30 @@ def update_run_index(data, runidx):
     return data
 
 
-def harmonize_run_index(timeseries, stats):
+def harmonize_run_index(timeseries, stats, condition='param'):
     '''
-    Generate a new harmonized run index in multi-region dataset, based on P-DC combination
+    Generate a new harmonized run index in multi-region dataset, based on a specific condition
+    (e.g. P-DC combination)
     
     :param timeseries: multi-indexed timeseries dataframe containing multiple datasets
     :param stats: multi-indexed stats dataframe containing multiple datasets
     :return: dataframes tuple with harmonized run indexes
     '''
     logger.info('harmonizing run index across datasets...')
-    # Get parameter codes from stats
-    stats_pcodes = get_param_code(stats).rename('pcode')
-    # Get expanded pcodes compatible with timeseries
-    timeseries_pcodes = expand_to_match(stats_pcodes, timeseries.index)
+    # Get conditions from stats
+    if condition == 'param':
+        stats_conds = get_param_code(stats).rename('condition')
+    elif condition == 'offset':
+        stats_conds = get_offset_code(stats).rename('condition')
+    else:
+        raise ValueError(f'unrecognized condition: "{condition}"')
+    # Get expanded conditions compatible with timeseries
+    timeseries_conds = expand_to_match(stats_conds, timeseries.index)
     # Get stimparams: run-index mapper
-    mapper = get_run_mapper(stats_pcodes)
+    mapper = get_run_mapper(stats_conds)
     # Get new run indexes column and update appropriate data index level
-    stats = update_run_index(stats, stats_pcodes.map(mapper))
-    timeseries = update_run_index(timeseries, timeseries_pcodes.map(mapper))
+    stats = update_run_index(stats, stats_conds.map(mapper))
+    timeseries = update_run_index(timeseries, timeseries_conds.map(mapper))
     # Return harmonized dataframes
     return timeseries, stats
 

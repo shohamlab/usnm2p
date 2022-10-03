@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-21 16:17:22
+# @Last Modified time: 2022-10-03 18:23:34
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -619,7 +619,7 @@ def load_trialavg_dataset(fpath):
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
-                           on_duplicate_runs='raise'):
+                           on_duplicate_runs='raise', include_mode='all', **kwargs):
     '''
     Load multiple mouse-region datasets
     
@@ -649,11 +649,14 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     # Filter according to inclusion & exclusion patterns, if any
     if include_patterns is not None:
         include_patterns = as_iterable(include_patterns)
-        logger.warning(f'excluding datasets not having the following patterns: {include_patterns}')
-        fpaths = list(filter(lambda x: all(e in x for e in include_patterns), fpaths))
+        logger.warning(f'excluding datasets not having {include_mode} of the following patterns:\n{itemize(include_patterns)}')
+        if include_mode == 'all':
+            fpaths = list(filter(lambda x: all(e in x for e in include_patterns), fpaths))
+        else:
+            fpaths = list(filter(lambda x: any(e in x for e in include_patterns), fpaths))
     if exclude_patterns is not None:
         exclude_patterns = as_iterable(exclude_patterns)
-        logger.warning(f'excluding datasets with the following patterns: {exclude_patterns}')
+        logger.warning(f'excluding datasets with the following patterns:\n{itemize(exclude_patterns)}')
         fpaths = list(filter(lambda x: not any(e in x for e in exclude_patterns), fpaths))
     
     # Load timeseries and stats datasets
@@ -674,20 +677,22 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     # For each dataset
     for i, dataset_id in enumerate(dataset_ids):
         # Check for potential run duplicates in stats
-        dup_table = get_duplicated_runs(stats[i])
+        dup_table = get_duplicated_runs(stats[i], **kwargs)
         # If dupliactes are found
         if dup_table is not None:
             dupstr = f'duplicated runs in {dataset_id}:\n{dup_table}'
             # Raise error if specified
             if on_duplicate_runs == 'raise':
                 raise ValueError(dupstr)
-            # Otherwise, drop a run
-            elif on_duplicate_runs == 'drop':
+            # Otherwise, issue warning
+            else:
                 logger.warning(dupstr)
-                idrop = dup_table.index[0]
-                logger.warning(f'dropping run {idrop} from stats and timeseries...')
-                stats[i] = stats[i].drop(idrop, level=Label.RUN)
-                timeseries[i] = timeseries[i].drop(idrop, level=Label.RUN)
+                # If specified, drop a run
+                if on_duplicate_runs == 'drop':
+                    idrop = dup_table.index[0]
+                    logger.warning(f'dropping run {idrop} from stats and timeseries...')
+                    stats[i] = stats[i].drop(idrop, level=Label.RUN)
+                    timeseries[i] = timeseries[i].drop(idrop, level=Label.RUN)
 
     # Concatenate datasets while adding their respective IDs
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
@@ -706,11 +711,11 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
 
     try:
         # Check run order consistency across datasets
-        check_run_order(stats)
+        check_run_order(stats, **kwargs)
     except ValueError as err:
         # If needed, harmonize run indexes in stats & timeseries
         logger.warning(err)
-        timeseries, stats = harmonize_run_index(timeseries, stats) 
+        timeseries, stats = harmonize_run_index(timeseries, stats, **kwargs) 
 
         # Sort index for each dataset AGAIN
         logger.info('sorting dataset indexes...')
