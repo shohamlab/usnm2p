@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 18:25:07
+# @Last Modified time: 2022-10-04 12:36:50
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -266,7 +266,6 @@ SST_OFFSET_DATASETS = [
     '20190601_mouse7_region1',
     '20190601_mouse8_region1'
 ]
-
 
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-01 17:43:52
+# @Last Modified time: 2022-10-05 19:02:03
 
 ''' Collection of generic utilities. '''
 
@@ -263,6 +263,8 @@ def expand_and_add(dfnew, dfref, prefix=''):
     :param dfref: reference dataframe
     '''
     dfexp = expand_to_match(dfnew, dfref.index)
+    if isinstance(dfexp, pd.Series):
+        dfexp = dfexp.to_frame()
     for k in dfexp:
         key = f'{prefix}_{k}' if prefix else k
         dfref[key] = dfexp[k]
@@ -284,6 +286,10 @@ def slice_last_dim(mux, wslice):
     idx = get_mux_slice(mux)
     idx[-1] = wslice
     return tuple(idx)
+
+def is_mux_unique(mux):
+    ''' Check whether a multi-index is unique '''
+    return mux.duplicated().sum() == 0
     
 
 def reindex_dataframe_level(df, level=0):
@@ -545,3 +551,15 @@ def gauss(x, H, A, x0, sigma):
     :param sigma: gaussian width
     '''
     return H + A * np.exp(-(x - x0) ** 2 / (2 * sigma**2))
+
+
+def round_to_base(x, precision=1, base=.5):
+    '''
+    Round to nearest base
+    
+    :param x: input number
+    :param precision: rounding precision (number of digits)
+    :param base: rounding base
+    :return: rounded number
+    '''
+    return np.round(base * round(float(x) / base), precision)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 18:23:34
+# @Last Modified time: 2022-10-05 18:32:58
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -619,7 +619,7 @@ def load_trialavg_dataset(fpath):
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
-                           on_duplicate_runs='raise', include_mode='all', **kwargs):
+                           on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', **kwargs):
     '''
     Load multiple mouse-region datasets
     
@@ -627,6 +627,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     :param include_patterns (optional): inclusion pattern(s)
     :param exclude_patterns (optional): exclusion pattern(s)
     :param on_duplicate_runs (optional): what to do if duplicate runs are found
+    :param harmonize_runs: whether run index should be harmonized across datasets according to some condition
     '''
     # List data filepaths
     fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.h5')))
@@ -709,22 +710,23 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     ROI_masks.sort_index(
         level=[Label.DATASET, Label.ROI], inplace=True)
 
-    try:
-        # Check run order consistency across datasets
-        check_run_order(stats, **kwargs)
-    except ValueError as err:
-        # If needed, harmonize run indexes in stats & timeseries
-        logger.warning(err)
-        timeseries, stats = harmonize_run_index(timeseries, stats, **kwargs) 
+    if harmonize_runs:
+        try:
+            # Check run order consistency across datasets
+            check_run_order(stats, **kwargs)
+        except ValueError as err:
+            # If needed, harmonize run indexes in stats & timeseries
+            logger.warning(err)
+            timeseries, stats = harmonize_run_index(timeseries, stats, **kwargs) 
 
-        # Sort index for each dataset AGAIN
-        logger.info('sorting dataset indexes...')
-        timeseries.sort_index(
-            level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
-        stats.sort_index(
-            level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
-        ROI_masks.sort_index(
-            level=[Label.DATASET, Label.ROI], inplace=True)
+            # Sort index for each dataset AGAIN
+            logger.info('sorting dataset indexes...')
+            timeseries.sort_index(
+                level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+            stats.sort_index(
+                level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
+            ROI_masks.sort_index(
+                level=[Label.DATASET, Label.ROI], inplace=True)
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:

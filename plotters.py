@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-09-30 22:43:02
+# @Last Modified time: 2022-10-05 18:21:04
 
 ''' Collection of plotting utilities. '''
 
@@ -2275,9 +2275,7 @@ def plot_parameter_dependency_across_datasets(
             raise ValueError(f'unknown variable: "{ykey}"')
     
     # Determine variable of interest for output metrics
-    ykey_pre = f'pre-stim avg {ykey}'
-    ykey_post = f'post-stim avg {ykey}'
-    ykey_diff = f'{ykey_post} - {ykey_pre}'
+    ykey_diff = get_change_key(ykey)
     
     # Determine number of datasets
     ndatasets = len(data.index.unique(Label.DATASET))
@@ -2449,3 +2447,114 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
     
     # Return figure handle
     return fig
+
+
+def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None):
+    '''
+    Plot map of output metrics as a function of XY offset
+    
+    :param stats: stats dataframe
+    :param xkey: column name for X offset coordinates
+    :param ykey: column name for Y offset coordinates
+    :param outkey: column name for output metrics
+    :param filters: potential filters to restrict dataset
+    :return: 2-tuple with:
+        - figure handle
+        - offset coordinates of max response per dataset
+    '''
+    # Apply filters if provided
+    if filters is not None:
+        for k, v in filters.items():
+            logger.info(f'restricting {k} to "{v}"')
+            stats = stats[stats[k] == v]
+
+    # Group stats by dataset
+    logger.info('grouping stats by dataset...')
+    groups = stats.groupby(Label.DATASET)
+
+    # Create figure backbone
+    naxes = len(groups)
+    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
+    stitle = f'{ykey} response strength vs. offset'
+    if title is not None:
+        stitle = f'{stitle} ({title})'
+    fig.suptitle(stitle)
+    for ax in axes:
+        sns.despine(ax=ax)
+        ax.set_aspect(1.)    
+        ax.set_xlabel(xkey)
+        ax.set_ylabel(xkey)
+        ax.axhline(0., c='k', ls='--', zorder=-10)
+        ax.axvline(0., c='k', ls='--', zorder=-10)
+
+    # For each dataset
+    logger.info(f'plotting map of "{outkey}" vs. XY offset...')
+    outmax_coords = {}
+    for (dataset_id, substats), ax in zip(groups, axes):
+        ax.set_title(dataset_id)
+        # Aggregate data by offset value
+        outkey_agg = substats[[xkey, ykey, outkey]].groupby(
+            [xkey, ykey]).agg(['mean', 'sem']).loc[:, outkey].reset_index()
+        # Plot map of output metrics across 2D offsets
+        ax.scatter(
+            outkey_agg[xkey], outkey_agg[ykey], c=outkey_agg['mean'], s=80)
+        # Identify and mark 2D offset yielding max output metrics
+        imax = outkey_agg['mean'].argmax()
+        ax.scatter(
+            outkey_agg.loc[imax, xkey], outkey_agg.loc[imax, ykey], 
+            s=100, c='none', edgecolors='r')
+        outmax_coords[dataset_id] = outkey_agg.loc[imax, [xkey, ykey]].rename('loc max')
+
+    # Re-organize max metrics offset coordinates per dataset
+    outmax_coords = pd.concat(
+        outmax_coords.values(), keys=outmax_coords.keys(), axis=1).transpose()
+    outmax_coords.index.name = Label.DATASET
+    logger.info(f'found max "{outkey}" values at offset coordinates:\n{outmax_coords}')
+
+    # Return outputs
+    return fig, outmax_coords
+
+
+def plot_stat_vs_offset_distance(stats, dkey, outkey):
+    '''
+    Plot profiles of output metrics as a function of normalized XY offset distance
+    
+    :param stats: stats dataframe
+    :param dkey: column name for offset distance
+    :param outkey: column name for output metrics
+    :return: 2-tuple with:
+        - overall figure handle
+        - responders-only figure handle
+    '''
+    # Add run ID to stats dataframe to ensure unique multi-index
+    pltstats = stats.set_index(Label.RUNID, append=True)
+
+    # Plot output metrics strength vs. offset, for each dataset & cell type
+    logger.info(f'plotting "{outkey}" vs. "{dkey}" across datasets & responder types...')
+    fg = sns.relplot(
+        data=pltstats, x=dkey, y=outkey, kind='line', err_style='bars',
+        col=Label.DATASET, hue=Label.ROI_RESP_TYPE)
+    fig1 = fg.figure
+    fig1.suptitle('all ROIs', y=1.02)
+    for ax in fig1.axes:
+        ax.axhline(0., ls='--', c='k', zorder=-10)
+
+    # Focus on positive responders
+    logger.info(f'restricting to responders only')
+    pltstats = pltstats[pltstats[Label.ROI_RESP_TYPE] == 'positive']
+    # Aggregate for each dataset
+    agg_pltstats = pltstats.groupby([Label.DATASET, dkey]).mean()
+
+    # Plot response strength vs. offset, for each dataset and non-weighted aggregate trace 
+    fig2, ax = plt.subplots()
+    sns.despine(ax=ax)
+    ax.set_title('responders only')
+    logger.info(f'plotting "{outkey}" vs. "{dkey}" across datasets...')
+    sns.lineplot(
+        data=pltstats, x=dkey, y=outkey, ax=ax, hue=Label.DATASET)
+    logger.info(f'plotting "{outkey}" vs. "{dkey}" aggregate...')
+    sns.lineplot(
+        data=agg_pltstats, x=dkey, y=outkey, ax=ax, marker='o', markersize=8, err_style='bars', color='k')
+    ax.axhline(0., ls='--', c='k', zorder=-10)
+    
+    return fig1, fig2

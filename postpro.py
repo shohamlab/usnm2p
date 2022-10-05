@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 18:25:22
+# @Last Modified time: 2022-10-05 16:20:09
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -24,7 +24,7 @@ from functools import wraps
 from constants import *
 from logger import logger
 from utils import *
-from parsers import parse_offset
+from parsers import parse_2D_offset
 
 
 def separate_runs(data, nruns):
@@ -1121,6 +1121,22 @@ def get_default_rtypes():
     return RTYPE.categories.values.tolist()
 
 
+def get_change_key(y, full_output=False):
+    '''
+    Get change metrics key for a specific variable name
+    
+    :param y: variable name
+    :param full_output: whether to return pre and post metrics key as well
+    return: change metrics name
+    '''
+    y_prestim_avg = f'pre-stim avg {y}'
+    y_poststim_avg = f'post-stim avg {y}'
+    y_change = f'{y_poststim_avg} - {y_prestim_avg}'
+    if full_output:
+        return (y_prestim_avg, y_poststim_avg, y_change)
+    return y_change
+
+
 def add_change_metrics(timeseries, stats, ykey, 
                        wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
     '''
@@ -1133,10 +1149,8 @@ def add_change_metrics(timeseries, stats, ykey,
     :param wpost: post-stimulus evaluation window (slice)
     :return: updated stats dataframe
     '''
-    # Determine new key
-    ykey_poststim_avg = f'post-stim avg {ykey}'
-    ykey_prestim_avg = f'pre-stim avg {ykey}'
-    ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
+    # Determine new keys
+    ykey_prestim_avg, ykey_poststim_avg, ykey_diff = get_change_key(ykey, full_output=True)
     logger.info(f'adding {ykey_diff} metrics to stats dataset...')
     
     # Define series averaging function
@@ -1185,9 +1199,7 @@ def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=F
         res.tolist(), columns=['tstat', 'pval'],
         index=timeseries.groupby(categories).first().index)    
     # Add these fields to stats
-    ykey_poststim_avg = f'post-stim avg {ykey}'
-    ykey_prestim_avg = f'pre-stim avg {ykey}'
-    ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
+    ykey_diff = get_change_key(ykey)
     for k in res.columns:
         new_stats[f'{ykey_diff} {k}'] = res[k]
 
@@ -1306,9 +1318,20 @@ def get_param_code(data):
         
 
 def get_offset_code(data):
-    ''' Get a code string from the suffix column '''
-    return data[Label.SUFFIX].apply(parse_offset).rename(Label.OFFSET)
+    ''' Get an offset code string from the suffix column '''
+    # Parse offset from suffix
+    locs = data[Label.SUFFIX].apply(parse_2D_offset).rename(Label.OFFSET)
+    # Convert to string
+    return locs.apply(lambda x: f'{x[0]}x_{x[1]}y')
 
+
+def get_offset_complex(data):
+    ''' Get an offset complex number from the suffix column '''
+    # Parse offset from suffix
+    locs = data[Label.SUFFIX].apply(parse_2D_offset).rename(Label.OFFSET)
+    # Convert to complex
+    return locs.apply(lambda x: x[0] + 1j * x[1])
+    
 
 def get_duplicated_runs(data, condition='param'):
     '''

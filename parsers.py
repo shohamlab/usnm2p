@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 18:12:56
+# @Last Modified time: 2022-10-05 15:07:14
 
 ''' Collection of parsing utilities. '''
 
 from xml.dom import minidom
 import re
 import os
+import numpy as np
 import pandas as pd
 from constants import *
 from logger import logger
@@ -298,13 +299,35 @@ def group_by_run(fpaths):
     return fbyrun
 
 
-def parse_offset(s):
-    ''' Get lateral offset value (in mm) from string descriptor '''
-    if s == 'center':
-        return 0.
-    else:
-        mo = re.match(Pattern.OFFSET, s)
+def parse_2D_offset(desc):
+    '''
+    Parse 2D offset (in mm) from string descriptor
+    
+    :param desc: string descriptor
+    :return: 2D array with XY location values (in mm) 
+    '''
+    # Initialize null offset
+    offset = np.array([0., 0.])
+    # If composed offset descriptor, split across coordinates and construct offset iteratively
+    sep = 'mm_'
+    if sep in desc:
+        subdescs = desc.split(sep)
+        subdescs = [f'{s}{sep[:-1]}' for s in subdescs[:-1]] + [subdescs[-1]]
+        for subdesc in subdescs:
+            offset += parse_2D_offset(subdesc)
+        return offset
+    # If descriptor is not "center"
+    if desc != 'center':
+        # Parse descriptor and extract direction and magnitude
+        mo = re.match(Pattern.OFFSET, desc)
         if mo is None:
-            raise ValueError(f'unrecognized offset: {s}')
-        direction, magnitude = mo.groups()
-        return float(magnitude)
+            raise ValueError(f'unrecognized offset descriptor: {desc}')
+        direction, magnitude = mo.group(1), float(mo.group(2))
+        # Update XY offset depending on direction
+        if direction == 'backward':
+            offset[1] -= magnitude
+        elif direction == 'right':
+            offset[0] += magnitude
+        elif direction == 'left':
+            offset[0] -= magnitude    
+    return offset
