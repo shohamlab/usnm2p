@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-03 17:03:39
+# @Last Modified time: 2022-10-06 17:13:11
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -11,6 +11,7 @@ outputs according to specific criteria.
 
 import pprint
 import os
+import shutil
 import numpy as np
 import pandas as pd
 from suite2p import run_s2p, default_ops, version
@@ -18,11 +19,47 @@ from suite2p.io import BinaryFile
 
 from constants import *
 from logger import logger
-from fileops import parse_overwrite
+from fileops import get_output_equivalent, parse_overwrite
 from utils import itemize
 
 default_output_files = ['ops.npy', 'data.bin']
 roidetect_output_files = [f'{k}.npy' for k in ['iscell', 'stat', 'F', 'Fneu', 'spks']]
+
+
+def get_normalized_options(ops, defops):
+    '''
+    Get a normalized suite2p options dictionary
+    
+    :param ops: input options dictionary
+    :param defops: default options dictionary
+    :return: default-normalized options dictionary
+    '''
+    # Create empty options dictionary if needed
+    if ops is None:
+        ops= {}
+    # Check registration status and adapt nonrigid status if needed
+    is_reg = ops.get('do_registration', defops['do_registration'])
+    is_nonrigid = ops.get('nonrigid', defops['nonrigid'])
+    if not is_reg and is_nonrigid:
+        logger.warning('opted out of registration -> setting nonrigid to False')
+        ops['nonrigid'] = False
+        is_nonrigid = False
+    # Check nonrigid status and adapt block_size if needed
+    if not is_nonrigid:
+        if 'block_size' in ops:
+            del ops['block_size']
+    else:
+        block_size = ops.get('block_size', defops['block_size'])
+        ops['block_size'] = tuple(block_size)
+        if tuple(ops['block_size']) == tuple(defops['block_size']):
+            del ops['block_size']
+
+    # Check diameter value and raise error if needed
+    if not ops.get('sparse_mode', True) and ops.get('diameter', 0) == 0:
+        raise ValueError('Cannot run non-sparse ROI detection: diameter not specified')
+
+    # Return default-normalized options 
+    return ops
 
 
 def compare_options(input_ops, ref_ops):
@@ -69,7 +106,7 @@ def get_options_code(ops):
     return '_'.join(sorted([get_option_code(k, v) for k, v in ops.items()]))
 
 
-def run_s2p_and_rename(ops=None, db=None, overwrite=True):
+def run_s2p_and_rename(ops=None, db=None, overwrite=True, input_key='filtered'):
     '''
     Wrapper around run_s2p function that performs several additional features:
     1. checks for options that differ from the default options, and generates a suite2p sub-directory string code
@@ -82,62 +119,50 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
     :param ops: suite2p options dictionary
     :param db: suite2p database dictionary
     :param overwrite (optional): what to do in case of potential overwrite
+    :param input_key: key representing the previous processing step
     :return: suite2p sub-dir code established from run options
     '''
     # Fetch default options
     defops = default_ops()
-    # Check registration status and adapt nonrigid status if needed
-    is_reg = ops.get('do_registration', defops['do_registration'])
-    is_nonrigid = ops.get('nonrigid', defops['nonrigid'])
-    if not is_reg and is_nonrigid:
-        logger.warning('opted out of registration -> setting nonrigid to False')
-        ops['nonrigid'] = False
-        is_nonrigid = False
-    # Check nonrigid status and adapt block_size if needed
-    if not is_nonrigid:
-        if 'block_size' in ops:
-            del ops['block_size']
-    else:
-        block_size = ops.get('block_size', defops['block_size'])
-        ops['block_size'] = tuple(block_size)
-        if tuple(ops['block_size']) == tuple(defops['block_size']):
-            del ops['block_size']
-
-    # Check diameter value and raise error if needed
-    if not ops.get('sparse_mode', True) and ops.get('diameter', 0) == 0:
-        raise ValueError('Cannot run non-sparse ROI detection: diameter not specified')
-            
+    # Get default-normalized input options
+    ops = get_normalized_options(ops, defops)            
     logger.info(f'running suite2p {version} with the following options:\n{pprint.pformat(ops)}')
     if db is None:
         raise ValueError('"db" keyword argument must be provided')
+
     # Get dictionary of options that differ from default options
     diff_from_default_ops = compare_options(ops, defops)['input'].to_dict()
-    # Derive options code and, from it, final suite2p sub-directory
-    s2p_basedir = 'suite2p'
+    # Derive suite2p options code
+    s2p_code = 'suite2p'
     if diff_from_default_ops is not None:
-        s2p_basedir = f'suite2p_{get_options_code(diff_from_default_ops)}'
-    logger.info(f'data will be saved in suite2p base directory "{s2p_basedir}"')
+        s2p_code = f'{s2p_code}_{get_options_code(diff_from_default_ops)}'
+    logger.info(f'suite2p code "{s2p_code}"')
+    seg_code = os.path.join('segmented', s2p_code)
 
     # List expected output files from run options
-    suite2p_output_files = default_output_files.copy()
+    s2p_output_files = default_output_files.copy()
     if ops.get('roidetect', True):
-        suite2p_output_files = suite2p_output_files + roidetect_output_files.copy()
+        s2p_output_files = s2p_output_files + roidetect_output_files.copy()
 
     # For each input directory
     excluded_dirs = []
+    s2p_outdirs = []
     for inputdir in db['data_path']:
-        # Check for existence of suite2p subdirectory
-        plane0dir = os.path.join(inputdir, s2p_basedir, 'plane0')
-        if os.path.isdir(plane0dir):
+        # Get final output directory in "segmented" root
+        outdir = get_output_equivalent(inputdir, input_key, seg_code)
+        # Add final output directory to list
+        s2p_outdirs.append(outdir)
+        # Check for existence of final output directory
+        if os.path.isdir(outdir):
             # Check for existence of all suite2p output files
-            missing_files = [k for k in suite2p_output_files if not os.path.isfile(os.path.join(plane0dir, k))]
+            missing_files = [k for k in s2p_output_files if not os.path.isfile(os.path.join(outdir, k))]
             if len(missing_files) > 0:
-                logger.warning(f'the following output files are missing in "{plane0dir}":\n{itemize(missing_files)}')
+                logger.warning(f'the following output files are missing in "{outdir}":\n{itemize(missing_files)}')
             else:
                 # Warn user if any exists, and act according to defined overwrite behavior
-                logger.info(f'found all suite2p output files in "{plane0dir}"')
+                logger.info(f'found all suite2p output files in "{outdir}"')
                 # Extract and compare input and stored options dictionaries
-                stored_ops = np.load(os.path.join(plane0dir, 'ops.npy'), allow_pickle=True).item()
+                stored_ops = np.load(os.path.join(outdir, 'ops.npy'), allow_pickle=True).item()
                 diff_values = compare_options(ops, stored_ops)
                 if diff_values is not None:
                     # If differing values are found, that means suite2p is intended to be run
@@ -153,34 +178,53 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True):
                     
     # Apply folders exclusion
     db['data_path'] = list(set(db['data_path']) - set(excluded_dirs))
+    
+    # If folders remaining
     if len(db['data_path']) > 0:
-        # If folders remaining -> run suite2p on them
-        opsout = run_s2p(ops=ops, db=db)
-        if s2p_basedir != 'suite2p':
-            # If options differed from defaults, rename all suite2p output directories
-            for inputdir in db['data_path']:
-                dirin = os.path.join(inputdir, 'suite2p')
-                dirout = os.path.join(inputdir, s2p_basedir)
-                logger.info(f'renaming "{dirin}" to "{dirout}"')
-                os.rename(dirin, dirout)
+        # Run suite2p on them
+        run_s2p(ops=ops, db=db)
+        # Move suite2p output subfolders to appropriate locations
+        for inputdir in db['data_path']:
+            s2p_output_source = os.path.join(inputdir, 'suite2p', 'plane0')
+            s2p_output_dest = get_output_equivalent(inputdir, input_key, seg_code)
+            # If output folder already exists, delete it (and its contents)
+            if os.path.isdir(s2p_output_dest):
+                shutil.rmtree(s2p_output_dest)
+            # Copy contents of suite2p/plane0 data folder to destination folder
+            logger.info(
+                f'copying contents of\n>>>"{s2p_output_source}"\nto\n>>>"{s2p_output_dest}" ...')
+            shutil.copytree(s2p_output_source, s2p_output_dest)
+            # Remove temporary suite2p folder
+            s2p_output_tmpdir = os.path.dirname(s2p_output_source)
+            logger.info(f'removing temporary "{s2p_output_tmpdir}" folder ...')
+            shutil.rmtree(s2p_output_tmpdir)
     else:
         logger.info('empty data path -> no run')
     
-    return s2p_basedir
+    # Return list of final output folders 
+    nouts = len(s2p_outdirs)
+    if nouts == 0:
+        return None
+    elif nouts == 1:
+        return s2p_outdirs[0]
+    else:
+        return s2p_outdirs
 
 
-def get_suite2p_options(dirpath, s2p_basedir=None):
+def get_suite2p_options(dirpath, s2p_outdir=None):
     '''
     Locate and load suite2p output options file given a specific output directory.
     
     :param dirpath: full path to the output directory containing the suite2p options file.
-    :param s2p_basedir: whether to change the suite2p base directory in the relevant options fields.
+    :param s2p_outdir: modified suite2p output directory
     :return: suite2p options dictionary
     '''
     ops = np.load(os.path.join(dirpath, f'ops.npy'), allow_pickle=True).item()
-    if s2p_basedir is not None:
-        for k in ['save_path0', 'save_folder', 'save_path', 'ops_path', 'reg_file']:
-            ops[k] = ops[k].replace('suite2p', s2p_basedir)
+    if s2p_outdir is not None:
+        for k in ['save_path0', 'save_path']: 
+            ops[k] = s2p_outdir
+        ops['ops_path'] = os.path.join(s2p_outdir, 'ops.npy')
+        ops['reg_file'] = os.path.join(s2p_outdir, 'data.bin')
     return ops
 
 

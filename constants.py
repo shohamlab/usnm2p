@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-04 12:36:50
+# @Last Modified time: 2022-10-06 12:50:42
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -37,6 +37,7 @@ SI_POWERS = {
 
 ###################################### DATA ACQUISITION ######################################
 
+DEFAULT_ANALYSIS = 'main'
 DEFAULT_LINE = 'line3'
 DEFAULT_LAYER = 'layer2-3'
 BERGAMO_SR = 30.00  # data sampling rate on Bergamo resonant scanning system (Hz)

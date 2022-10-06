@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-05 18:32:58
+# @Last Modified time: 2022-10-06 17:23:00
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -136,7 +136,7 @@ def split_path_at(in_path, split_dir):
     
     :param in_path: absolute path to the input file or directory
     :param split_dir: name of the directory at which to split the path (must contain in_path)
-    :return: 3-tuple with the upstream path, the dplit directory, and the downstream path
+    :return: 3-tuple with the upstream path, the split directory, and the downstream path
     '''
     if not os.path.exists(in_path):
         raise ValueError(f'"{in_path}" does not exist')
