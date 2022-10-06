@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 17:40:05
+# @Last Modified time: 2022-10-06 19:12:32
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -664,6 +664,8 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # Load timeseries and stats datasets
     datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
+    if len(datasets) == 0:
+        raise ValueError(f'no valid datasets found in "{dirpath}"')
     timeseries, stats, ROI_masks, map_ops = list(zip(*datasets))
     stats, timeseries = list(stats), list(timeseries)
 
