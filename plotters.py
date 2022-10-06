@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-05 18:21:04
+# @Last Modified time: 2022-10-06 18:26:39
 
 ''' Collection of plotting utilities. '''
 
@@ -32,6 +32,8 @@ rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=Tru
 rdgn.set_bad('silver')
 gnrd = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=True)
 gnrd.set_bad('silver')
+blor = sns.diverging_palette(h_neg=240, h_pos=30, s=99, l=70, sep=3, as_cmap=True)
+blor.set_bad('silver')
 nan_viridis = plt.get_cmap('viridis').copy()
 nan_viridis.set_bad('silver')
 

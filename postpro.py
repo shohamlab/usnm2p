@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-05 16:20:09
+# @Last Modified time: 2022-10-06 18:19:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1207,6 +1207,8 @@ def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=F
     logger.info('classifying responses...')
     new_stats[Label.RESP_TYPE] = (
         (res['pval'] < PTHR_DETECTION).astype(int) * np.sign(res['tstat']).astype(int))
+    # Merge negative responses within weak responses
+    new_stats[Label.RESP_TYPE] = new_stats[Label.RESP_TYPE].replace([-1], [0])
     new_stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RTYPE_MAP)
 
     # Return
@@ -1233,7 +1235,6 @@ def classify_responders(stats, nposthr=NPOSCONDS_THR):
 
     # Classify ROIs based on number of responsive conditions
     roistats[Label.ROI_RESP_TYPE] = 'weak'
-    roistats.loc[roistats['negative'] >= nposthr, Label.ROI_RESP_TYPE] = 'negative'
     roistats.loc[roistats['positive'] >= nposthr, Label.ROI_RESP_TYPE] = 'positive'
 
     # Add roistats to stats

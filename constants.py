@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 12:50:42
+# @Last Modified time: 2022-10-06 18:16:47
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -225,8 +225,7 @@ class Label:
 
 
 # Response and responders type
-RTYPE_MAP = {
-    -1: 'negative', 0: 'weak', 1: 'positive'}
+RTYPE_MAP = {0: 'weak', 1: 'positive'}
 RTYPE = pd.api.types.CategoricalDtype(
     categories=list(RTYPE_MAP.values()), ordered=True)
 
