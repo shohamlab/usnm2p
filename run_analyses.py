@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-06-06 18:30:35
+# @Last Modified time: 2022-10-06 17:37:33
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -43,7 +43,8 @@ if __name__ == '__main__':
         '-b', '--runbatch', default=False, action='store_true',
         help='run batch analysis notebook upon completion')
 
-    # Add dataset arguments 
+    # Add dataset arguments
+    parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
     parser.add_argument('-l', '--mouseline', help='mouse line')
     parser.add_argument('-d', '--expdate', help='experiment date')
     parser.add_argument('-m', '--mouseid', help='mouse number')
@@ -105,7 +106,7 @@ if __name__ == '__main__':
     exec_queue = create_queue(exec_args)
 
     # Extract candidate datasets combinations from folder structure
-    datasets = get_dataset_params(root=get_data_root())
+    datasets = get_dataset_params(root=get_data_root(), analysis_type=args['analysis_type'])
 
     # Filter datasets to match related input parameters
     for k, v in args.items():

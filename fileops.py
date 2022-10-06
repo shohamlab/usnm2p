@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 17:23:00
+# @Last Modified time: 2022-10-06 17:40:05
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -45,12 +45,13 @@ def get_subfolder_names(dirpath):
     return [f.name for f in os.scandir(dirpath) if f.is_dir()]
 
 
-def get_dataset_params(root='.', excludes=None, includes=['region']):
+def get_dataset_params(root='.', analysis_type=DEFAULT_ANALYSIS, excludes=None, includes=['region']):
     '''
     Construct a list of (line, date, mouse, region) combinations that contain
     experiment datasets inside a given root directory.
     
     :param root: root directory (typically a mouse line) containing the dataset folders
+    :param analysis_type: string representing the analysis type and determining root sub-directory 
     :param excludes: list of exlusion patterns
     :param includes: list of inclusion patterns
     :return: list of dictionaries representing (line, date, mouse, region) combinations found
@@ -58,9 +59,10 @@ def get_dataset_params(root='.', excludes=None, includes=['region']):
     '''
     logger.info(f'Searching for data folders in {root} ...')
     datasets = []
-    # Loop through lines, dates, mice, and regions, and add data root folders to list  
-    for line in get_subfolder_names(root):
-        linedir = os.path.join(root, line)
+    subroot = os.path.join(root, analysis_type)
+    # Loop through lines, dates, mice, and regions, and add data folders to list  
+    for line in get_subfolder_names(subroot):
+        linedir = os.path.join(subroot, line)
         for folder in get_subfolder_names(linedir):
             try:
                 date, mouse, region, layer = parse_date_mouse_region(folder)
@@ -79,7 +81,7 @@ def get_dataset_params(root='.', excludes=None, includes=['region']):
 
     # Return line, date, mouse, region combinations
     return [
-        {'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
+        {'analysis_type': analysis_type, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
         for x in datasets]
 
 
