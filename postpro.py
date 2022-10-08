@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 18:19:18
+# @Last Modified time: 2022-10-07 20:15:55
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1524,3 +1524,28 @@ def anova1d(data, xkey, ykey):
 
     # Return p-value
     return p
+
+
+def get_cellcount_weighted_average(data, xkey, ykey, hue=None):
+    '''
+    Get a cell-count-weighted aggregated dataset (mean and propagated sem)
+    for a range of parameter values
+    '''
+    # Count number of ROIs per dataset and compute related weights vector
+    celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
+    countsperhue = celltypes.groupby(Label.DATASET).count().iloc[:, 0].rename('counts')
+    ntot = countsperhue.sum()
+    weightsperhue = countsperhue / ntot
+
+    # Compute weighted means and standard errors for each dataset, hue, and input value
+    cats = [Label.DATASET]
+    if hue is not None:
+        cats.append(hue)
+    cats.append(xkey)
+    means = data.groupby(cats)[ykey].mean()
+    sems = data.groupby(cats)[ykey].sem()
+
+    # Apply weighted aggregation for each run and responder type
+    mean = (means * weightsperhue).groupby(cats[1:]).sum().rename('mean')
+    sem = np.sqrt((weightsperhue * sems**2).groupby(cats[1:]).sum()).rename('sem')
+    return pd.concat([mean, sem], axis=1).sort_values(xkey).reset_index()

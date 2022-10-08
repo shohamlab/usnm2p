@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 18:16:47
+# @Last Modified time: 2022-10-07 14:13:01
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -209,7 +209,6 @@ class Label:
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
     PCT_RESP_CELLS = '% responding cells'
-    SUCCESS_RATE = 'success rate'
     POS_COND = 'positive condition?'
 
     # ROI classification 
@@ -219,7 +218,6 @@ class Label:
 
     # Labels that must be renamed upon averaging 
     RENAME_ON_AVERAGING = {
-        IS_RESP: SUCCESS_RATE,
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
 
@@ -251,7 +249,7 @@ class Palette:
     DC = 'crest'  # duty cycle (continuous)
 
 
-CI = 95  # default confidence interval for bootstrapping
+CI = 68  # default confidence interval error reporting
 
 ###################################### DATASETS ######################################
 

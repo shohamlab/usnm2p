@@ -2,11 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 18:26:39
+# @Last Modified time: 2022-10-07 20:25:42
 
 ''' Collection of plotting utilities. '''
 
+from multiprocessing.sharedctypes import Value
 import random
+from tkinter import Frame
 from natsort import natsorted
 import numpy as np
 import pandas as pd
@@ -1674,9 +1676,9 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
                    ci=CI, legend='full', err_style='band', ax=None, alltraces=False, 
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
-                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, 
-                   height=None, aspect=1.5, alpha=None, palette=None, marker=None,
-                   hide_col_prefix=False, col_count_key=None, **filter_kwargs):
+                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, lw=2,
+                   height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=7,
+                   hide_col_prefix=False, col_count_key=None, color=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -1788,12 +1790,14 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         x         = xkey,          # x-axis
         y         = ykey,          # y-axis
         marker    = marker,        # marker type
+        markersize = markersize,   # marker size
         hue       = hue,           # hue grouping variable
         hue_order = hue_order,     # hue plotting order 
         estimator = aggfunc,       # aggregating function
+        color     = color,         # plot color
         ci        = ci,            # confidence interval estimator
         err_style = err_style,     # error visualization style 
-        lw        = 2.0,           # line width
+        lw        = lw,           # line width
         palette   = palette,       # color palette
         legend    = legend         # use all hue entries in the legend
     )
@@ -2111,7 +2115,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     
     # Determine y-bounds depending on variable
     if ykey == Label.DFF:
-        ybounds = [-0.1, 0.15] if not avg else [-.1, .12]
+        ybounds = [-0.1, 0.15]
     elif ykey == Label.ZSCORE:
         ybounds = [-3., 6.]
     else:
@@ -2165,82 +2169,215 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
             cs = f'{c:.0f}'
         else:
             cs = '0'
-        t.set_text(f'{s} (n = {cs})')
+        enriched_s = f'{s} (n = {cs})'
+        t.set_text(enriched_s)
 
 
-def plot_parameter_dependency(data, xkey=Label.P, ykey=Label.SUCCESS_RATE, yref=None,
-                              add_leg_numbers=True, ci=68, **kwargs):
+def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
+                              avgprop=None, errprop='inter', marker='o', err_style='bars', add_leg_numbers=True, 
+                              ci=CI, legend='full', **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
     :param xkey (optional): key indicating the independent variable of the x-axis
     :param ykey (optional): key indicating the dependent variable of the y-axis
     :param yref (optional): vertical at which to draw a "reference" horizontal line
+    :param hue: hue grouping parameter
+    :param avgprop: whether and how to propagate the data for global average reporting (None, "all", "hue" or "whue")
+    :param errprop: how to propagate data for global standard error reporting ("inter or "intra")
     :param add_leg_numbers: whether to add sample counts for each legend entry  
     :param ci: confidence interval used to plot shaded areas around traces
         (default = 68 === SEM)
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
-    # Restrict filtering criteria based on xkey
-    if xkey == Label.P:
-        kwargs['DC'] = DC_REF
-        data = data[data[Label.DC] == DC_REF]
-    elif xkey == Label.DC:
-        kwargs['P'] = P_REF
-        data = data[data[Label.P] == P_REF]
+    # If multi-dataset and hue is not per dataset, call adapted function
+    if Label.DATASET in data.index.names and hue != Label.DATASET:
+        return plot_parameter_dependency_across_datasets(
+            data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
+            add_leg_numbers=add_leg_numbers, **kwargs)
+    # Set plotting parameters
+    hue_order = None
+    hue_alpha = 1
+    hueplt = False
+    hueerr_style = err_style
+    if hue is None:
+        avgprop = 'weighted'
     else:
-        raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
-    
-    # Plot
-    fig = plot_from_data(data, xkey, ykey, ci=ci, **kwargs)
+        hueplt = True
+        if hue == Label.ROI_RESP_TYPE:
+            hue_order = get_default_rtypes()
+    if avgprop is not None:
+        hue_alpha = 0.5
+        hueerr_style = 'band'
 
-    # Add numbers on legend if needed
-    hue = kwargs.get('hue', None)
-    if hue is not None and add_leg_numbers:
-        try:
-            leg = kwargs.get('ax', fig.axes[0]).get_legend()
-            add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
-        except AttributeError as err:
-            leg = fig.legend()
-            add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
+    # Get default ykey if needed
+    if ykey is None:
+        ykey = get_change_key(Label.DFF)
+
+    # Restrict data based on xkey
+    data = get_xdep_data(data, xkey)
+
+    # Assemble common plotting arguments
+    pltkwargs = dict(ax=ax, ci=ci, marker=marker, **kwargs)
+
+    # If hueplt specified
+    if hueplt:
+        fig = plot_from_data(
+            data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
+            err_style=hueerr_style, legend=legend, **pltkwargs)
+        # Get legend
+        leg = ax.get_legend()
+        if leg is not None:
+            # Add numbers on legend if needed
+            if add_leg_numbers:
+                add_numbers_on_legend_labels(leg, data, xkey, ykey, hue)
+            # Move legend outside of plot if needed
+            nhues = len(data.groupby(hue).first())
+            if nhues > 3:
+                bb = leg.get_bbox_to_anchor().transformed(ax.transAxes.inverted())
+                xoff = 1 - bb.x0
+                bb.x0 += xoff
+                bb.x1 += xoff
+                leg.set_bbox_to_anchor(bb, transform=ax.transAxes)
+            leg.set(frame_on=False)
+
+    # If propagated global average must be plotted
+    avg_kwargs = dict(c='k', markersize=8, lw=3)
+    if avgprop is not None:
+        # If average trace relies on all traces
+        if avgprop == 'all':
+            # Compute average and standard error from entire dataset
+            mean = data.groupby(xkey)[ykey].mean().rename('mean')
+            sem = data.groupby(xkey)[ykey].sem().rename('sem')
+        else:
+            # If average trace relies on average across hue levels
+            if avgprop == 'hue':
+                # Generate uniform vector of weights
+                idx = data.groupby(hue).first().index
+                weightsperhue = pd.Series([1 / len(idx)] * len(idx), index=idx)
+            # If average trace relies on cellcount-weighted average across hue levels
+            elif avgprop == 'whue':
+                # Count number of ROIs per hue level and compute related weights vector
+                celltypes = data.groupby([hue, Label.ROI]).first()
+                countsperhue = celltypes.groupby(hue).count().iloc[:, 0].rename('counts')
+                ntot = countsperhue.sum()
+                weightsperhue = countsperhue / ntot
+            else:
+                raise ValueError(f'unknown average propagation mode: "{avgprop}"')
+
+            # Compute mean for each input and hue
+            means = data.groupby([xkey, hue])[ykey].mean().rename('mean')
+            # Compute weighted mean for each input
+            mean = (means * weightsperhue).groupby(xkey).sum().rename('wmean')
+            
+            # If global error must be propagated from hue ones
+            if errprop == 'intra':
+                # Compute standard error for each input and hue
+                sems = data.groupby([xkey, hue])[ykey].sem().rename('sem')
+                # Compute propagated standard error for each input
+                sem = np.sqrt((weightsperhue * sems**2).groupby(xkey).sum()).rename('wsem')
+            # If 
+            elif errprop == 'inter':
+                # Compute standard error between hues for each input
+                sem = means.groupby(xkey).sem()
+            else:
+                raise ValueError(f'unknown error propagation mode: "{errprop}"')
+        
+        # Plot propagated global mean trace and standard error bars
+        ax.errorbar(
+            mean.index, mean.values, yerr=sem.values, marker=marker, **avg_kwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
-        yref = as_iterable(yref)
-        for ax in fig.axes:
-            for y in yref:
-                ax.axhline(y, c='k', ls='--')
+        for y in as_iterable(yref):
+            ax.axhline(y, c='k', ls='--')
     
     # Return figure handle
     return fig
 
 
-def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_TYPE,
-                                                 marker='o', title=None, **kwargs):
+def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
+                                              legend=True, yref=None, add_leg_numbers=True,
+                                              title=None):
+    '''
+    Plot dependency of output metrics on a input parameter, using cell count-weighted
+    averages and propagated standard errors from individual datasets
+    
+    :param data: multi-dataset trial-averaged experiment dataframe
+    :param xkey (optional): key indicating the independent variable of the x-axis
+    :param ykey (optional): key indicating the dependent variable of the y-axis
+    :param yref (optional): vertical at which to draw a "reference" horizontal line
+    '''
+    # Get default ykey if needed
+    if ykey is None:
+        ykey = get_change_key(Label.DFF)
+
+    # Reduce data to relevant input parameters
+    data = get_xdep_data(data, xkey=xkey)
+
+    # Initialize figure if needed
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    # Initialize axis
+    sns.despine(ax=ax)
+    ax.set_xlabel(xkey)
+    ax.set_ylabel(ykey)
+    
+    # If hue not specified
+    if hue is None:
+        # Aggregate data with cell-count weighting
+        aggdata = get_cellcount_weighted_average(data, xkey, ykey, hue=hue)
+        # Plot single weifghted average trace with propagated standard errors 
+        ax.errorbar(
+            aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker='o', c='k')
+    # Otherwise
+    else:
+        # For each hue value
+        for htype, rdata in data.groupby(hue):
+            # Aggregate data with cell-count weighting
+            aggdata = get_cellcount_weighted_average(rdata, xkey, ykey, hue=hue)
+            ax.errorbar(
+                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker='o', label=htype)
+        if legend:
+            ax.legend(frameon=False)
+            # Add numbers on legend if needed
+            if add_leg_numbers:
+                add_numbers_on_legend_labels(ax.get_legend(), data, xkey, ykey, hue)
+
+    # Add reference line(s) if specified
+    if yref is not None:
+        for y in as_iterable(yref):
+            ax.axhline(y, c='k', ls='--')
+
+    if title is not None:
+        ax.set_title(title)
+    
+    return fig
+
+
+def plot_stimparams_dependency(data, ykey, title=None, **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
     :param data: trial-averaged experiment dataframe
     :param ykey (optional): key indicating the dependent variable of the y-axis
-    :param hue: hue grouping parameter (default: responder type)
-    :param marker (optional): data point marker
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
     # Initialize figure
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-    # Get hue order
-    hue_order = None
-    if hue == Label.ROI_RESP_TYPE:
-        hue_order = get_default_rtypes()
-    
-    # plot dependency on each parameter on separate axes
-    for xkey, ax in zip([Label.P, Label.DC], axes.T):
+    # Disable legend for all axes but last
+    kwargs['legend'] = False
+    # Plot dependencies on each parameter on separate axes
+    for i, (xkey, ax) in enumerate(zip([Label.P, Label.DC], axes.T)):
+        if i == len(axes) - 1:
+            del kwargs['legend']
         plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, ax=ax, hue=hue, hue_order=hue_order,
-            max_colwrap=2, nmaxtraces=150, marker=marker, **kwargs)
+            data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', **kwargs)
     
     # Harmonize axes limits
     harmonize_axes_limits(axes)
@@ -2252,102 +2389,13 @@ def plot_stimparams_dependency_per_response_type(data, ykey, hue=Label.ROI_RESP_
     return fig
 
 
-def plot_parameter_dependency_across_datasets(
-    data, xkey, ykey, show_datasets=True, avg=True, weighted=True, ci=68, **kwargs):
-    '''
-    Plot the parameter dependency of a specific variable across date-mouse-region datasets
-    
-    :param data: multi-indexed stats dataframe with date-mouse-region as an extra index dimension
-    :param xkey: name of the stimulation parameter of interest
-    :param ykey: name of the output variable of interest
-    :param avg (optional): plot average trace across datasets
-    :param weighted (optional): whether to use a weighted (by number of cells) or 
-        a non-weighted average
-    :return: figure handle
-    '''
-    # Determine y-bounds (based on variable if not directly provided)
-    if 'ybounds' in kwargs:
-        ybounds = kwargs.pop('ybounds') 
-    else:
-        if ykey == Label.DFF:
-            ybounds = [-.05, +.1]
-        elif ykey == Label.ZSCORE:
-            ybounds = [-1., 2.]
-        else:
-            raise ValueError(f'unknown variable: "{ykey}"')
-    
-    # Determine variable of interest for output metrics
-    ykey_diff = get_change_key(ykey)
-    
-    # Determine number of datasets
-    ndatasets = len(data.index.unique(Label.DATASET))
-    col_order = get_default_rtypes()
-    if ndatasets == 1:
-        avg = False
-    
-    # Determine averaging categories
-    categories = [Label.ROI_RESP_TYPE, Label.RUN]  # by default, response type and run 
-    if not weighted:  # if non-weighted average, add dataset level
-        categories = [Label.DATASET] + categories
-
-    # Adjust traces parameters depending on whether trends of individual datasets must be shown 
-    if show_datasets:
-        legend = 'full'
-        alpha = 1
-        # alpha = 0.5 if avg else 1
-    else:
-        legend = False
-        alpha = 0
-    
-    # Plot parameter dependency of each dataset, per responder type
-    fig = plot_parameter_dependency(
-        data, xkey=xkey, ykey=ykey_diff,
-        ybounds=ybounds,
-        hue=Label.DATASET, palette='tab20',
-        col=Label.ROI_RESP_TYPE, col_order=col_order,
-        hide_col_prefix=True, col_count_key=[Label.DATASET, Label.ROI],
-        yref=0., height=3, aspect=.8,
-        add_leg_numbers=False, max_colwrap=len(col_order),
-        ci=None if avg else ci,
-        alpha=alpha, marker=None if avg else 'o',
-        legend=legend,
-        **kwargs)
-    
-    # If average trace specified
-    if avg:
-
-        # Average across each category and resolve input columns
-        # (avoid "almost-identical" duplicates)
-        avg_data = data.groupby(categories).mean()
-        avg_data = resolve_columns(data.groupby(categories).mean(), [Label.P, Label.DC])
-
-        # Extract average traces across datasets
-        xdep_avg_data = get_xdep_data(avg_data, xkey)
-
-        # Add average parameter dependency trace across datasets, for each response type
-        for resp_type, group in xdep_avg_data.groupby(Label.ROI_RESP_TYPE):
-            ax = fig.axes[col_order.index(resp_type)]
-            sns.lineplot(
-                data=group, x=xkey, y=ykey_diff, ax=ax, color='BLACK', ci=ci,
-                marker='o', lw=2, markersize=5, legend=False, err_style='bars')
-            line = ax.get_lines()[-1]
-
-        # Add legend entry for average trace
-        fig.legend([line], [f'{"non-" if not weighted else ""}weighted average'], frameon=False)
-    
-    # Retrun figure handle
-    return fig
-
-
-def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True,
-                            countref=None, title=None):
+def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, count='label', title=None):
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
     :param data: multi-indexed stats dataframe with dataset as an extra index dimension
-    :param hue: hue parameter
-    :param add_count_labels: whether to add counts on each legend entry
-    :param countref (optional): specified count value at which to draw a "reference" line 
+    :param hue: hue parameter (typically ROI responder type or dataset)
+    :param count: total count per category reporting type (None, 'label', or 'pie')
     :param title (optional): figure title
     :return: figure handle
     '''
@@ -2365,7 +2413,10 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
         Label.DATASET: natsorted(data.index.unique(level=Label.DATASET).values.tolist())
     }
     bar2 = f'{bar} '
-    barvals = celltypes.index.get_level_values(bar)
+    if bar == Label.DATASET:
+        barvals = celltypes.index.get_level_values(bar)
+    else:
+        barvals = celltypes[bar].values
     barvals = pd.Categorical(barvals, categories=orders[bar])
     celltypes[bar2] = barvals
     pltkwargs = {axdim: bar2, 'hue_order': orders[hue]}
@@ -2374,23 +2425,23 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
     fg = sns.displot(
         data=celltypes, multiple='stack', hue=hue, **pltkwargs)
     sns.despine()
+
+    # Extract figure, axis and legend
     fig = fg.figure
+    ax = fig.axes[0]
+    leg = fg._legend
+    fig.subplots_adjust(top=0.9)
 
-    # If label counts specified 
-    if add_count_labels:
-
+    if count is not None:
         # Count number of cells of each bar and hue
         cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
-        nperhue = cellcounts.groupby(hue).sum().astype(int)
-        nperbar = cellcounts.groupby(bar).sum().astype(int)
+        ntot = cellcounts.sum()
 
-        # Get number of responding cells
-        ntot = nperhue.sum()
-        ax = fig.axes[0]
-
+    # If count label specified 
+    if count == 'label':
         # If resp type is hue, add labels to legend
         if hue == Label.ROI_RESP_TYPE:
-            leg = fg._legend
+            nperhue = cellcounts.groupby(hue).sum().astype(int)
             for t in leg.texts:
                 s = t.get_text()
                 n = nperhue.loc[s]
@@ -2399,20 +2450,36 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, add_count_labels=True
 
         # If resp type is bar, add labels on top of bars
         else:
+            nperbar = cellcounts.groupby(bar).sum().astype(int)
             labels = [l.get_text() for l in ax.get_xticklabels()]
             offset = nperbar.max() * 0.02
             for i, label in enumerate(labels):
                 n = nperbar.loc[label]
                 ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
-
-    # Add reference line if specified
-    if countref is not None:
-        ltype = {'x': 'h', 'y': 'v'}[axdim]
-        getattr(ax, f'ax{ltype}line')(countref, c='k', ls='--')
     
+    # If count pie chart specified 
+    elif count == 'pie':
+        # Raise error if hue mode is incompatible with pie chart
+        if hue != Label.ROI_RESP_TYPE:
+            raise ValueError(
+                f'pie chart count report only available with "{Label.ROI_RESP_TYPE}" hue parameter')
+        # Remove legend
+        leg.remove()
+        # Count cells by responder type
+        counts_by_rtype = cellcounts.groupby(Label.ROI_RESP_TYPE, sort=False).sum()
+        counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
+        # Plot counts on pie chart
+        ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
+        colors = plt.get_cmap('tab20c')([1, 5])
+        ax2.pie(
+            counts_by_rtype.values, labels=counts_by_rtype.index.values, 
+            autopct='%1.0f%%', startangle=90, colors=colors, explode=(0, 0.1),
+            textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})
+        ax2.set_title(f'{ntot} ROIs')
+
     # Add title if specified
     if title is not None:
-        fig.axes[0].set_title(title, fontsize=20)
+        fig.suptitle(title, fontsize=20)
     
     # Return figure handle
     return fig
