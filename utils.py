@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-05 19:02:03
+# @Last Modified time: 2022-10-17 13:12:09
 
 ''' Collection of generic utilities. '''
 
@@ -460,7 +460,6 @@ def normalize_stack(x, bounds=(0, 1000)):
     return y.astype(dtype)
 
 
-
 def html_wrap(s, wrapper, serialize=True):
     ''' Wrap HTML content inside an HTML element '''
     if is_iterable(s) and serialize:
@@ -563,3 +562,21 @@ def round_to_base(x, precision=1, base=.5):
     :return: rounded number
     '''
     return np.round(base * round(float(x) / base), precision)
+
+
+def compute_mesh_edges(x, scale='lin'):
+    '''
+    Compute the appropriate edges of a mesh that quads a linear or logarihtmic distribution.
+    
+    :param x: the input vector
+    :param scale: the type of distribution ('lin' for linear, 'log' for logarihtmic)
+    :return: the edges vector
+    '''
+    if scale == 'log':
+        x = np.log10(x)
+        range_func = np.logspace
+    else:
+        range_func = np.linspace
+    dx = x[1] - x[0]
+    n = x.size + 1
+    return range_func(x[0] - dx / 2, x[-1] + dx / 2, n)

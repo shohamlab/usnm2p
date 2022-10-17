@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-07 20:55:48
+# @Last Modified time: 2022-10-10 16:24:32
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -36,7 +36,7 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain,
         baseline_id = f'{baseline_id}_smooth'
     postpro_id = f'{baseline_id}_{ykey_postpro}'.replace('/', '')
     # Get figures PDF suffix
-    figs_suffix = f'{dataset_group_id}_k{kalman_gain}_{postpro_id}'
+    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}'
     # Get trial-averaged input data directory
     submap = [(1, 0), (FrameIndex.STIM - 1, FrameIndex.STIM)]
     ss = StackSubstitutor(submap, repeat_every=NFRAMES_PER_TRIAL)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-07 20:15:55
+# @Last Modified time: 2022-10-17 13:22:38
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -17,6 +17,7 @@ from scipy.signal import butter, filtfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
+from scipy.interpolate import griddata
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from functools import wraps
@@ -1280,7 +1281,9 @@ def get_xdep_data(data, xkey):
         return data[data[Label.DC] == DC_REF]
     elif xkey == Label.DC:
         return data[data[Label.P] == P_REF]
-    raise ValueError(f'xkey must be one of ({Label.P}, {Label.DC}')
+    else:
+        logger.warning(f'{xkey} no part of ({Label.P}, {Label.DC}) -> no filtering')
+        return data
 
 
 def exclude_datasets(timeseries, stats, to_exclude):
@@ -1549,3 +1552,38 @@ def get_cellcount_weighted_average(data, xkey, ykey, hue=None):
     mean = (means * weightsperhue).groupby(cats[1:]).sum().rename('mean')
     sem = np.sqrt((weightsperhue * sems**2).groupby(cats[1:]).sum()).rename('sem')
     return pd.concat([mean, sem], axis=1).sort_values(xkey).reset_index()
+
+
+def interpolate_2d_map(df, xkey, ykey, outkey, nx=None, ny=None, method='linear'):
+    '''
+    Interpolate 2D map of sparse output metrics along X and Y dimensions
+    
+    :param df: input dataframe
+    :param xkey: name of x-coordinates column
+    :param ykey: name of y-coordinates column
+    :param outkey: name of output metrics column
+    :param nx: number of interpolated coordinates in x-range
+    :param ny: number of interpolated coordinates in y-range
+    :param method: type of interpolation (default = "linear")
+    :return: 3-tuple with:
+        - x-range vector
+        - y-range vector
+        - 2D XY grid of interpolated values
+    '''
+    # Extract XY points
+    xp, yp = df[xkey].values, df[ykey].values
+    points = np.vstack((xp, yp)).T
+    # Generate range vectors and associated intewrpolation meshgrid
+    if nx is None:
+        nx = np.unique(xp).size
+    if ny is None:
+        ny = np.unique(yp).size
+    xrange = np.linspace(xp.min(), xp.max(), nx)
+    yrange = np.linspace(yp.min(), yp.max(), ny)
+    X, Y = np.meshgrid(xrange, yrange, indexing='ij')
+    xi = np.vstack((X.ravel(), Y.ravel())).T
+    # Interpolate data & reshape into XY array
+    interp_values = griddata(points, df[outkey].values, xi, method=method)
+    interp_map = interp_values.reshape(xrange.size, yrange.size)
+    # Return outputs
+    return xrange, yrange, interp_map

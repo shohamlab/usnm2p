@@ -2,13 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-07 20:25:42
+# @Last Modified time: 2022-10-17 18:23:50
 
 ''' Collection of plotting utilities. '''
 
-from multiprocessing.sharedctypes import Value
 import random
-from tkinter import Frame
 from natsort import natsorted
 import numpy as np
 import pandas as pd
@@ -18,12 +16,13 @@ from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
 import seaborn as sns
+from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
 
 from logger import logger
 from constants import *
-from utils import get_singleton, is_iterable, plural
+from utils import get_singleton, is_iterable, plural, compute_mesh_edges
 from postpro import *
 from viewers import get_stack_viewer
 from fileops import loadtif
@@ -2227,6 +2226,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
             err_style=hueerr_style, legend=legend, **pltkwargs)
         # Get legend
+        if ax is None:
+            ax = fig.axes[0]
         leg = ax.get_legend()
         if leg is not None:
             # Add numbers on legend if needed
@@ -2285,6 +2286,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
                 raise ValueError(f'unknown error propagation mode: "{errprop}"')
         
         # Plot propagated global mean trace and standard error bars
+        sem = sem.fillna(0)
         ax.errorbar(
             mean.index, mean.values, yerr=sem.values, marker=marker, **avg_kwargs)
 
@@ -2518,7 +2520,8 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
     return fig
 
 
-def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None):
+def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,
+                            cmap='viridis'):
     '''
     Plot map of output metrics as a function of XY offset
     
@@ -2526,7 +2529,10 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None)
     :param xkey: column name for X offset coordinates
     :param ykey: column name for Y offset coordinates
     :param outkey: column name for output metrics
+    :param interp: type of interpolant used to geenrate XY map of output metrics (default=None)
     :param filters: potential filters to restrict dataset
+    :param title: optional figure title
+    :param cmap: colormap string
     :return: 2-tuple with:
         - figure handle
         - offset coordinates of max response per dataset
@@ -2541,13 +2547,16 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None)
     logger.info('grouping stats by dataset...')
     groups = stats.groupby(Label.DATASET)
 
+    # Get colormap object
+    cmap = plt.get_cmap(cmap)
+    cmap.set_bad(cmap(0))
+
     # Create figure backbone
     naxes = len(groups)
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
     stitle = f'{ykey} response strength vs. offset'
     if title is not None:
         stitle = f'{stitle} ({title})'
-    fig.suptitle(stitle)
     for ax in axes:
         sns.despine(ax=ax)
         ax.set_aspect(1.)    
@@ -2566,13 +2575,24 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None)
             [xkey, ykey]).agg(['mean', 'sem']).loc[:, outkey].reset_index()
         # Plot map of output metrics across 2D offsets
         ax.scatter(
-            outkey_agg[xkey], outkey_agg[ykey], c=outkey_agg['mean'], s=80)
+            outkey_agg[xkey], outkey_agg[ykey], s=80, c=outkey_agg['mean'], edgecolors='w', cmap=cmap)
         # Identify and mark 2D offset yielding max output metrics
         imax = outkey_agg['mean'].argmax()
         ax.scatter(
-            outkey_agg.loc[imax, xkey], outkey_agg.loc[imax, ykey], 
-            s=100, c='none', edgecolors='r')
+            outkey_agg.loc[imax, xkey], outkey_agg.loc[imax, ykey], s=100, c='none', edgecolors='r')
         outmax_coords[dataset_id] = outkey_agg.loc[imax, [xkey, ykey]].rename('loc max')
+        # If specified: plot interpolated 2D map of response strength vs offset location
+        if interp is not None:
+            xrange, yrange, interp_map = interpolate_2d_map(
+                outkey_agg, xkey, ykey, 'mean', method=interp, nx=100, ny=100)
+            ax.pcolormesh(
+                compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
+                zorder=-10, cmap=cmap)
+    
+    # Add figure title
+    if interp is not None:
+        stitle = f'{stitle} - {interp} interpolant'
+    fig.suptitle(stitle)
 
     # Re-organize max metrics offset coordinates per dataset
     outmax_coords = pd.concat(
@@ -2584,46 +2604,64 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, filters=None, title=None)
     return fig, outmax_coords
 
 
-def plot_stat_vs_offset_distance(stats, dkey, outkey):
+def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Label.DATASET,
+                               kind='bar', add_stats=True, **kwargs):
     '''
-    Plot profiles of output metrics as a function of normalized XY offset distance
-    
-    :param stats: stats dataframe
-    :param dkey: column name for offset distance
-    :param outkey: column name for output metrics
-    :return: 2-tuple with:
-        - overall figure handle
-        - responders-only figure handle
+    Plot comparative distributions of center vs fixed offset conditions
+
+    :param data: stats dataframe
+    :param offset_key: offset key
+    :param offset_vals: offset values to be compared
+    :param ykey: output metrics key
+    :param groupby: goruping variable (default = dataset)
+    :param kind: type of categorical plot (default = 'bar')
+    :param add_stats: whther or not to add statistical comparisons
     '''
-    # Add run ID to stats dataframe to ensure unique multi-index
-    pltstats = stats.set_index(Label.RUNID, append=True)
-
-    # Plot output metrics strength vs. offset, for each dataset & cell type
-    logger.info(f'plotting "{outkey}" vs. "{dkey}" across datasets & responder types...')
-    fg = sns.relplot(
-        data=pltstats, x=dkey, y=outkey, kind='line', err_style='bars',
-        col=Label.DATASET, hue=Label.ROI_RESP_TYPE)
-    fig1 = fg.figure
-    fig1.suptitle('all ROIs', y=1.02)
-    for ax in fig1.axes:
-        ax.axhline(0., ls='--', c='k', zorder=-10)
-
-    # Focus on positive responders
-    logger.info(f'restricting to responders only')
-    pltstats = pltstats[pltstats[Label.ROI_RESP_TYPE] == 'positive']
-    # Aggregate for each dataset
-    agg_pltstats = pltstats.groupby([Label.DATASET, dkey]).mean()
-
-    # Plot response strength vs. offset, for each dataset and non-weighted aggregate trace 
-    fig2, ax = plt.subplots()
-    sns.despine(ax=ax)
-    ax.set_title('responders only')
-    logger.info(f'plotting "{outkey}" vs. "{dkey}" across datasets...')
-    sns.lineplot(
-        data=pltstats, x=dkey, y=outkey, ax=ax, hue=Label.DATASET)
-    logger.info(f'plotting "{outkey}" vs. "{dkey}" aggregate...')
-    sns.lineplot(
-        data=agg_pltstats, x=dkey, y=outkey, ax=ax, marker='o', markersize=8, err_style='bars', color='k')
-    ax.axhline(0., ls='--', c='k', zorder=-10)
+    # Restrict dataset to specific set of values to compare
+    data = data.copy()[data[offset_key].isin(offset_vals)]
+    # Set groupby as column if needed
+    if groupby is not None:
+        if groupby not in data.columns:
+            if groupby in data.index.names:
+                data[groupby] = data.index.get_level_values(level=groupby)
+                data = data.droplevel(groupby)
+            else:
+                raise ValueError(f'"{groupby}" groupby parameter not found in data')
     
-    return fig1, fig2
+    # Define plotting arguments
+    pltkwargs = dict(
+        data=data, 
+        x=groupby,
+        y=ykey,
+        hue=offset_key,
+        dodge=True,
+        legend_out=False,
+        aspect=1.5,
+        kind=kind,
+        **kwargs
+    )
+    # Render categorical plot
+    fg = sns.catplot(**pltkwargs)
+    # Rotate x-labels
+    fig = fg.figure
+    ax = fig.axes[0]
+    ax.tick_params(axis='x', rotation=60)
+
+    title_pad = 10
+    if add_stats:
+        # Extract pairs for statistical comparison
+        combs = data.groupby([Label.DATASET, offset_key])[ykey].first().index.values
+        pairs = list(zip(combs[::2], combs[1::2]))
+        # Add statistical annotations
+        annotator = Annotator(
+            ax=ax, pairs=pairs, **pltkwargs)
+        annotator.configure(test='t-test_ind', text_format='star', loc='outside')
+        annotator.apply_and_annotate()
+        title_pad += 30
+
+    # Add figure title
+    comps_str = ' vs. '.join([f'{o:.1f} mm' for o in offset_vals])
+    ax.set_title(f'response strength - {comps_str}', pad=title_pad)
+
+    # Return figure
+    return fig
