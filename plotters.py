@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-17 18:23:50
+# @Last Modified time: 2022-10-18 14:50:48
 
 ''' Collection of plotting utilities. '''
 
@@ -19,6 +19,7 @@ import seaborn as sns
 from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
+from scipy.stats import normaltest
 
 from logger import logger
 from constants import *
@@ -1403,7 +1404,7 @@ def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
         
 
 def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
-                  mode='contour', cmap='viridis', legend=True, alpha_ROIs=0.7, ax=None):
+                  mode='contour', cmap='viridis', hue=Label.ROI_RESP_TYPE, legend=True, alpha_ROIs=0.7, ax=None):
     '''
     Plot spatial distribution of cells (per response type) on the recording plane.
 
@@ -1417,16 +1418,28 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     :param refkey: key used to access the reference image in the output options dictionary
     :param mode (default: contour): ROIs render mode ('fill' or 'contour')
     :param cmap (default: viridis): colormap used to render reference image
+    :param hue: hue parameter determining the color of each ROI
     :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
     :return: figure handle
     '''
-    logger.info('plotting cells map color-coded by response type...')
-
     # Fetch parameters from data
+    slog = 'plotting cells map'
     Ly, Lx = ops['Ly'], ops['Lx']
-    rtypes_per_ROI = get_response_types_per_ROI(Fstats)
-    rtypes = get_default_rtypes()
-    count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
+    if hue == Label.ROI_RESP_TYPE:
+        rtypes_per_ROI = get_response_types_per_ROI(Fstats)
+        rtypes = get_default_rtypes()
+        count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
+        colors = sns.color_palette(Palette.RTYPE)    
+        slog = f'{slog} color-coded by response type'
+    else:
+        iROIs = Fstats.index.unique(level=Label.ROI)
+        rtypes_per_ROI = pd.Series(data=['notype'] * len(iROIs), index=iROIs) 
+        rtypes = ['notype']
+        count_by_type = {'notype': len(iROIs)}
+        colors = sns.color_palette('Greys')
+        legend = False
+    
+    logger.info(f'{slog}...')
 
     # Initialize pixels by cell matrix
     idx_by_type = dict(zip(rtypes, np.arange(len(rtypes))))
@@ -1445,7 +1458,6 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
-        colors = sns.color_palette(Palette.RTYPE)
         for i, (c, mask) in enumerate(zip(colors, masks)):
             rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
@@ -1462,7 +1474,6 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
-    colors = sns.color_palette(Palette.RTYPE)
     for c, (rtype, idx) in zip(colors, idx_by_type.items()):
         if mode == 'contour':  # "contour" mode
             for z in Z[idx]:
@@ -1492,7 +1503,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     return fig
 
 
-def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour', **kwargs):
+def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
+                   hue=Label.ROI_RESP_TYPE, **kwargs):
 
     # Divide inputs per dataset
     masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
@@ -1511,7 +1523,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
         ogroup = ops[dataset_id]
         plot_cell_map(
             mgroup, sgroup, ogroup, title=dataset_id, mode=mode, 
-            um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, **kwargs)
+            um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, hue=hue, **kwargs)
         ax.set_aspect(1.)
 
     # Hide remaining axes
@@ -1521,20 +1533,21 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
     # Add title
     fig.suptitle(title)
 
-    # Add legend
-    if ndatasets % colwrap > 0:
-        fig.subplots_adjust(right=0.8)
-    labels = get_default_rtypes()
-    colors = plt.get_cmap('tab10').colors[:3]
-    if mode == 'contour':
-        legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
-    else:
-        legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
-    leg_items = [
-        Line2D([0], [0], label=label, ms=10, **legfunc(c))
-        for c, label in zip(colors, labels)]
-    axes[ndatasets - 1].legend(
-        handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+    # Add legend if necessary
+    if hue is not None:
+        if ndatasets % colwrap > 0:
+            fig.subplots_adjust(right=0.8)
+        labels = get_default_rtypes()
+        colors = plt.get_cmap('tab10').colors[:3]
+        if mode == 'contour':
+            legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
+        else:
+            legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
+        leg_items = [
+            Line2D([0], [0], label=label, ms=10, **legfunc(c))
+            for c, label in zip(colors, labels)]
+        axes[ndatasets - 1].legend(
+            handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
     return fig
 
@@ -2391,7 +2404,7 @@ def plot_stimparams_dependency(data, ykey, title=None, **kwargs):
     return fig
 
 
-def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, count='label', title=None):
+def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     '''
     Plot a summary chart of the number of cells per response type and dataset
     
@@ -2403,10 +2416,16 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, count='label', title=
     '''
     # Restrict dataset to 1 element per ROI for each dataset
     celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
+    # Count total number of cells
+    ntot = celltypes.count().iloc[0]
 
     # Figure out bar variable and plot orientation
-    groups = [Label.DATASET, Label.ROI_RESP_TYPE]
-    bar = list(set(groups) - set([hue]))[0]
+    if hue is not None:
+        groups = [Label.DATASET, Label.ROI_RESP_TYPE]
+        bar = list(set(groups) - set([hue]))[0]
+    else:
+        bar = Label.DATASET
+        count = None
     axdim = {Label.ROI_RESP_TYPE: 'x', Label.DATASET: 'y'}[bar]
 
     # Determine plotting order
@@ -2421,7 +2440,9 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, count='label', title=
         barvals = celltypes[bar].values
     barvals = pd.Categorical(barvals, categories=orders[bar])
     celltypes[bar2] = barvals
-    pltkwargs = {axdim: bar2, 'hue_order': orders[hue]}
+    pltkwargs = {axdim: bar2}
+    if hue is not None:
+        pltkwargs['hue_order'] =  orders[hue]
 
     # Plot stacked count bars
     fg = sns.displot(
@@ -2437,51 +2458,53 @@ def plot_cellcounts_by_type(data, hue=Label.ROI_RESP_TYPE, count='label', title=
     if count is not None:
         # Count number of cells of each bar and hue
         cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
-        ntot = cellcounts.sum()
 
-    # If count label specified 
-    if count == 'label':
-        # If resp type is hue, add labels to legend
-        if hue == Label.ROI_RESP_TYPE:
-            nperhue = cellcounts.groupby(hue).sum().astype(int)
-            for t in leg.texts:
-                s = t.get_text()
-                n = nperhue.loc[s]
-                t.set_text(f'{s} (n={n}, {n / ntot * 100:.0f}%)')
-            leg.set_bbox_to_anchor([1.2, 0.5])
+        # If count label specified 
+        if count == 'label':
+            # If resp type is hue, add labels to legend
+            if hue == Label.ROI_RESP_TYPE:
+                nperhue = cellcounts.groupby(hue).sum().astype(int)
+                for t in leg.texts:
+                    s = t.get_text()
+                    n = nperhue.loc[s]
+                    t.set_text(f'{s} (n={n}, {n / ntot * 100:.0f}%)')
+                leg.set_bbox_to_anchor([1.2, 0.5])
 
-        # If resp type is bar, add labels on top of bars
+            # If resp type is bar, add labels on top of bars
+            else:
+                nperbar = cellcounts.groupby(bar).sum().astype(int)
+                labels = [l.get_text() for l in ax.get_xticklabels()]
+                offset = nperbar.max() * 0.02
+                for i, label in enumerate(labels):
+                    n = nperbar.loc[label]
+                    ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
+        
+        # If count pie chart specified 
+        elif count == 'pie':
+            # Raise error if hue mode is incompatible with pie chart
+            if hue != Label.ROI_RESP_TYPE:
+                raise ValueError(
+                    f'pie chart count report only available with "{Label.ROI_RESP_TYPE}" hue parameter')
+            # Remove legend
+            leg.remove()
+            # Count cells by responder type
+            counts_by_rtype = cellcounts.groupby(Label.ROI_RESP_TYPE, sort=False).sum()
+            counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
+            # Plot counts on pie chart
+            ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
+            colors = plt.get_cmap('tab20c')([1, 5])
+            ax2.pie(
+                counts_by_rtype.values, labels=counts_by_rtype.index.values, 
+                autopct='%1.0f%%', startangle=90, colors=colors, explode=(0, 0.1),
+                textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})        
         else:
-            nperbar = cellcounts.groupby(bar).sum().astype(int)
-            labels = [l.get_text() for l in ax.get_xticklabels()]
-            offset = nperbar.max() * 0.02
-            for i, label in enumerate(labels):
-                n = nperbar.loc[label]
-                ax.text(i, n + offset, f'{n} ({n / ntot * 100:.0f}%)', ha='center')
-    
-    # If count pie chart specified 
-    elif count == 'pie':
-        # Raise error if hue mode is incompatible with pie chart
-        if hue != Label.ROI_RESP_TYPE:
-            raise ValueError(
-                f'pie chart count report only available with "{Label.ROI_RESP_TYPE}" hue parameter')
-        # Remove legend
-        leg.remove()
-        # Count cells by responder type
-        counts_by_rtype = cellcounts.groupby(Label.ROI_RESP_TYPE, sort=False).sum()
-        counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
-        # Plot counts on pie chart
-        ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
-        colors = plt.get_cmap('tab20c')([1, 5])
-        ax2.pie(
-            counts_by_rtype.values, labels=counts_by_rtype.index.values, 
-            autopct='%1.0f%%', startangle=90, colors=colors, explode=(0, 0.1),
-            textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})
-        ax2.set_title(f'{ntot} ROIs')
+            raise ValueError(f'invalid count mode: "{count}"')
 
-    # Add title if specified
+    # Add title
+    stitle = f'{ntot} ROIs'
     if title is not None:
-        fig.suptitle(title, fontsize=20)
+        stitle = f'{title} ({stitle})'
+    fig.suptitle(stitle, fontsize=20)
     
     # Return figure handle
     return fig
@@ -2587,7 +2610,7 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
                 outkey_agg, xkey, ykey, 'mean', method=interp, nx=100, ny=100)
             ax.pcolormesh(
                 compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
-                zorder=-10, cmap=cmap)
+                zorder=-10, cmap=cmap, rasterized=True)
     
     # Add figure title
     if interp is not None:
@@ -2642,25 +2665,38 @@ def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Labe
     )
     # Render categorical plot
     fg = sns.catplot(**pltkwargs)
-    # Rotate x-labels
+    # Adapt x-labels
     fig = fg.figure
     ax = fig.axes[0]
-    ax.tick_params(axis='x', rotation=60)
+    ax.set_xticklabels(x.get_text().replace('_', '\n') for x in ax.get_xticklabels())
+    ax.set_xlabel(ax.get_xlabel(), labelpad=10)
+
+    # Add zero (and one) line if plot is not bar plot
+    if kind != 'bar':
+        ax.axhline(0, c='k', ls='--', zorder=-10)    
+        if 'normalized' in ykey:
+            ax.axhline(1, c='k', ls='--', zorder=-10)
 
     title_pad = 10
+    comps_str = ' vs. '.join([f'{o:.1f} mm' for o in offset_vals])
     if add_stats:
+        # Determine groups for statistical tests
+        groups = data.groupby([Label.DATASET, offset_key])[ykey]
+        # Determine which statistical test to apply
+        isnotnormal = groups.agg(lambda s: normaltest(s)[1] < PTHR_DETECTION)
+        test = 'Mann-Whitney' if any(isnotnormal) else 't-test_ind'
         # Extract pairs for statistical comparison
-        combs = data.groupby([Label.DATASET, offset_key])[ykey].first().index.values
+        combs = groups.first().index.values
         pairs = list(zip(combs[::2], combs[1::2]))
-        # Add statistical annotations
+        # Perform tests and add statistical annotations
         annotator = Annotator(
             ax=ax, pairs=pairs, **pltkwargs)
-        annotator.configure(test='t-test_ind', text_format='star', loc='outside')
+        annotator.configure(test=test, text_format='star', loc='outside')
         annotator.apply_and_annotate()
         title_pad += 30
+        comps_str = f'{comps_str} ({test} test)'
 
     # Add figure title
-    comps_str = ' vs. '.join([f'{o:.1f} mm' for o in offset_vals])
     ax.set_title(f'response strength - {comps_str}', pad=title_pad)
 
     # Return figure
