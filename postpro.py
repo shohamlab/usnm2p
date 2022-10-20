@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-17 13:22:38
+# @Last Modified time: 2022-10-20 13:26:55
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1554,7 +1554,7 @@ def get_cellcount_weighted_average(data, xkey, ykey, hue=None):
     return pd.concat([mean, sem], axis=1).sort_values(xkey).reset_index()
 
 
-def interpolate_2d_map(df, xkey, ykey, outkey, nx=None, ny=None, method='linear'):
+def interpolate_2d_map(df, xkey, ykey, outkey, dx=None, dy=None, method='linear'):
     '''
     Interpolate 2D map of sparse output metrics along X and Y dimensions
     
@@ -1562,8 +1562,8 @@ def interpolate_2d_map(df, xkey, ykey, outkey, nx=None, ny=None, method='linear'
     :param xkey: name of x-coordinates column
     :param ykey: name of y-coordinates column
     :param outkey: name of output metrics column
-    :param nx: number of interpolated coordinates in x-range
-    :param ny: number of interpolated coordinates in y-range
+    :param dx: step size between interpolated coordinates in x-range (mm)
+    :param dy: step size between interpolated coordinates in y-range (mm)
     :param method: type of interpolation (default = "linear")
     :return: 3-tuple with:
         - x-range vector
@@ -1573,13 +1573,22 @@ def interpolate_2d_map(df, xkey, ykey, outkey, nx=None, ny=None, method='linear'
     # Extract XY points
     xp, yp = df[xkey].values, df[ykey].values
     points = np.vstack((xp, yp)).T
-    # Generate range vectors and associated intewrpolation meshgrid
-    if nx is None:
-        nx = np.unique(xp).size
-    if ny is None:
-        ny = np.unique(yp).size
-    xrange = np.linspace(xp.min(), xp.max(), nx)
-    yrange = np.linspace(yp.min(), yp.max(), ny)
+    # Generate range x and y vectors
+    if dx is None:
+        dx = np.diff(np.sort(np.unique(xp))).mean()
+    else:
+        if np.mod(np.ptp(xp) / dx, 1) != 0:
+            raise ValueError(
+                f'invalid x step size ({dx}): should be an integer divider of x range ({np.ptp(xp)})')
+    if dy is None:
+        dy = np.diff(np.sort(np.unique(yp))).mean()
+    else:
+        if np.mod(np.ptp(yp) / dy, 1) != 0:
+            raise ValueError(
+                f'invalid y step size ({dy}): should be an integer divider of y range ({np.ptp(yp)})')
+    xrange = np.arange(xp.min(), xp.max() + dx, dx)
+    yrange = np.arange(yp.min(), yp.max() + dy, dy)
+    # Generate associated interpolation meshgrid
     X, Y = np.meshgrid(xrange, yrange, indexing='ij')
     xi = np.vstack((X.ravel(), Y.ravel())).T
     # Interpolate data & reshape into XY array

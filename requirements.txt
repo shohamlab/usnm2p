@@ -15,4 +15,5 @@ jupyterlab
 imageio
 natsort
 h5py
+statannotations
 suite2p==0.10.2

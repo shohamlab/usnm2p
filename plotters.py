@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-18 14:50:48
+# @Last Modified time: 2022-10-20 13:36:14
 
 ''' Collection of plotting utilities. '''
 
@@ -2577,7 +2577,7 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     # Create figure backbone
     naxes = len(groups)
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
-    stitle = f'{ykey} response strength vs. offset'
+    stitle = 'response strength vs. offset'
     if title is not None:
         stitle = f'{stitle} ({title})'
     for ax in axes:
@@ -2590,41 +2590,63 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
 
     # For each dataset
     logger.info(f'plotting map of "{outkey}" vs. XY offset...')
-    outmax_coords = {}
+    xranges, yranges, interp_maps = [], [], []
     for (dataset_id, substats), ax in zip(groups, axes):
         ax.set_title(dataset_id)
-        # Aggregate data by offset value
-        outkey_agg = substats[[xkey, ykey, outkey]].groupby(
-            [xkey, ykey]).agg(['mean', 'sem']).loc[:, outkey].reset_index()
-        # Plot map of output metrics across 2D offsets
+        # Compute average output metrics for each XY offset value
+        outkey_avg = substats[[xkey, ykey, outkey]].groupby(
+            [xkey, ykey])[outkey].mean().reset_index()
+        # Plot map of output metrics across XY offsets
         ax.scatter(
-            outkey_agg[xkey], outkey_agg[ykey], s=80, c=outkey_agg['mean'], edgecolors='w', cmap=cmap)
-        # Identify and mark 2D offset yielding max output metrics
-        imax = outkey_agg['mean'].argmax()
-        ax.scatter(
-            outkey_agg.loc[imax, xkey], outkey_agg.loc[imax, ykey], s=100, c='none', edgecolors='r')
-        outmax_coords[dataset_id] = outkey_agg.loc[imax, [xkey, ykey]].rename('loc max')
+            outkey_avg[xkey], outkey_avg[ykey], s=80, c=outkey_avg[outkey], edgecolors='w', cmap=cmap)
         # If specified: plot interpolated 2D map of response strength vs offset location
         if interp is not None:
             xrange, yrange, interp_map = interpolate_2d_map(
-                outkey_agg, xkey, ykey, 'mean', method=interp, nx=100, ny=100)
+                outkey_avg, xkey, ykey, outkey, method=interp, dx=0.5, dy=0.5)
             ax.pcolormesh(
                 compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
                 zorder=-10, cmap=cmap, rasterized=True)
-    
+            xranges.append(xrange)
+            yranges.append(yrange)
+            interp_maps.append(interp_map)
+
     # Add figure title
     if interp is not None:
         stitle = f'{stitle} - {interp} interpolant'
     fig.suptitle(stitle)
 
-    # Re-organize max metrics offset coordinates per dataset
-    outmax_coords = pd.concat(
-        outmax_coords.values(), keys=outmax_coords.keys(), axis=1).transpose()
-    outmax_coords.index.name = Label.DATASET
-    logger.info(f'found max "{outkey}" values at offset coordinates:\n{outmax_coords}')
+    # If more than 1 interpolation map was generated
+    if len(xranges) > 1:
+        dxs = np.unique(np.hstack([np.unique(np.diff(i)) for i in xranges]))
+        dys = np.unique(np.hstack([np.unique(np.diff(i)) for i in yranges]))
+        # If x and y step sizes are constant across maps
+        if dxs.size == 1 and dys.size == 1:
+            # Generate average 2D map
+            dx, dy = dxs[0], dys[0]
+            xmin, xmax = min([min(i) for i in xranges]), max([max(i) for i in xranges])
+            ymin, ymax = min([min(i) for i in yranges]), max([max(i) for i in yranges])
+            xrange, yrange = np.arange(xmin, xmax + dx, dx), np.arange(ymin, ymax + dy, dy)
+            avgmap = np.full((len(xranges), xrange.size, yrange.size), np.nan)
+            for i, (x, y, imap) in enumerate(zip(xranges, yranges, interp_maps)):
+                ixshift = np.where(xrange == x.min())[0][0]
+                iyshift = np.where(yrange == y.min())[0][0]
+                avgmap[i, ixshift:ixshift + x.size, iyshift:iyshift + y.size] = imap
+            avgmap = np.nanmean(avgmap, axis=0)
 
-    # Return outputs
-    return fig, outmax_coords
+            # Plot average 2D map on new figure
+            newfig, newax = plt.subplots()
+            newax.set_title(f'{stitle} - average map')
+            newax.set_xlabel(xkey)
+            newax.set_ylabel(ykey)
+            newax.pcolormesh(
+                compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T,
+                zorder=-10, cmap=cmap, rasterized=True)
+
+            # Return both figures
+            return fig, newfig
+
+    # Return figure
+    return fig
 
 
 def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Label.DATASET,
