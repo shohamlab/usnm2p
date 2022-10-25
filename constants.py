@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-25 13:53:24
+# @Last Modified time: 2022-10-25 16:41:50
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -111,7 +111,7 @@ class FrameIndex:
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
-NPOSCONDS_THR = 5  # minimum number of "positive" conditions for a cell to be classified as "US-responsive" 
+PROP_POSCONDS_THR = 0.33  # minimum proportion of "positive" conditions for a cell to be classified as "US-responsive"
 OFFSET_MIN_PROP_POS = 0.5  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 ###################################### PARSING ######################################

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-21 10:56:31
+# @Last Modified time: 2022-10-25 16:37:43
 
 ''' Collection of plotting utilities. '''
 
@@ -1554,8 +1554,9 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, cmap='icefire', center=0, vmin=None, vmax=None,
-                       quantile_bounds=(.01, .99), mark_stim=True):
+                       colwrap=4, cmap=None, center=None, vmin=None, vmax=None,
+                       quantile_bounds=(.01, .99), mark_stim=True, sort=False,
+                       rasterized=False):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
     culstered by similarity).
@@ -1582,6 +1583,14 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     if itrial is not None and Label.TRIAL in data.index.names:
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
+
+    # Determine colormap if required
+    if cmap is None:
+        if data[key].min() < 0.:
+            cmap = 'icefire'
+            center = 0
+        else:
+            cmap = 'viridis'
 
     # Extract plotting boundaries of variable of interest
     if quantile_bounds is not None:
@@ -1622,12 +1631,26 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
             table = gdata.pivot_table(
                 index=Label.ROI, columns=Label.TIME, values=key, aggfunc=np.mean)
 
+            if sort:
+                # Compute metrics average in pre-stimulus and response windows for each ROI
+                ypre = apply_in_window(
+                    lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
+                ypost = apply_in_window(
+                    lambda x: x.mean(), gdata, key, FrameIndex.RESPONSE, verbose=False)
+                ydiff = ypost - ypre
+                if col in ydiff.index.names:
+                    ydiff = ydiff.droplevel(col)
+                # Sort ROIs by ascending differential metrics 
+                ROI_order = ydiff.sort_values().index.values
+                # Re-index table according to ROI order 
+                table = table.reindex(ROI_order, axis=0)
+
             # Plot associated trial heatmap
             sns.heatmap(
                 data=table, ax=ax, vmin=vmin, vmax=vmax, 
                 cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
                 xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
-                yticklabels=False)
+                yticklabels=False, rasterized=rasterized)
 
             # Correct x-axis label display
             ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
@@ -2131,6 +2154,8 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
         ybounds = [-0.1, 0.15]
     elif ykey == Label.ZSCORE:
         ybounds = [-3., 6.]
+    elif ykey == Label.EVENT_RATE:
+        ybounds = [0., 1.]
     else:
         raise ValueError(f'unknown variable key: "{ykey}"')
     

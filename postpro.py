@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-20 13:56:42
+# @Last Modified time: 2022-10-25 16:50:52
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1216,7 +1216,7 @@ def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=F
     return new_stats
 
 
-def classify_responders(stats, nposthr=NPOSCONDS_THR):
+def classify_responders(stats, propposthr=PROP_POSCONDS_THR):
     '''
     Re-classify responders according to new threshold number of conditions
     
@@ -1235,6 +1235,8 @@ def classify_responders(stats, nposthr=NPOSCONDS_THR):
         categories).value_counts().unstack().replace(np.nan, 0.).astype(int)
 
     # Classify ROIs based on number of responsive conditions
+    nconds = len(stats.index.unique(level=Label.RUN))
+    nposthr = int(np.round(nconds * propposthr))
     roistats[Label.ROI_RESP_TYPE] = 'weak'
     roistats.loc[roistats['positive'] >= nposthr, Label.ROI_RESP_TYPE] = 'positive'
 
@@ -1254,7 +1256,7 @@ def classify_responders(stats, nposthr=NPOSCONDS_THR):
     return stats
 
 
-def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
+def classify(timeseries, stats, ykey, propposthr=PROP_POSCONDS_THR, **kwargs):
     ''' 
     Re-classify both responses and responders based on new classification criteria
     
@@ -1264,7 +1266,7 @@ def classify(timeseries, stats, ykey, nposthr=NPOSCONDS_THR, **kwargs):
     :return: updated stats dataframe
     '''
     new_stats = classify_responses(timeseries, stats, ykey, **kwargs)
-    new_stats = classify_responders(new_stats, nposthr=nposthr)
+    new_stats = classify_responders(new_stats, propposthr=propposthr)
     return new_stats
 
 
