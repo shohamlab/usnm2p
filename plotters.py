@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-20 13:36:14
+# @Last Modified time: 2022-10-21 10:56:31
 
 ''' Collection of plotting utilities. '''
 
+from itertools import combinations
 import random
 from natsort import natsorted
 import numpy as np
@@ -2649,21 +2650,19 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     return fig
 
 
-def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Label.DATASET,
-                               kind='bar', add_stats=True, **kwargs):
+def plot_comparative_metrics_across_datasets(data, ykey, compkey, groupby=Label.DATASET,
+                                             kind='bar', add_stats=True, **kwargs):
     '''
     Plot comparative distributions of center vs fixed offset conditions
 
     :param data: stats dataframe
-    :param offset_key: offset key
-    :param offset_vals: offset values to be compared
     :param ykey: output metrics key
+    :param compkey: comparative conditions key
     :param groupby: goruping variable (default = dataset)
     :param kind: type of categorical plot (default = 'bar')
     :param add_stats: whther or not to add statistical comparisons
     '''
-    # Restrict dataset to specific set of values to compare
-    data = data.copy()[data[offset_key].isin(offset_vals)]
+    nconds = data[compkey].nunique()
     # Set groupby as column if needed
     if groupby is not None:
         if groupby not in data.columns:
@@ -2672,16 +2671,18 @@ def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Labe
                 data = data.droplevel(groupby)
             else:
                 raise ValueError(f'"{groupby}" groupby parameter not found in data')
+
+        nconds *= data[groupby].nunique()
     
     # Define plotting arguments
     pltkwargs = dict(
         data=data, 
         x=groupby,
         y=ykey,
-        hue=offset_key,
+        hue=compkey,
         dodge=True,
         legend_out=False,
-        aspect=1.5,
+        aspect=max(1.5, nconds * 0.1),
         kind=kind,
         **kwargs
     )
@@ -2698,28 +2699,38 @@ def plot_center_vs_offset_comp(data, offset_key, offset_vals, ykey, groupby=Labe
         ax.axhline(0, c='k', ls='--', zorder=-10)    
         if 'normalized' in ykey:
             ax.axhline(1, c='k', ls='--', zorder=-10)
+            
 
     title_pad = 10
-    comps_str = ' vs. '.join([f'{o:.1f} mm' for o in offset_vals])
+    comps_str = compkey
     if add_stats:
         # Determine groups for statistical tests
-        groups = data.groupby([Label.DATASET, offset_key])[ykey]
+        groups = data.groupby([Label.DATASET, compkey])[ykey]
         # Determine which statistical test to apply
         isnotnormal = groups.agg(lambda s: normaltest(s)[1] < PTHR_DETECTION)
         test = 'Mann-Whitney' if any(isnotnormal) else 't-test_ind'
+        # Extract conditions per dataset
+        conds = groups.first().to_frame()
+        conds['conds'] = conds.index.get_level_values(compkey)
+        conds = conds.droplevel(compkey)['conds']
         # Extract pairs for statistical comparison
-        combs = groups.first().index.values
-        pairs = list(zip(combs[::2], combs[1::2]))
+        combs = conds.groupby(Label.DATASET).apply(lambda s: list(combinations(s, 2)))
+        maxcondsperdataset = max([len(x) for x in combs])
+        combs = combs.explode()
+        pairs = [[(dataset, item) for item in pair] for dataset, pair in combs.iteritems()]
         # Perform tests and add statistical annotations
         annotator = Annotator(
             ax=ax, pairs=pairs, **pltkwargs)
         annotator.configure(test=test, text_format='star', loc='outside')
         annotator.apply_and_annotate()
-        title_pad += 30
+        title_pad += 30 * maxcondsperdataset
         comps_str = f'{comps_str} ({test} test)'
 
     # Add figure title
-    ax.set_title(f'response strength - {comps_str}', pad=title_pad)
+    stitle = f'response strength - comparison across {comps_str}'
+    if 'normalized' in ykey:
+        stitle = f'normalized {stitle}'
+    ax.set_title(stitle, pad=title_pad)
 
     # Return figure
     return fig

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-17 13:12:09
+# @Last Modified time: 2022-10-25 11:31:27
 
 ''' Collection of generic utilities. '''
 
@@ -127,7 +127,7 @@ def moving_average(x, n=3):
     return ret[n - 1:] / n
 
 
-def apply_rolling_window(x, w, func=None, warn_oversize=True):
+def apply_rolling_window(x, w, func=None, warn_oversize=True, pad=True):
     '''
     Generate a rolling window over an array an apply a specific function to the result.
     Defaults to a moving average.
@@ -152,7 +152,8 @@ def apply_rolling_window(x, w, func=None, warn_oversize=True):
     if func is None:
         func = lambda x: x.mean()
     # Pad input array on both sides
-    x = np.pad(x, w // 2, mode='symmetric')
+    if pad:
+        x = np.pad(x, w // 2, mode='symmetric')
     # Generate rolling window over array
     roll = pd.Series(x).rolling(w, center=True)
     # Apply function over rolling window object, drop NaNs and extract output array 

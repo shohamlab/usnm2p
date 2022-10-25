@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-20 13:26:55
+# @Last Modified time: 2022-10-20 13:56:42
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1329,6 +1329,12 @@ def get_offset_code(data):
     return locs.apply(lambda x: f'{x[0]}x_{x[1]}y')
 
 
+def get_buzzer_code(data):
+    ''' Get an buzzer code string from the suffix column '''
+    # Parse buzzer condition from suffix
+    return data[Label.SUFFIX]
+
+
 def get_offset_complex(data):
     ''' Get an offset complex number from the suffix column '''
     # Parse offset from suffix
@@ -1347,6 +1353,8 @@ def get_duplicated_runs(data, condition='param'):
         cond_per_run = get_param_code(first_by_run)
     elif condition == 'offset':
         cond_per_run = get_offset_code(first_by_run)
+    elif condition == 'buzzer':
+        cond_per_run = get_buzzer_code(first_by_run)
     else:
         raise ValueError(f'unknown condition: "{condition}"')
     # Check for duplicates

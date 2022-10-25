@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-18 14:21:21
+# @Last Modified time: 2022-10-25 13:53:24
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -90,9 +90,9 @@ BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluore
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
 
-# Activity events detection
+# Activity events detection & quantification
 MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
-EVENTS_BIN_INTERVAL = 1.  # binning interval for events density quantification (s)
+EVENTS_BIN_INTERVAL = 1.4  # binning interval for events density quantification (s)
 
 # Artifacts
 VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
