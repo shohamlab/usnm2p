@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-10 16:24:32
+# @Last Modified time: 2022-10-26 19:23:36
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -13,8 +13,8 @@ from logger import logger
 
 
 def get_batch_settings(analysis_type, mouseline, layer, kalman_gain,
-                   baseline_wlen, baseline_quantile, baseline_smoothing, 
-                   ykey_postpro):
+                       baseline_wlen, baseline_quantile, baseline_smoothing, 
+                       ykey_classification):
 
     logger.info('assembling batch analysis settings...')
 
@@ -34,7 +34,7 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain,
     baseline_id = f'{baseline_id}_q{baseline_quantile:.2f}'
     if baseline_smoothing:
         baseline_id = f'{baseline_id}_smooth'
-    postpro_id = f'{baseline_id}_{ykey_postpro}'.replace('/', '')
+    postpro_id = f'{baseline_id}_{ykey_classification}'.replace('/', '')
     # Get figures PDF suffix
     figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}'
     # Get trial-averaged input data directory

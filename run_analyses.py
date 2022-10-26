@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 17:37:33
+# @Last Modified time: 2022-10-26 19:22:43
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -73,8 +73,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '-j', '--no-baseline_smoothing', dest='baseline_smoothing', action='store_false')
     parser.add_argument(
-        '-y', '--ykey_postpro', type=str, default='dff', choices=['dff', 'z'], nargs='+',
-        help='Post-processing variable')
+        '-y', '--ykey_classification', type=str, default='dff', choices=['dff', 'evrate'], nargs='+',
+        help='Classification variable')
     parser.set_defaults(
         slack_notify=True,
         baseline_smoothing=BASELINE_SMOOTHING)
@@ -97,12 +97,13 @@ if __name__ == '__main__':
         'baseline_wlen',
         'baseline_quantile',
         'baseline_smoothing',
-        'ykey_postpro'
+        'ykey_classification'
     ]
     exec_args = {k: args.pop(k) for k in exec_args}
     exec_args = {k: v if is_iterable(v) else [v] for k, v in exec_args.items()}
-    exec_args['ykey_postpro'] = [
-        {'z': Label.ZSCORE, 'dff': Label.DFF}[y] for y in exec_args['ykey_postpro']]
+    exec_args['ykey_classification'] = [
+        {'evrate': Label.EVENT_RATE, 'dff': Label.DFF}[y]
+        for y in exec_args['ykey_classification']]
     exec_queue = create_queue(exec_args)
 
     # Extract candidate datasets combinations from folder structure
