@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 16:49:44
+# @Last Modified time: 2022-10-26 17:47:47
 
 ''' Collection of plotting utilities. '''
 
@@ -2395,8 +2395,13 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         for htype, rdata in data.groupby(hue):
             # Aggregate data with cell-count weighting
             aggdata = get_cellcount_weighted_average(rdata, xkey, ykey, hue=hue)
+            if hue == Label.ROI_RESP_TYPE:
+                color = dict(zip(get_default_rtypes(), rtypes_colors))[htype]
+            else:
+                color = None
             ax.errorbar(
-                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker='o', label=htype)
+                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
+                marker='o', label=htype, color=color)
         if legend:
             ax.legend(frameon=False)
             # Add numbers on legend if needed
@@ -2484,6 +2489,8 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     pltkwargs = {axdim: bar2}
     if hue is not None:
         pltkwargs['hue_order'] =  orders[hue]
+        if hue == Label.ROI_RESP_TYPE:
+            pltkwargs['palette'] = rtypes_colors
 
     # Plot stacked count bars
     fg = sns.displot(
@@ -2533,10 +2540,9 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
             # Plot counts on pie chart
             ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
-            colors = plt.get_cmap('tab20c')([1, 5])
             ax2.pie(
                 counts_by_rtype.values, labels=counts_by_rtype.index.values, 
-                autopct='%1.0f%%', startangle=90, colors=colors, explode=(0, 0.1),
+                autopct='%1.0f%%', startangle=90, colors=rtypes_colors,
                 textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})        
         else:
             raise ValueError(f'invalid count mode: "{count}"')
