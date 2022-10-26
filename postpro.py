@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-25 16:50:52
+# @Last Modified time: 2022-10-26 10:36:46
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -615,7 +615,7 @@ def weighted_average(data, avg_name, weight_name):
     
     :param data: dataframe
     :param avg_name: name of the column containing the values to average
-    :param weight_name: name of the coolumn containing the weights
+    :param weight_name: name of the column containing the weights
     :return: weighted average
     '''
     d = data[avg_name]

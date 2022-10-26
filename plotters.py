@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-25 16:37:43
+# @Last Modified time: 2022-10-26 14:49:38
 
 ''' Collection of plotting utilities. '''
 
@@ -12,7 +12,8 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm
+from matplotlib import cm
 from matplotlib.lines import Line2D
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
@@ -184,6 +185,17 @@ def data_to_axis(ax, p):
     trans = ax.transData.transform(p)
     # Transfrom from absolute to axis coordinates and return
     return ax.transAxes.inverted().transform(trans)
+
+
+def set_normalizer(cmap, bounds, scale='lin'):
+    norm = {
+        'lin': Normalize,
+        'log': LogNorm,
+        'symlog': SymLogNorm
+    }[scale](*bounds)
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm._A = []
+    return norm, sm
 
 
 def plot_stack_histogram(stacks, title=None, yscale='log'):
@@ -2155,7 +2167,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     elif ykey == Label.ZSCORE:
         ybounds = [-3., 6.]
     elif ykey == Label.EVENT_RATE:
-        ybounds = [0., 1.]
+        ybounds = [0., 1 / MIN_EVENTS_DISTANCE]
     else:
         raise ValueError(f'unknown variable key: "{ykey}"')
     
@@ -2570,7 +2582,7 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
 
 
 def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,
-                            cmap='viridis'):
+                            cmap='viridis', dx=0.5, dy=0.5):
     '''
     Plot map of output metrics as a function of XY offset
     
@@ -2582,6 +2594,8 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     :param filters: potential filters to restrict dataset
     :param title: optional figure title
     :param cmap: colormap string
+    :param dx: interpolation step size in x dimension
+    :param dy: interpolation step size in y dimension 
     :return: 2-tuple with:
         - figure handle
         - offset coordinates of max response per dataset
@@ -2603,16 +2617,19 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     # Create figure backbone
     naxes = len(groups)
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
-    stitle = 'response strength vs. offset'
+    stitle = 'normalized response strength vs. offset'
     if title is not None:
         stitle = f'{stitle} ({title})'
     for ax in axes:
         sns.despine(ax=ax)
-        ax.set_aspect(1.)    
+        ax.set_aspect(1.)
         ax.set_xlabel(xkey)
         ax.set_ylabel(xkey)
         ax.axhline(0., c='k', ls='--', zorder=-10)
         ax.axvline(0., c='k', ls='--', zorder=-10)
+    
+    # Get colormap normalizer and mappable
+    norm, sm = set_normalizer(cmap, [0, 1])
 
     # For each dataset
     logger.info(f'plotting map of "{outkey}" vs. XY offset...')
@@ -2622,19 +2639,32 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
         # Compute average output metrics for each XY offset value
         outkey_avg = substats[[xkey, ykey, outkey]].groupby(
             [xkey, ykey])[outkey].mean().reset_index()
-        # Plot map of output metrics across XY offsets
+        # Divide by max value to bring to [0, 1] range 
+        outkey_avg[outkey] /= outkey_avg[outkey].max()
+        # Plot output metrics across scanned XY offsets
         ax.scatter(
             outkey_avg[xkey], outkey_avg[ykey], s=80, c=outkey_avg[outkey], edgecolors='w', cmap=cmap)
         # If specified: plot interpolated 2D map of response strength vs offset location
         if interp is not None:
+            # Get grid vectors and 2d map
             xrange, yrange, interp_map = interpolate_2d_map(
-                outkey_avg, xkey, ykey, outkey, method=interp, dx=0.5, dy=0.5)
+                outkey_avg, xkey, ykey, outkey, method=interp, dx=dx, dy=dy)
+            # Normalize 2d map
+            interp_map /= np.nanmax(interp_map)
+            # Plot
             ax.pcolormesh(
                 compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
-                zorder=-10, cmap=cmap, rasterized=True)
+                zorder=-10, cmap=cmap, rasterized=True, norm=norm)
+            # Append to global containers
             xranges.append(xrange)
             yranges.append(yrange)
             interp_maps.append(interp_map)
+    
+    # Add colorbar
+    pos = ax.get_position()
+    fig.subplots_adjust(right=0.93)
+    cbar_ax = fig.add_axes([0.95, pos.y0, 0.02, pos.y1 - pos.y0])
+    fig.colorbar(sm, cax=cbar_ax)
 
     # Add figure title
     if interp is not None:
@@ -2645,28 +2675,37 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     if len(xranges) > 1:
         dxs = np.unique(np.hstack([np.unique(np.diff(i)) for i in xranges]))
         dys = np.unique(np.hstack([np.unique(np.diff(i)) for i in yranges]))
+        dxs, dys = [np.round(reduce_close_elements(xx), 2) for xx in [dxs, dys]]
         # If x and y step sizes are constant across maps
         if dxs.size == 1 and dys.size == 1:
-            # Generate average 2D map
+            # Generate average 2D map (from normalized maps)
             dx, dy = dxs[0], dys[0]
             xmin, xmax = min([min(i) for i in xranges]), max([max(i) for i in xranges])
             ymin, ymax = min([min(i) for i in yranges]), max([max(i) for i in yranges])
-            xrange, yrange = np.arange(xmin, xmax + dx, dx), np.arange(ymin, ymax + dy, dy)
+            xrange, yrange = np.arange(xmin, xmax + dx / 2, dx), np.arange(ymin, ymax + dy / 2, dy)
             avgmap = np.full((len(xranges), xrange.size, yrange.size), np.nan)
             for i, (x, y, imap) in enumerate(zip(xranges, yranges, interp_maps)):
-                ixshift = np.where(xrange == x.min())[0][0]
-                iyshift = np.where(yrange == y.min())[0][0]
+                ixshift = np.where(np.isclose(xrange, x.min()))[0][0]
+                iyshift = np.where(np.isclose(yrange, y.min()))[0][0]
                 avgmap[i, ixshift:ixshift + x.size, iyshift:iyshift + y.size] = imap
             avgmap = np.nanmean(avgmap, axis=0)
 
             # Plot average 2D map on new figure
             newfig, newax = plt.subplots()
-            newax.set_title(f'{stitle} - average map')
+            newax.set_title(f'{stitle} \naverage map')
             newax.set_xlabel(xkey)
             newax.set_ylabel(ykey)
+            newax.set_aspect(1.)
             newax.pcolormesh(
-                compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T,
-                zorder=-10, cmap=cmap, rasterized=True)
+                compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T, 
+                cmap=cmap, rasterized=True)
+            newax.contour(xrange, yrange, avgmap.T, levels=[0.5], colors=['w'])
+            
+            # Add colorbar
+            pos = newax.get_position()
+            newfig.subplots_adjust(right=0.85)
+            newcbar_ax = newfig.add_axes([0.9, pos.y0, 0.05, pos.y1 - pos.y0])
+            newfig.colorbar(sm, cax=newcbar_ax)
 
             # Return both figures
             return fig, newfig
