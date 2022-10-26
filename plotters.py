@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 17:47:47
+# @Last Modified time: 2022-10-26 18:46:29
 
 ''' Collection of plotting utilities. '''
 
@@ -1553,15 +1553,13 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
     if hue is not None:
         if ndatasets % colwrap > 0:
             fig.subplots_adjust(right=0.8)
-        labels = get_default_rtypes()
-        colors = plt.get_cmap('tab10').colors[:3]
         if mode == 'contour':
             legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
         else:
             legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
         leg_items = [
             Line2D([0], [0], label=label, ms=10, **legfunc(c))
-            for c, label in zip(colors, labels)]
+            for c, label in zip(rtypes_colors, get_default_rtypes())]
         axes[ndatasets - 1].legend(
             handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
