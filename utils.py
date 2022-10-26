@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-25 11:31:27
+# @Last Modified time: 2022-10-26 15:49:30
 
 ''' Collection of generic utilities. '''
 
@@ -327,7 +327,6 @@ def discard_indexes(data, ikey, idiscard=None):
     # Return data
     logger.info(f'filtered data ({describe_dataframe_index(data)})')
     return data
-
 
 
 def mean_str(s):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 10:36:46
+# @Last Modified time: 2022-10-26 17:19:01
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -959,11 +959,16 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
     :param directional (default: False): whether to expect a directional effect
     :return tuple with t-statistics and associated p-value
     '''
+    xpre = s.loc[slice_last_dim(s.index, wpost)].values
+    xpost = s.loc[slice_last_dim(s.index, wpre)].values
     tstat, pval = ttest_ind(
-        s.loc[slice_last_dim(s.index, wpost)], 
-        s.loc[slice_last_dim(s.index, wpre)], 
-        equal_var=False, nan_policy='raise',
+        xpre, xpost, equal_var=False, nan_policy='raise',
         alternative='greater' if directional else 'two-sided')
+    if np.isnan(tstat):
+        # If NaN raised because all elements are equal -> return 0 and 0.5
+        if np.unique(xpre) == np.unique(xpost):
+            return 0., .5
+        raise ValueError(f't-test between {xpre} and {xpost} returned NaN') 
     return tstat, pval
 
 
@@ -1132,7 +1137,7 @@ def get_change_key(y, full_output=False):
     '''
     y_prestim_avg = f'pre-stim avg {y}'
     y_poststim_avg = f'post-stim avg {y}'
-    y_change = f'{y_poststim_avg} - {y_prestim_avg}'
+    y_change = f'evoked {y} change'
     if full_output:
         return (y_prestim_avg, y_poststim_avg, y_change)
     return y_change
@@ -1169,105 +1174,6 @@ def add_change_metrics(timeseries, stats, ykey,
     
     # Return
     return stats
-
-
-def classify_responses(timeseries, stats, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
-    '''
-    Classify responses based on a specific response evaluation variable and interval
-    
-    :param timeseries: timeseries dataframe
-    :param stats: stats dataframe
-    :param ykey: evaluation variable
-    :param wpre: pre-stimulus evaluation window (slice)
-    :param wpost: post-stimulus evaluation window (slice)
-    :return: updated stats dataframe
-    '''
-    # Determine groupby categories
-    categories = [Label.ROI, Label.RUN]
-    if Label.DATASET in stats.index.names:
-        categories = [Label.DATASET] + categories
-    
-    # Compute pre and post stimulus averages, and their difference
-    new_stats = add_change_metrics(
-        timeseries, stats, ykey, wpre=wpre, wpost=wpost)
-    
-    # Test for significant pre-post differences
-    logger.info(f'testing for significant {ykey} differences between pre- '
-                'and post-stimulus windows...')
-    res = timeseries[ykey].groupby(categories).apply(
-        lambda s: pre_post_ttest(s, wpre=wpre, wpost=wpost))
-    res = pd.DataFrame(
-        res.tolist(), columns=['tstat', 'pval'],
-        index=timeseries.groupby(categories).first().index)    
-    # Add these fields to stats
-    ykey_diff = get_change_key(ykey)
-    for k in res.columns:
-        new_stats[f'{ykey_diff} {k}'] = res[k]
-
-    # Classify responses based on pre-post statistical differences
-    logger.info('classifying responses...')
-    new_stats[Label.RESP_TYPE] = (
-        (res['pval'] < PTHR_DETECTION).astype(int) * np.sign(res['tstat']).astype(int))
-    # Merge negative responses within weak responses
-    new_stats[Label.RESP_TYPE] = new_stats[Label.RESP_TYPE].replace([-1], [0])
-    new_stats[Label.RESP_TYPE] = stats[Label.RESP_TYPE].map(RTYPE_MAP)
-
-    # Return
-    return new_stats
-
-
-def classify_responders(stats, propposthr=PROP_POSCONDS_THR):
-    '''
-    Re-classify responders according to new threshold number of conditions
-    
-    :param stats: stats dataframe
-    :param nposthr: threshold number of conditions for non-weak classification
-    :return: updated stats dataframe
-    '''
-    logger.info(f're-classifying responders with threshold number of conditions = {nposthr}')
-    # Determine groupby categories
-    categories = [Label.ROI]
-    if Label.DATASET in stats.index.names:
-        categories = [Label.DATASET] + categories
-
-    # Compute number of occurences per response type per ROI
-    roistats = stats[Label.RESP_TYPE].groupby(
-        categories).value_counts().unstack().replace(np.nan, 0.).astype(int)
-
-    # Classify ROIs based on number of responsive conditions
-    nconds = len(stats.index.unique(level=Label.RUN))
-    nposthr = int(np.round(nconds * propposthr))
-    roistats[Label.ROI_RESP_TYPE] = 'weak'
-    roistats.loc[roistats['positive'] >= nposthr, Label.ROI_RESP_TYPE] = 'positive'
-
-    # Add roistats to stats
-    expand_and_add(roistats, stats)
-
-    # Log number and percentage of cells of each type identified
-    ncells_per_type = roistats[Label.ROI_RESP_TYPE].value_counts()
-    ncells_tot = ncells_per_type.sum()
-    logstr = []
-    for rtype, count in ncells_per_type.iteritems():
-        logstr.append(f'  - {rtype}: {count} ({count / ncells_tot * 100:.1f}%)')
-    logstr = "\n".join(logstr)
-    logger.info(f'cell breakdown:\n{logstr}')
-
-    # Return
-    return stats
-
-
-def classify(timeseries, stats, ykey, propposthr=PROP_POSCONDS_THR, **kwargs):
-    ''' 
-    Re-classify both responses and responders based on new classification criteria
-    
-    :param data: stats dataframe
-    :param ykey: variable to use for significance thresholding
-    :param nposthr: threshold number of positive conditions
-    :return: updated stats dataframe
-    '''
-    new_stats = classify_responses(timeseries, stats, ykey, **kwargs)
-    new_stats = classify_responders(new_stats, propposthr=propposthr)
-    return new_stats
 
 
 def get_xdep_data(data, xkey):

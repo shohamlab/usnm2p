@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-25 16:41:50
+# @Last Modified time: 2022-10-26 16:16:39
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -111,7 +111,7 @@ class FrameIndex:
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
-PROP_POSCONDS_THR = 0.33  # minimum proportion of "positive" conditions for a cell to be classified as "US-responsive"
+PROP_CONDS_THR = 0.33  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
 OFFSET_MIN_PROP_POS = 0.5  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 ###################################### PARSING ######################################
@@ -224,7 +224,7 @@ class Label:
 
 
 # Response and responders type
-RTYPE_MAP = {0: 'weak', 1: 'positive'}
+RTYPE_MAP = {-1: 'negative', 0: 'weak', 1: 'positive'}
 RTYPE = pd.api.types.CategoricalDtype(
     categories=list(RTYPE_MAP.values()), ordered=True)
 

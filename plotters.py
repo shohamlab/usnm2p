@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 14:49:38
+# @Last Modified time: 2022-10-26 16:49:44
 
 ''' Collection of plotting utilities. '''
 
@@ -40,6 +40,9 @@ blor = sns.diverging_palette(h_neg=240, h_pos=30, s=99, l=70, sep=3, as_cmap=Tru
 blor.set_bad('silver')
 nan_viridis = plt.get_cmap('viridis').copy()
 nan_viridis.set_bad('silver')
+rtypes_colors = ['C1', 'silver', 'C2']
+rtype_cmap = LinearSegmentedColormap.from_list('rtype', colors=rtypes_colors)
+
 
 
 def get_colors(cmap, N=None, use_index='auto'):
@@ -1442,7 +1445,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         rtypes_per_ROI = get_response_types_per_ROI(Fstats)
         rtypes = get_default_rtypes()
         count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
-        colors = sns.color_palette(Palette.RTYPE)    
+        colors = rtypes_colors
         slog = f'{slog} color-coded by response type'
     else:
         iROIs = Fstats.index.unique(level=Label.ROI)
