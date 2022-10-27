@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 19:22:43
+# @Last Modified time: 2022-10-27 18:02:35
 
 ''' Utility script to run single region analysis notebook '''
 
@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     # Add input / output / mpi / check arguments
     parser.add_argument(
-        '-i', '--input', default='single_region_analysis.ipynb',
+        '-i', '--input', default='single_dataset_analysis.ipynb',
         help='path to input notebook')
     parser.add_argument(
         '-o', '--outdir', default='outputs', 
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--nocheck', default=False, action='store_true', help='no check before running')
     parser.add_argument(
-        '--batch_input', default='batch_analysis.ipynb',
+        '--batch_input', default='mouseline_analysis.ipynb',
         help='path to input batch notebook')
     parser.add_argument(
         '-b', '--runbatch', default=False, action='store_true',

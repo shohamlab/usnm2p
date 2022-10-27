@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 18:46:29
+# @Last Modified time: 2022-10-27 16:26:35
 
 ''' Collection of plotting utilities. '''
 
@@ -2383,7 +2383,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     # If hue not specified
     if hue is None:
         # Aggregate data with cell-count weighting
-        aggdata = get_cellcount_weighted_average(data, xkey, ykey, hue=hue)
+        aggdata = get_cellcount_weighted_average(data, xkey, ykey=ykey, hue=hue)
         # Plot single weifghted average trace with propagated standard errors 
         ax.errorbar(
             aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker='o', c='k')
@@ -2392,7 +2392,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         # For each hue value
         for htype, rdata in data.groupby(hue):
             # Aggregate data with cell-count weighting
-            aggdata = get_cellcount_weighted_average(rdata, xkey, ykey, hue=hue)
+            aggdata = get_cellcount_weighted_average(rdata, xkey, ykey=ykey, hue=hue)
             if hue == Label.ROI_RESP_TYPE:
                 color = dict(zip(get_default_rtypes(), rtypes_colors))[htype]
             else:

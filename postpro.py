@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 17:19:01
+# @Last Modified time: 2022-10-27 17:00:15
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1445,7 +1445,7 @@ def anova1d(data, xkey, ykey):
     return p
 
 
-def get_cellcount_weighted_average(data, xkey, ykey, hue=None):
+def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
     '''
     Get a cell-count-weighted aggregated dataset (mean and propagated sem)
     for a range of parameter values
@@ -1456,18 +1456,45 @@ def get_cellcount_weighted_average(data, xkey, ykey, hue=None):
     ntot = countsperhue.sum()
     weightsperhue = countsperhue / ntot
 
-    # Compute weighted means and standard errors for each dataset, hue, and input value
+    # Derive grouping categories: dataset, hue, and input value
     cats = [Label.DATASET]
     if hue is not None:
         cats.append(hue)
     cats.append(xkey)
-    means = data.groupby(cats)[ykey].mean()
-    sems = data.groupby(cats)[ykey].sem()
-
-    # Apply weighted aggregation for each run and responder type
-    mean = (means * weightsperhue).groupby(cats[1:]).sum().rename('mean')
-    sem = np.sqrt((weightsperhue * sems**2).groupby(cats[1:]).sum()).rename('sem')
-    return pd.concat([mean, sem], axis=1).sort_values(xkey).reset_index()
+    groups = data.groupby(cats)
+    # Identify columns that display intra-group variation and not
+    maxnvalspercat = groups.nunique().max(axis=0)
+    constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
+    varkeys = maxnvalspercat[maxnvalspercat > 1].index.values
+    # Restrict varying columns to float types only
+    float_columns = data.select_dtypes(include=['float64']).columns.values
+    varkeys = list(set(varkeys).intersection(set(float_columns)))
+    # If output key not specified, assign all varying columns
+    if ykey is None:
+        ykey = varkeys
+    ykey = as_iterable(ykey)
+    # Initiate weighted average dataframe with constant columns
+    allwdata = groups[constkeys].first().groupby(cats[1:]).first()
+    # For each output key
+    for yk in ykey:
+        # Compute weighted means and standard errors per category
+        means = groups[yk].mean()
+        sems = groups[yk].sem()
+        # Apply weighted aggregation for each category
+        mean = (means * weightsperhue).groupby(cats[1:]).sum().rename('mean')
+        sem = np.sqrt((weightsperhue * sems**2).groupby(cats[1:]).sum()).rename('sem')
+        wdata = pd.concat([mean, sem], axis=1)
+        if len(ykey) > 1:
+            wdata = wdata.add_prefix(f'{yk} - ')
+        # Add to weighted average dataframe
+        allwdata = pd.concat([allwdata, wdata], axis=1)
+    # Sort output dataframe by xkey value
+    allwdata = allwdata.sort_values(xkey)
+    # If xkey not in original index, move it out of output index 
+    if xkey not in data.index.names:
+        allwdata = allwdata.reset_index()
+    # Return weighted average data
+    return allwdata
 
 
 def interpolate_2d_map(df, xkey, ykey, outkey, dx=None, dy=None, method='linear'):
