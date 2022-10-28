@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 19:12:32
+# @Last Modified time: 2022-10-28 12:49:49
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -748,3 +748,32 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         'ROI_masks': ROI_masks,
         'map_ops': map_ops
     }
+
+
+def load_rtypeavg_stats(dirpath, **kwargs):
+    '''
+    Load multiple responder-type-averaged mouse line statistics
+    
+    :param dirpath: path to input directory
+    '''
+    # List stats data filepaths
+    fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.csv')))
+    # Load stats datasets
+    logger.info(f'loading data from {dirpath}:')
+    stats = []
+    for fpath in fpaths:
+        stats.append(pd.read_csv(fpath))
+    if len(stats) == 0:
+        raise ValueError(f'no valid stats datasets found in "{dirpath}"')
+
+    # Concatenate stats datasets
+    stats = pd.concat(stats)
+
+    # Create stats multi-index
+    muxcols = [Label.LINE, Label.ROI_RESP_TYPE, Label.RUN]
+    stats.index = pd.MultiIndex.from_arrays([stats.pop(k) for k in muxcols])
+
+    # Return stats and timeseries as a dictionary
+    lines = ', '.join(stats.index.unique(level=Label.LINE).values)
+    logger.info(f'repsonder-type-averaged stats successfully loaded for lines {lines}')
+    return stats

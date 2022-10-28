@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-27 17:00:15
+# @Last Modified time: 2022-10-28 14:21:45
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1452,9 +1452,9 @@ def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
     '''
     # Count number of ROIs per dataset and compute related weights vector
     celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
-    countsperhue = celltypes.groupby(Label.DATASET).count().iloc[:, 0].rename('counts')
-    ntot = countsperhue.sum()
-    weightsperhue = countsperhue / ntot
+    countsperdataset = celltypes.groupby(Label.DATASET).count().iloc[:, 0].rename('counts')
+    ntot = countsperdataset.sum()
+    weightsperdataset = countsperdataset / ntot
 
     # Derive grouping categories: dataset, hue, and input value
     cats = [Label.DATASET]
@@ -1475,14 +1475,20 @@ def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
     ykey = as_iterable(ykey)
     # Initiate weighted average dataframe with constant columns
     allwdata = groups[constkeys].first().groupby(cats[1:]).first()
+    # Add counts per hue if hue provided
+    if hue is not None:
+        countsperhue = celltypes.groupby(hue).count().iloc[:, 0].rename('counts')
+        allwdata['count'] = allwdata.index.get_level_values(hue).map(countsperhue)
+    else:
+        allwdata['count'] = len(celltypes)
     # For each output key
     for yk in ykey:
         # Compute weighted means and standard errors per category
         means = groups[yk].mean()
         sems = groups[yk].sem()
         # Apply weighted aggregation for each category
-        mean = (means * weightsperhue).groupby(cats[1:]).sum().rename('mean')
-        sem = np.sqrt((weightsperhue * sems**2).groupby(cats[1:]).sum()).rename('sem')
+        mean = (means * weightsperdataset).groupby(cats[1:]).sum().rename('mean')
+        sem = np.sqrt((weightsperdataset * sems**2).groupby(cats[1:]).sum()).rename('sem')
         wdata = pd.concat([mean, sem], axis=1)
         if len(ykey) > 1:
             wdata = wdata.add_prefix(f'{yk} - ')

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 16:16:39
+# @Last Modified time: 2022-10-28 13:39:22
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -245,7 +245,17 @@ class Palette:
     ''' Color palettes used to visualize various categories & dependencies '''
     
     DEFAULT = 'rocket_r'  # default (continuous)
-    RTYPE = 'tab10'  # response type (categorical)
+    RTYPE = {  # response type (categorical)
+        'negative': 'C1',
+        'weak': 'silver',
+        'positive':
+        'C2'
+    }
+    LINE = {  # mouse line (categorical)
+        'line3': '#00ADDC',
+        'sst': '#F68B1F',
+        'pv': '#FDB913'
+    }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)
 
@@ -253,18 +263,6 @@ class Palette:
 CI = 68  # default confidence interval error reporting
 
 ###################################### DATASETS ######################################
-
-# Common pattern for Sarah's datasets
-LINE3_SARAH_DATASETS = ['2021']
-
-# SST datasets used to evaluate lateral offset effects 
-SST_OFFSET_DATASETS = [
-    '20190518_mouse6_region1',
-    '20190518_mouse7_region1',
-    '20190601_mouse2_region1',
-    '20190601_mouse7_region1',
-    '20190601_mouse8_region1'
-]
 
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {

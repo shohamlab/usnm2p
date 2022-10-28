@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-27 16:26:35
+# @Last Modified time: 2022-10-28 13:59:20
 
 ''' Collection of plotting utilities. '''
 
@@ -36,12 +36,10 @@ rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=Tru
 rdgn.set_bad('silver')
 gnrd = sns.diverging_palette(h_neg=10, h_pos=130, s=99, l=55, sep=3, as_cmap=True)
 gnrd.set_bad('silver')
-blor = sns.diverging_palette(h_neg=240, h_pos=30, s=99, l=70, sep=3, as_cmap=True)
-blor.set_bad('silver')
 nan_viridis = plt.get_cmap('viridis').copy()
 nan_viridis.set_bad('silver')
-rtypes_colors = ['C1', 'silver', 'C2']
-rtype_cmap = LinearSegmentedColormap.from_list('rtype', colors=rtypes_colors)
+rtype_cmap = LinearSegmentedColormap.from_list(
+    'rtype', colors=list(Palette.RTYPE.values()))
 
 
 
@@ -1445,14 +1443,14 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         rtypes_per_ROI = get_response_types_per_ROI(Fstats)
         rtypes = get_default_rtypes()
         count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
-        colors = rtypes_colors
+        colors = Palette.RTYPE
         slog = f'{slog} color-coded by response type'
     else:
         iROIs = Fstats.index.unique(level=Label.ROI)
         rtypes_per_ROI = pd.Series(data=['notype'] * len(iROIs), index=iROIs) 
         rtypes = ['notype']
         count_by_type = {'notype': len(iROIs)}
-        colors = sns.color_palette('Greys')
+        colors = {'notype': 'silver'}
         legend = False
     
     logger.info(f'{slog}...')
@@ -1474,7 +1472,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
-        for i, (c, mask) in enumerate(zip(colors, masks)):
+        for i, (c, mask) in enumerate(zip(colors.values(), masks)):
             rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
     # Create figure
@@ -1490,7 +1488,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     ax.imshow(refimg, cmap=cmap)
     
     # Plot cell and non-cell ROIs
-    for c, (rtype, idx) in zip(colors, idx_by_type.items()):
+    for rtype, idx in idx_by_type.items():
+        c = colors[rtype]
         if mode == 'contour':  # "contour" mode
             for z in Z[idx]:
                 if z.max() > 0:
@@ -1508,12 +1507,12 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     if legend:
         labels = [f'{k} ({v})' for k, v in count_by_type.items()]
         if mode == 'contour':
-            legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
+            legfunc = lambda k: dict(c='none', marker='o', mfc='none', mec=colors[k], mew=2)
         else:
-            legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
+            legfunc = lambda k: dict(c='none', marker='o', mfc=colors[k], mec='none')
         leg_items = [
-            Line2D([0], [0], label=label, ms=10, **legfunc(c))
-            for c, label in zip(colors, labels)]
+            Line2D([0], [0], label=l, ms=10, **legfunc(c))
+            for c, l in zip(colors, labels)]
         ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
     return fig
@@ -1559,7 +1558,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
             legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
         leg_items = [
             Line2D([0], [0], label=label, ms=10, **legfunc(c))
-            for c, label in zip(rtypes_colors, get_default_rtypes())]
+            for c, label in zip(Palette.RTYPE.values(), get_default_rtypes())]
         axes[ndatasets - 1].legend(
             handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
@@ -2394,7 +2393,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
             # Aggregate data with cell-count weighting
             aggdata = get_cellcount_weighted_average(rdata, xkey, ykey=ykey, hue=hue)
             if hue == Label.ROI_RESP_TYPE:
-                color = dict(zip(get_default_rtypes(), rtypes_colors))[htype]
+                color = Palette.RTYPE[htype]
             else:
                 color = None
             ax.errorbar(
@@ -2488,7 +2487,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     if hue is not None:
         pltkwargs['hue_order'] =  orders[hue]
         if hue == Label.ROI_RESP_TYPE:
-            pltkwargs['palette'] = rtypes_colors
+            pltkwargs['palette'] = Palette.RTYPE
 
     # Plot stacked count bars
     fg = sns.displot(
@@ -2540,7 +2539,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
             ax2.pie(
                 counts_by_rtype.values, labels=counts_by_rtype.index.values, 
-                autopct='%1.0f%%', startangle=90, colors=rtypes_colors,
+                autopct='%1.0f%%', startangle=90, colors=Palette.RTYPE.values(),
                 textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})        
         else:
             raise ValueError(f'invalid count mode: "{count}"')
@@ -2804,4 +2803,43 @@ def plot_comparative_metrics_across_datasets(data, ykey, compkey, groupby=Label.
     ax.set_title(stitle, pad=title_pad)
 
     # Return figure
+    return fig
+
+
+def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
+    '''
+    Plot comparative parameter dependency curves (with error bars) across
+    mouse lines, for each responder type
+
+    :param data: responder-type-averaged multi-line statistics dataframe
+    :param xkey: input parameter name
+    :param ykey: output parameter name
+    :param yref: reference vertical level to indicate with dashed line (optional)
+    :return: figure
+    '''
+    depdata = get_xdep_data(data, xkey)
+    fg = sns.relplot(
+        data=depdata,
+        kind='line',
+        x=xkey, y=f'{ykey} - mean',
+        hue=Label.LINE,
+        col=Label.ROI_RESP_TYPE,
+        col_order=Palette.RTYPE.keys(),
+        marker='o',
+        lw=2, markersize=10,
+        palette=Palette.LINE
+    )
+    fig = fg.figure
+    if yref is not None:
+        for ax in fig.axes:
+            ax.axhline(0., ls='--', c='k')
+    for rtype, gdata in depdata.groupby(Label.ROI_RESP_TYPE):
+        ax = fig.axes[list(Palette.RTYPE.keys()).index(rtype)]
+        ax.set_ylabel(ykey)
+        for line, ldata in gdata.groupby(Label.LINE):
+            ldata = ldata.sort_values(xkey)
+            ax.errorbar(
+                ldata[xkey], ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem'],
+                ls='', c=Palette.LINE[line])
+    fig.suptitle(f'{xkey} dependency', y=1.05)
     return fig
