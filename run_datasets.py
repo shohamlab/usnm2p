@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-27 19:04:40
+# @Last Modified time: 2022-10-28 14:23:22
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -36,12 +36,6 @@ if __name__ == '__main__':
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
     parser.add_argument(
         '--nocheck', default=False, action='store_true', help='no check before running')
-    parser.add_argument(
-        '--batch_input', default='mouseline_analysis.ipynb',
-        help='path to input batch notebook')
-    parser.add_argument(
-        '-b', '--runbatch', default=False, action='store_true',
-        help='run batch analysis notebook upon completion')
 
     # Add dataset arguments
     parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
@@ -86,10 +80,7 @@ if __name__ == '__main__':
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
-    batch_mpi = mpi
     nocheck = args.pop('nocheck')
-    runbatch = args.pop('runbatch')
-    batch_input_nbpath = args.pop('batch_input')
     exec_args = [
         'inspect',
         'slack_notify',
@@ -134,25 +125,6 @@ if __name__ == '__main__':
         if njobs == 1:
             mpi = False
 
-    # If batch notebooks must also be run
-    nbatchjobs = 0
-    if runbatch:
-        # Identify mouselines
-        mouselines = list(set([d['mouseline'] for d in datasets]))
-        mouselines = [{'mouseline': ml for ml in mouselines}]
-        # Compute number of batch jobs to run
-        nbatchjobs = len(mouselines) * len(exec_queue)
-        # Log warning message if no batch job was found
-        if nbatchjobs == 0:
-            logger.warning('found no batch job to run')
-        # Otherwise, create batch execution parameters queue
-        else:
-            batch_params = list(product(mouselines, exec_queue))
-            batch_params = [{**ml, **exec_args} for (ml, exec_args) in batch_params]
-            # Set batch multiprocessing to False in case of single batch job
-            if nbatchjobs == 1:
-                batch_mpi = False
-
     # Get absolute path to directory of current file (where code must be executed)
     script_fpath = os.path.realpath(__file__)
     exec_dir = os.path.split(script_fpath)[0]
@@ -163,11 +135,5 @@ if __name__ == '__main__':
         if njobs > 0:
             output_nbpaths = execute_notebooks(
                 params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
-
-        # If specified, execute batch analysis notebooks once individual ones are completed
-        if nbatchjobs > 0:
-            batch_output_nbpaths = execute_notebooks(
-                batch_params, batch_input_nbpath, outdir, mpi=batch_mpi,
-                ask_confirm=False)
 
 logger.info('all analyses completed')
