@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 13:59:20
+# @Last Modified time: 2022-10-28 15:11:19
 
 ''' Collection of plotting utilities. '''
 
@@ -109,7 +109,7 @@ def harmonize_axes_limits(axes, axkey='y'):
     
     # Determine limits getter and setter functions for appropriate axis
     limgetter = lambda ax: getattr(ax, f'get_{axkey}lim')
-    limsetter = lambda ax, *bounds: getattr(ax, f'set_{axkey}lim')
+    limsetter = lambda ax: getattr(ax, f'set_{axkey}lim')
 
     # Get limits, and extract min and max over axes
     lims = [limgetter(ax)() for ax in axes]
