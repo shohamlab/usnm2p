@@ -30,7 +30,8 @@ Always start by activating the `usnm2p` anaconda environment: `conda activate us
 
 Several jupyter notebooks can be executed interactively:
 - `single_dataset_analysis.ipynb`: to run the analysis pipeline of a single dataset (date, mouse, region)
-- `mouseline_analysis.ipynb`: to run the analysis of all datasets pertaining to a given mouse line (main analysis)
+- `mouseline_analysis.ipynb`: to run the analysis of all datasets pertaining to a given mouse line
+- `main_analysis.ipynb`: to run the main analysis across mouse lines
 - `spatial_offset_analysis.ipynb`: to run the analysis of datasets pertaining to the effect of spatial offsets
 - `buzzer_analysis.ipynb`: to run the analysis of datasets pertaining to the effects of ultrasound vs. noise
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 15:11:19
+# @Last Modified time: 2022-11-10 11:56:04
 
 ''' Collection of plotting utilities. '''
 
@@ -1722,7 +1722,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
-                   ci=CI, legend='full', err_style='band', ax=None, alltraces=False, 
+                   ci=CI, legend='full', err_style='band', ax=None, alltraces=False, kind='line',
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, lw=2,
                    height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=7,
@@ -1858,14 +1858,17 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     # axis-level plotting function
     if ax is not None:
         plot_kwargs['ax'] = ax
-        sns.lineplot(**plot_kwargs)
+        if kind == 'line':
+            sns.lineplot(**plot_kwargs)
+        else:
+            sns.scatterplot(**plot_kwargs)
         axlist = [ax]
         fig = ax.get_figure()
     
     # Otherwise, add figure-level plotting arguments and call figure-level plotting function
     else:
         plot_kwargs.update(dict(
-            kind     = 'line',   # kind of plot
+            kind     = kind,     # kind of plot
             height   = height,   # figure height
             aspect   = aspect,   # width / height aspect ratio of each figure axis
             col_wrap = col_wrap, # how many axes per row
@@ -1984,8 +1987,9 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
                                 color = group_color
                             
                             # Plot trace in the background
-                            ax.plot(table[x].index, table[x].values, color=color,
-                                    alpha=alpha_trace, zorder=-10)
+                            plotfunc = ax.plot if kind == 'line' else ax.scatter
+                            plotfunc(table[x].index, table[x].values, color=color,
+                                     alpha=alpha_trace, zorder=-10)
                             
                             # Add individual trace markers if specified
                             if markerfunc is not None:
@@ -2705,6 +2709,8 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
             newax.pcolormesh(
                 compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T, 
                 cmap=cmap, rasterized=True)
+            newax.set_xlim(-1.5, 1.5)
+            newax.set_ylim(-1.5, newax.get_ylim()[1])
             newax.contour(xrange, yrange, avgmap.T, levels=[0.5], colors=['w'])
             
             # Add colorbar
