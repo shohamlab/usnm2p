@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-10 11:56:04
+# @Last Modified time: 2022-11-10 15:43:07
 
 ''' Collection of plotting utilities. '''
 
@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm
 from matplotlib import cm
 from matplotlib.lines import Line2D
+import matplotlib.patches as mpatches
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
 import seaborn as sns
@@ -1567,8 +1568,8 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
                        colwrap=4, cmap=None, center=None, vmin=None, vmax=None,
-                       quantile_bounds=(.01, .99), mark_stim=True, sort=False,
-                       rasterized=False):
+                       quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=False,
+                       col_order=None, rasterized=False):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
     culstered by similarity).
@@ -1637,13 +1638,17 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
     # For each axis and data group
     logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
+    if col_order is None:
+        col_order = np.arange(len(groups))
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
-        for i, (ax, (glabel, gdata)) in enumerate(zip(axes.ravel(), groups)):
+        for i, (glabel, gdata) in enumerate(groups):
+            # Find axis position
+            iax = np.asarray(col_order).tolist().index(i)
+            ax = axes.ravel()[iax]
             # Generate 2D table of average traces per ROI
             table = gdata.pivot_table(
                 index=Label.ROI, columns=Label.TIME, values=key, aggfunc=np.mean)
-
-            if sort:
+            if sort_ROIs:
                 # Compute metrics average in pre-stimulus and response windows for each ROI
                 ypre = apply_in_window(
                     lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
@@ -2701,17 +2706,43 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
             avgmap = np.nanmean(avgmap, axis=0)
 
             # Plot average 2D map on new figure
+            fs = 12
             newfig, newax = plt.subplots()
-            newax.set_title(f'{stitle} \naverage map')
-            newax.set_xlabel(xkey)
-            newax.set_ylabel(ykey)
+            newax.set_title('average map', fontsize=fs + 2)
+            newax.set_xticks([])
+            newax.set_yticks([])
             newax.set_aspect(1.)
-            newax.pcolormesh(
-                compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T, 
-                cmap=cmap, rasterized=True)
+            radii = [.5, 1., 1.5]
+            lss = ['--'] * len(radii)
+            lss[-1] = '-'
+            wedges = [
+                mpatches.Wedge(
+                    (0., 0.), r, 180, 360, linestyle=ls, fc='none', ec='w')
+                for r, ls in zip(radii, lss)]
+            mesh = newax.pcolormesh(
+                xrange, yrange, avgmap.T, 
+                cmap=cmap, rasterized=True, shading='gouraud')
+            for w in wedges:
+                newax.add_patch(w)
+            mesh.set_clip_path(wedges[-1])
             newax.set_xlim(-1.5, 1.5)
-            newax.set_ylim(-1.5, newax.get_ylim()[1])
-            newax.contour(xrange, yrange, avgmap.T, levels=[0.5], colors=['w'])
+            newax.set_ylim(-1.5, 0.4)
+            newax.contour(xrange, yrange, avgmap.T, levels=[.5], colors=['w'])
+            sns.despine(ax=newax, bottom=True, left=True)
+
+            # Add scale bar
+            scalebar = AnchoredSizeBar(
+                newax.transData,
+                1., '1 mm', 'upper right', 
+                color='k', frameon=False, label_top=True, size_vertical=.025,
+                fontproperties={'size': fs})
+            newax.add_artist(scalebar)
+            # Add focus annotation
+            newax.annotate(
+                'focus', xy=(0., 0.),  xycoords='data',
+                xytext=(0.5, .99), textcoords='axes fraction',
+                arrowprops=dict(facecolor='black', shrink=0.05, width=2),
+                horizontalalignment='center', verticalalignment='top', fontsize=fs)
             
             # Add colorbar
             pos = newax.get_position()
