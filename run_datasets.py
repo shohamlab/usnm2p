@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 14:23:22
+# @Last Modified time: 2022-11-10 11:08:30
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -96,7 +96,7 @@ if __name__ == '__main__':
         {'evrate': Label.EVENT_RATE, 'dff': Label.DFF}[y]
         for y in exec_args['ykey_classification']]
     exec_queue = create_queue(exec_args)
-
+    
     # Extract candidate datasets combinations from folder structure
     datasets = get_dataset_params(root=get_data_root(), analysis_type=args['analysis_type'])
 
@@ -114,16 +114,17 @@ if __name__ == '__main__':
     
     # Compute number of jobs to run
     njobs = len(datasets) * len(exec_queue)
-    # Log warning message if no job was found
+    # Log warning message and quit if no job was found
     if njobs == 0:
         logger.warning('found no individual job to run')
-    # Otherwise, create execution parameters queue
-    else:
-        params = list(product(datasets, exec_queue))
-        params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
-        # Set multiprocessing to False in case of single job
-        if njobs == 1:
-            mpi = False
+        quit()
+    # Set multiprocessing to False in case of single job
+    elif njobs == 1:
+        mpi = False
+    
+    # Create execution parameters queue
+    params = list(product(datasets, exec_queue))
+    params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
 
     # Get absolute path to directory of current file (where code must be executed)
     script_fpath = os.path.realpath(__file__)
@@ -132,8 +133,7 @@ if __name__ == '__main__':
     # Execute notebooks within execution directory (to ensure correct function)
     with DirectorySwicther(exec_dir) as ds:
         # Execute notebooks as a batch with / without multiprocessing
-        if njobs > 0:
-            output_nbpaths = execute_notebooks(
-                params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
+        output_nbpaths = execute_notebooks(
+            params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
 
 logger.info('all analyses completed')

@@ -53,4 +53,4 @@ The data was acquired by Yi Yuan, Amy LeMessurier and Sarah Rachel Haiken. The a
 - Diego Asua (Research Associate)
 
 *Current contributor:*
-- Theo Lemaire (Postdoctoral Researcher): theo.lemaire@nyulangone.org
+- Theo Lemaire (Postdoctoral Researcher): theo.lemaire@nyulangone.org / theo.lemaire1@gmail.com
