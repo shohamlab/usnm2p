@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-10 15:43:07
+# @Last Modified time: 2022-11-16 20:37:57
 
 ''' Collection of plotting utilities. '''
 
@@ -1729,7 +1729,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
                    ci=CI, legend='full', err_style='band', ax=None, alltraces=False, kind='line',
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
-                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, lw=2,
+                   label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, ls='-', lw=2,
                    height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=7,
                    hide_col_prefix=False, col_count_key=None, color=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
@@ -1842,6 +1842,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         data      = filtered_data, # data
         x         = xkey,          # x-axis
         y         = ykey,          # y-axis
+        ls        = ls,            # line style
         marker    = marker,        # marker type
         markersize = markersize,   # marker size
         hue       = hue,           # hue grouping variable
@@ -2233,8 +2234,9 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
-                              avgprop=None, errprop='inter', marker='o', err_style='bars', add_leg_numbers=True, 
-                              ci=CI, legend='full', **kwargs):
+                              avgprop=None, errprop='inter', marker='o', err_style='bars', 
+                              add_leg_numbers=True, ci=CI, legend='full', as_ispta=False, 
+                              **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2254,7 +2256,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
     if Label.DATASET in data.index.names and hue != Label.DATASET:
         return plot_parameter_dependency_across_datasets(
             data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
-            add_leg_numbers=add_leg_numbers, **kwargs)
+            add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker, **kwargs)
     # Set plotting parameters
     hue_order = None
     hue_alpha = 1
@@ -2276,6 +2278,10 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 
     # Restrict data based on xkey
     data = get_xdep_data(data, xkey)
+
+    # Swicth xkey to ISPTA if specified
+    if as_ispta:
+        xkey = Label.ISPTA
 
     # Assemble common plotting arguments
     pltkwargs = dict(ax=ax, ci=ci, marker=marker, **kwargs)
@@ -2361,7 +2367,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
-                                              title=None):
+                                              marker='o', ls='-', as_ispta=False, title=None):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -2377,6 +2383,10 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
 
     # Reduce data to relevant input parameters
     data = get_xdep_data(data, xkey=xkey)
+
+    # Swicth xkey to ISPTA if specified
+    if as_ispta:
+        xkey = Label.ISPTA
 
     # Initialize figure if needed
     if ax is None:
@@ -2394,7 +2404,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         aggdata = get_cellcount_weighted_average(data, xkey, ykey=ykey, hue=hue)
         # Plot single weifghted average trace with propagated standard errors 
         ax.errorbar(
-            aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker='o', c='k')
+            aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker=marker, ls=ls, c='k')
     # Otherwise
     else:
         # For each hue value
@@ -2407,7 +2417,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
                 color = None
             ax.errorbar(
                 aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
-                marker='o', label=htype, color=color)
+                marker=marker, ls=ls, label=htype, color=color)
         if legend:
             ax.legend(frameon=False)
             # Add numbers on legend if needed
@@ -2546,10 +2556,11 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
             # Plot counts on pie chart
             ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
-            ax2.pie(
-                counts_by_rtype.values, labels=counts_by_rtype.index.values, 
-                autopct='%1.0f%%', startangle=90, colors=Palette.RTYPE.values(),
-                textprops={'fontsize': 12}, wedgeprops={'edgecolor': 'k'})        
+            counts_by_rtype.plot.pie(
+                ax=ax2, ylabel='', autopct='%1.0f%%',
+                colors=[Palette.RTYPE[k] for k in counts_by_rtype.index],
+                startangle=90, textprops={'fontsize': 12}, 
+                wedgeprops={'edgecolor': 'k', 'alpha': 0.7})
         else:
             raise ValueError(f'invalid count mode: "{count}"')
 
@@ -2879,4 +2890,48 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
                 ldata[xkey], ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem'],
                 ls='', c=Palette.LINE[line])
     fig.suptitle(f'{xkey} dependency', y=1.05)
+    return fig
+
+
+def plot_intensity_dependencies(data, ykey, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots()
+        ax.set_title(f'ISPTA dependency')
+    else:
+        fig = ax.get_figure()
+    # Determine output metrics key
+    logger.info(f'plotting {ykey} ISPTA dependency across responders...')
+    # Plot dependencies on each parameter on same ISPTA axis
+    for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
+        plot_parameter_dependency(
+            data, xkey=xkey, ykey=ykey, yref=0., hue=Label.ROI_RESP_TYPE, ax=ax, 
+            marker=marker, as_ispta=True, legend=i==0, ls='--')
+    return fig
+
+
+def plot_intensity_dependencies_across_lines(data, ykey):
+    logger.info(f'plotting {ykey} ISPTA dependency across responders...')
+    # Create figure
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    fig.suptitle(f'ISPTA dependency', y=1.05)
+    sns.despine(fig)
+    axes[0].set_ylabel(ykey)
+    # For each responder type
+    for rtype, rdata in data.groupby(Label.ROI_RESP_TYPE):
+        iax = list(Palette.RTYPE.keys()).index(rtype)
+        ax = fig.axes[iax]
+        ax.set_xlabel(Label.ISPTA)
+        ax.axhline(0., ls='--', c='k')
+        ax.set_title(f'{rtype} responders')
+        # For each line
+        for line, ldata in rdata.groupby(Label.LINE):
+            # Plot dependencies on each parameter on same ISPTA axis
+            for xkey, marker in zip([Label.P, Label.DC], ['o', '^']):
+                depdata = get_xdep_data(ldata, xkey).sort_values(xkey)
+                ax.errorbar(
+                    depdata[Label.ISPTA], depdata[f'{ykey} - mean'], depdata[f'{ykey} - sem'],
+                    marker=marker, ls='--', c=Palette.LINE[line], label=f'{line} - {xkey} dep')
+            if iax == 0:
+                ax.legend(frameon=False) 
+    harmonize_axes_limits(axes)
     return fig
