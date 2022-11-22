@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-16 20:37:57
+# @Last Modified time: 2022-11-22 18:29:47
 
 ''' Collection of plotting utilities. '''
 
@@ -26,7 +26,7 @@ from scipy.stats import normaltest
 
 from logger import logger
 from constants import *
-from utils import get_singleton, is_iterable, plural, compute_mesh_edges
+from utils import get_singleton, is_iterable, plural, compute_mesh_edges, rectilinearize
 from postpro import *
 from viewers import get_stack_viewer
 from fileops import loadtif
@@ -1568,8 +1568,9 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
                        colwrap=4, cmap=None, center=None, vmin=None, vmax=None,
-                       quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=False,
-                       col_order=None, rasterized=False):
+                       quantile_bounds=(.01, .99), mark_stim=True, sort_rows=False,
+                       col_order=None, col_labels=None, rect_markers=None,
+                       rasterized=False):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
     culstered by similarity).
@@ -1597,6 +1598,26 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
 
+    # Determine pivot index keys, number of rows per map, and resulting aspect ratio
+    if Label.DATASET in data.index.names:
+        pivot_index_keys = [Label.DATASET, Label.ROI]
+        nROIs_per_dataset = {}
+        for dataset, tmp in data.groupby(Label.DATASET):
+            nROIs_per_dataset[dataset] = len(tmp.index.unique(Label.ROI))
+        nROIs_per_dataset = pd.Series(nROIs_per_dataset)
+        dataset_ends = nROIs_per_dataset.cumsum()
+        dataset_starts = dataset_ends.shift(periods=1, fill_value=0.)
+        dataset_mids = (dataset_starts + dataset_ends) / 2
+        dataset_seps = dataset_ends
+    else:
+        dataset_seps = None
+        pivot_index_keys = Label.ROI
+    nrowspermap = len(data.groupby(pivot_index_keys).first())
+    aspect_ratio = nrowspermap / 100
+
+    # Rectilinearize dataframe
+    data = rectilinearize(data[key]).to_frame()
+
     # Determine colormap if required
     if cmap is None:
         if data[key].min() < 0.:
@@ -1617,7 +1638,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
     # Add time column to dataframe
     data = add_time_to_table(data.copy(), fps=fps)
-
+    
     # Group data according to col parameter
     if col is not None:
         groups = data.groupby(col)
@@ -1627,7 +1648,12 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     # Initialize figure
     naxes = len(groups)
     nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes) 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 2.5, nrows * 2.5))
+    height = nrows * 2.5
+    if nrows == 1:
+        height *= aspect_ratio
+    fig, axes = plt.subplots(
+        nrows, ncols, 
+        figsize=(ncols * 2.5, height))
     if naxes == 1:
         axes = np.array([axes])
     fig.tight_layout()
@@ -1640,34 +1666,50 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
     if col_order is None:
         col_order = np.arange(len(groups))
+    else:
+        col_order = np.asarray(col_order)
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
         for i, (glabel, gdata) in enumerate(groups):
             # Find axis position
-            iax = np.asarray(col_order).tolist().index(i)
+            iax = np.where(col_order == i)[0][0]
             ax = axes.ravel()[iax]
             # Generate 2D table of average traces per ROI
             table = gdata.pivot_table(
-                index=Label.ROI, columns=Label.TIME, values=key, aggfunc=np.mean)
-            if sort_ROIs:
+                index=pivot_index_keys, columns=Label.TIME, values=key, aggfunc=np.mean)
+            # Get row order
+            row_order = gdata.groupby(pivot_index_keys).first().index
+            table = table.reindex(row_order, axis=0)
+
+            if sort_rows:
                 # Compute metrics average in pre-stimulus and response windows for each ROI
                 ypre = apply_in_window(
                     lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
                 ypost = apply_in_window(
                     lambda x: x.mean(), gdata, key, FrameIndex.RESPONSE, verbose=False)
-                ydiff = ypost - ypre
-                if col in ydiff.index.names:
+                ydiff = (ypost - ypre).rename('val')
+                # Remove column sorter from index, if present
+                if col is not None and col in ydiff.index.names:
                     ydiff = ydiff.droplevel(col)
-                # Sort ROIs by ascending differential metrics 
-                ROI_order = ydiff.sort_values().index.values
-                # Re-index table according to ROI order 
-                table = table.reindex(ROI_order, axis=0)
+                # If multiple datasets, group by dataset before sorting
+                sortby = []
+                if Label.DATASET in ydiff.index.names:
+                    sortby.append(Label.DATASET)
+                # Sort by ascending differential metrics
+                sortby.append('val')
+                ydiff = ydiff.to_frame().sort_values(sortby)['val']
+                # Re-index table according to row order 
+                table = table.reindex(ydiff.index.values, axis=0)
 
             # Plot associated trial heatmap
             sns.heatmap(
                 data=table, ax=ax, vmin=vmin, vmax=vmax, 
                 cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
                 xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
-                yticklabels=False, rasterized=rasterized)
+                yticklabels=False, 
+                rasterized=rasterized)
+            
+            # Set axis background color
+            ax.set_facecolor('silver')
 
             # Correct x-axis label display
             ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
@@ -1675,13 +1717,41 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
             # Add column title (only if informative)
             if glabel != 'all':
-                ax.set_title(f'{col} {glabel}')
+                coltitle = f'{col} {glabel}'
+                if col_labels is not None:
+                    coltitle = f'{coltitle} ({col_labels[iax]})'
+                ax.set_title(coltitle)
             
             # Add stimulus onset line, if specified
             if mark_stim:
                 istim = np.where(table.columns.values == 0.)[0][0]
                 ax.axvline(istim, c='w', ls='--', lw=1.)
             
+            # Add dataset separators if available
+            if dataset_seps is not None:
+                for y in dataset_seps:
+                    ax.axhline(y, c='w', ls='--', lw=2.)
+                if i == 0:
+                    ax.set_yticks(dataset_mids)
+                    ax.set_yticklabels(
+                        dataset_mids.index, rotation='vertical', va='center')
+                    ax.tick_params(axis='y', left=False)
+
+            # Add rectangular markers, if any 
+            if rect_markers is not None:
+                if col in rect_markers.index.names:
+                    refidx = get_mux_slice(rect_markers.index)
+                    if glabel in rect_markers.index.unique(col):
+                        refidx[rect_markers.index.names.index(col)] = glabel
+                        submarks = rect_markers.loc[tuple(refidx)]
+                        for dataset, color in submarks.iteritems():
+                            yb, yt = dataset_starts.loc[dataset], dataset_ends.loc[dataset]
+                            ax.add_patch(Rectangle(
+                                (ax.get_xlim()[0], dataset_starts.loc[dataset]), 
+                                ax.get_xlim()[1] - ax.get_xlim()[0], 
+                                dataset_ends.loc[dataset] - dataset_starts.loc[dataset],
+                                fc='none', ec=color, lw=10))
+
             pbar.update()
     
     # Hide remaining axes

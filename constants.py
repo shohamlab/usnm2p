@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 13:39:22
+# @Last Modified time: 2022-11-22 18:09:12
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -248,8 +248,7 @@ class Palette:
     RTYPE = {  # response type (categorical)
         'negative': 'C1',
         'weak': 'silver',
-        'positive':
-        'C2'
+        'positive': 'C2'
     }
     LINE = {  # mouse line (categorical)
         'line3': '#00ADDC',

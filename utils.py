@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-26 15:49:30
+# @Last Modified time: 2022-11-22 18:24:03
 
 ''' Collection of generic utilities. '''
 
@@ -12,13 +12,13 @@ from pandas.api.types import is_numeric_dtype
 import operator
 from functools import wraps
 
-from constants import SI_POWERS, IND_LETTERS
+from constants import SI_POWERS, IND_LETTERS, Label
 from logger import logger
 
 
 def is_iterable(x):
     ''' Check if an object is iterbale (i.e. a list, tuple or numpy array) '''
-    for t in [list, tuple, np.ndarray]:
+    for t in [list, tuple, np.ndarray, pd.Series]:
         if isinstance(x, t):
             return True
     return False
@@ -194,7 +194,7 @@ def arrays_to_dataframe(arrs_dict, **kwargs):
     return df
 
 
-def describe_dataframe_index(df):
+def describe_dataframe_index(df, join_str=' x '):
     ''' Describe dataframe index '''
     d = {}
     for k in df.index.names:
@@ -203,7 +203,7 @@ def describe_dataframe_index(df):
         if l > 1:
             key = f'{key}s'
         d[key] = l
-    return ' x '.join([f'{v} {k}' for k, v in d.items()])
+    return join_str.join([f'{v} {k}' for k, v in d.items()])
 
 
 def get_integer_suffix(i):
@@ -270,6 +270,51 @@ def expand_and_add(dfnew, dfref, prefix=''):
         key = f'{prefix}_{k}' if prefix else k
         dfref[key] = dfexp[k]
     return dfref
+
+
+def shape_str(s):
+    return '-by-'.join([f'{x:.0f}' for x in s])
+
+
+def rectilinearize(s, iruns=None):
+    ''' 
+    Create expanded series following rectilinear multi-index 
+    
+    :param s: pandas multi-index Series object
+    :param iruns: imposed runs index (optional)
+    :return: augmented series 
+    '''
+    # Compute dimensions of rectilinear output
+    nlevels = len(s.index.levels)
+    dims = [s.index.unique(level=i) for i in range(nlevels)]
+    # Extract number of runs, if not imposed 
+    if Label.RUN in s.index.names:
+        idim_run = s.index.names.index(Label.RUN)
+        if iruns is None:
+            iruns = dims[idim_run]
+        else:
+            dims[idim_run] = iruns
+    # If series contains multiple datasets, apply rectlinearization by dataset
+    if Label.DATASET in s.index.names:
+        if len(s.index.unique(Label.DATASET)) > 1:
+            return s.groupby(Label.DATASET).apply(
+                lambda s: rectilinearize(s.droplevel(Label.DATASET), iruns=iruns))
+    org_str = f'{len(s)} rows ({describe_dataframe_index(s, join_str=", ")}) series'
+    # If dimensions match input, return directly
+    shape = [len(x) for x in dims]
+    if np.prod(shape) == len(s):
+        return s
+    # Create "expanded" (rectilinear) index from input index levels
+    mux_exp = pd.MultiIndex.from_product(dims)
+    # Create new series filled with zeros
+    s_exp = pd.Series(0., index=mux_exp)
+    new_str = f'{len(s_exp)} rows ({describe_dataframe_index(s_exp)}) series'
+    naddrows = len(s_exp) - len(s)
+    logger.info(
+        f'{s.name}: expanding {org_str} into {new_str} ({naddrows} additional rows)')
+    # Add original series
+    snew = (s + s_exp).rename(s.name)
+    return snew
 
 
 def shiftslice(s, i):

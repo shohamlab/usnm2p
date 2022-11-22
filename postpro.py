@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 14:21:45
+# @Last Modified time: 2022-11-22 15:09:49
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1223,8 +1223,8 @@ def exclude_datasets(timeseries, stats, to_exclude):
 def get_param_code(data):
     ''' Get a code string from stimulation parameters column '''
     # Parse P and DC columns to strings
-    P_str = data[Label.P].map('{:.2f}MPa'.format)
-    DC_str = data[Label.DC].map('{:.0f}%DC'.format)
+    P_str = data[Label.P].map('{:01.2f}MPa'.format)
+    DC_str = data[Label.DC].map('{:02.0f}%DC'.format)
     # Generate new column from concatenated (P, DC) combination 
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
         
@@ -1293,13 +1293,15 @@ def check_run_order(data, condition='param'):
     if nseqs > 1:
         # Get matches per sequence
         matches = {}
-        for i, (_, ref_seq) in enumerate(unique_cond_sequences.iterrows()):
+        for i, (seqlabel, ref_seq) in enumerate(unique_cond_sequences.iterrows()):
             key = f'seq {i}'
             matches[key] = []
             for iseq, seq in cond_per_run.iterrows():
                 if seq.equals(ref_seq):
                     matches[key].append(iseq)
-        nmatches = [f'{k} ({len(v)} match{"es" if len(v) > 1 else ""})'
+            if len(matches[key]) == 1:
+                matches[seqlabel] = matches.pop(key)
+        nmatches = [k if len(v) == 1 else f'{k} ({len(v)} matches)'
                     for k, v in matches.items()]
         unique_cond_sequences = unique_cond_sequences.transpose()
         unique_cond_sequences.columns = nmatches
@@ -1318,7 +1320,7 @@ def get_run_mapper(pcodes):
     :return: mapping dictionary
     '''
     # Get unique values and assign ieach of them to run index to form mapping dictionary
-    unique_pcodes = pcodes.unique()
+    unique_pcodes = np.sort(pcodes.unique())
     idxs = np.arange(unique_pcodes.size)
     return dict(zip(unique_pcodes, idxs))
 
@@ -1354,11 +1356,47 @@ def harmonize_run_index(timeseries, stats, condition='param'):
     timeseries_conds = expand_to_match(stats_conds, timeseries.index)
     # Get stimparams: run-index mapper
     mapper = get_run_mapper(stats_conds)
+    logger.debug(f'run map:\n{pd.Series(mapper)}')
     # Get new run indexes column and update appropriate data index level
     stats = update_run_index(stats, stats_conds.map(mapper))
     timeseries = update_run_index(timeseries, timeseries_conds.map(mapper))
     # Return harmonized dataframes
     return timeseries, stats
+
+
+def highlight_incomplete(x, xref=None):
+    if is_iterable(x):
+        return [highlight_incomplete(xx, xref=x.max()) for xx in x]
+    if np.isnan(x):
+        return 'color:red;'
+    if xref is not None:
+        if x != xref:
+            return 'color:orange;'
+    return ''
+
+
+def get_detailed_ROI_count(data):
+    ''' 
+    Generate HTML table showing a detailed ROI count per dataset & run,
+    along with parameter references 
+    
+    :param data: multi-dataset experiment stats dataframe
+    :return: formatted HTML table
+    '''
+    # Get detailed ROI count per dataset & run
+    ROI_detailed_count = data.groupby([Label.DATASET, Label.RUN]).apply(
+        lambda gdata: len(gdata.index.unique(Label.ROI)))
+    ROI_detailed_count = ROI_detailed_count.unstack()
+    # Add parametric references
+    params_per_run = data[[Label.P, Label.DC]].groupby(
+        [Label.DATASET, Label.RUN]).first().groupby(Label.RUN).max()
+    params_per_run[Label.P] = params_per_run[Label.P].map('{:01.2f}'.format)
+    params_per_run[Label.DC] = params_per_run[Label.DC].map('{:02.0f}'.format)
+    ROI_detailed_count.columns = pd.MultiIndex.from_arrays(
+        [ROI_detailed_count.columns, params_per_run[Label.P], params_per_run[Label.DC]])
+    # Format
+    return ROI_detailed_count.style.apply(
+        highlight_incomplete, axis=1).format('{:.0f}')
 
 
 def get_plot_data(timeseries, stats):
