@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-22 18:29:47
+# @Last Modified time: 2022-11-23 16:29:36
 
 ''' Collection of plotting utilities. '''
 
@@ -1110,7 +1110,7 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
 
 
 def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
-                          itrial=None, tbounds=None, icorrect='baseline', cmap='viridis',
+                          itrial=None, tbounds=None, icorrect=None, cmap='viridis',
                           groupbyROI=False, ci=None, **kwargs):
     '''
     Plot ROI-aggregated traces across runs/trials or all dataset
@@ -1648,12 +1648,15 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     # Initialize figure
     naxes = len(groups)
     nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes) 
-    height = nrows * 2.5
+    width = ncols * 2.5  # inches
+    height = nrows * 2.5  # inches
     if nrows == 1:
         height *= aspect_ratio
+    # Constrain figure height to fit letter aspect ratio
+    height = min(height, width * 11 / 8.5)
     fig, axes = plt.subplots(
         nrows, ncols, 
-        figsize=(ncols * 2.5, height))
+        figsize=(width, height))
     if naxes == 1:
         axes = np.array([axes])
     fig.tight_layout()
