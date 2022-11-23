@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-10 11:08:20
+# @Last Modified time: 2022-11-23 14:57:53
 
 ''' Batch processing utilities '''
 
@@ -209,7 +209,10 @@ def create_queue(params):
             if v is None:
                 parsed_pdict[k] = None
             elif dtypes[k] == bool:
-                parsed_pdict[k] = {'True': True, 'False': False}[v]
+                if isinstance(v, str):
+                    parsed_pdict[k] = {'True': True, 'False': False}[v]
+                else:
+                    parsed_pdict[k] = v
             else:
                 parsed_pdict[k] = dtypes[k](v)
         parsed_queue.append(parsed_pdict)
