@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-23 16:29:36
+# @Last Modified time: 2022-11-23 17:14:42
 
 ''' Collection of plotting utilities. '''
 
@@ -1674,86 +1674,87 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
         for i, (glabel, gdata) in enumerate(groups):
             # Find axis position
-            iax = np.where(col_order == i)[0][0]
-            ax = axes.ravel()[iax]
-            # Generate 2D table of average traces per ROI
-            table = gdata.pivot_table(
-                index=pivot_index_keys, columns=Label.TIME, values=key, aggfunc=np.mean)
-            # Get row order
-            row_order = gdata.groupby(pivot_index_keys).first().index
-            table = table.reindex(row_order, axis=0)
+            if i in col_order:
+                iax = np.where(col_order == i)[0][0]
+                ax = axes.ravel()[iax]
+                # Generate 2D table of average traces per ROI
+                table = gdata.pivot_table(
+                    index=pivot_index_keys, columns=Label.TIME, values=key, aggfunc=np.mean)
+                # Get row order
+                row_order = gdata.groupby(pivot_index_keys).first().index
+                table = table.reindex(row_order, axis=0)
 
-            if sort_rows:
-                # Compute metrics average in pre-stimulus and response windows for each ROI
-                ypre = apply_in_window(
-                    lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
-                ypost = apply_in_window(
-                    lambda x: x.mean(), gdata, key, FrameIndex.RESPONSE, verbose=False)
-                ydiff = (ypost - ypre).rename('val')
-                # Remove column sorter from index, if present
-                if col is not None and col in ydiff.index.names:
-                    ydiff = ydiff.droplevel(col)
-                # If multiple datasets, group by dataset before sorting
-                sortby = []
-                if Label.DATASET in ydiff.index.names:
-                    sortby.append(Label.DATASET)
-                # Sort by ascending differential metrics
-                sortby.append('val')
-                ydiff = ydiff.to_frame().sort_values(sortby)['val']
-                # Re-index table according to row order 
-                table = table.reindex(ydiff.index.values, axis=0)
+                if sort_rows:
+                    # Compute metrics average in pre-stimulus and response windows for each ROI
+                    ypre = apply_in_window(
+                        lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
+                    ypost = apply_in_window(
+                        lambda x: x.mean(), gdata, key, FrameIndex.RESPONSE, verbose=False)
+                    ydiff = (ypost - ypre).rename('val')
+                    # Remove column sorter from index, if present
+                    if col is not None and col in ydiff.index.names:
+                        ydiff = ydiff.droplevel(col)
+                    # If multiple datasets, group by dataset before sorting
+                    sortby = []
+                    if Label.DATASET in ydiff.index.names:
+                        sortby.append(Label.DATASET)
+                    # Sort by ascending differential metrics
+                    sortby.append('val')
+                    ydiff = ydiff.to_frame().sort_values(sortby)['val']
+                    # Re-index table according to row order 
+                    table = table.reindex(ydiff.index.values, axis=0)
 
-            # Plot associated trial heatmap
-            sns.heatmap(
-                data=table, ax=ax, vmin=vmin, vmax=vmax, 
-                cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
-                xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
-                yticklabels=False, 
-                rasterized=rasterized)
-            
-            # Set axis background color
-            ax.set_facecolor('silver')
+                # Plot associated trial heatmap
+                sns.heatmap(
+                    data=table, ax=ax, vmin=vmin, vmax=vmax, 
+                    cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
+                    xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
+                    yticklabels=False, 
+                    rasterized=rasterized)
+                
+                # Set axis background color
+                ax.set_facecolor('silver')
 
-            # Correct x-axis label display
-            ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
-            ax.set_xlabel(ax.get_xlabel(), labelpad=-10)
+                # Correct x-axis label display
+                ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
+                ax.set_xlabel(ax.get_xlabel(), labelpad=-10)
 
-            # Add column title (only if informative)
-            if glabel != 'all':
-                coltitle = f'{col} {glabel}'
-                if col_labels is not None:
-                    coltitle = f'{coltitle} ({col_labels[iax]})'
-                ax.set_title(coltitle)
-            
-            # Add stimulus onset line, if specified
-            if mark_stim:
-                istim = np.where(table.columns.values == 0.)[0][0]
-                ax.axvline(istim, c='w', ls='--', lw=1.)
-            
-            # Add dataset separators if available
-            if dataset_seps is not None:
-                for y in dataset_seps:
-                    ax.axhline(y, c='w', ls='--', lw=2.)
-                if i == 0:
-                    ax.set_yticks(dataset_mids)
-                    ax.set_yticklabels(
-                        dataset_mids.index, rotation='vertical', va='center')
-                    ax.tick_params(axis='y', left=False)
+                # Add column title (only if informative)
+                if glabel != 'all':
+                    coltitle = f'{col} {glabel}'
+                    if col_labels is not None:
+                        coltitle = f'{coltitle} ({col_labels[iax]})'
+                    ax.set_title(coltitle)
+                
+                # Add stimulus onset line, if specified
+                if mark_stim:
+                    istim = np.where(table.columns.values == 0.)[0][0]
+                    ax.axvline(istim, c='w', ls='--', lw=1.)
+                
+                # Add dataset separators if available
+                if dataset_seps is not None:
+                    for y in dataset_seps:
+                        ax.axhline(y, c='w', ls='--', lw=2.)
+                    if i == 0:
+                        ax.set_yticks(dataset_mids)
+                        ax.set_yticklabels(
+                            dataset_mids.index, rotation='vertical', va='center')
+                        ax.tick_params(axis='y', left=False)
 
-            # Add rectangular markers, if any 
-            if rect_markers is not None:
-                if col in rect_markers.index.names:
-                    refidx = get_mux_slice(rect_markers.index)
-                    if glabel in rect_markers.index.unique(col):
-                        refidx[rect_markers.index.names.index(col)] = glabel
-                        submarks = rect_markers.loc[tuple(refidx)]
-                        for dataset, color in submarks.iteritems():
-                            yb, yt = dataset_starts.loc[dataset], dataset_ends.loc[dataset]
-                            ax.add_patch(Rectangle(
-                                (ax.get_xlim()[0], dataset_starts.loc[dataset]), 
-                                ax.get_xlim()[1] - ax.get_xlim()[0], 
-                                dataset_ends.loc[dataset] - dataset_starts.loc[dataset],
-                                fc='none', ec=color, lw=10))
+                # Add rectangular markers, if any 
+                if rect_markers is not None:
+                    if col in rect_markers.index.names:
+                        refidx = get_mux_slice(rect_markers.index)
+                        if glabel in rect_markers.index.unique(col):
+                            refidx[rect_markers.index.names.index(col)] = glabel
+                            submarks = rect_markers.loc[tuple(refidx)]
+                            for dataset, color in submarks.iteritems():
+                                yb, yt = dataset_starts.loc[dataset], dataset_ends.loc[dataset]
+                                ax.add_patch(Rectangle(
+                                    (ax.get_xlim()[0], dataset_starts.loc[dataset]), 
+                                    ax.get_xlim()[1] - ax.get_xlim()[0], 
+                                    dataset_ends.loc[dataset] - dataset_starts.loc[dataset],
+                                    fc='none', ec=color, lw=10))
 
             pbar.update()
     
