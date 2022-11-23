@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-23 14:57:53
+# @Last Modified time: 2022-11-23 15:05:26
 
 ''' Batch processing utilities '''
 
@@ -211,8 +211,12 @@ def create_queue(params):
             elif dtypes[k] == bool:
                 if isinstance(v, str):
                     parsed_pdict[k] = {'True': True, 'False': False}[v]
-                else:
+                elif isinstance(v, np.bool_):
+                    parsed_pdict[k] = bool(v)
+                elif isinstance(v, bool):
                     parsed_pdict[k] = v
+                else:
+                    raise ValueError(f'cannot parse bool {v} of type {type(v)}')
             else:
                 parsed_pdict[k] = dtypes[k](v)
         parsed_queue.append(parsed_pdict)
