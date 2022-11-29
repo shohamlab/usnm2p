@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-23 17:14:42
+# @Last Modified time: 2022-11-29 18:22:39
 
 ''' Collection of plotting utilities. '''
 
@@ -30,7 +30,7 @@ from utils import get_singleton, is_iterable, plural, compute_mesh_edges, rectil
 from postpro import *
 from viewers import get_stack_viewer
 from fileops import loadtif
-from parsers import get_info_table
+from parsers import get_info_table, parse_quantile
 
 # Colormaps
 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
@@ -122,26 +122,24 @@ def harmonize_axes_limits(axes, axkey='y'):
         limsetter(ax)(*bounds)
 
 
-def add_unit_diag(ax, c='k', ls='--'):
-    '''
-    Add a diagonal line representing the Y = X relationship on the axis
-    
-    :param ax: axis object
-    :param c: line color (default = black)
-    :param ls: line style (default = dashed)
-    '''
-    # Get x and y axes limits
-    xlims, ylims = ax.get_xlim(), ax.get_ylim()
+def harmonize_jointplot_limits(jg):
+    ''' Harmonize X and Y limits of joint plots '''
+    lims = jg.ax_joint.get_xlim() + jg.ax_joint.get_ylim()
+    lims = (min(lims), max(lims))
+    for ax in [jg.ax_joint, jg.ax_marg_x]:
+        ax.set_xlim(*lims)
+    for ax in [jg.ax_joint, jg.ax_marg_y]:
+        ax.set_ylim(*lims)
 
-    # Get min and max across both axes
-    lims = (min(xlims[0], ylims[0]), max(xlims[1], ylims[1]))
 
-    # Adjust axes limits
-    ax.set_xlim(*lims)
-    ax.set_ylim(*lims)
-
-    # Draw diagonal line
-    ax.plot(lims, lims, c=c, ls=ls)
+def add_jointplot_line(jg, val=0., mode='xy'):
+    ''' Add reference line at some given value on joint plot'''
+    if 'x' in mode:
+        for ax in [jg.ax_joint, jg.ax_marg_x]:
+            ax.axvline(val, ls='--', c='k')
+    if 'y' in mode:
+        for ax in [jg.ax_joint, jg.ax_marg_y]:
+            ax.axhline(val, ls='--', c='k')
 
 
 def plot_table(d, title=None):
@@ -410,10 +408,13 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         x = stackavg_mat.mean(axis=0)
         
         # Find baseline signal value 
-        if iref is not None:
+        if isinstance(iref, int):
             xref = x[iref]  # specific index, if provided
+        elif isinstance(iref, str) and iref.startswith('q'):
+            q = parse_quantile(iref)
+            xref = np.quantile(x, q)  # otherwise, low quantile
         else:
-            xref = np.quantile(x, BASELINE_QUANTILE)  # otherwise, low quantile
+            raise ValueError(f'invalid reference index: {iref}')
         
         # Plot normalized mean trace
         ax.plot(tplt, (x - xref) / xref, c=c['color'], label=label)
@@ -1211,9 +1212,11 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
         ax.axvline(0, c='k', ls='--')
         if yref is not None:
             ax.axhline(yref, c='k', ls='--')
+        
+        custom_lines = []
 
         # For each variable of interest
-        for y in ykey: 
+        for i, y in enumerate(ykey): 
                        
             # If some kind of vertival correction is specified 
             if icorrect is not None:
@@ -1223,11 +1226,12 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
                     ycorrect = plt_data.loc[refidx, :][(y, k)].droplevel(Label.FRAME)
                 
                 # Otherwise, correct according to distribution quantile
-                elif icorrect == 'baseline':
+                elif isinstance(icorrect, str) and icorrect.startswith('q'):
+                    q = parse_quantile(icorrect)
                     if hue is not None:
-                        ycorrect = plt_data[(y, k)].groupby(hue).quantile(BASELINE_QUANTILE)
+                        ycorrect = plt_data[(y, k)].groupby(hue).quantile(q)
                     else:
-                        ycorrect = plt_data[(y, k)].quantile(BASELINE_QUANTILE)
+                        ycorrect = plt_data[(y, k)].quantile(q)
                 
                 # Othwerwise, throw error
                 else:
@@ -1240,6 +1244,12 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
             sns.lineplot(
                 data=plt_data, x=Label.TIME, y=(y, k), hue=hue, ci=ci,
                 palette=cmap, legend='auto', ax=ax, **kwargs)
+            if hue is None:
+                custom_lines.append(
+                    Line2D([0], [0], color=f'C{i}', lw=4))
+    
+    if len(custom_lines) > 1:
+        ax.legend(custom_lines, ykey)
 
     # Tighten figure layout
     fig.tight_layout()
@@ -1373,7 +1383,7 @@ def plot_linreg(data, iROI, x=Label.F_NEU, y=Label.F_ROI):
         sns.regplot(
             data=subdata, x=x, y=y, ax=ax, label='data',
             robust=True, ci=None)
-        add_unit_diag(ax)
+        ax.axline((0, 0), (1, 1), ls='--', color='k')
 
         # Perform robust linear regression and extract fitted parameters
         bopt, aopt = robust_linreg(subdata)

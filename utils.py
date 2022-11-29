@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-22 18:24:03
+# @Last Modified time: 2022-11-29 17:21:06
 
 ''' Collection of generic utilities. '''
 
@@ -558,6 +558,23 @@ def nan_proof(func):
     return wrapper
 
 
+def pandas_proof(func):
+    '''
+    Wrapper around function that makes it pandas-proof
+    
+    :param func: processing function
+    :return: modified, pandas-proof function object
+    '''
+    @wraps(func)
+    def wrapper(y, *args, **kwargs):
+        yout = func(y)
+        if isinstance(y, pd.Series):
+            return pd.Series(data=yout, index=y.index)
+        else:
+            return yout
+    return wrapper
+
+
 def expdecay(x, H, A, tau, x0):
     '''
     Exponential decay function
@@ -625,3 +642,20 @@ def compute_mesh_edges(x, scale='lin'):
     dx = x[1] - x[0]
     n = x.size + 1
     return range_func(x[0] - dx / 2, x[-1] + dx / 2, n)
+
+
+def sigmoid(x, x0=0, sigma=1.):
+    ''' 
+    Apply sigmoid function with specific center and width
+    
+    :param x: input signal
+    :param x0: sigmoid center (i.e. inflection point)
+    :param sigma: sigmoid width
+    :return sigmoid function output
+    '''
+    return 1 / (1 + np.exp(-(x - x0) / sigma))
+
+
+def bounds(x):
+    ''' Extract minimum and maximum of array simultaneously '''
+    return np.array([min(x), max(x)])

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-22 15:09:49
+# @Last Modified time: 2022-11-28 18:30:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, filtfilt, find_peaks, peak_widths
+from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -201,86 +201,127 @@ def optimize_alpha(data, costfunc, bounds=(0, 1)):
     return alphas[np.argmin(costs)]
 
 
-def filter_signal(y, fs, fc, order=2):
+def quantile_filter(x, w, q):
     '''
-    Apply zero-phase filter to signal
+    Apply a quantile detection filter on signal
     
-    :param y: signal array
+    :param x: input signal
+    :param w: window size (number of samples)
+    :param q: quantile value
+    :return: filtered signal
+    '''
+    return apply_rolling_window(x, w, func=lambda x: x.quantile(q))
+
+
+def skew_to_quantile(s, qthr=0.05, sigma=1.):
+    ''' Function mapping a distribution skewness value to a baseline extraction quantile '''
+    return qthr + (1 - 2 * qthr) * sigmoid(-s, sigma=sigma)
+
+
+def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None, smooth=True):
+    '''
+    Construct a quantile-based baseline computation function
+    
+    :param fs: sampling rate of the signal (in fps)
+    :param wquantile: window length of the quantile filter (in s)
+    :param q (optional): quantile value used for the quantile filter 
+    :param wsmooth (optional): width of smoothing Gaussian filter (in seconds)
+    :return: baseline function object
+    '''
+    if q is not None:
+        # Define quantile description string
+        qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
+    else:
+        qstr = 'adaptive percentile'
+
+    # If window length not given, return constant baseline computation function
+    if wquantile is None:
+        logger.info(f'defining baseline function as {qstr} of signal')
+        return lambda s: s.quantile(q)
+
+    # Otherwise, define quantile filter computation function
+    else:
+        wquantile_len = get_window_size(wquantile, fs)
+        bstr = f'{wquantile:.1f}s ({wquantile_len} frames) long {qstr} filter'
+        if wsmooth:
+            wsmooth_len = get_window_size(wsmooth, fs)
+            bstr = [bstr] + [f'{wsmooth:.1f}s ({wsmooth_len} frames) long gaussian filter']
+            bstr = f'successive application of:\n{itemize(bstr)}'    
+        logger.info(f'defining baseline function as {bstr}')
+
+        # Define baseline extraction function
+        def bfunc(y):
+            if q is None:
+                q_ = skew_to_quantile(skew(y))
+            else:
+                q_ = q
+            y = quantile_filter(y, wquantile_len, q_)
+            if wsmooth is not None:
+                y = gaussian_filter1d(y, wsmooth_len)
+            return y
+        # Return baseline extraction function
+        return pandas_proof(bfunc)
+
+
+def maximin(y, w):
+    '''
+    Apply maximin function to signal with specific window size
+    
+    :param y: 1D signal
+    :param w: window size (number of samples)
+    :return: maximin-filtered signal
+    '''
+    return maximum_filter1d(minimum_filter1d(y, w), w)
+
+
+def get_maximin_baseline_func(fs, wmaximin, wsmooth=None):
+    ''' 
+    Construct a maximin baseline function
+
+    :param fs: sampling rate (Hz)
+    :param wmaximin: window size for maximum and minimum filters (in seconds)
+    :param wsmooth (optional): width of smoothing Gaussian filter (in seconds)
+    :return: baseline function object
+    '''
+    s = []
+    if wsmooth is not None:
+        wsmooth_len = get_window_size(wsmooth, fs)
+        s.append(f'{wsmooth:.1f}s ({wsmooth_len} frames) long gaussian filter')
+    wmaximin_len = get_window_size(wmaximin, fs)
+    s += [
+        f'{wmaximin:.1f}s ({wmaximin_len} frames) long mininum filter',
+        f'{wmaximin:.1f}s ({wmaximin_len} frames) long maximum filter'
+    ]
+    logger.info(f'defining baseline extraction function as successive application of:\n{itemize(s)}')
+    # Define baseline extraction function
+    def bfunc(y):
+        if wsmooth is not None:
+            y = gaussian_filter1d(y, wsmooth_len)
+        y = maximin(y, wmaximin_len)
+        return y
+    # Return baseline extraction function
+    return pandas_proof(bfunc)
+
+
+def get_filter_baseline_func(fs, fc, order=2):
+    '''
+    Construct a zero-phase filter-based baseline computation function
+    
     :param fs: sampling frequency (Hz)
     :param fc: tuple of cutoff frequencies (Hz)
     :param order: filter order
     '''
-    if isinstance(y, pd.Series):
-        yf = filter_signal(y.values, fs, fc, order=order)
-        return pd.Series(data=yf, index=y.index)
-    fc = np.asarray(fc)
-    # Determine Butterworth type and cutoff
-    btype = 'band'
-    if fc[0] == 0.:
-        btype = 'low'
-        fc = fc[1]
-    elif fc[1] == np.inf:
-        btype = 'high'    
-        fc = fc[0]
-    logger.info(f'{btype}-pass filtering signal (cutoff = {fc} Hz)...')
+    logger.info(
+        f'defining baseline extraction function as low-pass BW filter with cutoff = {fc:.3f} Hz')
     # Determine Nyquist frequency
     nyq = fs / 2
     # Calculate Butterworth filter coefficients
-    b, a = butter(order, fc / nyq, btype=btype)
-    # Filter signal forward and backward (to ensure zero-phase) and return
-    return filtfilt(b, a, y)
-
-
-def apply_quantile_window(x, w, q):
-    return apply_rolling_window(x, w, func=lambda x: x.quantile(q))
-
-
-def get_baseline_func(fps, wlen, q, smooth=True):
-    '''
-    Construct a baseline computation function
-    
-    :param fps: sampling rate of the signal (in fps)
-    :param wlen: window length (in s) to compute the fluorescence baseline
-    :param q: quantile used for the computation of the fluorescence baseline 
-    :param smooth (default: False): whether to smooth the baseline by applying an additional
-        gaussian filter (with half window size) to the sliding window output
-    :return: baseliunbe function object
-    '''
-    # Define quantile description string
-    qstr = f'{q * 1e2:.0f}{get_integer_suffix(q * 1e2)} percentile'
-
-    # If window length not given, return constant baseline computation function
-    if wlen is None:
-        logger.info(f'defining baseline function as {qstr} of signal')
-        return lambda s: s.quantile(q)
-
-    # Otherwise, define rolling window baseline computation function(s)
-    else:
-        # Compute window size (in number of frames) and descriptor
-        w = get_window_size(wlen, fps)
-        wstr = f'{wlen:.1f}s ({w} frames) sliding window'
-        bstr = f'{qstr} of {wstr}'
-
-        # Construct quantile moving window function
-        bfunc = lambda s: apply_quantile_window(s.values, w, q)
-        
-        # If smooth enabled
-        if smooth:
-            # define window size for smoothing (gaussian filter) step
-            w2 = w // 2
-            bstr = [bstr] + [f'result of {w2 / fps:.1f}s ({w2} frames) gaussian filter']
-            bstr = f'successive application of:\n{itemize(bstr)}'
-        
-            # Add gaussian filter to function
-            bfunc_smooth = lambda s: gaussian_filter1d(bfunc(s), w2)
-    
-    logger.info(f'defining baseline function as {bstr}')
-    
-    # Return appropriate baseline function
-    if smooth:
-        return bfunc_smooth
-    else:
-        return bfunc
+    sos = butter(order, fc / nyq, btype='low', output='sos')
+    # Define baseline extraction function
+    def bfunc(y):
+        return sosfiltfilt(sos, y)
+    # Return baseline extraction function
+    return pandas_proof(bfunc)
 
 
 def compute_baseline(data, bfunc):
@@ -300,8 +341,8 @@ def compute_baseline(data, bfunc):
     return baselines
 
 
-def detrend_trial(s, type='linear'):
-    ''' Detrend trial trace '''
+def compute_trial_trend(s, type='constant'):
+    ''' Compute trend on trial trace '''
     # Extract values
     y = s.values
     # Generate index vector
@@ -317,8 +358,12 @@ def detrend_trial(s, type='linear'):
         yfit = y[isvalid].mean()
     else:
         raise ValueError(f'unknown detrending type: {type}')
+    return yfit
+
+
+def detrend_trial(s, **kwargs):
     # Subtract fit to data and return
-    return y - yfit
+    return s - compute_trial_trend(s, **kwargs)
 
 
 def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-22 18:09:12
+# @Last Modified time: 2022-11-29 18:15:10
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -82,10 +82,9 @@ NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells
 ALPHA = 0.7
 
 # Baseline computation
-BASELINE_WLEN = 10.  # window length (in s) to compute the fluorescence baseline
-BASELINE_QUANTILE = .08  # quantile used for the computation of the fluorescence baseline
-BASELINE_SMOOTHING = True  # whether to smooth the baseline with an extra moving average
-BASELINE_RSD_THR = .5  # threshold for relative standard deviation of the fluorescence baseline across runs
+BASELINE_QUANTILE = None  #.08  # quantile used for the computation of the fluorescence baseline (if None, and adaptive quantile is used)
+BASELINE_WQUANTILE = 10.  # quantile filter window size (s) to compute fluorescence baseline
+BASELINE_WSMOOTHING = 10.  # gaussian filter window size (s) to smooth out fluorescence baseline
 
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
@@ -105,8 +104,7 @@ class FrameIndex:
     PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
-    BASELINE = slice(-20, None)  # indexes used for baseline calculation
-
+    BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
@@ -136,7 +134,7 @@ class Pattern:
     CHANNEL = 'Ch([0-9])'
     FRAME = '([0-9]+)'
     OFFSET = f'({"|".join(OFFSET_DIRECTIONS)})_([0-9]+[.]?[0-9]*)mm'
-
+    QUANTILE = 'q(0.[0-9]*)'
 
 ###################################### LABELS ######################################
 

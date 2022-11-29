@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-05 15:07:14
+# @Last Modified time: 2022-11-29 18:16:40
 
 ''' Collection of parsing utilities. '''
 
@@ -331,3 +331,11 @@ def parse_2D_offset(desc):
         elif direction == 'left':
             offset[0] -= magnitude    
     return offset
+
+
+def parse_quantile(s):
+    ''' Parse quantile expression '''
+    mo = re.match(Pattern.QUANTILE, s)
+    if mo is None:
+        raise ValueError(f'expression "{s}" is not a valid quantile pattern')
+    return float(mo.group(1))
