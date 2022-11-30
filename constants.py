@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-29 18:15:10
+# @Last Modified time: 2022-11-30 12:54:20
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -75,11 +75,12 @@ TAU_GCAMP7F_DECAY = 0.7  # GCaMP7f exponential decay time constant (s)
 
 NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
 
-# neuropil subtraction factor (0-1):
-# - small values (around 0) tend to produce smoother dF/F0 traces with less amplitude,
-# - large values (around 1) tend to produce higher amplitude dF/F0 traces with more fluctuations
-# - default is 0.7 (from literature), for PV 0.5 works better, for SST 0.6. But lately it seems that is ok with 0.7 for all regardless of the line 
-ALPHA = 0.7
+# scaling coefficient for neuropil subtraction:
+# - large values (around 1) tend to produce smoother dF/F0 traces with less amplitude,
+# - small values (around 0) tend to produce higher amplitude dF/F0 traces with more fluctuations
+# - default is 0.7 (from literature)
+# - From Diego: for PV 0.5 works better, for SST 0.6. But lately it seems that is ok with 0.7 for all regardless of the line
+NEUROPIL_SCALING_COEFF = 0.7
 
 # Baseline computation
 BASELINE_QUANTILE = None  #.08  # quantile used for the computation of the fluorescence baseline (if None, and adaptive quantile is used)

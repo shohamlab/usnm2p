@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-10 11:08:30
+# @Last Modified time: 2022-11-30 14:18:22
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -45,6 +45,8 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--region', help='brain region')
     parser.add_argument('--layer', help='Cortical layer')
 
+    BASELINE_WSMOOTHING  # gaussian filter window size (s) to smooth out fluorescence baseline
+
     # Add arguments about other execution parameters
     parser.add_argument(
         '--inspect', default=False, action='store_true',
@@ -57,21 +59,21 @@ if __name__ == '__main__':
         '-k', '--kalman_gain', type=float, default=KALMAN_GAIN, nargs='+',
         help='Kalman filter gain (s)')
     parser.add_argument(
-        '-w', '--baseline_wlen', type=float, default=BASELINE_WLEN, nargs='+',
-        help='Baseline rolling window length (s)')
+        '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
+        help='scaling coefficient for neuropil subtraction')    
     parser.add_argument(
         '-q', '--baseline_quantile', type=float, default=BASELINE_QUANTILE, nargs='+',
         help='Baseline evaluation quantile')
     parser.add_argument(
-        '-s', '--baseline_smoothing', action='store_true', help='Smooth baseline')
+        '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
+        help='Baseline quantile filter window size (s)')
     parser.add_argument(
-        '-j', '--no-baseline_smoothing', dest='baseline_smoothing', action='store_false')
+        '--ws', type=float, default=BASELINE_WSMOOTHING, nargs='+',
+        help='Baseline gaussian filter window size (s)')
     parser.add_argument(
         '-y', '--ykey_classification', type=str, default='dff', choices=['dff', 'evrate'], nargs='+',
         help='Classification variable')
-    parser.set_defaults(
-        slack_notify=True,
-        baseline_smoothing=BASELINE_SMOOTHING)
+    parser.set_defaults(slack_notify=True)
 
     # Extract command line arguments
     args = vars(parser.parse_args())
@@ -85,13 +87,17 @@ if __name__ == '__main__':
         'inspect',
         'slack_notify',
         'kalman_gain',
-        'baseline_wlen',
+        'alpha',
         'baseline_quantile',
-        'baseline_smoothing',
+        'wq',
+        'ws',
         'ykey_classification'
     ]
     exec_args = {k: args.pop(k) for k in exec_args}
     exec_args = {k: as_iterable(v) for k, v in exec_args.items()}
+    exec_args['neuropil_scaling_coeff'] = exec_args.pop('alpha')
+    exec_args['baseline_wquantile'] = exec_args.pop('wq')
+    exec_args['baseline_wsmoothing'] = exec_args.pop('ws')
     exec_args['ykey_classification'] = [
         {'evrate': Label.EVENT_RATE, 'dff': Label.DFF}[y]
         for y in exec_args['ykey_classification']]
