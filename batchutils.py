@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 00:18:18
+# @Last Modified time: 2022-11-30 15:19:45
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -64,55 +64,64 @@ def get_s2p_id(tau=TAU_GCAMP6S_DECAY, fs=BRUKER_SR, do_registration=1,
     return s2p_code
 
 
-def get_baseline_id(baseline_wlen, baseline_quantile, baseline_smoothing):
+def get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing):
     ''' 
     Get baseline computation code string
     
-    :param baseline_wlen: length of baseline detection rolling window 
-    :param baseline_quantile: baseline computation quantile
-    :param baseline_smoothing: whether baseline should be smoothed
+    :param baseline_quantile: baseline evaluation quantile
+    :param baseline_wquantile: quantile filter window size (s) 
+    :param baseline_wsmoothing: gaussian filter window size (s)
     :return ID string
     '''
-    # Construct post-processing ID
-    if baseline_wlen is None:
-        baseline_smoothing = False
+    if baseline_wquantile is None:
+        baseline_wsmoothing = None
         baseline_id = ''
     else:
-        baseline_id = f'w{baseline_wlen:.1f}s'
-    baseline_id = f'{baseline_id}_q{baseline_quantile:.2f}'
-    if baseline_smoothing:
-        baseline_id = f'{baseline_id}_smooth'
-    return baseline_id
+        baseline_id = f'wq{baseline_wsmoothing:.1f}s'
+    if baseline_wsmoothing is not None:
+        baseline_id = f'{baseline_id}_ws{baseline_wsmoothing:.2f}s'
+    baseline_quantile_str = 'adaptive' if baseline_quantile is None else f'{baseline_quantile:.2f}'
+    return f'q{baseline_quantile_str}_{baseline_id}'
 
 
-def get_postpro_id(baseline_wlen, baseline_quantile, baseline_smoothing, ykey_classification):
+def get_postpro_id(neuropil_scaling_coeff, *args):
     ''' 
     Get post-processing code string
     
     :param *args: parameters used for baseline computation 
-    :param ykey_classification: name of variable used for response classification
     :return ID string
     '''
-    return f'{get_baseline_id(baseline_wlen, baseline_quantile, baseline_smoothing)}_{ykey_classification}'.replace('/', '')
+    return f'alpha{neuropil_scaling_coeff}_{get_baseline_id(*args)}'
 
 
-def get_batch_settings(analysis_type, mouseline, layer, kalman_gain,
-                       baseline_wlen, baseline_quantile, baseline_smoothing, 
+def get_stats_id(ykey_classification):
+    ''' 
+    
+    Get stats code string 
+    
+    :param ykey_classification: name of variable used for response classification
+    '''
+    return f'class{ykey_classification.replace("/", "")}'
+
+
+def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_scaling_coeff,
+                       baseline_quantile, baseline_wquantile, baseline_wsmoothing, 
                        ykey_classification):
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
     dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
     # Construct post-processing ID
     prepro_id = get_prepro_id(kalman_gain=kalman_gain)
-    baseline_id = get_baseline_id(baseline_wlen, baseline_quantile, baseline_smoothing)
-    postpro_id = f'{baseline_id}_{ykey_classification}'.replace('/', '')
+    baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
+    postpro_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
+    stats_id = f'class{ykey_classification.replace("/", "")}'
     # Get figures PDF suffix
-    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}'
+    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}_{stats_id}'
     # Get trial-averaged input data directory
     dataroot = get_data_root()
     trialavg_root = get_output_equivalent(dataroot, 'raw', 'trial-averaged')
     trialavg_dir = os.path.join(
-        trialavg_root, baseline_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
+        trialavg_root, stats_id, postpro_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
     # Get figures directory
     figsdir = get_output_equivalent(dataroot, 'raw', 'figs')
     return dataset_group_id, trialavg_dir, figsdir, figs_suffix
