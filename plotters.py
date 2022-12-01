@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-01 15:47:55
+# @Last Modified time: 2022-12-01 16:57:37
 
 ''' Collection of plotting utilities. '''
 
@@ -2527,7 +2527,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     return fig
 
 
-def plot_stimparams_dependency(data, ykey, title=None, **kwargs):
+def plot_stimparams_dependency(data, ykey, title=None, axes=None, **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -2536,8 +2536,13 @@ def plot_stimparams_dependency(data, ykey, title=None, **kwargs):
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
-    # Initialize figure
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    # Initialize or retrieve figure
+    if axes is None:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    else:
+        if len(axes) != 2:
+            raise ValueError('exactly 2 axes must be provided')
+        fig = axes[0].get_figure()
 
     # Disable legend for all axes but last
     kwargs['legend'] = False
