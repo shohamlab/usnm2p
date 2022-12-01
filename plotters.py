@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-29 18:22:39
+# @Last Modified time: 2022-12-01 15:47:55
 
 ''' Collection of plotting utilities. '''
 
@@ -26,7 +26,7 @@ from scipy.stats import normaltest
 
 from logger import logger
 from constants import *
-from utils import get_singleton, is_iterable, plural, compute_mesh_edges, rectilinearize
+from utils import *
 from postpro import *
 from viewers import get_stack_viewer
 from fileops import loadtif
@@ -1112,7 +1112,7 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
 
 def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
                           itrial=None, tbounds=None, icorrect=None, cmap='viridis',
-                          groupbyROI=False, ci=None, **kwargs):
+                          groupbyROI=False, ci=None, ax=None, **kwargs):
     '''
     Plot ROI-aggregated traces across runs/trials or all dataset
     
@@ -1186,13 +1186,21 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
     plt_data[Label.FPS] = fps
     add_time_to_table(plt_data)
     
-    # Initialize figure
-    fig, axes = plt.subplots(1, len(aggfuncs), figsize=(6 * len(aggfuncs), 4))
-    if len(suptitle) > 0:
-        fig.suptitle(', '.join(suptitle))
-    axes = np.atleast_1d(axes)
-    for ax in axes:
+    # Initialize or retrieve figure
+    if ax is not None:
+        if len(aggfuncs) > 1:
+            raise ValueError(
+                'provided single axis incompatible with multiple aggregation functions')
+        axes = [ax]
+        fig = ax.get_figure()
         sns.despine(ax=ax)
+    else:
+        fig, axes = plt.subplots(1, len(aggfuncs), figsize=(6 * len(aggfuncs), 4))
+        if len(suptitle) > 0:
+            fig.suptitle(', '.join(suptitle))
+        axes = np.atleast_1d(axes)
+        for ax in axes:
+            sns.despine(ax=ax)
     
     # If correction index was provided, transform it to multi-index
     if icorrect is not None and isinstance(icorrect, int):
@@ -2658,13 +2666,12 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     return fig
 
 
-def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
+def plot_protocol(table, xkey=Label.RUNID):
     '''
     Plot the evolution of stimulus parameters over time
     
     :param table: summary table of the parameters pertaining to each run
     :param xkey: reference variable for time evolution (run or runID)
-    :param ykey: reference variable for parameters evolution (e.g. Pressure, DC, intensity, ...)
     :return: figure handle
     '''
     # Extract x-axis variable as either table index or column 
@@ -2672,23 +2679,84 @@ def plot_protocol(table, xkey=Label.RUNID, ykeys=(Label.P, Label.DC)):
         x = table[xkey]
     except KeyError:
         x = table.index.get_level_values(level=xkey)
+    ykeys = (Label.P, Label.DC)
     
     # Initialize figure
-    fig, axes = plt.subplots(len(ykeys), 1, figsize=(5, 2 * len(ykeys)))
-    axes[0].set_title('evolution of stimulation parameters over runs')
-    for ax in axes[:-1]:
+    fig, axes = plt.subplot_mosaic([
+        ['A', 'B'], 
+        ['A', 'C']], 
+        constrained_layout=True, figsize=(8, 4))
+    axes = list(axes.values())
+    axes[1].set_title('evolution of stimulation parameters over runs')
+    for ax in axes[1:-1]:
         sns.despine(ax=ax, bottom=True)
         ax.set_xticks([])
     axes[-1].set_xlabel(xkey)
     sns.despine(ax=axes[-1])
+    
+    # Plot P - DC combinations on Ispta map 
+    plot_P_DC_map(table[Label.P], table[Label.DC], ax=axes[0])
 
     # Plot evolution of each variable of interest along protocol
-    for ax, ykey in zip(axes, ykeys):
+    for ax, ykey in zip(axes[1:], ykeys):
         ax.scatter(x, table[ykey])
         ax.set_ylabel(ykey)
     
     # Return figure handle
     return fig
+
+
+def plot_P_DC_map(P, DC, fs=12, ax=None):
+    ''' 
+    Plot sonication protocol in the DC - pressure space
+    
+    :param P: array of peak pressure amplitudes (in MPa)
+    :param DC: array of duty cycles (in %)
+    :return: figure handle
+    '''
+
+    # Compute time average intensities over P - DC grid
+    nperax = 100
+    Prange = np.linspace(0, 1.25 * P.max(), nperax)  # MPa
+    DCrange = np.linspace(0, 100, nperax)  # %
+    Isppa = pressure_to_intensity(Prange / PA_TO_MPA) / M2_TO_CM2  # W/cm2
+    Ispta = np.dot(np.atleast_2d(Isppa).T, np.atleast_2d(DCrange)) * 1e-2  # W/cm2
+
+    # Create or retrieve figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(4, 4))
+    else:
+        fig = ax.get_figure()
+    ax.set_title(Label.ISPTA, fontsize=fs)
+    ax.set_xlabel(Label.DC, fontsize=fs)
+    ax.set_ylabel(Label.P, fontsize=fs)
+    sns.despine(ax=ax)
+    for item in ax.get_xticklabels() + ax.get_yticklabels():
+        item.set_fontsize(fs)
+
+    # Plot Ispta colormap over DC - DC space
+    cmap = sns.color_palette('rocket', as_cmap=True).reversed()
+    ax.pcolormesh(
+        DCrange, Prange, Ispta, shading='gouraud', rasterized=True, cmap=cmap)
+
+    # Plot contours for characteristic Ispta values
+    Ispta_levels = np.array([.01, .2, 1, 2, 5, 10, 20])
+    labels_DC = 80
+    labels_Ispta = Ispta_levels / labels_DC * 1e2  # W/cm2
+    labels_P = intensity_to_pressure(labels_Ispta * M2_TO_CM2) * PA_TO_MPA 
+    labels_locs = [(labels_DC, p) for p in labels_P]
+    CS = ax.contour(DCrange, Prange, Ispta, levels=Ispta_levels, colors='k')
+    ax.clabel(CS, fontsize=fs, inline=True, fmt='%.2g', manual=labels_locs)
+
+    # Plot sampled DC - P combinations
+    ax.scatter(DC, P, c='deepskyblue', edgecolors='k', zorder=80)
+
+    # Finalize figure layout
+    fig.tight_layout()
+
+    # Return figure
+    return fig
+
 
 
 def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,

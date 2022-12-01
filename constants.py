@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-30 12:54:20
+# @Last Modified time: 2022-12-01 15:25:47
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -33,6 +33,10 @@ SI_POWERS = {
     'Z': 21,   # zetta
     'Y': 24,   # yotta
 }
+
+# Conversion constants
+PA_TO_MPA = 1e-6
+M2_TO_CM2 = 1e4
 
 
 ###################################### DATA ACQUISITION ######################################
@@ -102,8 +106,8 @@ NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution 
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
-    RESPONSE = slice(STIM, STIM + 10)  # indexes used for post-stimulus response computation per trial.
+    PRESTIM = slice(STIM - 10, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
+    RESPONSE = slice(STIM + 1, STIM + 12)  # indexes used for post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 
