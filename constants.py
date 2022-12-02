@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-01 15:25:47
+# @Last Modified time: 2022-12-02 13:39:22
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -89,7 +89,7 @@ NEUROPIL_SCALING_COEFF = 0.7
 # Baseline computation
 BASELINE_QUANTILE = None  #.08  # quantile used for the computation of the fluorescence baseline (if None, and adaptive quantile is used)
 BASELINE_WQUANTILE = 10.  # quantile filter window size (s) to compute fluorescence baseline
-BASELINE_WSMOOTHING = 10.  # gaussian filter window size (s) to smooth out fluorescence baseline
+BASELINE_WSMOOTHING = None  # gaussian filter window size (s) to smooth out fluorescence baseline
 
 # Trials discarding
 ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 

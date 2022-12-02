@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-01 17:31:44
+# @Last Modified time: 2022-12-02 17:42:56
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -17,7 +17,7 @@ from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
-from scipy.interpolate import griddata
+from scipy.interpolate import griddata, interp1d
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from functools import wraps
@@ -249,18 +249,22 @@ def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None, smooth=True)
             bstr = f'successive application of:\n{itemize(bstr)}'    
         logger.info(f'defining baseline function as {bstr}')
 
-        # Define baseline extraction function
-        def bfunc(y):
-            if q is None:
-                q_ = skew_to_quantile(skew(y))
-            else:
-                q_ = q
+        # Define baseline extraction function per run
+        def bfunc_per_run(y, q_):
             y = quantile_filter(y, wquantile_len, q_)
             if wsmooth is not None:
                 y = gaussian_filter1d(y, wsmooth_len)
             return y
-        # Return baseline extraction function
-        return pandas_proof(bfunc)
+        
+        # Define baseline extraction function per ROI
+        def bfunc_per_ROI(s):
+            if q is None:
+                q_ = skew_to_quantile(skew(s))
+            else:
+                q_ = q
+            return s.groupby(Label.RUN).transform(lambda ss: bfunc_per_run(ss, q_))
+        
+        return bfunc_per_ROI
 
 
 def maximin(y, w):
@@ -782,6 +786,7 @@ def histogram_fit(data, func, bins=100, p0=None, bounds=None):
         popt, _ = curve_fit(func, xmid, hist, p0=p0, bounds=bounds, max_nfev=1000)
     return xmid, popt
 
+
 def gauss_histogram_fit(data, bins=100, plot=False):
     '''
     Fit a gaussian function to a dataset's histogram distribution
@@ -971,6 +976,28 @@ def get_pvalue_per_sample(p, n):
     pinv_sample = np.power(pinv, 1 / n)
     # Return inverse probability
     return 1 - pinv_sample
+
+
+def get_zscore_mean(pthr, w):
+    '''
+    Get the value of the mean from a z-score distribution inside a sample window
+    corresponding to a given significance criterion (p-value)
+    
+    :param pthr: significance threshold (p-value)
+    :param w: window size (or window slice)
+    :return: characteristic mean z-score
+    '''
+    # Vectorize function
+    if isinstance(w, np.ndarray):
+        return np.array([get_zscore_mean(pthr, ww) for ww in w]) 
+    # If slice is given, compute size
+    if isinstance(w, slice):
+        w = w.stop - w.start
+    # If window size smaller than 1 -> return NaN
+    if w < 1:
+        return np.nan
+    # Compute and return z-score
+    return pvalue_to_zscore(pthr) * np.sqrt(w)
 
 
 def get_zscore_maximum(pthr, w):
@@ -1628,3 +1655,111 @@ def interpolate_2d_map(df, xkey, ykey, outkey, dx=None, dy=None, method='linear'
     interp_map = interp_values.reshape(xrange.size, yrange.size)
     # Return outputs
     return xrange, yrange, interp_map
+
+
+def align_at(s, iframe):
+    ''' 
+    Align all traces of a series at a specific index (or index slice average)
+
+    :param s: input multi-index series
+    :param iframe: frame index (or index slice) at which to align traces
+    :return: aligned series
+    '''
+    if isinstance(s, pd.DataFrame):
+        return s.apply(lambda x: align_at(x, iframe))
+    logger.info(f'aligning {s.name} traces at frame(s) {iframe}...')
+    s_iframe = s.loc[slice_last_dim(s.index, iframe)]
+    if Label.FRAME in s_iframe.index.names:
+        levels = list(s_iframe.index.names)[:-1]
+        s_iframe = s_iframe.groupby(levels).mean()
+    return s - s_iframe
+
+
+def get_cumulative_frame_index(mux):
+    ''' Get cumulative frame index across trials for trial-frame multi-index '''
+    itrial = mux.get_level_values(Label.TRIAL)
+    iframe = mux.get_level_values(Label.FRAME)
+    return (itrial * NFRAMES_PER_TRIAL) + iframe
+
+
+def get_quantile_index(s, **kwargs):
+    return np.abs(s - s.median(**kwargs)).idxmin()
+
+
+def get_trial_anchor_points(s):
+    ''' 
+    Get interpolation anchor points for a trial timeseries
+
+    :param s: trial timeseries
+    :return: anchor points indexes
+    '''
+    # Reduce index to frame only
+    s.index = s.index.get_level_values(Label.FRAME)
+    # Extract pre and post response windows
+    spre = s.loc[slice_last_dim(s.index, FrameIndex.PRESTIM)]
+    spost = s.loc[slice_last_dim(s.index, FrameIndex.BASELINE)]
+    # Extract anchor points from given quantiles in each window
+    ianchors = [get_quantile_index(spre), get_quantile_index(spost)]
+    return ianchors
+
+
+def spline_interp_run(s, ianchors=None):
+    ''' 
+    Interpolate run timeseries using a cubic spline
+
+    :param s: input multi-index series
+    :return: spline-interpolated series
+    '''
+    # Extract anchor points if not given
+    if ianchors is None:
+        ianchors = s.groupby([Label.ROI, Label.RUN, Label.TRIAL]).apply(
+            get_trial_anchor_points).explode().rename(Label.FRAME)
+        ianchors = ianchors.to_frame().set_index(Label.FRAME, append=True).index
+    # Otherwise, propagate them through every trial
+    else:
+        levels = {k: s.index.unique(level=k) for k in s.index.names[:-1]}
+        levels[Label.FRAME] = ianchors
+        ianchors = pd.MultiIndex.from_product(
+            list(levels.values()), names=list(levels.keys()))
+    # Compute cumulative index
+    df = s.rename('y').to_frame()
+    df['x'] = get_cumulative_frame_index(df.index)
+    # Select data at anchor points, plus end points if not there already
+    df_anchors = df.loc[ianchors, :]
+    if ianchors[0][-1] != 0:
+        df_anchors = pd.concat([df.head(1), df_anchors], axis=0)
+    if ianchors[-1][-1] != NFRAMES_PER_TRIAL - 1:
+        df_anchors = pd.concat([df_anchors, df.tail(1)], axis=0)
+    # Construct cubic slice interpolator
+    finterp = interp1d(
+        df_anchors['x'], df_anchors['y'], kind='cubic', fill_value='extrapolate',
+        assume_sorted=True)
+    # Apply interpolator to entire series and return
+    return pd.Series(data=finterp(df['x']), index=s.index, name=s.name)
+
+
+
+def spline_interp_trial(s):
+    ''' 
+    Interpolate trial timeseries using a cubic spline
+
+    :param s: trial timeseries
+    :param ianchor: frame index (relative to trial) of anchoring points
+    :return: spline-interpolated series
+    '''
+    mux = s.index
+    # Reduce index to frame only
+    s.index = s.index.get_level_values(Label.FRAME)
+    # Extract pre and post response windows
+    spre = s.loc[slice_last_dim(s.index, FrameIndex.PRESTIM)]
+    spost = s.loc[slice_last_dim(s.index, FrameIndex.BASELINE)]
+    # Extract anchor points from given quantiles in each window
+    ianchors = [get_quantile_index(spre), get_quantile_index(spost)]
+    yanchors = s.loc[ianchors].values
+    # Interpolate with cubic spline
+    finterp = interp1d(
+        ianchors, yanchors, kind='cubic', 
+        fill_value='extrapolate', assume_sorted=True)
+    yinterp = finterp(s.index.values)
+    # Return as series with original index
+    return pd.Series(data=yinterp, index=mux, name=s.name)

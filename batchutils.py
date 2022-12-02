@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-30 15:19:45
+# @Last Modified time: 2022-12-02 15:46:29
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -77,7 +77,7 @@ def get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing):
         baseline_wsmoothing = None
         baseline_id = ''
     else:
-        baseline_id = f'wq{baseline_wsmoothing:.1f}s'
+        baseline_id = f'wq{baseline_wquantile:.1f}s'
     if baseline_wsmoothing is not None:
         baseline_id = f'{baseline_id}_ws{baseline_wsmoothing:.2f}s'
     baseline_quantile_str = 'adaptive' if baseline_quantile is None else f'{baseline_quantile:.2f}'
