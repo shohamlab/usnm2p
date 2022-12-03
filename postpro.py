@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-03 15:13:07
+# @Last Modified time: 2022-12-03 15:17:55
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -843,8 +843,9 @@ def gauss_histogram_fit(data, bins=100, plot=False):
 
     # Check that x-axis parameters (mean and std) are correct
     s = popt[3]
-    if s < 0.:
-        raise ValueError(f'negative stdev found during Gaussian histogram fit ({s})')
+    if s <= 0.:
+        raise ValueError(
+            f'non-positive stdev found during Gaussian histogram fit: {s} (data range = {bounds(data)})')
     # mu = popt[2]
     # if mu < 0:
     #     logger.warning(f'negative mean found during Gaussian fit ({mu})')
