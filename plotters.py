@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-02 17:17:27
+# @Last Modified time: 2022-12-03 16:29:20
 
 ''' Collection of plotting utilities. '''
 
@@ -2264,14 +2264,11 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
         raise ValueError(f'unknown parameter key: "{pkey}"')
     
     # Determine y-bounds depending on variable
-    if ykey == Label.DFF:
-        ybounds = [-0.1, 0.15]
-    elif ykey == Label.ZSCORE:
-        ybounds = [-3., 6.]
-    elif ykey == Label.EVENT_RATE:
-        ybounds = [0., 1 / MIN_EVENTS_DISTANCE]
-    else:
-        raise ValueError(f'unknown variable key: "{ykey}"')
+    ybounds = {
+        # Label.DFF: [-0.1, 0.15],
+        Label.ZSCORE: [-3., 6.],
+        Label.EVENT_RATE: [0., 1 / MIN_EVENTS_DISTANCE]
+    }.get(ykey, None)
     
     # Update with passed keyword arguments
     tracekwargs.update(kwargs)
