@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-03 15:55:28
+# @Last Modified time: 2022-12-03 18:00:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1311,6 +1311,18 @@ def get_param_code(data):
     DC_str = data[Label.DC].map('{:02.0f}%DC'.format)
     # Generate new column from concatenated (P, DC) combination 
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
+
+
+def get_param_sequence_per_dataset(data):
+    ''' Get parametric sequence per dataset '''
+    # Get params and run IDs per dataset and run, and remove run level from index
+    param_seqs = data[[Label.RUNID, Label.P, Label.DC]].groupby([Label.DATASET, Label.RUN]).first().droplevel(Label.RUN)
+    # Offset run IDs for each dataset
+    param_seqs[Label.RUNID] = param_seqs[Label.RUNID].groupby(Label.DATASET).transform(lambda s: s - s.min()).astype(int)
+    # Sort by run ID for each 
+    param_seqs = param_seqs.sort_values([Label.DATASET, Label.RUNID]).set_index(Label.RUNID, append=True)
+    # Return param sequences per dataset
+    return get_param_code(param_seqs).unstack().T
         
 
 def get_offset_code(data):
