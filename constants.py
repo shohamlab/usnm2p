@@ -99,7 +99,8 @@ MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
 EVENTS_BIN_INTERVAL = 1.4  # binning interval for events density quantification (s)
 
 # Artifacts
-VDISP_THR = 2.  # threshold peak displacement velocity (um/s). Trials with velocities higher than this value get discarded 
+VDISP_PEAK_THR = 2.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
+VDISP_AVG_THR = .5  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 
@@ -198,6 +199,7 @@ class Label:
 
     # Statistics
     PEAK_DISP_VEL = 'peak displacement velocity (um/s)'
+    AVG_DISP_VEL = 'average displacement velocity (um/s)'
     DISCARDED = 'discarded'
     MOTION = 'motion'
     OUTLIER = 'outlier'

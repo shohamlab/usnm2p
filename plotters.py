@@ -1716,6 +1716,8 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                     sortby = []
                     if Label.DATASET in ydiff.index.names:
                         sortby.append(Label.DATASET)
+                    # Average across remaining dimensions                      
+                    ydiff = ydiff.groupby([Label.ROI] + sortby).mean()
                     # Sort by ascending differential metrics
                     sortby.append('val')
                     ydiff = ydiff.to_frame().sort_values(sortby)['val']
