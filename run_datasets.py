@@ -2,59 +2,35 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-30 14:18:22
+# @Last Modified time: 2022-12-05 11:01:19
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
 import os
 from itertools import product
 import logging
-from argparse import ArgumentParser
 from constants import *
 
 from fileops import get_data_root, get_dataset_params
 from logger import logger
-from nbutils import DirectorySwicther, execute_notebooks
+from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser
 from utils import as_iterable
 from batches import create_queue
 
 logger.setLevel(logging.INFO)
 
+
 if __name__ == '__main__':
 
     # Create command line parser
-    parser = ArgumentParser()
-
-    # Add input / output / mpi / check arguments
-    parser.add_argument(
-        '-i', '--input', default='dataset_analysis.ipynb',
-        help='path to input notebook')
-    parser.add_argument(
-        '-o', '--outdir', default='outputs', 
-        help='relative path to output directory w.r.t. this script')
-    parser.add_argument(
-        '--mpi', default=False, action='store_true', help='enable multiprocessing')
-    parser.add_argument(
-        '--nocheck', default=False, action='store_true', help='no check before running')
-
-    # Add dataset arguments
-    parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
-    parser.add_argument('-l', '--mouseline', help='mouse line')
-    parser.add_argument('-d', '--expdate', help='experiment date')
-    parser.add_argument('-m', '--mouseid', help='mouse number')
-    parser.add_argument('-r', '--region', help='brain region')
-    parser.add_argument('--layer', help='Cortical layer')
-
-    BASELINE_WSMOOTHING  # gaussian filter window size (s) to smooth out fluorescence baseline
+    parser = get_notebook_parser(
+        'dataset_analysis.ipynb',
+        line=True, date=True, mouse=True, region=True, layer=True)
 
     # Add arguments about other execution parameters
     parser.add_argument(
         '--inspect', default=False, action='store_true',
         help='Inspect data from random run along processing')
-    parser.add_argument(
-        '--slack_notify', action='store_true', help='Notify on slack')
-    parser.add_argument(
-        '--no-slack_notify', dest='slack_notify', action='store_false')
     parser.add_argument(
         '-k', '--kalman_gain', type=float, default=KALMAN_GAIN, nargs='+',
         help='Kalman filter gain (s)')
@@ -82,7 +58,7 @@ if __name__ == '__main__':
     input_nbpath = args.pop('input')
     outdir = args.pop('outdir')
     mpi = args.pop('mpi')
-    nocheck = args.pop('nocheck')
+    ask_confirm = not args.pop('go')
     exec_args = [
         'inspect',
         'slack_notify',
@@ -140,6 +116,6 @@ if __name__ == '__main__':
     with DirectorySwicther(exec_dir) as ds:
         # Execute notebooks as a batch with / without multiprocessing
         output_nbpaths = execute_notebooks(
-            params, input_nbpath, outdir, mpi=mpi, ask_confirm=not nocheck)
+            params, input_nbpath, outdir, mpi=mpi, ask_confirm=ask_confirm)
 
 logger.info('all analyses completed')

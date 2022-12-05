@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-23 10:27:43
+# @Last Modified time: 2022-12-05 10:58:48
 
 ''' Notebook running utilities '''
 
@@ -10,9 +10,49 @@ import jupyter_slack
 import os
 import papermill as pm
 from nbclient.exceptions import DeadKernelError
+from argparse import ArgumentParser
 
 from logger import logger
 from batches import Batch
+from constants import DEFAULT_ANALYSIS
+
+
+def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=False, region=False, layer=False):
+    ''' Create command line parser for notebook execution '''
+    # Create command line parser
+    parser = ArgumentParser()
+    # Add input / output / mpi / check arguments
+    parser.add_argument(
+        '-i', '--input', default=input_nb,
+        help='path to input notebook')
+    parser.add_argument(
+        '-o', '--outdir', default='outputs', 
+        help='relative path to output directory w.r.t. this script')
+    parser.add_argument(
+        '--mpi', default=False, action='store_true', help='enable multiprocessing')
+    parser.add_argument(
+        '--go', default=False, action='store_true', help='start without user check')
+    # Add slack notification argument
+    parser.add_argument(
+        '--slack_notify', action='store_true', help='Notify on slack')
+    parser.add_argument(
+        '--no-slack_notify', dest='slack_notify', action='store_false')
+    parser.set_defaults(slack_notify=True)
+    # Add specfied dataset arguments
+    if analysis:
+        parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
+    if line:
+        parser.add_argument('-l', '--mouseline', help='mouse line')
+    if date:
+        parser.add_argument('-d', '--expdate', help='experiment date')
+    if mouse:
+        parser.add_argument('-m', '--mouseid', help='mouse number')
+    if region:
+        parser.add_argument('-r', '--region', help='brain region')
+    if layer:
+       parser.add_argument('--layer', help='Cortical layer')
+    # Return parser
+    return parser
 
 
 def execute_notebook(pdict, input_nbpath, outdir):
