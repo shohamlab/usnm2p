@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-04 19:35:12
+# @Last Modified time: 2022-12-05 13:10:51
 
 ''' Collection of constants used throughout the code base. '''
 

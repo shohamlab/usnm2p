@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 11:49:37
+# @Last Modified time: 2022-12-05 13:07:22
 
 ''' Collection of generic utilities. '''
 
@@ -236,6 +236,19 @@ def repeat_along_new_dims(df, newdims):
         df = repeat_along_new_dim(df, name, inds)
     return df
 
+
+def list_difference(l1, l2):
+    ''' 
+    Return list difference elements in the same order as in the original list
+    
+    :param l1: original list
+    :param l2: list to "subtract" to original list
+    :return: output list resulting from subtraction and re-ordering
+    '''
+    diff = set(l1) - set(l2)
+    return [o for o in l1 if o in diff]
+
+
 def expand_to_match(df, mux):
     '''
     Expand dataframe along new index dimensions to match reference index
@@ -246,11 +259,9 @@ def expand_to_match(df, mux):
         name = df.name
         df = df.to_frame()
     # Identify index levels present in reference index but not in data
-    refnames = mux.names
-    extra_levels = set(refnames) - set(df.index.names)
+    extra_levels = list_difference(mux.names, df.index.names)
     if len(extra_levels) == 0:
         raise ValueError('did not find any extra index levels')
-    extra_levels = list(filter(lambda x: x in extra_levels, refnames))
     newdims = {k: mux.unique(level=k) for k in extra_levels}
     newdf = repeat_along_new_dims(df, newdims)
     if name is not None:
