@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-03 16:29:20
+# @Last Modified time: 2022-12-05 10:37:33
 
 ''' Collection of plotting utilities. '''
 
@@ -1585,7 +1585,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, cmap=None, center=None, vmin=None, vmax=None,
+                       colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                        quantile_bounds=(.01, .99), mark_stim=True, sort_rows=False,
                        col_order=None, col_labels=None, rect_markers=None,
                        rasterized=False):
@@ -1617,19 +1617,26 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     data = data.loc[tuple(idx), :]
 
     # Determine pivot index keys, number of rows per map, and resulting aspect ratio
+    extra_pivot_index_keys = []
     if Label.DATASET in data.index.names:
-        pivot_index_keys = [Label.DATASET, Label.ROI]
-        nROIs_per_dataset = {}
-        for dataset, tmp in data.groupby(Label.DATASET):
-            nROIs_per_dataset[dataset] = len(tmp.index.unique(Label.ROI))
-        nROIs_per_dataset = pd.Series(nROIs_per_dataset)
-        dataset_ends = nROIs_per_dataset.cumsum()
-        dataset_starts = dataset_ends.shift(periods=1, fill_value=0.)
-        dataset_mids = (dataset_starts + dataset_ends) / 2
-        dataset_seps = dataset_ends
+        extra_pivot_index_keys.append(Label.DATASET)    
+    if row is not None:
+        extra_pivot_index_keys.append(row)
+        colwrap = data.groupby(col).ngroups
+    if len(extra_pivot_index_keys) > 0:
+        nROIs_per_pivot = {}
+        for k, tmp in data.groupby(extra_pivot_index_keys):
+            nROIs_per_pivot[k] = len(tmp.index.unique(Label.ROI))
+        nROIs_per_pivot = pd.Series(nROIs_per_pivot)
+        ysep_ends = nROIs_per_pivot.cumsum()
+        ysep_starts = ysep_ends.shift(periods=1, fill_value=0.)
+        ysep_mids = (ysep_starts + ysep_ends) / 2
+        if row is not None:
+            ysep_mids = ysep_mids.rename(f'{row} {{}}'.format) 
+        pivot_index_keys = [Label.ROI] + extra_pivot_index_keys
     else:
-        dataset_seps = None
         pivot_index_keys = Label.ROI
+        ysep_ends = None
     nrowspermap = len(data.groupby(pivot_index_keys).first())
     aspect_ratio = nrowspermap / 100
 
@@ -1657,7 +1664,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     # Add time column to dataframe
     data = add_time_to_table(data.copy(), fps=fps)
     
-    # Group data according to col parameter
+    # Group data according to col and/or row parameter(s)
     if col is not None:
         groups = data.groupby(col)
     else:
@@ -1665,7 +1672,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
     # Initialize figure
     naxes = len(groups)
-    nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes) 
+    nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes)
     width = ncols * 2.5  # inches
     height = nrows * 2.5  # inches
     if nrows == 1:
@@ -1712,10 +1719,10 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                     # Remove column sorter from index, if present
                     if col is not None and col in ydiff.index.names:
                         ydiff = ydiff.droplevel(col)
-                    # If multiple datasets, group by dataset before sorting
+                    # If additional pivot keys, group by them before sorting
                     sortby = []
-                    if Label.DATASET in ydiff.index.names:
-                        sortby.append(Label.DATASET)
+                    if len(extra_pivot_index_keys) > 0:
+                        sortby += extra_pivot_index_keys
                     # Average across remaining dimensions                      
                     ydiff = ydiff.groupby([Label.ROI] + sortby).mean()
                     # Sort by ascending differential metrics
@@ -1752,13 +1759,13 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                     ax.axvline(istim, c='w', ls='--', lw=1.)
                 
                 # Add dataset separators if available
-                if dataset_seps is not None:
-                    for y in dataset_seps:
+                if ysep_ends is not None:
+                    for y in ysep_ends:
                         ax.axhline(y, c='w', ls='--', lw=2.)
                     if i == 0:
-                        ax.set_yticks(dataset_mids)
+                        ax.set_yticks(ysep_mids)
                         ax.set_yticklabels(
-                            dataset_mids.index, rotation='vertical', va='center')
+                            ysep_mids.index, rotation='vertical', va='center')
                         ax.tick_params(axis='y', left=False)
 
                 # Add rectangular markers, if any 
@@ -1769,11 +1776,10 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                             refidx[rect_markers.index.names.index(col)] = glabel
                             submarks = rect_markers.loc[tuple(refidx)]
                             for dataset, color in submarks.iteritems():
-                                yb, yt = dataset_starts.loc[dataset], dataset_ends.loc[dataset]
+                                yb, yt = ysep_starts.loc[dataset], ysep_ends.loc[dataset]
                                 ax.add_patch(Rectangle(
-                                    (ax.get_xlim()[0], dataset_starts.loc[dataset]), 
-                                    ax.get_xlim()[1] - ax.get_xlim()[0], 
-                                    dataset_ends.loc[dataset] - dataset_starts.loc[dataset],
+                                    (ax.get_xlim()[0], yb), 
+                                    ax.get_xlim()[1] - ax.get_xlim()[0], yt - yb,
                                     fc='none', ec=color, lw=10))
 
             pbar.update()
