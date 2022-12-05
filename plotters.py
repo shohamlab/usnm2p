@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 10:37:33
+# @Last Modified time: 2022-12-05 16:02:58
 
 ''' Collection of plotting utilities. '''
 
@@ -95,6 +95,12 @@ def get_colors(cmap, N=None, use_index='auto'):
 def get_color_cycle(*args, **kwargs):
     ''' Get color cycler based on a colormap '''
     return plt.cycler('color', get_colors(*args, **kwargs))
+
+
+def to_binary_cmap(cmap):
+    ''' Convert continous cmap to binary cmap with range extremities colors '''
+    colors = [cmap(0.), cmap(1.)]
+    return ListedColormap(colors=colors)
 
 
 def harmonize_axes_limits(axes, axkey='y'):

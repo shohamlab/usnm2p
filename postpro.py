@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 13:10:01
+# @Last Modified time: 2022-12-05 15:38:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1009,7 +1009,7 @@ def get_zscore_mean(pthr, w):
     if w < 1:
         return np.nan
     # Compute and return z-score
-    return pvalue_to_zscore(pthr) * np.sqrt(w)
+    return pvalue_to_zscore(pthr) / np.sqrt(w)
 
 
 def get_zscore_maximum(pthr, w):
