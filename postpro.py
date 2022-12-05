@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-04 19:50:51
+# @Last Modified time: 2022-12-05 11:50:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1056,23 +1056,34 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
     return tstat, pval
 
 
-def is_valid(df):
+def is_valid(data):
     ''' 
     Return a series with an identical index as that of the input dataframe, indicating
     which rows are valid and must be included for response analysis.
+
+    :param data: multi-index pandas experiment dataframe
+    :return: multi-index validity column
     '''
-    # Identify samples without any invalidity criteria
-    cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
+    # Identify samples without any invalidity criterion
+    cols = [k for k in TRIAL_VALIDITY_KEYS if k in data.columns]
     if len(cols) > 0:
         logger.info(f'identifying samples without [{", ".join(cols)}] tags')
-    isv = ~df[cols].any(axis=1).rename('valid?')
-    logger.info(f'identifying conditions with >= {MIN_VALID_TRIALS} valid trials')
-    # Identify number of valid trials per sample
-    nvalid_trials = isv.groupby(list(set(isv.index.names) - set([Label.TRIAL]))).sum()
+    isv = ~data[cols].any(axis=1).rename('valid?')
+    # Compute number of valid trials per sample
+    groupby = list(set(isv.index.names) - set([Label.TRIAL]))
+    nvalid_trials = isv.groupby(groupby).sum()
     # Identify samples with a minimum number of valid trials for averaging purposes
+    logger.info(f'identifying conditions with >= {MIN_VALID_TRIALS} valid trials')
     is_valid_cond = nvalid_trials >= MIN_VALID_TRIALS
-    # Update validity index with that information, and return
-    return np.logical_and(isv, expand_to_match(is_valid_cond, isv.index))
+    is_valid_cond_exp = expand_to_match(is_valid_cond, isv.index)
+    # print(isv.index.names, len(isv))
+    # print(is_valid_cond.index.names, len(is_valid_cond))
+    # print(is_valid_cond_exp.index.names, len(is_valid_cond_exp))
+    # Update validity index with that information
+    isv = np.logical_and(isv, is_valid_cond_exp)
+    # print(isv.index.names, len(isv))
+    # Return
+    return isv
 
 
 def valid(df):
@@ -1087,8 +1098,11 @@ def valid(df):
 def valid_timeseries(timeseries, stats):
     ''' Return a copy of a timeseries dataframe with only valid rows that must be included for response analysis. '''
     isv = is_valid(stats.copy())
+    print(isv.index.names, len(isv))
     logger.info('adding expanded validity index to timeseries ...')
+    print(timeseries.index.names, len(timeseries))
     isv_exp = expand_to_match(isv, timeseries.index)
+    print(isv_exp.index.names, len(isv_exp))
     logger.info('filtering timeseries ...')
     return timeseries.loc[isv_exp, :]
     

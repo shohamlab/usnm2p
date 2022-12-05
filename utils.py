@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-01 15:24:42
+# @Last Modified time: 2022-12-05 11:49:37
 
 ''' Collection of generic utilities. '''
 
@@ -240,10 +240,12 @@ def expand_to_match(df, mux):
     '''
     Expand dataframe along new index dimensions to match reference index
     '''
+    # Transform to dataframe if needed
     name = None 
     if isinstance(df, pd.Series):
         name = df.name
         df = df.to_frame()
+    # Identify index levels present in reference index but not in data
     refnames = mux.names
     extra_levels = set(refnames) - set(df.index.names)
     if len(extra_levels) == 0:
