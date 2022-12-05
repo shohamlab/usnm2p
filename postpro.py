@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 15:38:51
+# @Last Modified time: 2022-12-05 17:54:45
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -959,7 +959,7 @@ def pvalue_to_tscore(p, n, directional=True):
     return t
 
 
-def pvalue_to_zscore(p=.05, directional=True):
+def pvalue_to_zscore(p=.05, directional=False):
     '''
     Compute the z-score corresponding to a given chance probability level
     
@@ -990,7 +990,7 @@ def get_pvalue_per_sample(p, n):
     return 1 - pinv_sample
 
 
-def get_zscore_mean(pthr, w):
+def get_zscore_mean(pthr, w, **kwargs):
     '''
     Get the value of the mean from a z-score distribution inside a sample window
     corresponding to a given significance criterion (p-value)
@@ -1009,7 +1009,7 @@ def get_zscore_mean(pthr, w):
     if w < 1:
         return np.nan
     # Compute and return z-score
-    return pvalue_to_zscore(pthr) / np.sqrt(w)
+    return pvalue_to_zscore(pthr, **kwargs) / np.sqrt(w)
 
 
 def get_zscore_maximum(pthr, w):

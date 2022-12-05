@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 13:10:51
+# @Last Modified time: 2022-12-05 18:05:07
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -88,7 +88,7 @@ NEUROPIL_SCALING_COEFF = 0.7
 
 # Baseline computation
 BASELINE_QUANTILE = None  #.08  # quantile used for the computation of the fluorescence baseline (if None, and adaptive quantile is used)
-BASELINE_WQUANTILE = 10.  # quantile filter window size (s) to compute fluorescence baseline
+BASELINE_WQUANTILE = 15.  # quantile filter window size (s) to compute fluorescence baseline
 BASELINE_WSMOOTHING = None  # gaussian filter window size (s) to smooth out fluorescence baseline
 
 # Trials discarding
@@ -115,7 +115,8 @@ class FrameIndex:
 
 # Response & cell type classification
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
-PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals (assuming directional effect)
+PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals
+PTHR_REJECTION = 0.01  # significance threshold probability for signal rejection
 PROP_CONDS_THR = 0.33  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
 OFFSET_MIN_PROP_POS = 0.5  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
