@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-03 18:00:18
+# @Last Modified time: 2022-12-04 19:50:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1061,11 +1061,18 @@ def is_valid(df):
     Return a series with an identical index as that of the input dataframe, indicating
     which rows are valid and must be included for response analysis.
     '''
+    # Identify samples without any invalidity criteria
     cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
     if len(cols) > 0:
         logger.info(f'identifying samples without [{", ".join(cols)}] tags')
-    out = ~df[cols].any(axis=1)
-    return out.rename('valid?')
+    isv = ~df[cols].any(axis=1).rename('valid?')
+    logger.info(f'identifying conditions with >= {MIN_VALID_TRIALS} valid trials')
+    # Identify number of valid trials per sample
+    nvalid_trials = isv.groupby(list(set(isv.index.names) - set([Label.TRIAL]))).sum()
+    # Identify samples with a minimum number of valid trials for averaging purposes
+    is_valid_cond = nvalid_trials >= MIN_VALID_TRIALS
+    # Update validity index with that information, and return
+    return np.logical_and(isv, expand_to_match(is_valid_cond, isv.index))
 
 
 def valid(df):
@@ -1691,7 +1698,11 @@ def align_at(s, iframe):
     '''
     if isinstance(s, pd.DataFrame):
         return s.apply(lambda x: align_at(x, iframe))
-    logger.info(f'aligning {s.name} traces at frame(s) {iframe}...')
+    if isinstance(iframe, slice):
+        fstr = f'average of frames {iframe.start} - {iframe.stop - 1}'
+    else:
+        fstr = f'frame {iframe}'
+    logger.info(f'aligning {s.name} traces at {fstr}...')
     s_iframe = s.loc[slice_last_dim(s.index, iframe)]
     if Label.FRAME in s_iframe.index.names:
         levels = list(s_iframe.index.names)[:-1]
