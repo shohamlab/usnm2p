@@ -100,7 +100,7 @@ EVENTS_BIN_INTERVAL = 1.4  # binning interval for events density quantification 
 
 # Artifacts
 VDISP_PEAK_THR = 2.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
-VDISP_AVG_THR = .8  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
+VDISP_AVG_THR = .7  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 NSTD_DEV_THR = 10  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 MIN_VALID_TRIALS = 5  # minimum of avaliable valid trials to average from for the ROI-condition to be valid 
