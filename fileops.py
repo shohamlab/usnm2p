@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-28 12:49:49
+# @Last Modified time: 2022-12-05 19:19:57
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -734,9 +734,7 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
 
     # Add missing change metrics, if any
     for ykey in [Label.ZSCORE, Label.DFF]:
-        ykey_avg = f'avg {ykey}' 
-        ykey_prestim_avg, ykey_poststim_avg = f'pre-stim {ykey_avg}', f'post-stim {ykey_avg}'
-        ykey_diff = f'{ykey_poststim_avg} - {ykey_prestim_avg}'
+        ykey_diff = get_change_key(ykey)
         if ykey_diff not in stats:
             stats = add_change_metrics(timeseries, stats, ykey)
     

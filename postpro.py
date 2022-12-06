@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 17:54:45
+# @Last Modified time: 2022-12-05 19:53:12
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1241,16 +1241,15 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
-def add_change_metrics(timeseries, stats, ykey, 
-                       wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
+def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     '''
     Compute change in a given variable between pre and post-stimulation windows
     
     :param timeseries: timeseries dataframe
     :param stats: stats dataframe
     :param ykey: evaluation variable
-    :param wpre: pre-stimulus evaluation window (slice)
-    :param wpost: post-stimulus evaluation window (slice)
+    :param npre: number of pre-stimulus samples
+    :param npost: number of post-stimulus samples
     :return: updated stats dataframe
     '''
     # Determine new keys
@@ -1260,6 +1259,16 @@ def add_change_metrics(timeseries, stats, ykey,
     # Define series averaging function
     def series_avg(s):
         return s.mean()
+
+    # Define windows sizes if not provided
+    if npre is None:
+        npre = FrameIndex.PRESTIM.stop - FrameIndex.PRESTIM.start - 1
+    if npost is None:
+        npost = FrameIndex.RESPONSE.stop - FrameIndex.RESPONSE.start - 1
+
+    # Compute pre-and post-stimulus windows
+    wpre = slice(FrameIndex.STIM - npre, FrameIndex.STIM + 1)
+    wpost = slice(FrameIndex.STIM + 1, FrameIndex.STIM + 2 + npost)
     
     # Apply in pre and post stimulus interval windows
     stats[ykey_prestim_avg] = apply_in_window(
