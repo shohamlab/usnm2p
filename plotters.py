@@ -2348,8 +2348,8 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
                               avgprop=None, errprop='inter', marker='o', err_style='bars', 
-                              add_leg_numbers=True, ci=CI, legend='full', as_ispta=False, 
-                              **kwargs):
+                              add_leg_numbers=True, ci=CI, legend='full', as_ispta=False,
+                              stacked=False, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2365,11 +2365,17 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
-    # If multi-dataset and hue is not per dataset, call adapted function
-    if Label.DATASET in data.index.names and hue != Label.DATASET:
-        return plot_parameter_dependency_across_datasets(
-            data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
-            add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker, **kwargs)
+    # If multi-dataset 
+    if Label.DATASET in data.index.names:
+        # If hue is not per dataset, call adapted function
+        if hue != Label.DATASET:
+            return plot_parameter_dependency_across_datasets(
+                data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
+                add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker, **kwargs)
+        # Otherwise, offset values per dataset if specified
+        else:
+            if stacked:
+                data[ykey] = offset_per_dataset(data[ykey])
     # Set plotting parameters
     hue_order = None
     hue_alpha = 1
@@ -2557,9 +2563,12 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, **kwargs):
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
-    # Initialize or retrieve figure
+    # Initialize or retrieve figure        
     if axes is None:
-        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+        height = 4
+        if kwargs.get('stacked', False):
+            height = max(height, len(data.index.unique(Label.DATASET)))
+        fig, axes = plt.subplots(1, 2, figsize=(10, height))
     else:
         if len(axes) != 2:
             raise ValueError('exactly 2 axes must be provided')

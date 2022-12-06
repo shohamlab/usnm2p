@@ -1254,6 +1254,9 @@ def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     '''
     # Determine new keys
     ykey_prestim_avg, ykey_poststim_avg, ykey_diff = get_change_key(ykey, full_output=True)
+    if npre is None and npost is None and ykey_diff in stats:
+        logger.warning(f'default {ykey_diff} already present in stats -> ignoring')
+        return stats
     logger.info(f'adding {ykey_diff} metrics to stats dataset...')
     
     # Define series averaging function
@@ -1814,3 +1817,26 @@ def spline_interp_trial(s):
     yinterp = finterp(s.index.values)
     # Return as series with original index
     return pd.Series(data=yinterp, index=mux, name=s.name)
+
+
+def offset_per_dataset(s, rel_offset=.5):
+    ''' 
+    Offset values to clearly separate datasets
+    for visualization purposes.
+    
+    :param s: multi-index experiment series
+    :param rel_offset: relative offset (in units of standard deviations) to apply to each dataset
+    :return: dataframe with column offset dataset
+    '''
+    # Determine absolute offset of each dataset
+    offset_factor = s.std() * rel_offset
+    datasets = s.index.unique(Label.DATASET)
+    offsets = pd.Series(
+        data=-np.arange(len(datasets)) * offset_factor,
+        index=datasets)
+    # Apply offsets and return    
+    def offset_func(ss):
+        idx = ss.index.unique(Label.DATASET)[0]
+        offset = offsets.loc[idx]
+        return ss + offset
+    return s.groupby(Label.DATASET).transform(offset_func)
