@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 16:02:58
+# @Last Modified time: 2022-12-06 12:38:05
 
 ''' Collection of plotting utilities. '''
 
@@ -148,29 +148,39 @@ def add_jointplot_line(jg, val=0., mode='xy'):
             ax.axhline(val, ls='--', c='k')
 
 
-def plot_table(d, title=None):
+def plot_table(data, title=None, ax=None, fs=15, aspect=1):
     '''
     Plot a dictionary as a table
 
-    :param d: dictionary
+    :param data: dataframe
     :param title (optional): table title
     :return: figure handle
     '''
-    # Initialize figure according to number of entries in dict
-    nrows = len(d)
-    fig, ax = plt.subplots(figsize=(6, nrows * 0.5))
+    if isinstance(data, dict):
+        data = pd.DataFrame({'Parameter': data.keys(), 'Value': data.values()})
+
+    nrows, ncols = data.shape
+    # Initialize or retrieve figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, nrows * 0.5))
+    else:
+        fig = ax.get_figure()
 
     # Set title if provided
     if title is not None:
-        ax.set_title(title, fontsize=20)
+        ax.set_title(title, fontsize=fs + 2)
     
     # Remove axes rendering
     ax.axis('off')
 
-    # Render dict content as table
-    table = ax.table([[k, v] for k, v in d.items()], loc='center')
-    table.set_fontsize(14)
-    table.scale(1, 2)
+    # Render dataframe content as table
+    table = pd.plotting.table(
+        data=data, ax=ax,
+        rowColours=['silver'] * nrows,
+        colColours=['silver'] * ncols,
+        loc='center')
+    table.set_fontsize(fs)
+    table.scale(1, aspect)
 
     # Tighten figure layout
     fig.tight_layout()
@@ -2677,46 +2687,6 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     if title is not None:
         stitle = f'{title} ({stitle})'
     fig.suptitle(stitle, fontsize=20)
-    
-    # Return figure handle
-    return fig
-
-
-def plot_protocol(table, xkey=Label.RUNID):
-    '''
-    Plot the evolution of stimulus parameters over time
-    
-    :param table: summary table of the parameters pertaining to each run
-    :param xkey: reference variable for time evolution (run or runID)
-    :return: figure handle
-    '''
-    # Extract x-axis variable as either table index or column 
-    try:
-        x = table[xkey]
-    except KeyError:
-        x = table.index.get_level_values(level=xkey)
-    ykeys = (Label.P, Label.DC)
-    
-    # Initialize figure
-    fig, axes = plt.subplot_mosaic([
-        ['A', 'B'], 
-        ['A', 'C']], 
-        constrained_layout=True, figsize=(8, 4))
-    axes = list(axes.values())
-    axes[1].set_title('evolution of stimulation parameters over runs')
-    for ax in axes[1:-1]:
-        sns.despine(ax=ax, bottom=True)
-        ax.set_xticks([])
-    axes[-1].set_xlabel(xkey)
-    sns.despine(ax=axes[-1])
-    
-    # Plot P - DC combinations on Ispta map 
-    plot_P_DC_map(table[Label.P], table[Label.DC], ax=axes[0])
-
-    # Plot evolution of each variable of interest along protocol
-    for ax, ykey in zip(axes[1:], ykeys):
-        ax.scatter(x, table[ykey])
-        ax.set_ylabel(ykey)
     
     # Return figure handle
     return fig
