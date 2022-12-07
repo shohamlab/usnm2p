@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 19:53:12
+# @Last Modified time: 2022-12-07 12:46:39
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1339,16 +1339,19 @@ def get_param_code(data):
     return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
 
 
-def get_param_sequence_per_dataset(data):
-    ''' Get parametric sequence per dataset '''
-    # Get params and run IDs per dataset and run, and remove run level from index
-    param_seqs = data[[Label.RUNID, Label.P, Label.DC]].groupby([Label.DATASET, Label.RUN]).first().droplevel(Label.RUN)
-    # Offset run IDs for each dataset
-    param_seqs[Label.RUNID] = param_seqs[Label.RUNID].groupby(Label.DATASET).transform(lambda s: s - s.min()).astype(int)
-    # Sort by run ID for each 
-    param_seqs = param_seqs.sort_values([Label.DATASET, Label.RUNID]).set_index(Label.RUNID, append=True)
-    # Return param sequences per dataset
-    return get_param_code(param_seqs).unstack().T
+def process_runids(s):
+    ''' Process run IDs  in a dataset to uncover run sequence '''
+    # If multi-dataset series, apply process for each dataset separately
+    if Label.DATASET in s.index.names:
+        if len(s.index.unique(Label.DATASET)) > 1:
+            return s.groupby(Label.DATASET).transform(process_runids)
+    # Extract run ID for each run
+    org_runids = s.groupby(Label.RUN).first()
+    # Subtract minimum value to uncover run sequence
+    new_runids = org_runids - org_runids.min()
+    # Replace run IDs by run sequence
+    runid_map = dict(zip(org_runids.values, new_runids.values))
+    return s.map(runid_map).astype(int)
         
 
 def get_offset_code(data):
@@ -1610,10 +1613,11 @@ def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
     Get a cell-count-weighted aggregated dataset (mean and propagated sem)
     for a range of parameter values
     '''
-    # Count number of ROIs per dataset and compute related weights vector
-    celltypes = data.groupby([Label.DATASET, Label.ROI]).first()
-    countsperdataset = celltypes.groupby(Label.DATASET).count().iloc[:, 0].rename('counts')
-    ntot = countsperdataset.sum()
+    # Count number of ROIs per dataset and input value 
+    celltypes = data.groupby([xkey, Label.DATASET, Label.ROI]).first()
+    countsperdataset = celltypes.groupby([xkey, Label.DATASET]).count().iloc[:, 0].rename('counts')
+    # Compute related weights vector
+    ntot = countsperdataset.groupby(xkey).sum()
     weightsperdataset = countsperdataset / ntot
 
     # Derive grouping categories: dataset, hue, and input value

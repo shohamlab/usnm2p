@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-06 12:38:05
+# @Last Modified time: 2022-12-07 12:43:18
 
 ''' Collection of plotting utilities. '''
 
@@ -2299,13 +2299,16 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     
     # Detailed mode: generate 1 figure per responder type
     if not avg:
+        title = tracekwargs.pop('title', None)
         figdict = {}
         for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
             logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
             nROIs_group = len(group.groupby([Label.DATASET, Label.ROI]).first())
-            title = f'{resptype} responders ({nROIs_group} cells)'
+            stitle = f'{resptype} responders ({nROIs_group} ROIs)'
+            if title is not None:
+                stitle = f'{title} - {stitle}'
             figdict[f'{resptype} {ykey} vs. {pkey}'] = plot_responses(
-                group, ykey=ykey, hue=pkey, title=title, ybounds=ybounds, **tracekwargs)        
+                group, ykey=ykey, hue=pkey, title=stitle, ybounds=ybounds, **tracekwargs)        
         return figdict
     
     # Average mode: generate a single figure with 1 axis per responder type
@@ -2382,7 +2385,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
     hueplt = False
     hueerr_style = err_style
     if hue is None:
-        avgprop = 'weighted'
+        avgprop = 'all'
     else:
         hueplt = True
         if hue == Label.ROI_RESP_TYPE:
@@ -2439,31 +2442,30 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         else:
             # If average trace relies on average across hue levels
             if avgprop == 'hue':
-                # Generate uniform vector of weights
-                idx = data.groupby(hue).first().index
-                weightsperhue = pd.Series([1 / len(idx)] * len(idx), index=idx)
+                # Generate uniform vector of counts per input and hue
+                idx = data.groupby([xkey, hue]).first().index
+                countsperhue = pd.Series([1] * len(idx), index=idx).rename('counts')
             # If average trace relies on cellcount-weighted average across hue levels
             elif avgprop == 'whue':
-                # Count number of ROIs per hue level and compute related weights vector
-                celltypes = data.groupby([hue, Label.ROI]).first()
-                countsperhue = celltypes.groupby(hue).count().iloc[:, 0].rename('counts')
-                ntot = countsperhue.sum()
-                weightsperhue = countsperhue / ntot
+                # Count number of ROIs per hue and input level 
+                celltypes = data.groupby([xkey, hue, Label.ROI]).first()
+                countsperhue = celltypes.groupby([xkey, hue]).count().iloc[:, 0].rename('counts')
             else:
                 raise ValueError(f'unknown average propagation mode: "{avgprop}"')
-
+            # Compute weights vector based off of counts
+            ntot = countsperhue.groupby(xkey).sum()
+            weightsperhue = countsperhue / ntot
             # Compute mean for each input and hue
             means = data.groupby([xkey, hue])[ykey].mean().rename('mean')
             # Compute weighted mean for each input
             mean = (means * weightsperhue).groupby(xkey).sum().rename('wmean')
-            
             # If global error must be propagated from hue ones
             if errprop == 'intra':
                 # Compute standard error for each input and hue
                 sems = data.groupby([xkey, hue])[ykey].sem().rename('sem')
                 # Compute propagated standard error for each input
                 sem = np.sqrt((weightsperhue * sems**2).groupby(xkey).sum()).rename('wsem')
-            # If 
+            # If global error must be computed between hues
             elif errprop == 'inter':
                 # Compute standard error between hues for each input
                 sem = means.groupby(xkey).sem()
