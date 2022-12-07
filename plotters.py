@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 12:43:18
+# @Last Modified time: 2022-12-07 16:23:15
 
 ''' Collection of plotting utilities. '''
 
@@ -1602,9 +1602,9 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
 
 def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
                        colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
-                       quantile_bounds=(.01, .99), mark_stim=True, sort_rows=False,
-                       col_order=None, col_labels=None, rect_markers=None,
-                       rasterized=False):
+                       quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=False,
+                       col_order=None, col_labels=None, row_order=None, row_labels=None,
+                       rect_markers=None, rasterized=False):
     '''
     Plot trial heatmap (average response over time of each cell within trial interval,
     culstered by similarity).
@@ -1632,18 +1632,34 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
 
+    # if row_order is not None:
+    #     irow = list(data.index.names).index(row)
+    #     rowmap = dict(zip(np.sort(row_order), row_order))
+    #     def mapper(x):
+    #         l = list(x)
+    #         l[irow] = rowmap[l[irow]]
+    #         return tuple(l)
+    #     logger.info(f'sorting data {row}...')
+    #     data.index.map(mapper)
+
     # Determine pivot index keys, number of rows per map, and resulting aspect ratio
     extra_pivot_index_keys = []
     if Label.DATASET in data.index.names:
         extra_pivot_index_keys.append(Label.DATASET)    
+        nROIs_per_pivot = {}
+        nROIs_per_pivot = pd.Series({
+            k: len(tmp.index.unique(Label.ROI))
+            for k, tmp in data.groupby(Label.DATASET)
+        }).rename('ROI count')
     if row is not None:
         extra_pivot_index_keys.append(row)
         colwrap = data.groupby(col).ngroups
+        nROIs = len(data.index.unique(Label.ROI))
+        nROIs_per_pivot = pd.Series({
+            k: nROIs for k, _ in data.groupby(row)
+        }).rename('ROI count')
     if len(extra_pivot_index_keys) > 0:
-        nROIs_per_pivot = {}
-        for k, tmp in data.groupby(extra_pivot_index_keys):
-            nROIs_per_pivot[k] = len(tmp.index.unique(Label.ROI))
-        nROIs_per_pivot = pd.Series(nROIs_per_pivot)
+        nROIs_per_pivot.index.names = extra_pivot_index_keys
         ysep_ends = nROIs_per_pivot.cumsum()
         ysep_starts = ysep_ends.shift(periods=1, fill_value=0.)
         ysep_mids = (ysep_starts + ysep_ends) / 2
@@ -1722,10 +1738,14 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                 table = gdata.pivot_table(
                     index=pivot_index_keys, columns=Label.TIME, values=key, aggfunc=np.mean)
                 # Get row order
-                row_order = gdata.groupby(pivot_index_keys).first().index
-                table = table.reindex(row_order, axis=0)
+                if row_order is None:
+                    row_order_exp = gdata.groupby(pivot_index_keys).first().index
+                else:
+                    row_order_exp = pd.MultiIndex.from_product([
+                        gdata.index.unique(Label.ROI), row_order])
+                table = table.reindex(row_order_exp, axis=0)
 
-                if sort_rows:
+                if sort_ROIs:
                     # Compute metrics average in pre-stimulus and response windows for each ROI
                     ypre = apply_in_window(
                         lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
@@ -1739,7 +1759,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                     sortby = []
                     if len(extra_pivot_index_keys) > 0:
                         sortby += extra_pivot_index_keys
-                    # Average across remaining dimensions                      
+                    # Average across remaining dimensions
                     ydiff = ydiff.groupby([Label.ROI] + sortby).mean()
                     # Sort by ascending differential metrics
                     sortby.append('val')

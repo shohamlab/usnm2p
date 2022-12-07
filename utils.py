@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 13:07:22
+# @Last Modified time: 2022-12-07 14:31:47
 
 ''' Collection of generic utilities. '''
 
@@ -300,6 +300,7 @@ def rectilinearize(s, iruns=None):
     # Compute dimensions of rectilinear output
     nlevels = len(s.index.levels)
     dims = [s.index.unique(level=i) for i in range(nlevels)]
+    
     # Extract number of runs, if not imposed 
     if Label.RUN in s.index.names:
         idim_run = s.index.names.index(Label.RUN)
@@ -307,26 +308,33 @@ def rectilinearize(s, iruns=None):
             iruns = dims[idim_run]
         else:
             dims[idim_run] = iruns
+    
     # If series contains multiple datasets, apply rectlinearization by dataset
     if Label.DATASET in s.index.names:
         if len(s.index.unique(Label.DATASET)) > 1:
             return s.groupby(Label.DATASET).apply(
                 lambda s: rectilinearize(s.droplevel(Label.DATASET), iruns=iruns))
-    org_str = f'{len(s)} rows ({describe_dataframe_index(s, join_str=", ")}) series'
+    
     # If dimensions match input, return directly
     shape = [len(x) for x in dims]
     if np.prod(shape) == len(s):
+        logger.info(
+            f'{s.name}: original {len(s)}-rows series is alreay rectilinear -> ignoring')
         return s
+    
     # Create "expanded" (rectilinear) index from input index levels
     mux_exp = pd.MultiIndex.from_product(dims)
+    
     # Create new series filled with zeros
     s_exp = pd.Series(0., index=mux_exp)
-    new_str = f'{len(s_exp)} rows ({describe_dataframe_index(s_exp)}) series'
-    naddrows = len(s_exp) - len(s)
+
+    # Log process
     logger.info(
-        f'{s.name}: expanding {org_str} into {new_str} ({naddrows} additional rows)')
-    # Add original series
+        f'{s.name}: expanding {len(s)}-rows series into {describe_dataframe_index(s_exp)} ({len(s_exp)}-rows) series ({len(s_exp) - len(s)} additional rows)')
+
+    # Add expanded series to original series (new elements will show up as NaN)
     snew = (s + s_exp).rename(s.name)
+    
     return snew
 
 
