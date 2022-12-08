@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 11:54:51
+# @Last Modified time: 2022-12-08 15:47:02
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -92,15 +92,15 @@ BASELINE_WQUANTILE = 10.  # quantile filter window size (s) to compute fluoresce
 BASELINE_WSMOOTHING = None  # gaussian filter window size (s) to smooth out fluorescence baseline
 
 # Trials discarding
-ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run 
+ITRIALS_DISCARD = []  # indexes of trials to be automatically discarded for each ROI & run 
 
 # Activity events detection & quantification
 MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
 EVENTS_BIN_INTERVAL = 1.4  # binning interval for events density quantification (s)
 
 # Artifacts
-VDISP_PEAK_THR = 2.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
-VDISP_AVG_THR = 1.  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
+VDISP_PEAK_THR = 10.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
+VDISP_AVG_THR = 2.  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 NSTD_DEV_THR = 5  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 MIN_VALID_TRIALS = 5  # minimum of avaliable valid trials to average from for the ROI-condition to be valid 
