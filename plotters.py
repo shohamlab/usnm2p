@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 13:21:20
+# @Last Modified time: 2022-12-08 14:24:13
 
 ''' Collection of plotting utilities. '''
 
@@ -2162,7 +2162,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         try:
             label_values = filtered_data[label]
         except KeyError:
-            label_values = get_trial_averaged(filtered_data)[label]
+            label_values = get_trial_aggregated(filtered_data)[label]
         if col is not None:
             label_values_per_ax = label_values.groupby(col).unique().values
         else:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 14:03:36
+# @Last Modified time: 2022-12-08 14:24:19
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -882,7 +882,7 @@ def compute_correlation_coeffs(data, xkey, ykey):
     # Trial-average if required
     if Label.TRIAL in data.index.names:
         logger.info('computing trial-averaged stats...')
-        data = get_trial_averaged(data)
+        data = get_trial_aggregated(data)
     # Filter data according to independent variable
     if xkey not in data:
         raise ValueError(f'"{xkey}" variable not found in dataset')
