@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 16:23:15
+# @Last Modified time: 2022-12-07 19:59:09
 
 ''' Collection of plotting utilities. '''
 
@@ -3103,4 +3103,38 @@ def plot_intensity_dependencies_across_lines(data, ykey):
             if iax == 0:
                 ax.legend(frameon=False) 
     harmonize_axes_limits(axes)
+    return fig
+
+
+def plot_evoked_heatmap(data, ykey, ax=None, run_order=None, **kwargs):
+    ''' 
+    Plot a heatmap of evoked change in a given quantity
+    across runs & trials
+
+    :param data: multi-index experiment timeseries
+    :param ykey: variable of interest
+    :return: figure handle    
+    '''
+    # Compute response average in pre-stimulus and response windows for each ROI & run
+    ypre = apply_in_window(
+        lambda x: x.mean(), data, ykey, FrameIndex.PRESTIM)
+    ypost = apply_in_window(
+        lambda x: x.mean(), data, ykey, FrameIndex.RESPONSE)
+    # Compute response strength as their difference
+    ykey_diff = get_change_key(ykey)
+    ydiff = (ypost - ypre).rename(ykey_diff)
+    # Average across ROIs for each run & trial
+    ydiff_avg = ydiff.groupby([Label.RUN, Label.TRIAL]).mean()
+    # Create or retrieve figure
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+    # Plot heatmap
+    ax.set_title(f'{ykey_diff} across runs and trials')
+    table = ydiff_avg.unstack()
+    if run_order is not None:
+        table = table.reindex(run_order, axis=0)
+    sns.heatmap(table, ax=ax, center=0, **kwargs)
+    # Return figure
     return fig
