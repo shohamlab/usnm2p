@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 14:31:47
+# @Last Modified time: 2022-12-08 14:22:09
 
 ''' Collection of generic utilities. '''
 
@@ -395,28 +395,33 @@ def discard_indexes(data, ikey, idiscard=None):
     return data
 
 
-def mean_str(s):
-    ''' Averaging function with extra handling of string-typed iterables. '''
-    if s.nunique() == 0:
-        # 0 unique -> only NaNs -> return NaN
-        return np.nan
-    elif s.nunique() == 1:
-        out = s.unique()
-        # 1 unique value
-        if is_numeric_dtype(s):
-            # If numeric, extract first non NaN value and cast it to float
-            return out[~np.isnan(out)][0].astype(np.float)
-        else:
-            # Otherwise, assume no NaN are present and return first value
-            return out[0] 
-    else:
-        # Multiple non NaN values
-        if is_numeric_dtype(s):
-            # For numeric types -> return mean
-            return s.mean()
-        else:
-            # For non-numeric type -> return NaN
+def str_proof(aggfunc):
+    ''' Make aggregating function compatible with string-typed iterables. '''
+
+    @wraps(aggfunc)
+    def wrapper(s):
+        if s.nunique() == 0:
+            # 0 unique -> only NaNs -> return NaN
             return np.nan
+        elif s.nunique() == 1:
+            out = s.unique()
+            # 1 unique value
+            if is_numeric_dtype(s):
+                # If numeric, extract first non NaN value and cast it to float
+                return out[~np.isnan(out)][0].astype(np.float)
+            else:
+                # Otherwise, assume no NaN are present and return first value
+                return out[0] 
+        else:
+            # Multiple non NaN values
+            if is_numeric_dtype(s):
+                # For numeric types -> return mean
+                return aggfunc(s)
+            else:
+                # For non-numeric type -> return NaN
+                return np.nan
+
+    return wrapper
 
 
 def pbar_update(func, pbar):

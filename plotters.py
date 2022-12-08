@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 19:59:09
+# @Last Modified time: 2022-12-08 13:21:20
 
 ''' Collection of plotting utilities. '''
 
@@ -2775,7 +2775,6 @@ def plot_P_DC_map(P, DC, fs=12, ax=None):
     return fig
 
 
-
 def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,
                             cmap='viridis', dx=0.5, dy=0.5):
     '''
@@ -3106,35 +3105,88 @@ def plot_intensity_dependencies_across_lines(data, ykey):
     return fig
 
 
-def plot_evoked_heatmap(data, ykey, ax=None, run_order=None, **kwargs):
+def plot_stat_heatmap(data, ykey, ax=None, run_order=None, aggfunc=None, **kwargs):
     ''' 
-    Plot a heatmap of evoked change in a given quantity
-    across runs & trials
+    Plot a heatmap of statistics across runs & trials
 
-    :param data: multi-index experiment timeseries
+    :param data: multi-index statistics dataframe
     :param ykey: variable of interest
     :return: figure handle    
     '''
-    # Compute response average in pre-stimulus and response windows for each ROI & run
-    ypre = apply_in_window(
-        lambda x: x.mean(), data, ykey, FrameIndex.PRESTIM)
-    ypost = apply_in_window(
-        lambda x: x.mean(), data, ykey, FrameIndex.RESPONSE)
-    # Compute response strength as their difference
-    ykey_diff = get_change_key(ykey)
-    ydiff = (ypost - ypre).rename(ykey_diff)
-    # Average across ROIs for each run & trial
-    ydiff_avg = ydiff.groupby([Label.RUN, Label.TRIAL]).mean()
     # Create or retrieve figure
     if ax is None:
         fig, ax = plt.subplots()
     else:
         fig = ax.get_figure()
+    ax.set_title(f'{ykey} across runs and trials')
+    # Aggregate across ROIs for each run & trial
+    if aggfunc is None:
+        aggfunc = lambda x: x.mean()
+    yagg = data[ykey].groupby([Label.RUN, Label.TRIAL]).agg(aggfunc)
     # Plot heatmap
-    ax.set_title(f'{ykey_diff} across runs and trials')
-    table = ydiff_avg.unstack()
+    table = yagg.unstack()
     if run_order is not None:
         table = table.reindex(run_order, axis=0)
     sns.heatmap(table, ax=ax, center=0, **kwargs)
+    # Return figure
+    return fig
+
+
+def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
+    ''' 
+    Plot various representations of a particular statistics
+    
+    :param data: multi-index statistics dataframe
+    :param ykey: name of statistics of interest 
+    :return: figure handle
+    '''
+    # Order ROIs by increasing response strength
+    ROI_order = (
+        data[ykey]
+        .groupby(Label.ROI)
+        .mean()
+        .sort_values()
+        .index
+    )
+
+    # If run order not provided, provide identity order indexing
+    if run_order is None:
+        run_order = data.index.unique(Label.RUN)
+        run_order = pd.Series(run_order, index=run_order)
+
+    # Create figure
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3))
+    for ax in axes:
+        sns.despine(ax=ax)
+
+    # Plot response strength histogram distribution
+    sns.histplot(data, x=ykey, bins=100, ax=axes[0])
+
+    # Plot response strength vs. run
+    ax = axes[1]
+    sns.barplot(
+        ax=ax, data=data.reset_index(level=Label.RUN),
+        x=Label.RUN, y=ykey, ci=68, 
+        order=run_order.index.values)
+    # Add zero line
+    ax.axhline(0., c='k', lw=1)
+    # Add marker for specific run, if specified
+    if irun_marker is not None:
+        irun_marker = run_order.index.get_loc(irun_marker)
+        ax.scatter(irun_marker, .5 * ax.get_ylim()[1], marker='v', c='k')
+
+    # Plot response strength heatmap per ROI & run
+    ax = axes[2]
+    ax.set_title(ykey)
+    med = data[ykey].median()
+    std = data[ykey].std()
+    table = (
+        data[ykey]
+        .unstack()
+        .reindex(ROI_order, axis=0)
+        .reindex(run_order.index.values, axis=1)
+    )
+    sns.heatmap(table, center=0., ax=ax, vmax=med + 3 * std)
+
     # Return figure
     return fig

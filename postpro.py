@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 12:46:39
+# @Last Modified time: 2022-12-08 14:03:36
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -621,40 +621,45 @@ def get_response_types_per_ROI(data):
     return data.groupby(Label.ROI).first()[Label.ROI_RESP_TYPE]
 
 
-def get_trial_averaged(data, full_output=False):
+def get_trial_aggregated(data, aggfunc=None, full_output=False):
     '''
-    Compute trial-averaged statistics
+    Compute trial-aggregated statistics
     
     :param data: multi-indexed (ROI x run x trial) statistics dataframe
-    :return: (trialavg_data, is_repeat) tuple
+    :return: data aggregated across trials
     '''
+    # Default aggregating function to mean if not provided
+    if aggfunc is None:
+        aggfunc = lambda s: s.mean()
     # Group trials
     groups = data.groupby([Label.ROI, Label.RUN])
     # Compute average of stat across trials
-    trialavg_data = groups.agg(mean_str)
-    if isinstance(trialavg_data, pd.DataFrame):  # DataFrame case
+    agg_data = groups.agg(str_proof(aggfunc))
+    # DataFrame case
+    if isinstance(agg_data, pd.DataFrame):
         # Remove time column if present
-        if Label.TIME in trialavg_data:
-            del trialavg_data[Label.TIME]
+        if Label.TIME in agg_data:
+            del agg_data[Label.TIME]
         # Rename relevant input columns to their trial-averaged meaning
         cols = {}
         for k, v in Label.RENAME_ON_AVERAGING.items():
-            if k in trialavg_data:
+            if k in agg_data:
                 cols[k] = v
         if len(cols) > 0:
-            trialavg_data.rename(columns=cols, inplace=True)
-    else:  # Series case
+            agg_data.rename(columns=cols, inplace=True)
+    # Series case
+    else:
         # Rename input to its trial-average meaning if necessary
-        if trialavg_data.name in Label.RENAME_ON_AVERAGING.keys():
-            trialavg_data.name = Label.RENAME_ON_AVERAGING[trialavg_data.name]
+        if agg_data.name in Label.RENAME_ON_AVERAGING.keys():
+            agg_data.name = Label.RENAME_ON_AVERAGING[agg_data.name]
     if full_output:
         # Compute std of metrics across trials
         trialstd_data = groups.std()
         # Determine whether metrics is a repeated value or a real distribution
         is_repeat = ~(trialstd_data.max() > 0)
-        return trialavg_data, is_repeat
+        return agg_data, is_repeat
     else:
-        return trialavg_data
+        return agg_data
 
 
 def weighted_average(data, avg_name, weight_name):
@@ -1056,6 +1061,22 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
     return tstat, pval
 
 
+def is_valid_cond(isv):
+    ''' 
+    Identify valid conditions per sample as those having more than a 
+    specific number of valid trials 
+    
+    :param isv: multi-index (sample, condition, trial) validity boolean series
+    :return: multi-index (sample, condition) validity boolean series
+    '''
+    # Compute number of valid trials per sample
+    groupby = list_difference(isv.index.names, [Label.TRIAL])
+    nvalid_trials = isv.groupby(groupby).sum()
+    # Identify samples with a minimum number of valid trials for averaging purposes
+    logger.info(f'identifying conditions with >= {MIN_VALID_TRIALS} valid trials')
+    return nvalid_trials >= MIN_VALID_TRIALS
+
+
 def is_valid(data):
     ''' 
     Return a series with an identical index as that of the input dataframe, indicating
@@ -1069,15 +1090,11 @@ def is_valid(data):
     if len(cols) > 0:
         logger.info(f'identifying samples without [{", ".join(cols)}] tags')
     isv = ~data[cols].any(axis=1).rename('valid?')
-    # Compute number of valid trials per sample
-    groupby = list_difference(isv.index.names, [Label.TRIAL])
-    nvalid_trials = isv.groupby(groupby).sum()
     # Identify samples with a minimum number of valid trials for averaging purposes
-    logger.info(f'identifying conditions with >= {MIN_VALID_TRIALS} valid trials')
-    is_valid_cond = nvalid_trials >= MIN_VALID_TRIALS
-    is_valid_cond_exp = expand_to_match(is_valid_cond, isv.index)
+    isv_cond = is_valid_cond(isv)
+    isv_cond_exp = expand_to_match(isv_cond, isv.index)
     # Update validity index with that information
-    isv = np.logical_and(isv, is_valid_cond_exp)
+    isv = np.logical_and(isv, isv_cond_exp)
     # Return
     return isv
 
@@ -1241,6 +1258,24 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
+def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
+    ''' 
+    Compute stimulus-evoked change in specific variable
+    
+    :param data: timeseries dataframe
+    :param ykey: evaluation variable name
+    :return: evoked change series
+    '''
+    # Define window mean function
+    def window_mean(x):
+        return x.mean()
+    # Compute metrics average in pre-stimulus and response windows for each ROI & run
+    ypre = apply_in_window(window_mean, data, ykey, wpre)
+    ypost = apply_in_window(window_mean, data, ykey, wpost)
+    # Compute eovked change as their difference
+    return (ypost - ypre).rename(get_change_key(ykey))
+
+
 def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     '''
     Compute change in a given variable between pre and post-stimulation windows
@@ -1273,14 +1308,8 @@ def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     wpre = slice(FrameIndex.STIM - npre, FrameIndex.STIM + 1)
     wpost = slice(FrameIndex.STIM + 1, FrameIndex.STIM + 2 + npost)
     
-    # Apply in pre and post stimulus interval windows
-    stats[ykey_prestim_avg] = apply_in_window(
-        series_avg, timeseries, ykey, wpre)
-    stats[ykey_poststim_avg] = apply_in_window(
-        series_avg, timeseries, ykey, wpost)
-    
-    # Compute difference
-    stats[ykey_diff] = stats[ykey_poststim_avg] - stats[ykey_prestim_avg]
+    # Compute evoked change
+    stats[ykey_diff] = compute_evoked_change(timeseries, ykey, wpre=wpre, wpost=wpost)
     
     # Return
     return stats
