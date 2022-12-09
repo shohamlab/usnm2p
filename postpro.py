@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 14:24:19
+# @Last Modified time: 2022-12-09 11:59:44
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1637,15 +1637,19 @@ def anova1d(data, xkey, ykey):
     return p
 
 
-def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
+def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     '''
-    Get a cell-count-weighted aggregated dataset (mean and propagated sem)
+    Get a (cell-count-weighted or not) aggregated across datasets (mean and propagated sem)
     for a range of parameter values
     '''
-    # Count number of ROIs per dataset and input value 
-    celltypes = data.groupby([xkey, Label.DATASET, Label.ROI]).first()
-    countsperdataset = celltypes.groupby([xkey, Label.DATASET]).count().iloc[:, 0].rename('counts')
+    if weighted:
+        # Count number of ROIs per dataset and input value 
+        samples = data.groupby([xkey, Label.DATASET, Label.ROI]).first()
+    else:
+        # Generate uniform vector of counts per input and dataset
+        samples = data.groupby([xkey, Label.DATASET]).first()
     # Compute related weights vector
+    countsperdataset = samples.groupby([xkey, Label.DATASET]).count().iloc[:, 0].rename('counts')
     ntot = countsperdataset.groupby(xkey).sum()
     weightsperdataset = countsperdataset / ntot
 
@@ -1670,10 +1674,10 @@ def get_cellcount_weighted_average(data, xkey, ykey=None, hue=None):
     allwdata = groups[constkeys].first().groupby(cats[1:]).first()
     # Add counts per hue if hue provided
     if hue is not None:
-        countsperhue = celltypes.groupby(hue).count().iloc[:, 0].rename('counts')
+        countsperhue = samples.groupby(hue).count().iloc[:, 0].rename('counts')
         allwdata['count'] = allwdata.index.get_level_values(hue).map(countsperhue)
     else:
-        allwdata['count'] = len(celltypes)
+        allwdata['count'] = len(samples)
     # For each output key
     for yk in ykey:
         # Compute weighted means and standard errors per category

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 15:14:46
+# @Last Modified time: 2022-12-09 11:48:22
 
 ''' Collection of plotting utilities. '''
 
@@ -2371,7 +2371,7 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
                               avgprop=None, errprop='inter', marker='o', err_style='bars', 
-                              add_leg_numbers=True, ci=CI, legend='full', as_ispta=False,
+                              add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
                               stacked=False, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
@@ -2401,7 +2401,6 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
                 data[ykey] = offset_per_dataset(data[ykey])
     # Set plotting parameters
     hue_order = None
-    hue_alpha = 1
     hueplt = False
     hueerr_style = err_style
     if hue is None:
@@ -2411,8 +2410,13 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         if hue == Label.ROI_RESP_TYPE:
             hue_order = get_default_rtypes()
     if avgprop is not None:
-        hue_alpha = 0.5
+        hue_alpha_eff = 0.5
         hueerr_style = 'band'
+    else:
+        hue_alpha_eff = 1.
+
+    if hue_alpha is None:
+        hue_alpha = hue_alpha_eff
 
     # Get default ykey if needed
     if ykey is None:
@@ -2508,7 +2512,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
-                                              marker='o', ls='-', as_ispta=False, title=None):
+                                              marker='o', ls='-', as_ispta=False, title=None,
+                                              weighted=False):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -2542,7 +2547,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     # If hue not specified
     if hue is None:
         # Aggregate data with cell-count weighting
-        aggdata = get_cellcount_weighted_average(data, xkey, ykey=ykey, hue=hue)
+        aggdata = get_crossdataset_average(data, xkey, ykey=ykey, hue=hue, weighted=weighted)
         # Plot single weifghted average trace with propagated standard errors 
         ax.errorbar(
             aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker=marker, ls=ls, c='k')
@@ -2551,7 +2556,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         # For each hue value
         for htype, rdata in data.groupby(hue):
             # Aggregate data with cell-count weighting
-            aggdata = get_cellcount_weighted_average(rdata, xkey, ykey=ykey, hue=hue)
+            aggdata = get_crossdataset_average(rdata, xkey, ykey=ykey, hue=hue, weighted=weighted)
             if hue == Label.ROI_RESP_TYPE:
                 color = Palette.RTYPE[htype]
             else:
