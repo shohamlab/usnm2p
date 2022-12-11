@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-29 18:16:40
+# @Last Modified time: 2022-12-11 18:02:29
 
 ''' Collection of parsing utilities. '''
 
@@ -224,32 +224,21 @@ def parse_acquisition_settings(folders):
     :param folders: full list of data folders containing the raw TIF files.
     :return: dictionary containing data aquisition settings that are common across all data folders 
     '''
-    # Parse aquisition settings of each data folder 
-    daq_settings_list = [parse_Bruker_XML(get_Bruker_XML(folder)) for folder in folders]
-    # Extract reference settings
-    ref_settings, *other_settings_list = daq_settings_list
-    # Check that aquisition settings keys are identical across data folders
-    assert all(x.keys() == ref_settings.keys() for x in daq_settings_list), 'inconsistent settings list'
-    # Gather keys and values of settings fields that vary across folders
-    diffkeys = {}
-    for settings in other_settings_list:
-        if settings != ref_settings:
-            for k in settings.keys():
-                if settings[k] != ref_settings[k]:
-                    if k not in diffkeys:
-                        diffkeys[k] = [ref_settings[k], settings[k]]
-                    else:
-                        if settings[k] not in diffkeys[k]:
-                            diffkeys[k].append(settings[k])
-    if len(diffkeys) > 0:
-        diffkeys_str = itemize([f'{k}: {v}' for k, v in diffkeys.items()])
+    # Parse aquisition settings of each data folder into common dataframe
+    daq_settings = pd.DataFrame()
+    for folder in folders:
+        fkey = os.path.basename(folder)
+        daq_settings[fkey] = pd.Series(
+            parse_Bruker_XML(get_Bruker_XML(folder)))
+    # Identify which settgins match across folders and which do not
+    ismatch = daq_settings.eq(daq_settings.iloc[:, 0], axis=0).all(1)
+    # Log warning message for unmatched settings (if any)
+    if ismatch.sum() < len(ismatch):
+        diff_settings = daq_settings[~ismatch].T
         logger.warning(
-            f'varying acquisition parameters across runs:\n{diffkeys_str}')
-    # Remove those fields from reference settings dictionary
-    for k in diffkeys:
-        del ref_settings[k]
-    # Return common aquisition settings dictionary
-    return ref_settings
+            f'varying acquisition parameters across runs:\n{diff_settings}')
+    # Extract and return common settings
+    return daq_settings[ismatch].iloc[:, 0].rename('settings')
 
 
 def parse_date_mouse_region(s):
