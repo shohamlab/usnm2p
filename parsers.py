@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-11 18:02:29
+# @Last Modified time: 2022-12-11 18:17:57
 
 ''' Collection of parsing utilities. '''
 
@@ -224,17 +224,19 @@ def parse_acquisition_settings(folders):
     :param folders: full list of data folders containing the raw TIF files.
     :return: dictionary containing data aquisition settings that are common across all data folders 
     '''
+    pref = os.path.commonprefix(folders)
+    iprefend = pref.rindex('_')
     # Parse aquisition settings of each data folder into common dataframe
     daq_settings = pd.DataFrame()
     for folder in folders:
-        fkey = os.path.basename(folder)
+        fkey = folder[iprefend + 1:]
         daq_settings[fkey] = pd.Series(
             parse_Bruker_XML(get_Bruker_XML(folder)))
     # Identify which settgins match across folders and which do not
     ismatch = daq_settings.eq(daq_settings.iloc[:, 0], axis=0).all(1)
     # Log warning message for unmatched settings (if any)
     if ismatch.sum() < len(ismatch):
-        diff_settings = daq_settings[~ismatch].T
+        diff_settings = daq_settings[~ismatch]
         logger.warning(
             f'varying acquisition parameters across runs:\n{diff_settings}')
     # Extract and return common settings
