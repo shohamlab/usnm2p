@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-11 18:17:57
+# @Last Modified time: 2022-12-11 18:21:21
 
 ''' Collection of parsing utilities. '''
 
@@ -239,6 +239,8 @@ def parse_acquisition_settings(folders):
         diff_settings = daq_settings[~ismatch]
         logger.warning(
             f'varying acquisition parameters across runs:\n{diff_settings}')
+        if 'micronsPerPixel' in diff_settings.index:
+            logger.warning(f'differing zoom factors:\n{diff_settings.loc["micronsPerPixel", :]}')
     # Extract and return common settings
     return daq_settings[ismatch].iloc[:, 0].rename('settings')
 
