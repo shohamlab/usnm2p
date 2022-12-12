@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-07 11:36:09
+# @Last Modified time: 2022-12-12 15:27:40
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -621,7 +621,8 @@ def load_trialavg_dataset(fpath):
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
-                           on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', **kwargs):
+                           on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
+                           compute_evoked=False, **kwargs):
     '''
     Load multiple mouse-region datasets
     
@@ -737,10 +738,11 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     stats[Label.RUNID] = process_runids(stats[Label.RUNID])
 
     # Add missing change metrics, if any
-    for ykey in [Label.ZSCORE, Label.DFF]:
-        ykey_diff = get_change_key(ykey)
-        if ykey_diff not in stats:
-            stats = add_change_metrics(timeseries, stats, ykey)
+    if compute_evoked:
+        for ykey in [Label.ZSCORE, Label.DFF]:
+            ykey_diff = get_change_key(ykey)
+            if ykey_diff not in stats:
+                stats = add_change_metrics(timeseries, stats, ykey)
     
     # Return stats and timeseries as a dictionary
     logger.info('datasets successfully loaded')

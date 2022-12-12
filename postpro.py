@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-09 11:59:44
+# @Last Modified time: 2022-12-12 16:07:47
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -610,14 +610,15 @@ def add_intensity_to_table(table):
     return table
 
 
-def get_response_types_per_ROI(data):
+def get_response_types_per_ROI(data, verbose=True):
     '''
     Extract the response type per ROI from experiment dataframe.
 
     :param data: experiment dataframe
     :return: pandas Series of response types per ROI
     '''
-    logger.info('extracting responses types per ROI...')
+    if verbose:
+        logger.info('extracting responses types per ROI...')
     return data.groupby(Label.ROI).first()[Label.ROI_RESP_TYPE]
 
 
@@ -1498,7 +1499,7 @@ def harmonize_run_index(timeseries, stats, condition='param'):
     :param stats: multi-indexed stats dataframe containing multiple datasets
     :return: dataframes tuple with harmonized run indexes
     '''
-    logger.info('harmonizing run index across datasets...')
+    logger.info(f'harmonizing run index by {condition} across datasets...')
     # Get conditions from stats
     if condition == 'param':
         stats_conds = get_param_code(stats).rename('condition')
@@ -1877,3 +1878,34 @@ def offset_per_dataset(s, rel_offset=.5):
         offset = offsets.loc[idx]
         return ss + offset
     return s.groupby(Label.DATASET).transform(offset_func)
+
+
+def get_cubic_fit(x, y):
+    ''' Get a cubic fit '''
+    p = np.poly1d(np.polyfit(x, y, 3))
+    xfit = np.linspace(*bounds(x), 100)
+    return xfit, p(xfit)
+
+
+def exclude_outliers(data, ykey, k=10):
+    '''
+    Exclude data points falling outside of median +/- k * stdev variation range
+
+    :param stats: experiment statistics dataframe
+    :param timeseries: experiment timeseries dataframe
+    :param ykey: name of statistics variable of interest
+    :param k: standard deviation multiplication factor determining range boundaries 
+    :return: data subset of samples with ykey falling within median +/- k * stdev
+    '''
+    if k is None:
+        return data
+    y = data[ykey]
+    ntot = len(data)
+    mu, sig = y.median(), y.std()
+    bounds = (mu - sig * k, mu + sig * k)
+    iswithin = np.logical_and(y > bounds[0], y < bounds[1])
+    nexc = ntot - iswithin.sum()
+    bounds_str = ', '.join([f'{x:.2f}' for x in bounds])
+    logger.info(
+        f'excluded {nexc}/{ntot} ({nexc/ntot * 1e2:.1f} %) samples falling outside [{bounds_str}] interval')
+    return data[iswithin]

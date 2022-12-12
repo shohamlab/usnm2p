@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-09 11:48:22
+# @Last Modified time: 2022-12-12 15:21:35
 
 ''' Collection of plotting utilities. '''
 
@@ -1453,7 +1453,8 @@ def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
         
 
 def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
-                  mode='contour', cmap='viridis', hue=Label.ROI_RESP_TYPE, legend=True, alpha_ROIs=0.7, ax=None):
+                  mode='contour', cmap='viridis', hue=Label.ROI_RESP_TYPE, legend=True, alpha_ROIs=0.7, 
+                  ax=None, verbose=True):
     '''
     Plot spatial distribution of cells (per response type) on the recording plane.
 
@@ -1475,7 +1476,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     slog = 'plotting cells map'
     Ly, Lx = ops['Ly'], ops['Lx']
     if hue == Label.ROI_RESP_TYPE:
-        rtypes_per_ROI = get_response_types_per_ROI(Fstats)
+        rtypes_per_ROI = get_response_types_per_ROI(Fstats, verbose=verbose)
         rtypes = get_default_rtypes()
         count_by_type = {k: (rtypes_per_ROI == k).sum() for k in rtypes}
         colors = Palette.RTYPE
@@ -1488,7 +1489,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         colors = {'notype': 'silver'}
         legend = False
     
-    logger.info(f'{slog}...')
+    if verbose:
+        logger.info(f'{slog}...')
 
     # Initialize pixels by cell matrix
     idx_by_type = dict(zip(rtypes, np.arange(len(rtypes))))
@@ -1555,6 +1557,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
 
 def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
                    hue=Label.ROI_RESP_TYPE, **kwargs):
+    
+    logger.info('plotting cell maps...')
 
     # Divide inputs per dataset
     masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
@@ -1568,13 +1572,16 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
     axes = axes.ravel()
 
     # Plot map for each dataset
-    for ax, (dataset_id, sgroup) in zip(axes, stats_groups):
-        mgroup = masks_groups[dataset_id]
-        ogroup = ops[dataset_id]
-        plot_cell_map(
-            mgroup, sgroup, ogroup, title=dataset_id, mode=mode, 
-            um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, hue=hue, **kwargs)
-        ax.set_aspect(1.)
+    with tqdm(total=len(axes) - 1, position=0, leave=True) as pbar:
+        for ax, (dataset_id, sgroup) in zip(axes, stats_groups):
+            mgroup = masks_groups[dataset_id]
+            ogroup = ops[dataset_id]
+            plot_cell_map(
+                mgroup, sgroup, ogroup, title=dataset_id, mode=mode, 
+                um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, hue=hue, 
+                verbose=False, **kwargs)
+            ax.set_aspect(1.)
+            pbar.update()
 
     # Hide remaining axes
     for ax in axes[ndatasets:]:
@@ -2372,7 +2379,7 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
                               avgprop=None, errprop='inter', marker='o', err_style='bars', 
                               add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
-                              stacked=False, **kwargs):
+                              stacked=False, fit=False, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2394,7 +2401,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         if hue != Label.DATASET:
             return plot_parameter_dependency_across_datasets(
                 data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
-                add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker, **kwargs)
+                add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker,
+                fit=fit, **kwargs)
         # Otherwise, offset values per dataset if specified
         else:
             if stacked:
@@ -2498,8 +2506,15 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         
         # Plot propagated global mean trace and standard error bars
         sem = sem.fillna(0)
+        lw = avg_kwargs.pop('lw', 2)
         ax.errorbar(
-            mean.index, mean.values, yerr=sem.values, marker=marker, **avg_kwargs)
+            mean.index, mean.values, yerr=sem.values, marker=marker, 
+            lw=0 if fit else lw, elinewidth=2 if fit else lw,
+            **avg_kwargs)
+        if fit:
+            ax.plot(
+                *get_cubic_fit(mean.index, mean.values), 
+                ls='--', lw=lw, **avg_kwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
@@ -2513,7 +2528,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
                                               marker='o', ls='-', as_ispta=False, title=None,
-                                              weighted=False):
+                                              weighted=False, fit=False):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -2563,7 +2578,13 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
                 color = None
             ax.errorbar(
                 aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
-                marker=marker, ls=ls, label=htype, color=color)
+                marker=marker, ls=ls, label=htype, color=color, 
+                linewidth=0 if fit else None, elinewidth=2 if fit else None)
+            # Add 3rd order polynomial fit if required
+            if fit:
+                ax.plot(
+                    *get_cubic_fit(aggdata[xkey], aggdata['mean']),
+                    ls='--', color=color)
         if legend:
             ax.legend(frameon=False)
             # Add numbers on legend if needed
