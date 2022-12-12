@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-11 18:21:21
+# @Last Modified time: 2022-12-12 17:56:08
 
 ''' Collection of parsing utilities. '''
 
@@ -332,3 +332,15 @@ def parse_quantile(s):
     if mo is None:
         raise ValueError(f'expression "{s}" is not a valid quantile pattern')
     return float(mo.group(1))
+
+
+def resolve_mouseline(s):
+    ''' Resolve mouse line '''
+    if 'line3' in s:
+        return 'line3'
+    elif 'pv' in s:
+        return 'pv'
+    elif 'sst'in s:
+        return 'sst'
+    else:
+        raise ValueError(f'invalid mouse line: {s}')
