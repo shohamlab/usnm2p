@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 15:47:02
+# @Last Modified time: 2022-12-13 13:04:23
 
 ''' Collection of constants used throughout the code base. '''
 
 from string import ascii_lowercase
 import pandas as pd
+import seaborn as sns
 
 ###################################### MISCELLANEOUS ######################################
 
@@ -265,6 +266,8 @@ class Palette:
     }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)
+    OFFSET = sns.cubehelix_palette(  # spatial offset distance (continous)
+        start=.5, rot=-.5, reverse=True, as_cmap=True)
 
 
 CI = 68  # default confidence interval error reporting

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-12 15:21:35
+# @Last Modified time: 2022-12-13 13:33:13
 
 ''' Collection of plotting utilities. '''
 
@@ -2802,7 +2802,7 @@ def plot_P_DC_map(P, DC, fs=12, ax=None):
 
 
 def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,
-                            cmap='viridis', dx=0.5, dy=0.5):
+                            cmap='viridis', dx=0.5, dy=0.5, rmax=1., clevels=None):
     '''
     Plot map of output metrics as a function of XY offset
     
@@ -2917,7 +2917,7 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
             newax.set_xticks([])
             newax.set_yticks([])
             newax.set_aspect(1.)
-            radii = [.5, 1., 1.5]
+            radii = np.arange(.5, rmax + .01, .5)
             lss = ['--'] * len(radii)
             lss[-1] = '-'
             wedges = [
@@ -2930,23 +2930,27 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
             for w in wedges:
                 newax.add_patch(w)
             mesh.set_clip_path(wedges[-1])
-            newax.set_xlim(-1.5, 1.5)
-            newax.set_ylim(-1.5, 0.4)
-            newax.contour(xrange, yrange, avgmap.T, levels=[.5], colors=['w'])
+            newax.set_xlim(-rmax, rmax)
+            newax.set_ylim(-rmax, 0.25 * rmax)
+            if clevels is not None:
+                newax.contour(
+                    xrange, yrange, avgmap.T, levels=as_iterable(clevels), colors=['w'])
             sns.despine(ax=newax, bottom=True, left=True)
 
             # Add scale bar
+            scalex = np.ceil(rmax) / 2
             scalebar = AnchoredSizeBar(
                 newax.transData,
-                1., '1 mm', 'upper right', 
+                scalex, f'{scalex:.1f} mm', 'upper right', 
                 color='k', frameon=False, label_top=True, size_vertical=.025,
                 fontproperties={'size': fs})
             newax.add_artist(scalebar)
+
             # Add focus annotation
             newax.annotate(
                 'focus', xy=(0., 0.),  xycoords='data',
                 xytext=(0.5, .99), textcoords='axes fraction',
-                arrowprops=dict(facecolor='black', shrink=0.05, width=2),
+                arrowprops=dict(facecolor='black', shrink=0.01, width=2),
                 horizontalalignment='center', verticalalignment='top', fontsize=fs)
             
             # Add colorbar
