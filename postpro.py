@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-12 16:07:47
+# @Last Modified time: 2023-01-16 15:59:35
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1490,7 +1490,7 @@ def update_run_index(data, runidx):
     return data
 
 
-def harmonize_run_index(timeseries, stats, condition='param'):
+def harmonize_run_index(timeseries, stats, trialagg_stats, condition='param'):
     '''
     Generate a new harmonized run index in multi-region dataset, based on a specific condition
     (e.g. P-DC combination)
@@ -1502,21 +1502,24 @@ def harmonize_run_index(timeseries, stats, condition='param'):
     logger.info(f'harmonizing run index by {condition} across datasets...')
     # Get conditions from stats
     if condition == 'param':
-        stats_conds = get_param_code(stats).rename('condition')
+        trialagg_stats_conds = get_param_code(trialagg_stats).rename('condition')
     elif condition == 'offset':
-        stats_conds = get_offset_code(stats).rename('condition')
+        trialagg_stats_conds = get_offset_code(trialagg_stats).rename('condition')
     else:
         raise ValueError(f'unrecognized condition: "{condition}"')
     # Get expanded conditions compatible with timeseries
-    timeseries_conds = expand_to_match(stats_conds, timeseries.index)
+    timeseries_conds = expand_to_match(trialagg_stats_conds, timeseries.index)
+    # Get expanded conditions compatible with stats
+    stats_conds = expand_to_match(trialagg_stats_conds, stats.index)
     # Get stimparams: run-index mapper
-    mapper = get_run_mapper(stats_conds)
+    mapper = get_run_mapper(trialagg_stats_conds)
     logger.debug(f'run map:\n{pd.Series(mapper)}')
     # Get new run indexes column and update appropriate data index level
     stats = update_run_index(stats, stats_conds.map(mapper))
+    trialagg_stats = update_run_index(trialagg_stats, trialagg_stats_conds.map(mapper))
     timeseries = update_run_index(timeseries, timeseries_conds.map(mapper))
     # Return harmonized dataframes
-    return timeseries, stats
+    return timeseries, stats, trialagg_stats
 
 
 def highlight_incomplete(x, xref=None):
@@ -1909,3 +1912,35 @@ def exclude_outliers(data, ykey, k=10):
     logger.info(
         f'excluded {nexc}/{ntot} ({nexc/ntot * 1e2:.1f} %) samples falling outside [{bounds_str}] interval')
     return data[iswithin]
+
+
+def compute_ROI_vs_trial_anova(s):
+    # Set all index dims as columns
+    data = s.rename('y').reset_index()
+
+    # Fix ROI indexes
+    iROIs_org = data[Label.ROI].unique() 
+    iROIs_fix = np.arange(len(iROIs_org))
+    ROI_mapper = dict(zip(iROIs_org, iROIs_fix))
+    data[Label.ROI] = data[Label.ROI].map(ROI_mapper)
+
+    # Perform 2-way ANOVA with statsmodels
+    formula = f'y ~ C({Label.TRIAL}) + C({Label.ROI})'
+    # logger.info(f'fitting model to "{formula}"...')
+    model = ols(formula, data=data).fit()
+    # logger.info('computing anova output')
+    aov_table = sm.stats.anova_lm(model, typ=2)
+    
+    # Return F-scores
+    Ftrial, Froi = aov_table.loc[[f'C({Label.TRIAL})', f'C({Label.ROI})'], 'F'].values
+    return Ftrial, Froi
+
+
+def tmean(x):
+    ''' 
+    Estimate mean by fitting t-distribution to sample distribution
+    
+    :param x: input distribution
+    :return: estimated mean
+    '''
+    return tstats.fit(x)[-2]

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-12 15:27:40
+# @Last Modified time: 2022-12-16 16:55:23
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -570,13 +570,14 @@ def load_postpro_dataset(fpath):
     return timeseries, info_table, ROI_masks
 
 
-def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks, map_ops):
+def save_trialavg_dataset(fpath, trialagg_timeseries, stats, triagg_stats, ROI_masks, map_ops):
     '''
     Save trial-averaged dataset to a HDF5 file
     
     :param fpath: absolute path to data file
-    :param timeseries: multi-indexed (ROI, run, frame) trial-averaged timeseries dataframe
-    :param stats: multi-indexed (ROI, run) trial-averaged stats dataframe
+    :param trialagg_timeseries: multi-indexed (ROI, run, frame) trial-aggregated timeseries dataframe
+    :param stats: multi-indexed (ROI, run, trial) stats dataframe
+    :param triagg_stats: multi-indexed (ROI, run) trial-aggregated stats dataframe
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
     :param map_ops: dictionary containing the necessary fields to plot cell maps
     '''
@@ -585,12 +586,15 @@ def save_trialavg_dataset(fpath, timeseries, stats, ROI_masks, map_ops):
         os.remove(fpath)
     # Create HDF stream to store pandas objects
     with pd.HDFStore(fpath) as store:
-        # Save timeseries table
-        logger.info('saving trial-averaged timeseries data...')
-        store['timeseries'] = timeseries
-        # Save stats table
-        logger.info('saving trial-averaged stats data...')
+        # Save trial aggregated timeseries table
+        logger.info('saving trial-aggregated timeseries data...')
+        store['timeseries'] = trialagg_timeseries
+        # Save extended stats table
+        logger.info('saving extended stats data...')
         store['stats'] = stats
+        # Save trial-aggregated stats table
+        logger.info('saving trial-aggregated stats data...')
+        store['triagg_stats'] = triagg_stats
         # Save ROI masks
         logger.info('saving ROI masks...')
         store['ROI_masks'] = ROI_masks
@@ -615,9 +619,10 @@ def load_trialavg_dataset(fpath):
         logger.info(f'loading trial-averaged data from {os.path.basename(fpath)}')
         timeseries = store['timeseries']
         stats = store['stats']
+        trialagg_stats = store['trialagg_stats']
         ROI_masks = store['ROI_masks']
         map_ops = store['map_ops'].to_dict()
-    return timeseries, stats, ROI_masks, map_ops
+    return timeseries, stats, trialagg_stats, ROI_masks, map_ops
 
 
 def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
@@ -667,8 +672,8 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
     if len(datasets) == 0:
         raise ValueError(f'no valid datasets found in "{dirpath}"')
-    timeseries, stats, ROI_masks, map_ops = list(zip(*datasets))
-    stats, timeseries = list(stats), list(timeseries)
+    timeseries, stats, trialagg_stats, ROI_masks, map_ops = list(zip(*datasets))
+    stats, trialagg_stats, timeseries = list(stats), list(trialagg_stats), list(timeseries)
 
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
@@ -682,8 +687,8 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     
     # For each dataset
     for i, dataset_id in enumerate(dataset_ids):
-        # Check for potential run duplicates in stats
-        dup_table = get_duplicated_runs(stats[i], **kwargs)
+        # Check for potential run duplicates in trial aggregated stats
+        dup_table = get_duplicated_runs(trialagg_stats[i], **kwargs)
         # If dupliactes are found
         if dup_table is not None:
             dupstr = f'duplicated runs in {dataset_id}:\n{dup_table}'
@@ -697,11 +702,13 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
                 if on_duplicate_runs == 'drop':
                     idrop = dup_table.index[0]
                     logger.warning(f'dropping run {idrop} from stats and timeseries...')
+                    trialagg_stats[i] = trialagg_stats[i].drop(idrop, level=Label.RUN)
                     stats[i] = stats[i].drop(idrop, level=Label.RUN)
                     timeseries[i] = timeseries[i].drop(idrop, level=Label.RUN)
 
     # Concatenate datasets while adding their respective IDs
     timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
+    trialagg_stats = pd.concat(trialagg_stats, keys=dataset_ids, names=[Label.DATASET])
     stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
     ROI_masks = pd.concat(ROI_masks, keys=dataset_ids, names=[Label.DATASET])
     map_ops = dict(zip(dataset_ids, map_ops))
@@ -711,6 +718,8 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
     timeseries.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
     stats.sort_index(
+        level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
+    trialagg_stats.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
     ROI_masks.sort_index(
         level=[Label.DATASET, Label.ROI], inplace=True)
@@ -722,19 +731,23 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         except ValueError as err:
             # If needed, harmonize run indexes in stats & timeseries
             logger.warning(err)
-            timeseries, stats = harmonize_run_index(timeseries, stats, **kwargs) 
+            timeseries, stats, trialagg_stats = harmonize_run_index(
+                timeseries, stats, trialagg_stats, **kwargs) 
 
             # Sort index for each dataset AGAIN
             logger.info('sorting dataset indexes...')
             timeseries.sort_index(
                 level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
             stats.sort_index(
+                level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
+            trialagg_stats.sort_index(
                 level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
             ROI_masks.sort_index(
                 level=[Label.DATASET, Label.ROI], inplace=True)
     
     # Process run IDs to uncover run sequences
     logger.info('processing run IDs to uncover run sequences...')
+    trialagg_stats[Label.RUNID] = process_runids(trialagg_stats[Label.RUNID])
     stats[Label.RUNID] = process_runids(stats[Label.RUNID])
 
     # Add missing change metrics, if any
@@ -742,13 +755,14 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         for ykey in [Label.ZSCORE, Label.DFF]:
             ykey_diff = get_change_key(ykey)
             if ykey_diff not in stats:
-                stats = add_change_metrics(timeseries, stats, ykey)
+                trialagg_stats = add_change_metrics(timeseries, trialagg_stats, ykey)
     
     # Return stats and timeseries as a dictionary
     logger.info('datasets successfully loaded')
     return {
         'timeseries': timeseries,
         'stats': stats,
+        'trialagg_stats': trialagg_stats,
         'ROI_masks': ROI_masks,
         'map_ops': map_ops
     }

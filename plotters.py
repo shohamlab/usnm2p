@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-13 13:33:13
+# @Last Modified time: 2023-01-16 16:16:41
 
 ''' Collection of plotting utilities. '''
 
@@ -1226,6 +1226,10 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
     
     # For each aggregation function
     for ax, k in zip(axes, aggfuncs):
+
+        # If aggfunc is a callable object, extract its name
+        if callable(k):
+            k = k.__name__
 
         # Initialize axis
         ax.set_title(f'{k} traces')
