@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-16 16:55:23
+# @Last Modified time: 2023-01-19 11:16:32
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -619,7 +619,7 @@ def load_trialavg_dataset(fpath):
         logger.info(f'loading trial-averaged data from {os.path.basename(fpath)}')
         timeseries = store['timeseries']
         stats = store['stats']
-        trialagg_stats = store['trialagg_stats']
+        trialagg_stats = store['triagg_stats']
         ROI_masks = store['ROI_masks']
         map_ops = store['map_ops'].to_dict()
     return timeseries, stats, trialagg_stats, ROI_masks, map_ops

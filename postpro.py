@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-16 15:59:35
+# @Last Modified time: 2023-01-19 11:23:35
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1500,17 +1500,17 @@ def harmonize_run_index(timeseries, stats, trialagg_stats, condition='param'):
     :return: dataframes tuple with harmonized run indexes
     '''
     logger.info(f'harmonizing run index by {condition} across datasets...')
-    # Get conditions from stats
+    # Get conditions from stats and trial-aggregated stats
     if condition == 'param':
         trialagg_stats_conds = get_param_code(trialagg_stats).rename('condition')
+        stats_conds = get_param_code(stats).rename('condition')
     elif condition == 'offset':
         trialagg_stats_conds = get_offset_code(trialagg_stats).rename('condition')
+        stats_conds = get_offset_code(stats).rename('condition')
     else:
         raise ValueError(f'unrecognized condition: "{condition}"')
     # Get expanded conditions compatible with timeseries
     timeseries_conds = expand_to_match(trialagg_stats_conds, timeseries.index)
-    # Get expanded conditions compatible with stats
-    stats_conds = expand_to_match(trialagg_stats_conds, stats.index)
     # Get stimparams: run-index mapper
     mapper = get_run_mapper(trialagg_stats_conds)
     logger.debug(f'run map:\n{pd.Series(mapper)}')

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-16 16:16:41
+# @Last Modified time: 2023-01-19 18:50:13
 
 ''' Collection of plotting utilities. '''
 
@@ -2381,7 +2381,7 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
-                              avgprop=None, errprop='inter', marker='o', err_style='bars', 
+                              avgprop=None, errprop='inter', marker='o', err_style='bars',
                               add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
                               stacked=False, fit=False, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
@@ -2532,7 +2532,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
                                               marker='o', ls='-', as_ispta=False, title=None,
-                                              weighted=False, fit=False):
+                                              weighted=False, fit=False, err_style='band'):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -2568,8 +2568,19 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         # Aggregate data with cell-count weighting
         aggdata = get_crossdataset_average(data, xkey, ykey=ykey, hue=hue, weighted=weighted)
         # Plot single weifghted average trace with propagated standard errors 
-        ax.errorbar(
-            aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], marker=marker, ls=ls, c='k')
+        if err_style == 'bars':
+            ax.errorbar(
+                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], 
+                marker=marker, ls=ls, c='k')
+        else:
+            ax.plot(
+                aggdata[xkey], aggdata['mean'], 
+                marker=marker, ls=ls, c='k')
+            ax.fill_between(
+                aggdata[xkey], 
+                aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                alpha=0.3, color='k')
+
     # Otherwise
     else:
         # For each hue value
@@ -2580,10 +2591,22 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
                 color = Palette.RTYPE[htype]
             else:
                 color = None
-            ax.errorbar(
-                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
-                marker=marker, ls=ls, label=htype, color=color, 
-                linewidth=0 if fit else None, elinewidth=2 if fit else None)
+            
+            if err_style == 'bars':
+                ax.errorbar(
+                    aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
+                    marker=marker, ls=ls, label=htype, color=color, 
+                    linewidth=0 if fit else None, elinewidth=2 if fit else None)
+            else:
+                ax.plot(
+                    aggdata[xkey], aggdata['mean'],
+                    marker=marker, ls=ls, label=htype, color=color, 
+                    linewidth=0 if fit else None)
+                ax.fill_between(
+                    aggdata[xkey], 
+                    aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                    alpha=0.3, color=color)
+
             # Add 3rd order polynomial fit if required
             if fit:
                 ax.plot(
@@ -3056,6 +3079,72 @@ def plot_comparative_metrics_across_datasets(data, ykey, compkey, groupby=Label.
     return fig
 
 
+def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box', 
+                                               test='t-test', paired=False, correct=False):
+    '''
+    Plot comparative distributions of center vs fixed offset conditions
+
+    :param data: stats dataframe
+    :param ykey: output metrics key
+    :param conpkey: comparative conditions key
+    :param groupby: goruping variable (default = dataset)
+    :param kind: type of categorical plot (default = 'bar')
+    :param add_stats: whther or not to add statistical comparisons
+    '''
+    # Aggregate output metrics across conditions and datasets 
+    yagg = data.groupby([Label.DATASET, condkey]).mean()[ykey]
+    # Establish pairs of conditions to compare
+    pairs = list(combinations(yagg.unstack().columns, 2)) 
+    
+    # Define plot arguments
+    pltkwargs = dict(
+        data=yagg.reset_index(condkey),
+        x=condkey,
+        y=ykey
+    )
+    # Render categorical plot 
+    fg = sns.catplot(
+        kind=kind, 
+        whis=False, 
+        showfliers=False, 
+        **pltkwargs
+    )
+    fig = fg.figure
+    ax = fig.axes[0]
+    # Show underlying data points
+    sns.scatterplot(
+        ax=ax, 
+        hue=condkey, 
+        s=100,
+        zorder=20,
+        legend=None,
+        **pltkwargs)
+    # If paired data
+    if paired:
+        # Set appropriate test
+        if test is not None:
+            test = 't-test_paired' 
+        # Show links between points
+        tmp = yagg.unstack().transpose()
+        for s in tmp:
+            ax.plot(tmp.index, tmp[s], c='k', zorder=10)
+    # If test provided, apply and annotate
+    if test is not None:
+        annotator = Annotator(
+            ax=ax, 
+            pairs=pairs,
+            **pltkwargs
+        )
+        annotator.configure(
+            test=test, 
+            text_format='star', 
+            loc='outside',
+            comparisons_correction='Bonferroni' if correct else None
+        )
+        annotator.apply_and_annotate()
+    return fig
+
+
 def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
     '''
     Plot comparative parameter dependency curves (with error bars) across
@@ -3095,7 +3184,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
     return fig
 
 
-def plot_intensity_dependencies(data, ykey, ax=None):
+def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE):
     if ax is None:
         fig, ax = plt.subplots()
         ax.set_title(f'ISPTA dependency')
@@ -3106,7 +3195,7 @@ def plot_intensity_dependencies(data, ykey, ax=None):
     # Plot dependencies on each parameter on same ISPTA axis
     for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
         plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, yref=0., hue=Label.ROI_RESP_TYPE, ax=ax, 
+            data, xkey=xkey, ykey=ykey, yref=0., hue=hue, ax=ax, 
             marker=marker, as_ispta=True, legend=i==0, ls='--')
     return fig
 
