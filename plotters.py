@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-19 18:50:13
+# @Last Modified time: 2023-01-25 14:44:13
 
 ''' Collection of plotting utilities. '''
 
@@ -12,7 +12,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
 from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
@@ -110,6 +110,8 @@ def harmonize_axes_limits(axes, axkey='y'):
     :param axes: list/array of axes
     :param axkey: axis key ("x" or "y"
     '''
+    axes = np.asarray(axes)
+    
     # Flatten axes array if needed
     if axes.ndim > 1:
         axes = axes.ravel()
@@ -1514,6 +1516,8 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         # Assign color and transparency to each mask
         rgbs = np.zeros((*masks.shape, 4))
         for i, (c, mask) in enumerate(zip(colors.values(), masks)):
+            if isinstance(c, str):
+                c = to_rgb(c)
             rgbs[i][mask == 1] = [*c, alpha_ROIs]
     
     # Create figure
@@ -1714,7 +1718,10 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         groups = [('all', data)]
 
     # Initialize figure
-    naxes = len(groups)
+    if col_order is not None:
+        naxes = len(col_order)
+    else:
+        naxes = len(groups)
     nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes)
     width = ncols * 2.5  # inches
     height = nrows * 2.5  # inches
@@ -1739,6 +1746,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         col_order = np.arange(len(groups))
     else:
         col_order = np.asarray(col_order)
+    add_cbar = True
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
         for i, (glabel, gdata) in enumerate(groups):
             # Find axis position
@@ -1781,10 +1789,12 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                 # Plot associated trial heatmap
                 sns.heatmap(
                     data=table, ax=ax, vmin=vmin, vmax=vmax, 
-                    cbar=i == 0, cbar_ax=cbar_ax, center=center, cmap=cmap,
+                    cbar=add_cbar, cbar_ax=cbar_ax, center=center, cmap=cmap,
                     xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
                     yticklabels=False, 
                     rasterized=rasterized)
+                
+                add_cbar = False
                 
                 # Set axis background color
                 ax.set_facecolor('silver')
@@ -2290,7 +2300,8 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     return fig
 
 
-def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False, **kwargs):
+def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False, 
+                                   groupby=None, **kwargs):
     '''
     Plot parameter-dependent response traces across datasets, for each response type
     
@@ -2302,7 +2313,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     '''
     # Initialize propagated keyword arguments
     tracekwargs = dict(
-        col = Label.DATASET if not avg else Label.ROI_RESP_TYPE, # 1 dataset/resp type on each axis
+        col = Label.DATASET if not avg else groupby, # 1 dataset/resp type on each axis
         hide_col_prefix = True,  # no column prefix
         max_colwrap = 4, # number of axes per line
         height = 2.3 if not avg else 3,  # height of each figure axis
@@ -2332,7 +2343,11 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     if not avg:
         title = tracekwargs.pop('title', None)
         figdict = {}
-        for resptype, group in data.groupby(Label.ROI_RESP_TYPE):
+        if groupby is not None:
+            groups = data.groupby(groupby)
+        else:
+            groups = [('all', data)]
+        for resptype, group in groups:
             logger.info(f'plotting {pkey} dependency curves for {resptype} responders...')
             nROIs_group = len(group.groupby([Label.DATASET, Label.ROI]).first())
             stitle = f'{resptype} responders ({nROIs_group} ROIs)'
@@ -2721,10 +2736,13 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     leg = fg._legend
     fig.subplots_adjust(top=0.9)
 
-    if count is not None:
-        # Count number of cells of each bar and hue
-        cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
+    # Count number of cells of each bar and hue
+    cellcounts = celltypes.groupby([Label.ROI_RESP_TYPE, Label.DATASET]).count().iloc[:, 0].rename('counts')
 
+    # Sum counts per bar level
+    cellcounts_per_bar = cellcounts.groupby(bar).sum()
+
+    if count is not None:
         # If count label specified 
         if count == 'label':
             # If resp type is hue, add labels to legend
@@ -2767,7 +2785,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             raise ValueError(f'invalid count mode: "{count}"')
 
     # Add title
-    stitle = f'{ntot} ROIs'
+    stitle = f'{ntot} ROIs, avg = {cellcounts_per_bar.mean():.0f} +/- {cellcounts_per_bar.std():.0f}'
     if title is not None:
         stitle = f'{title} ({stitle})'
     fig.suptitle(stitle, fontsize=20)
@@ -3312,4 +3330,75 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
     sns.heatmap(table, center=0., ax=ax, vmax=med + 3 * std)
 
     # Return figure
+    return fig
+
+
+def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', avg_overlay=True, **kwargs):
+    ''' 
+    Plot percentage of responder cells as a function of an input parameter
+
+    :param data: statistics dataframe
+    :param xkey: input parameter name
+    :return: figure handle
+    '''
+    # Restrict data to input parameter dependency range
+    data = get_xdep_data(data, xkey)
+    # Count number of responses of each type, for each dataset and input value 
+    resp_counts = data.groupby(
+        [Label.DATASET, xkey])[Label.RESP_TYPE].value_counts().unstack()
+    # Convert to proportions
+    resp_counts['total'] = resp_counts.sum(axis=1)
+    resp_props = resp_counts.div(resp_counts['total'], axis=0) * 100
+    # Plot % responders profile(s) with appropriate function
+    pltkwargs = dict(
+        data=resp_props.reset_index(), 
+        x=xkey, 
+        y='positive', 
+        **kwargs
+    )
+    if kind == 'line':
+        pltfunc = sns.relplot
+        pltkwargs['marker'] = 'o'
+    elif kind in ['bar', 'box', 'boxen', 'violin']:
+        if hue == Label.DATASET:
+            raise ValueError('cannot plot distributions if split by dataset')
+        pltfunc = sns.catplot
+        pltkwargs['color'] = 'C0'
+    else:
+        raise ValueError(f'unknown plot type: "{kind}"')
+    fg = pltfunc(
+        kind=kind,
+        hue=hue,
+        height=4,
+        **pltkwargs
+    )
+    # Extract figure and axis
+    fig = fg.figure
+    ax = fig.axes[0]
+    # Post-process figure
+    sns.despine(ax=ax)
+    ax.set_ylim(0, 100)
+    ax.set_ylabel('% responders')
+    # Add average trace if specified and compatible
+    if kind == 'line' and hue is not None and avg_overlay:
+        sns.lineplot(
+            legend=False, color='k', markersize=10, lw=3,
+            **pltkwargs)
+
+    # Apply statistical comparisons with reference input, if specified
+    if xref is not None:
+        xvals = sorted(resp_props.index.unique(level=xkey))
+        if xref not in xvals:
+            raise ValueError(
+                f'reference input value {xref} not found in data (candidates are {xvals})')
+        xpairs = [(xref, x) for x in xvals if x != xref]
+        annotator = Annotator(pairs=xpairs, **pltkwargs)
+        annotator.configure(
+            test='t-test_ind', 
+            text_format='star', 
+            loc='outside',
+            comparisons_correction='Bonferroni'
+        )
+        annotator.apply_and_annotate()
+
     return fig
