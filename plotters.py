@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-31 09:36:00
+# @Last Modified time: 2023-01-31 18:20:17
 
 ''' Collection of plotting utilities. '''
 
@@ -3333,7 +3333,8 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
     return fig
 
 
-def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', avg_overlay=True, **kwargs):
+def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', 
+                        avg_overlay=True, hue_highlight=None, **kwargs):
     ''' 
     Plot percentage of responder cells as a function of an input parameter
 
@@ -3344,11 +3345,18 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
     # Restrict data to input parameter dependency range
     data = get_xdep_data(data, xkey)
     # Count number of responses of each type, for each dataset and input value 
-    resp_counts = data.groupby(
-        [Label.DATASET, xkey])[Label.RESP_TYPE].value_counts().unstack()
+    groupby = [xkey]
+    if hue is not None:
+        groupby.append(hue)
+    resp_counts = data.groupby(groupby)[Label.RESP_TYPE].value_counts().unstack()
     # Convert to proportions
     resp_counts['total'] = resp_counts.sum(axis=1)
     resp_props = resp_counts.div(resp_counts['total'], axis=0) * 100
+    weights = resp_counts['total'].groupby(xkey).apply(lambda s: s / s.sum())
+    weighted_resp_props = resp_props.multiply(weights, axis=0).groupby(xkey).sum()
+    resp_props_sem = resp_props.groupby(xkey).sem()
+
+
     # Plot % responders profile(s) with appropriate function
     pltkwargs = dict(
         data=resp_props.reset_index(), 
@@ -3358,7 +3366,26 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
     )
     if kind == 'line':
         pltfunc = sns.relplot
-        pltkwargs['marker'] = 'o'
+        if hue is None:
+            pltkwargs.update(dict(
+                marker = 'o',
+                color='b',
+                markersize=10,
+                lw=3,
+                markeredgecolor='w',
+                ci=68
+            ))
+        else:
+            # If specified, highlight specific hue value
+            if hue_highlight is not None:
+                huevals = resp_props.groupby(hue).first().index
+                if hue_highlight not in huevals:
+                    raise ValueError(f'"{hue_highlight}" not found in hue values')
+                huecolors = ['silver'] * len(huevals)
+                palette = dict(zip(huevals, huecolors))
+                palette[hue_highlight] = 'r'
+                pltkwargs['palette'] = palette
+
     elif kind in ['bar', 'box', 'boxen', 'violin']:
         if hue == Label.DATASET:
             raise ValueError('cannot plot distributions if split by dataset')
@@ -3379,11 +3406,17 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
     sns.despine(ax=ax)
     ax.set_ylim(0, 100)
     ax.set_ylabel('% responders')
+    ax.axhline(PTHR_DETECTION * 100, c='k', ls='--')
     # Add average trace if specified and compatible
-    if kind == 'line' and hue is not None and avg_overlay:
-        sns.lineplot(
-            legend=False, color='k', markersize=10, lw=3,
-            **pltkwargs)
+    if kind == 'line' and avg_overlay:
+        wmean = weighted_resp_props['positive']
+        wsem = resp_props_sem['positive']
+        ax.plot(
+            wmean.index, wmean.values, 
+            color='k', marker='o', markersize=10, lw=3, markeredgecolor='w')
+        ax.fill_between(
+            wmean.index, wmean - wsem, wmean + wsem,
+            fc='k', ec='k', alpha=0.3)
 
     # Apply statistical comparisons with reference input, if specified
     if xref is not None:
@@ -3401,4 +3434,57 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
         )
         annotator.apply_and_annotate()
 
+    return fig
+
+
+def plot_classification_details(data, pthr=None):
+    ''' 
+    Plot details of cells classification as function of their response distribution
+    for the current ensemble of datasets
+    
+    :param data: multi-dataset stats dataframe
+    :param pthr (optional): threshold proportion of positive conditions, to be displayed
+        on graph along with corresponding fraction of identified responders
+    :return: figure handle
+    '''
+    # Count number of conditions per response type for each ROI
+    cond_counts = (
+        data[Label.RESP_TYPE]
+        .groupby([Label.DATASET, Label.ROI])
+        .value_counts()
+        .unstack().fillna(0.)
+    )
+ 
+    # Translate to proportions
+    cond_counts['total'] = cond_counts.sum(axis=1)
+    cond_props = cond_counts.div(cond_counts['total'], axis=0) * 100
+ 
+    # Plot inverse cumulative distribution to see how classification would 
+    # vary as a function of threshold
+    fig, ax = plt.subplots(figsize=(5, 5))
+    sns.despine(ax=ax)
+    ax.set_xlabel('% positive conditions')
+    ax.set_ylabel('fraction of responders')
+    sns.ecdfplot(
+        data=cond_props,
+        x='positive',
+        complementary=True,
+        ax=ax
+    )
+
+    # If threshold proportion of positive conditions specified,
+    if pthr is not None:
+        
+        # Classify ROIs accordingly
+        responder_types = (
+            cond_props['positive'] >= pthr * 100).astype(int).map(RTYPE_MAP)
+        rtype_counts = responder_types.value_counts()
+        prop_pos = rtype_counts['positive'] / rtype_counts.sum()
+        logger.info(f'identified {prop_pos * 100:.1f}% of responders with {pthr} as threshold proportion of responding conditions')
+        
+        # Indicate threshold proportion and corresponding responders fraction on graph 
+        ax.axvline(pthr * 100, c='k', ls='--')
+        ax.axhline(prop_pos, c='k', ls='--')
+
+    # Return figure
     return fig
