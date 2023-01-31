@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-19 11:23:35
+# @Last Modified time: 2023-01-31 09:35:40
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths
+from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -470,13 +470,14 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, isubs=None, full_
         return df[Label.SPEED_UM_S]
 
 
-def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=False):
+def apply_in_window(data, ykey, wslice, aggfunc='mean', verbose=True, log_completion_rate=False):
     '''
     Apply function to a given signal within a specific observation window
     
     :param data: multi-indexed fluorescence timeseries dataframe
     :param ykey: name of the column containing the signal of interest
     :param wslice: slice object representing the indexes of the window
+    :param aggfunc: aggregation function (name or callable)
     '''
     idxlevels = [k for k in data.index.names if k != Label.FRAME]
     if verbose:
@@ -486,9 +487,11 @@ def apply_in_window(func, data, ykey, wslice, verbose=True, log_completion_rate=
         else:
             wstr = f'{wstr} index'
         istr = ', '.join(idxlevels)
+        funcstr = aggfunc.__name__ if callable(aggfunc) else aggfunc
         logger.info(
-            f'applying {func.__name__} function on {ykey} in {wstr} across {istr} ...')
-    out = data.loc[slice_last_dim(data.index, wslice), ykey].groupby(idxlevels).agg(func)
+            f'applying {funcstr} function on {ykey} in {wstr} across {istr} ...')
+    idx_slice = slice_last_dim(data.index, wslice)
+    out = data.loc[idx_slice, ykey].groupby(idxlevels).agg(aggfunc)
     if log_completion_rate:
         outs_found = out.notna().sum()
         nwindows = len(data.groupby(idxlevels).first())
@@ -594,6 +597,14 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     cols = data.columns
     data = data.reindex(columns=[cols[-1], *cols[:-1]])
     return data
+
+
+def get_index_along_run(mux):
+    ''' Compute frame indexes along run '''
+    frame_idxs = mux.get_level_values(Label.FRAME)
+    npertrial = frame_idxs.max() + 1
+    idx_offsets = mux.get_level_values(Label.TRIAL) * npertrial
+    return idx_offsets + frame_idxs
 
 
 def add_intensity_to_table(table):
@@ -1052,7 +1063,9 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
     xpre = s.loc[slice_last_dim(s.index, wpost)].values
     xpost = s.loc[slice_last_dim(s.index, wpre)].values
     tstat, pval = ttest_ind(
-        xpre, xpost, equal_var=False, nan_policy='raise',
+        xpre, xpost,
+        equal_var=False, 
+        nan_policy='raise',
         alternative='greater' if directional else 'two-sided')
     if np.isnan(tstat):
         # If NaN raised because all elements are equal -> return 0 and 0.5
@@ -1060,6 +1073,29 @@ def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, direct
             return 0., .5
         raise ValueError(f't-test between {xpre} and {xpost} returned NaN') 
     return tstat, pval
+
+
+def zscore_to_resp_type(z, zthr, directional=False):
+    ''' 
+    Convert a z-score to a response type
+    
+    :param z: scalar or array of z-score(s)
+    :param zthr: threshold z-score for response detection
+    :param directional: whether to look for directional effect
+    (i.e. positive side only) or not
+    :return: response type representative string(s)
+    '''
+    dstr = 'directional ' if directional else ''
+    logger.info(f'classifying responses using {dstr}z-score thresholding ...')
+    # Generate response integer code from z-score
+    if directional:
+        # If directional effect, classify into 0 (weak) and 1 (positive)
+        rcode = (z > zthr).astype(int)
+    else:
+        # Otherwise, classify into 0 (weak), -1 (negative) and 1 (positive)
+        rcode = (np.abs(z) > zthr).astype(int) * np.sign(z)
+    # Translate response code to response type string and return
+    return rcode.map(RTYPE_MAP)
 
 
 def is_valid_cond(isv):
@@ -1267,12 +1303,9 @@ def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.
     :param ykey: evaluation variable name
     :return: evoked change series
     '''
-    # Define window mean function
-    def window_mean(x):
-        return x.mean()
     # Compute metrics average in pre-stimulus and response windows for each ROI & run
-    ypre = apply_in_window(window_mean, data, ykey, wpre)
-    ypost = apply_in_window(window_mean, data, ykey, wpost)
+    ypre = apply_in_window(data, ykey, wpre)
+    ypost = apply_in_window(data, ykey, wpost)
     # Compute eovked change as their difference
     return (ypost - ypre).rename(get_change_key(ykey))
 
@@ -1944,3 +1977,32 @@ def tmean(x):
     :return: estimated mean
     '''
     return tstats.fit(x)[-2]
+
+
+def get_power_spectrum(y, fs):
+    ''' Compute signal power spectrum and return it as a dataframe '''
+    freqs, Pxx_spec = welch(y, fs, scaling='spectrum')
+    df = pd.DataFrame({
+        'Frequency (Hz)': freqs,
+        'Power spectrum': Pxx_spec
+    })
+    df.index.name = 'freq index'
+    return df
+    # return df.set_index('Frequency (Hz)')
+
+
+def offset_by(s, by, ykey=None, rel_ygap=.5):
+    ''' Offset series according to some index level '''
+    if isinstance(s, pd.DataFrame):
+        if ykey is None:
+            raise ValueError(f'ykey argument must be provided for dataframe inputs')
+        s[ykey] = offset_by(s[ykey], by, rel_ygap=rel_ygap)
+        return s
+    # Compute and add vertical offsets to y column
+    yranges = s.groupby(by).apply(np.ptp)
+    yranges += rel_ygap * yranges.mean() 
+    yoffsets = yranges.cumsum()
+    extra_mux_levels = set(s.index.names) - set([by])
+    if len(extra_mux_levels) > 0:
+        yoffsets = expand_to_match(yoffsets, s.index)
+    return s + yoffsets

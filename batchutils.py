@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-19 11:40:10
+# @Last Modified time: 2023-01-31 10:00:17
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -106,7 +106,7 @@ def get_stats_id(ykey_classification):
 
 def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_scaling_coeff,
                        baseline_quantile, baseline_wquantile, baseline_wsmoothing, 
-                       trial_aggfunc, ykey_classification):
+                       trial_aggfunc, ykey_classification, directional):
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
     dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
@@ -114,7 +114,10 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
     prepro_id = get_prepro_id(kalman_gain=kalman_gain)
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
     postpro_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
-    stats_id = f'agg{trial_aggfunc.__name__}_class{ykey_classification.replace("/", "")}'
+    ykey_classification_str = {Label.DFF: 'dff', Label.ZSCORE: 'zscore'}[ykey_classification]
+    stats_id = f'agg{trial_aggfunc.__name__}_class{ykey_classification_str}'
+    if directional:
+        stats_id = f'{stats_id}_directional'
     # Get figures PDF suffix
     figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}_{stats_id}'
     # Get trial-averaged input data directory

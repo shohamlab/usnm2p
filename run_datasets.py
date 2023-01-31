@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-05 11:01:19
+# @Last Modified time: 2023-01-31 09:50:16
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -47,9 +47,13 @@ if __name__ == '__main__':
         '--ws', type=float, default=BASELINE_WSMOOTHING, nargs='+',
         help='Baseline gaussian filter window size (s)')
     parser.add_argument(
-        '-y', '--ykey_classification', type=str, default='dff', choices=['dff', 'evrate'], nargs='+',
+        '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
         help='Classification variable')
-    parser.set_defaults(slack_notify=True)
+    parser.add_argument(
+        '--directional', action='store_true', help='Directional classification')
+    parser.add_argument(
+        '--non-directional', dest='directional', action='store_false')
+    parser.set_defaults(directional=True)
 
     # Extract command line arguments
     args = vars(parser.parse_args())
@@ -75,7 +79,11 @@ if __name__ == '__main__':
     exec_args['baseline_wquantile'] = exec_args.pop('wq')
     exec_args['baseline_wsmoothing'] = exec_args.pop('ws')
     exec_args['ykey_classification'] = [
-        {'evrate': Label.EVENT_RATE, 'dff': Label.DFF}[y]
+        {
+            'evrate': Label.EVENT_RATE, 
+            'dff': Label.DFF,
+            'zscore': Label.ZSCORE
+        }[y]
         for y in exec_args['ykey_classification']]
     exec_queue = create_queue(exec_args)
     

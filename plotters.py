@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-25 14:44:13
+# @Last Modified time: 2023-01-31 09:36:00
 
 ''' Collection of plotting utilities. '''
 
@@ -452,7 +452,7 @@ def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
     :param cmap (optional): colormap
     :return: figure handle
     '''
-    # Compute stacks FFTs along time axis
+    # Compute stacks frequency power spectrums (using FFT) along time axis
     logger.info('computing stack(s) fft...')
     nframes = stacks[list(stacks.keys())[0]].shape[0]
     freqs = np.fft.rfftfreq(nframes, 1 / fs)
@@ -472,7 +472,7 @@ def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
     ax.set_yscale(yscale)
     ax.set_ylabel('power spectrum')
 
-    # Plot all FFT profiles for each stack
+    # Plot all power spectrum profiles for each stack
     for k, v in ps_avg.items():
         ax.plot(freqs, v, label=k)
     
@@ -1767,9 +1767,9 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                 if sort_ROIs:
                     # Compute metrics average in pre-stimulus and response windows for each ROI
                     ypre = apply_in_window(
-                        lambda x: x.mean(), gdata, key, FrameIndex.PRESTIM, verbose=False)
+                        gdata, key, FrameIndex.PRESTIM, verbose=False)
                     ypost = apply_in_window(
-                        lambda x: x.mean(), gdata, key, FrameIndex.RESPONSE, verbose=False)
+                        gdata, key, FrameIndex.RESPONSE, verbose=False)
                     ydiff = (ypost - ypre).rename('val')
                     # Remove column sorter from index, if present
                     if col is not None and col in ydiff.index.names:
