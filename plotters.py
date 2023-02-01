@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 09:08:46
+# @Last Modified time: 2023-02-01 12:35:42
 
 ''' Collection of plotting utilities. '''
 
@@ -3480,6 +3480,8 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
     ax = fig.axes[0]
     ax.set_xlabel('fraction of positive conditions')
     ax.set_ylabel('fraction of responders')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
 
     # Add global average profile on top, if specified
     if hue is not None and avg_overlay:
