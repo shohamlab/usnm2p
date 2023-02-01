@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 12:35:42
+# @Last Modified time: 2023-02-01 15:57:24
 
 ''' Collection of plotting utilities. '''
 
@@ -2396,9 +2396,9 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
-                              avgprop=None, errprop='inter', marker='o', err_style='bars',
+                              avgprop=None, errprop='inter', marker=None, avgmarker='o', err_style='band',
                               add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
-                              stacked=False, fit=False, **kwargs):
+                              stacked=False, fit=False, avglw=3, avgerr=True, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2421,7 +2421,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             return plot_parameter_dependency_across_datasets(
                 data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
                 add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker,
-                fit=fit, **kwargs)
+                fit=fit, err_style=err_style, **kwargs)
         # Otherwise, offset values per dataset if specified
         else:
             if stacked:
@@ -2458,6 +2458,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 
     # Assemble common plotting arguments
     pltkwargs = dict(ax=ax, ci=ci, marker=marker, **kwargs)
+    if hue_alpha == 0.:
+        pltkwargs['ci'] = None
 
     # If hueplt specified
     if hueplt:
@@ -2483,7 +2485,6 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             leg.set(frame_on=False)
 
     # If propagated global average must be plotted
-    avg_kwargs = dict(c='k', markersize=8, lw=3)
     if avgprop is not None:
         # If average trace relies on all traces
         if avgprop == 'all':
@@ -2523,17 +2524,32 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             else:
                 raise ValueError(f'unknown error propagation mode: "{errprop}"')
         
-        # Plot propagated global mean trace and standard error bars
+        avg_kwargs = dict(c='k', marker=avgmarker, markersize=10, markeredgecolor='w')
+        # Plot propagated global mean trace and standard error (as bars or band)
         sem = sem.fillna(0)
-        lw = avg_kwargs.pop('lw', 2)
-        ax.errorbar(
-            mean.index, mean.values, yerr=sem.values, marker=marker, 
-            lw=0 if fit else lw, elinewidth=2 if fit else lw,
-            **avg_kwargs)
+        if err_style == 'bars':
+            if avgerr:
+                ax.errorbar(
+                    mean.index, mean.values, yerr=sem.values, 
+                    lw=0 if fit else avglw, elinewidth=2 if fit else avglw,
+                    **avg_kwargs)
+            else:
+                ax.plot(
+                    mean.index, mean.values, 
+                    lw=0 if fit else avglw, **avg_kwargs)
+        else:
+            ax.plot(
+                mean.index, mean.values, 
+                lw=0 if fit else avglw, **avg_kwargs)
+            if avgerr:
+                ax.fill_between(
+                    mean.index, mean.values - sem.values, mean.values + sem.values, 
+                    fc=avg_kwargs['c'], alpha=.3, ec=avg_kwargs['c'])
+
         if fit:
             ax.plot(
                 *get_cubic_fit(mean.index, mean.values), 
-                ls='--', lw=lw, **avg_kwargs)
+                ls='--', lw=avglw, **avg_kwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
@@ -2547,7 +2563,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
                                               marker='o', ls='-', as_ispta=False, title=None,
-                                              weighted=False, fit=False, err_style='band'):
+                                              weighted=True, fit=False, err_style='band', lw=1):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -2586,15 +2602,18 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         if err_style == 'bars':
             ax.errorbar(
                 aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], 
-                marker=marker, ls=ls, c='k')
+                marker=marker, ls=ls, c='k', lw=lw, 
+                markeredgecolor='w', markersize=10)
         else:
             ax.plot(
                 aggdata[xkey], aggdata['mean'], 
-                marker=marker, ls=ls, c='k')
-            ax.fill_between(
-                aggdata[xkey], 
-                aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
-                alpha=0.3, color='k')
+                marker=marker, ls=ls, c='k', lw=lw, 
+                markeredgecolor='w', markersize=10)
+            if err_style == 'band':
+                ax.fill_between(
+                    aggdata[xkey], 
+                    aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                    alpha=0.3, color='k')
 
     # Otherwise
     else:
@@ -2617,10 +2636,11 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
                     aggdata[xkey], aggdata['mean'],
                     marker=marker, ls=ls, label=htype, color=color, 
                     linewidth=0 if fit else None)
-                ax.fill_between(
-                    aggdata[xkey], 
-                    aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
-                    alpha=0.3, color=color)
+                if err_style == 'band':
+                    ax.fill_between(
+                        aggdata[xkey], 
+                        aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                        alpha=0.3, color=color)
 
             # Add 3rd order polynomial fit if required
             if fit:
@@ -3213,11 +3233,17 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE):
         fig = ax.get_figure()
     # Determine output metrics key
     logger.info(f'plotting {ykey} ISPTA dependency across responders...')
+    # Plot ISPTA dependency profiles
+    plot_parameter_dependency(
+        data, xkey=Label.ISPTA, ykey=ykey, yref=0., hue=hue, ax=ax, 
+        marker=None, as_ispta=True, ci=None if hue==Label.DATASET else CI,
+        hue_alpha=1., avgprop='whue', avgmarker=None)
+    # Indicate the "parameter sweep" origin of each data point
     # Plot dependencies on each parameter on same ISPTA axis
     for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
         plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, yref=0., hue=hue, ax=ax, 
-            marker=marker, as_ispta=True, legend=i==0, ls='--')
+            data, xkey=xkey, ykey=ykey, yref=0., ax=ax, hue=None, weighted=True, marker=marker,
+            as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0.)
     return fig
 
 
