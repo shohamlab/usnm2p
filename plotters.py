@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-31 18:20:17
+# @Last Modified time: 2023-02-01 09:08:46
 
 ''' Collection of plotting utilities. '''
 
@@ -2332,7 +2332,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
     # Determine y-bounds depending on variable
     ybounds = {
         # Label.DFF: [-0.1, 0.15],
-        Label.ZSCORE: [-3., 6.],
+        # Label.ZSCORE: [-3., 6.],
         Label.EVENT_RATE: [0., 1 / MIN_EVENTS_DISTANCE]
     }.get(ykey, None)
     
@@ -2773,7 +2773,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             leg.remove()
             # Count cells by responder type
             counts_by_rtype = cellcounts.groupby(Label.ROI_RESP_TYPE, sort=False).sum()
-            counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE])
+            counts_by_rtype = counts_by_rtype.reindex(orders[Label.ROI_RESP_TYPE]).dropna()
             # Plot counts on pie chart
             ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
             counts_by_rtype.plot.pie(
@@ -2785,10 +2785,13 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             raise ValueError(f'invalid count mode: "{count}"')
 
     # Add title
-    stitle = f'{ntot} ROIs, avg = {cellcounts_per_bar.mean():.0f} +/- {cellcounts_per_bar.std():.0f}'
+    datasets = list(celltypes.groupby(Label.DATASET).groups.keys())
+    mice = sorted(list(set([x.split('_')[1] for x in datasets])))
+    countsstr = f'{len(mice)} mice, {len(datasets)} regions, {ntot} ROIs'
+    stitle = f'{countsstr}, avg = {cellcounts_per_bar.mean():.0f} +/- {cellcounts_per_bar.std():.0f}'
     if title is not None:
         stitle = f'{title} ({stitle})'
-    fig.suptitle(stitle, fontsize=20)
+    fig.suptitle(stitle, fontsize=15)
     
     # Return figure handle
     return fig
@@ -3437,7 +3440,7 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line',
     return fig
 
 
-def plot_classification_details(data, pthr=None):
+def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
     ''' 
     Plot details of cells classification as function of their response distribution
     for the current ensemble of datasets
@@ -3457,33 +3460,48 @@ def plot_classification_details(data, pthr=None):
  
     # Translate to proportions
     cond_counts['total'] = cond_counts.sum(axis=1)
-    cond_props = cond_counts.div(cond_counts['total'], axis=0) * 100
- 
-    # Plot inverse cumulative distribution to see how classification would 
-    # vary as a function of threshold
-    fig, ax = plt.subplots(figsize=(5, 5))
-    sns.despine(ax=ax)
-    ax.set_xlabel('% positive conditions')
-    ax.set_ylabel('fraction of responders')
-    sns.ecdfplot(
-        data=cond_props,
+    cond_fracs = cond_counts.div(cond_counts['total'], axis=0)
+
+    pltkwargs = dict(
+        data=cond_fracs,
         x='positive',
         complementary=True,
-        ax=ax
     )
+
+    # Plot inverse cumulative distribution to see how classification would 
+    # vary as a function of threshold
+    fg = sns.displot(
+        kind='ecdf',
+        hue=hue,
+        height=4,
+        **pltkwargs
+    )
+    fig = fg.figure
+    ax = fig.axes[0]
+    ax.set_xlabel('fraction of positive conditions')
+    ax.set_ylabel('fraction of responders')
+
+    # Add global average profile on top, if specified
+    if hue is not None and avg_overlay:
+        sns.ecdfplot(
+            ax=ax,
+            c='k',
+            lw=2,
+            **pltkwargs
+        )
 
     # If threshold proportion of positive conditions specified,
     if pthr is not None:
         
         # Classify ROIs accordingly
         responder_types = (
-            cond_props['positive'] >= pthr * 100).astype(int).map(RTYPE_MAP)
+            cond_fracs['positive'] >= pthr).astype(int).map(RTYPE_MAP)
         rtype_counts = responder_types.value_counts()
         prop_pos = rtype_counts['positive'] / rtype_counts.sum()
         logger.info(f'identified {prop_pos * 100:.1f}% of responders with {pthr} as threshold proportion of responding conditions')
         
         # Indicate threshold proportion and corresponding responders fraction on graph 
-        ax.axvline(pthr * 100, c='k', ls='--')
+        ax.axvline(pthr, c='k', ls='--')
         ax.axhline(prop_pos, c='k', ls='--')
 
     # Return figure
