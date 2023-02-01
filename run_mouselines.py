@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-27 18:16:01
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 09:40:46
+# @Last Modified time: 2023-02-01 10:10:54
 
 ''' Utility script to run high-level analysis notebook(s) '''
 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
         trialavg_dirs[mouseline] = get_batch_settings(
             args['analysis_type'], mouseline, None, KALMAN_GAIN, NEUROPIL_SCALING_COEFF,
             BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, 
-            np.median, Label.ZSCORE, True
+            TRIAL_AGGFUNC, YKEY_CLASSIFICATION, DIRECTIONAL_DETECTION
         )[1]
 
     trialavg_dirs = {k: v for k, v in trialavg_dirs.items() if os.path.isdir(v)}
