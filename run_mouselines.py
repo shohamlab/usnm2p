@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-27 18:16:01
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-13 12:31:14
+# @Last Modified time: 2023-02-01 09:40:46
 
 ''' Utility script to run high-level analysis notebook(s) '''
 
 import os
 from itertools import product
 import logging
+import numpy as np
 from constants import *
 
 from logger import logger
@@ -50,7 +51,10 @@ if __name__ == '__main__':
     for mouseline in mouselines:
         trialavg_dirs[mouseline] = get_batch_settings(
             args['analysis_type'], mouseline, None, KALMAN_GAIN, NEUROPIL_SCALING_COEFF,
-            BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, Label.DFF)[1]
+            BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, 
+            np.median, Label.ZSCORE, True
+        )[1]
+
     trialavg_dirs = {k: v for k, v in trialavg_dirs.items() if os.path.isdir(v)}
     
     # Compute number of jobs to run
