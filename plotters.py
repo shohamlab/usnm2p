@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 15:57:24
+# @Last Modified time: 2023-02-02 14:38:26
 
 ''' Collection of plotting utilities. '''
 
@@ -1580,7 +1580,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
     axes = axes.ravel()
 
     # Plot map for each dataset
-    with tqdm(total=len(axes) - 1, position=0, leave=True) as pbar:
+    with tqdm(total=ndatasets, position=0, leave=True) as pbar:
         for ax, (dataset_id, sgroup) in zip(axes, stats_groups):
             mgroup = masks_groups[dataset_id]
             ogroup = ops[dataset_id]
@@ -3363,7 +3363,7 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
 
 
 def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', 
-                        avg_overlay=True, hue_highlight=None, **kwargs):
+                        avg_overlay=True, hue_highlight=None, hue_width=False, **kwargs):
     ''' 
     Plot percentage of responder cells as a function of an input parameter
 
@@ -3385,6 +3385,13 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line',
     weighted_resp_props = resp_props.multiply(weights, axis=0).groupby(xkey).sum()
     resp_props_sem = resp_props.groupby(xkey).sem()
 
+    if hue is not None and hue_width:
+        countsperhue = resp_counts['total'].groupby(hue).max()
+        if hue in resp_props.index.names:
+            hvals = resp_props.index.get_level_values(hue)
+        else:
+            hvals = resp_props[hue]
+        resp_props['count'] = hvals.map(countsperhue)
 
     # Plot % responders profile(s) with appropriate function
     pltkwargs = dict(
@@ -3414,6 +3421,8 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line',
                 palette = dict(zip(huevals, huecolors))
                 palette[hue_highlight] = 'r'
                 pltkwargs['palette'] = palette
+            if hue_width:
+                pltkwargs['size'] = 'count'
 
     elif kind in ['bar', 'box', 'boxen', 'violin']:
         if hue == Label.DATASET:

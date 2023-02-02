@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-27 18:16:01
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 10:10:54
+# @Last Modified time: 2023-02-02 14:54:55
 
 ''' Utility script to run high-level analysis notebook(s) '''
 
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     exec_queue = create_queue(exec_args)
 
     # Get mouselines input directories
-    mouselines = ['line3', 'sst', 'pv', 'celia_line3', 'sarah_line3']
+    mouselines = ['line3', 'sst', 'pv', 'sarah_line3']
     if args['mouseline'] is not None:
         mouselines = [mouselines[mouselines.index(args['mouseline'])]]
     trialavg_dirs = {}
