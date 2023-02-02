@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-02 14:38:26
+# @Last Modified time: 2023-02-02 16:34:20
 
 ''' Collection of plotting utilities. '''
 
@@ -2664,7 +2664,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     return fig
 
 
-def plot_stimparams_dependency(data, ykey, title=None, axes=None, **kwargs):
+def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -2673,25 +2673,32 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, **kwargs):
     :param kwargs: keyword parameters that are passed to the plot_parameter_dependency function
     :return: figure handle
     '''
+    if xkeys is None:
+        xkeys = [Label.P, Label.DC]
+    
     # Initialize or retrieve figure        
     if axes is None:
         height = 4
         if kwargs.get('stacked', False):
             height = max(height, len(data.index.unique(Label.DATASET)))
-        fig, axes = plt.subplots(1, 2, figsize=(10, height))
+        fig, axes = plt.subplots(1, len(xkeys), figsize=(10, height))
     else:
-        if len(axes) != 2:
-            raise ValueError('exactly 2 axes must be provided')
+        if len(axes) != len(xkeys):
+            raise ValueError(f'exactly {len(xkeys)} axes must be provided')
         fig = axes[0].get_figure()
 
     # Disable legend for all axes but last
     kwargs['legend'] = False
     # Plot dependencies on each parameter on separate axes
-    for i, (xkey, ax) in enumerate(zip([Label.P, Label.DC], axes.T)):
+    for i, (xkey, ax) in enumerate(zip(xkeys, axes.T)):
         if i == len(axes) - 1:
             del kwargs['legend']
-        plot_parameter_dependency(
-            data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', **kwargs)
+        if xkey == Label.ISPTA:
+            plot_intensity_dependencies(
+                data, ykey, ax=ax, **kwargs)
+        else:
+            plot_parameter_dependency(
+                data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', **kwargs)   
     
     # Harmonize axes limits
     harmonize_axes_limits(axes)
@@ -3225,7 +3232,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
     return fig
 
 
-def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE):
+def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yref=0., **kwargs):
     if ax is None:
         fig, ax = plt.subplots()
         ax.set_title(f'ISPTA dependency')
@@ -3235,15 +3242,15 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE):
     logger.info(f'plotting {ykey} ISPTA dependency across responders...')
     # Plot ISPTA dependency profiles
     plot_parameter_dependency(
-        data, xkey=Label.ISPTA, ykey=ykey, yref=0., hue=hue, ax=ax, 
-        marker=None, as_ispta=True, ci=None if hue==Label.DATASET else CI,
-        hue_alpha=1., avgprop='whue', avgmarker=None)
+        data, xkey=Label.ISPTA, ykey=ykey, yref=yref, hue=hue, ax=ax, 
+        marker=None, as_ispta=True, avgmarker=None, **kwargs)
     # Indicate the "parameter sweep" origin of each data point
     # Plot dependencies on each parameter on same ISPTA axis
+    del kwargs['err_style']
     for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
         plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, yref=0., ax=ax, hue=None, weighted=True, marker=marker,
-            as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0.)
+            data, xkey=xkey, ykey=ykey, yref=None, ax=ax, hue=None, weighted=True, marker=marker,
+            as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0., **kwargs)
     return fig
 
 
@@ -3362,7 +3369,7 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
     return fig
 
 
-def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', 
+def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
                         avg_overlay=True, hue_highlight=None, hue_width=False, **kwargs):
     ''' 
     Plot percentage of responder cells as a function of an input parameter
@@ -3431,15 +3438,22 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line',
         pltkwargs['color'] = 'C0'
     else:
         raise ValueError(f'unknown plot type: "{kind}"')
-    fg = pltfunc(
-        kind=kind,
-        hue=hue,
-        height=4,
-        **pltkwargs
-    )
-    # Extract figure and axis
-    fig = fg.figure
-    ax = fig.axes[0]
+    
+    if ax is None:
+        fg = pltfunc(
+            kind=kind,
+            hue=hue,
+            height=4,
+            **pltkwargs
+        )
+        # Extract figure and axis
+        fig = fg.figure
+        ax = fig.axes[0]
+    else:
+        pltfunc = getattr(sns, f'{kind}plot')
+        pltfunc(hue=hue, ax=ax, **pltkwargs)
+        fig = ax.get_figure()
+        
     # Post-process figure
     sns.despine(ax=ax)
     ax.set_ylim(0, 100)
