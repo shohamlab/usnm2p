@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-19 11:16:32
+# @Last Modified time: 2023-02-08 18:26:46
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -348,7 +348,7 @@ class StackProcessor(metaclass=abc.ABCMeta):
         return fname
 
     def get_target_fpath(self, fpath):
-        ''' Get target (i.e. post-prtocessing) file path for an input filepath '''
+        ''' Get target (i.e. post-processing) file path for an input filepath '''
         # Get output filepath
         fpath = get_output_equivalent(
             fpath, self.input_root, f'{self.rootcode}/{self.code}')
@@ -518,12 +518,13 @@ def save_stack_to_gif(figsroot, *args, **kwargs):
     viewer.save_as_gif(figsdir, fps)
 
 
-def save_postpro_dataset(fpath, timeseries, info_table, ROI_masks):
+def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks):
     '''
-    Save processed dataset into HDF5 file. 
+    Save conditioned dataset into HDF5 file. 
     
     :param fpath: absolute path to data file
     :param timeseries: multi-indexed (ROI, run, trial, frame) timeseries dataframe
+    :param popagg_timeseries: multi-indexed (run, trial, frame) population-average timeseries dataframe
     :param info_table: dataframe containing the information about experimental parameters for each run
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
     '''
@@ -536,17 +537,20 @@ def save_postpro_dataset(fpath, timeseries, info_table, ROI_masks):
         logger.info('saving experiment info table...')
         store['info_table'] = info_table 
         # Save timeseries table
-        logger.info('saving processed timeseries data...')
+        logger.info('saving conditioned timeseries data...')
         store['timeseries'] = timeseries
+        # Save population-average timeseries table
+        logger.info('saving conditioned population-average timeseries data...')
+        store['popagg_timeseries'] = popagg_timeseries
         # Save ROI masks
         logger.info('saving ROI masks...')
         store['ROI_masks'] = ROI_masks
     logger.info('data successfully saved')
 
 
-def load_postpro_dataset(fpath):
+def load_conditioned_dataset(fpath):
     '''
-    Load processed dataset from HDF5 file
+    Load conditioned dataset from HDF5 file
     
     :param fpath: absolute path to data file
     :return: 3-tuple containing multi-indexed (ROI, run, trial, frame) timeseries dataframe,
@@ -554,28 +558,32 @@ def load_postpro_dataset(fpath):
     '''
     # Check that output file is present in directory
     if not os.path.isfile(fpath):
-        raise FileNotFoundError('post-processed data file not found in directory')
+        raise FileNotFoundError('conditioned data file not found in directory')
     # Create HDF store object
     with pd.HDFStore(fpath) as store:
         # Load experiment info table
         logger.info('loading experiment info table...')
         info_table = store['info_table']
         # Load timeseries table
-        logger.info('loading processed timeseries data...')
+        logger.info('loading conditioned timeseries data...')
         timeseries = store['timeseries']
+        # Load population-average timeseries table
+        logger.info('loading conditioned population-average timeseries data...')
+        popagg_timeseries = store['popagg_timeseries']
         # Load ROI masks
         logger.info('loading ROI masks...')
         ROI_masks = store['ROI_masks']
     logger.info('data successfully loaded')
-    return timeseries, info_table, ROI_masks
+    return timeseries, popagg_timeseries, info_table, ROI_masks
 
 
-def save_trialavg_dataset(fpath, trialagg_timeseries, stats, triagg_stats, ROI_masks, map_ops):
+def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats, triagg_stats, ROI_masks, map_ops):
     '''
-    Save trial-averaged dataset to a HDF5 file
+    Save processed dataset to a HDF5 file
     
     :param fpath: absolute path to data file
     :param trialagg_timeseries: multi-indexed (ROI, run, frame) trial-aggregated timeseries dataframe
+    :param popagg_timeseries: multi-indexed (run, trial, frame) population average timeseries dataframe
     :param stats: multi-indexed (ROI, run, trial) stats dataframe
     :param triagg_stats: multi-indexed (ROI, run) trial-aggregated stats dataframe
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
@@ -588,7 +596,10 @@ def save_trialavg_dataset(fpath, trialagg_timeseries, stats, triagg_stats, ROI_m
     with pd.HDFStore(fpath) as store:
         # Save trial aggregated timeseries table
         logger.info('saving trial-aggregated timeseries data...')
-        store['timeseries'] = trialagg_timeseries
+        store['trialagg_timeseries'] = trialagg_timeseries
+        # Save population-average timeseries table
+        logger.info('saving population-average timeseries data...')
+        store['popagg_timeseries'] = popagg_timeseries
         # Save extended stats table
         logger.info('saving extended stats data...')
         store['stats'] = stats
@@ -603,31 +614,32 @@ def save_trialavg_dataset(fpath, trialagg_timeseries, stats, triagg_stats, ROI_m
         store['map_ops'] = pd.Series(map_ops)
 
 
-def load_trialavg_dataset(fpath):
+def load_processed_dataset(fpath):
     '''
-    Load dataset of a particular date-mouse-region from a HDF5 file
+    Load processed data of a particular date-mouse-region dataset from a HDF5 file
     
     :param fpath: absolute path to data file
     :return: multi-indexed timeseries and stats dataframes
     '''
     # Check that output file is present in directory
     if not os.path.isfile(fpath):
-        raise FileNotFoundError('trial-averaged data file not found in directory')
+        raise FileNotFoundError('processed data file not found in directory')
     # Create HDF store object
     with pd.HDFStore(fpath) as store:
         # Load data
-        logger.info(f'loading trial-averaged data from {os.path.basename(fpath)}')
-        timeseries = store['timeseries']
+        logger.info(f'loading mouse-region data from {os.path.basename(fpath)}')
+        trialagg_timeseries = store['trialagg_timeseries']
+        popagg_timeseries = store['popagg_timeseries']
         stats = store['stats']
         trialagg_stats = store['triagg_stats']
         ROI_masks = store['ROI_masks']
         map_ops = store['map_ops'].to_dict()
-    return timeseries, stats, trialagg_stats, ROI_masks, map_ops
+    return trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, ROI_masks, map_ops
 
 
-def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
-                           on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
-                           compute_evoked=False, **kwargs):
+def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
+                            on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
+                            compute_evoked=False, **kwargs):
     '''
     Load multiple mouse-region datasets
     
@@ -669,11 +681,14 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         fpaths = list(filter(lambda x: not any(e in x for e in exclude_patterns), fpaths))
     
     # Load timeseries and stats datasets
-    datasets = [load_trialavg_dataset(fpath) for fpath in fpaths]
+    datasets = [load_processed_dataset(fpath) for fpath in fpaths]
     if len(datasets) == 0:
         raise ValueError(f'no valid datasets found in "{dirpath}"')
-    timeseries, stats, trialagg_stats, ROI_masks, map_ops = list(zip(*datasets))
-    stats, trialagg_stats, timeseries = list(stats), list(trialagg_stats), list(timeseries)
+    trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, ROI_masks, map_ops = list(zip(*datasets))
+    trialagg_timeseries = list(trialagg_timeseries)
+    popagg_timeseries = list(popagg_timeseries) 
+    stats = list(stats)
+    trialagg_stats = list(trialagg_stats)
 
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
@@ -704,10 +719,12 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
                     logger.warning(f'dropping run {idrop} from stats and timeseries...')
                     trialagg_stats[i] = trialagg_stats[i].drop(idrop, level=Label.RUN)
                     stats[i] = stats[i].drop(idrop, level=Label.RUN)
-                    timeseries[i] = timeseries[i].drop(idrop, level=Label.RUN)
+                    trialagg_timeseries[i] = trialagg_timeseries[i].drop(idrop, level=Label.RUN)
+                    popagg_timeseries[i] = popagg_timeseries[i].drop(idrop, level=Label.RUN)
 
     # Concatenate datasets while adding their respective IDs
-    timeseries = pd.concat(timeseries, keys=dataset_ids, names=[Label.DATASET])
+    trialagg_timeseries = pd.concat(trialagg_timeseries, keys=dataset_ids, names=[Label.DATASET])
+    popagg_timeseries = pd.concat(popagg_timeseries, keys=dataset_ids, names=[Label.DATASET])
     trialagg_stats = pd.concat(trialagg_stats, keys=dataset_ids, names=[Label.DATASET])
     stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
     ROI_masks = pd.concat(ROI_masks, keys=dataset_ids, names=[Label.DATASET])
@@ -715,8 +732,10 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
 
     # Sort index for each dataset
     logger.info('sorting dataset indexes...')
-    timeseries.sort_index(
-        level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+    trialagg_timeseries.sort_index(
+        level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True)
+    popagg_timeseries.sort_index(
+        level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
     stats.sort_index(
         level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
     trialagg_stats.sort_index(
@@ -731,13 +750,15 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         except ValueError as err:
             # If needed, harmonize run indexes in stats & timeseries
             logger.warning(err)
-            timeseries, stats, trialagg_stats = harmonize_run_index(
-                timeseries, stats, trialagg_stats, **kwargs) 
+            trialagg_timeseries, popagg_timeseries, stats, trialagg_stats = harmonize_run_index(
+                trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, **kwargs) 
 
             # Sort index for each dataset AGAIN
             logger.info('sorting dataset indexes...')
-            timeseries.sort_index(
+            trialagg_timeseries.sort_index(
                 level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+            popagg_timeseries.sort_index(
+                level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
             stats.sort_index(
                 level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
             trialagg_stats.sort_index(
@@ -755,12 +776,13 @@ def load_trialavg_datasets(dirpath, layer=None, include_patterns=None, exclude_p
         for ykey in [Label.ZSCORE, Label.DFF]:
             ykey_diff = get_change_key(ykey)
             if ykey_diff not in stats:
-                trialagg_stats = add_change_metrics(timeseries, trialagg_stats, ykey)
+                trialagg_stats = add_change_metrics(trialagg_timeseries, trialagg_stats, ykey)
     
     # Return stats and timeseries as a dictionary
     logger.info('datasets successfully loaded')
     return {
-        'timeseries': timeseries,
+        'trialagg_timeseries': trialagg_timeseries,
+        'popagg_timeseries': popagg_timeseries,
         'stats': stats,
         'trialagg_stats': trialagg_stats,
         'ROI_masks': ROI_masks,

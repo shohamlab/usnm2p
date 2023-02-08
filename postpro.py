@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-31 09:35:40
+# @Last Modified time: 2023-02-08 17:46:37
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -599,12 +599,36 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     return data
 
 
-def get_index_along_run(mux):
-    ''' Compute frame indexes along run '''
+def get_index_along_experiment(mux, reset_every=None, runid_map=None):
+    '''
+    Compute frame indexes along experiment specific temporal delimiter
+    
+    :param mux: multi-index of experiment dataframe 
+    :param reset_every (optional): temporal delimiter at which to reset the frame index
+    :param runid_map (optional): run <-> run ID mapper (useful for whole-experiment indexing) 
+    :return: frame index array
+    '''
+    if reset_every is None and runid_map is None:
+        raise ValueError('run ID mapper must be provided for full experiment indexing')
+    # Extract frame indexes along trials
     frame_idxs = mux.get_level_values(Label.FRAME)
+    # If temporal delimiter = trial, return index array as is
+    if reset_every == Label.TRIAL:
+        return frame_idxs
+    # Compute index offset for each trial and add them to frame indexes
     npertrial = frame_idxs.max() + 1
-    idx_offsets = mux.get_level_values(Label.TRIAL) * npertrial
-    return idx_offsets + frame_idxs
+    trial_idx_offsets = mux.get_level_values(Label.TRIAL) * npertrial
+    frame_idxs += trial_idx_offsets
+    # If temporal delimiter = run, return index array as is
+    if reset_every == Label.RUN:
+        return frame_idxs
+    # Compute index offset for each run (based on run ID), and add them to frame indexes
+    ntrials_per_run = len(mux.unique(Label.TRIAL))
+    runid_map -= runid_map.min()
+    run_idx_offsets = mux.get_level_values(Label.RUN).map(runid_map) * ntrials_per_run * npertrial
+    frame_idxs += run_idx_offsets
+    # Return frame indexes
+    return frame_idxs
 
 
 def add_intensity_to_table(table):
@@ -1363,7 +1387,7 @@ def get_xdep_data(data, xkey):
     elif xkey == Label.DC:
         return data[data[Label.P] == P_REF]
     else:
-        logger.warning(f'{xkey} no part of ({Label.P}, {Label.DC}) -> no filtering')
+        logger.warning(f'{xkey} not part of ({Label.P}, {Label.DC}) -> no filtering')
         return data
 
 
@@ -1523,12 +1547,12 @@ def update_run_index(data, runidx):
     return data
 
 
-def harmonize_run_index(timeseries, stats, trialagg_stats, condition='param'):
+def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, condition='param'):
     '''
     Generate a new harmonized run index in multi-region dataset, based on a specific condition
     (e.g. P-DC combination)
     
-    :param timeseries: multi-indexed timeseries dataframe containing multiple datasets
+    :param trialagg_timeseries: multi-indexed timeseries dataframe containing multiple datasets
     :param stats: multi-indexed stats dataframe containing multiple datasets
     :return: dataframes tuple with harmonized run indexes
     '''
@@ -1543,16 +1567,23 @@ def harmonize_run_index(timeseries, stats, trialagg_stats, condition='param'):
     else:
         raise ValueError(f'unrecognized condition: "{condition}"')
     # Get expanded conditions compatible with timeseries
-    timeseries_conds = expand_to_match(trialagg_stats_conds, timeseries.index)
+    trialagg_timeseries_conds = expand_to_match(trialagg_stats_conds, trialagg_timeseries.index)
+    nonROI_groupby = list(set(trialagg_stats_conds.index.names) - set([Label.ROI]))
+    popagg_timeseries_conds = expand_to_match(
+        trialagg_stats_conds.groupby(nonROI_groupby).first(),
+        popagg_timeseries_conds.index)
     # Get stimparams: run-index mapper
     mapper = get_run_mapper(trialagg_stats_conds)
     logger.debug(f'run map:\n{pd.Series(mapper)}')
     # Get new run indexes column and update appropriate data index level
     stats = update_run_index(stats, stats_conds.map(mapper))
     trialagg_stats = update_run_index(trialagg_stats, trialagg_stats_conds.map(mapper))
-    timeseries = update_run_index(timeseries, timeseries_conds.map(mapper))
+    trialagg_timeseries = update_run_index(
+        trialagg_timeseries, trialagg_timeseries_conds.map(mapper))
+    popagg_timeseries = update_run_index(
+        popagg_timeseries, popagg_timeseries_conds.map(mapper))
     # Return harmonized dataframes
-    return timeseries, stats, trialagg_stats
+    return trialagg_timeseries, stats, trialagg_stats
 
 
 def highlight_incomplete(x, xref=None):
@@ -1674,6 +1705,151 @@ def anova1d(data, xkey, ykey):
     return p
 
 
+def get_weighted_ss_across(data, ykey, groupby):
+    ''' 
+    Group data by factor value, compute squared deviations from grand mean 
+    for each group, weigh them by group sizes and return sum.
+
+    :param data: input data
+    :param ykey: name of variable of interest
+    :param groupby: name of grouping variable
+    :return: sum of squared deviations per group, weighted by group size
+    '''
+    # Grand mean
+    ybar = data[ykey].mean()
+    # Number of occurences per factor value
+    df = data.groupby(groupby)[ykey].count()
+    # Group mean for each factor value
+    groupmeans = data.groupby(groupby)[ykey].mean()
+    # Squared deviation from grand mean for each factor value
+    ss = (groupmeans - ybar)**2
+    # Weigh squared deviations by number of occurences
+    weighed_ss = df * ss
+    # Return weighted sum
+    return weighed_ss.sum()
+
+
+def get_weighted_ss_within(data, ykey, groupby):
+    ''' 
+    Group data by factor(s) value, compute squared deviations from group mean 
+    within each group, weigh them by group sizes and return sum.
+
+    :param data: input data
+    :param ykey: name of variable of interest
+    :param groupby: name of grouping variable(s)
+    :return: ???
+    '''
+    # Number of occurences per factor(s) value
+    df = data.groupby(groupby)[ykey].count() - 1
+    # Mean variation inside each group
+    ss = data.groupby(groupby)[ykey].std()**2
+    # Return weighted sum of variations within each group
+    return (df * ss).sum()
+
+
+def anova2d(data, ykey, factors, alpha=None, interaction=True):
+    ''' 
+    Perform 2d ANOVA on dataset
+    
+    :param data: input dataframe 
+    :param ykey: name of variable of interest
+    :param factors: names of the 2 factors of interest
+    :param alpha: critical p-value for significance (optional)
+    :param interaction: whether to consider interaction across the 2 factors
+    :return: ANOVA table
+    '''
+    # Check that inputs are correct
+    if len(factors) != 2:
+        raise ValueError('exactly 2 factors must be provided')
+    for k in [ykey, *factors]:
+        if k not in data and k not in data.index.names:
+            raise ValueError(f'{k} not found in input dataset') 
+    # Count number of observations per factor combinations
+    npergroup = (data
+        .groupby(factors)[ykey]
+        .count()
+        .reset_index()
+        .rename(columns={ykey: 'count'})
+    )
+    # # If number varies across groups, raise error
+    # if npergroup['count'].nunique() > 1:
+    #     raise ValueError(
+    #         f'Number of observations varies across groups:\n{npergroup}')
+    
+    # Create ANOVA backbone table
+    int_key = f'{factors[0]} x {factors[1]}'
+    within_key = 'Within Groups'
+    tot_key = 'Total' 
+    SS, df, MS, F, pval, Fcr = 'SS', 'df', 'MS', 'F', 'P-value', 'F crit'
+    colnames = [SS, df, MS, F, pval]
+    if alpha is not None:
+        colnames.append(Fcr)
+    rownames = [*factors]
+    if interaction:
+        rownames.append(int_key)
+    rownames = rownames + [within_key, tot_key]
+    table = pd.DataFrame(index=rownames, columns=colnames)
+    table.index.name = 'Source of Variation'
+
+    # Calculate degrees of freedom
+    a, b = data[factors].nunique().values  # Number of unique values of each factor
+    table.loc[factors, df] = a - 1, b - 1   # Individual dfs
+    if interaction:
+        table.loc[int_key, df] = (a - 1) * (b - 1)  # interaction df
+        table.loc[within_key, df] = data.shape[0] - a * b   # Intra group df
+    else:
+        table.loc[within_key, df] = data.shape[0] - a - b + 1  # Intra group df
+    table.loc[tot_key, df] = data.shape[0] - 1  # Total df
+
+    # For each factor, calculate weighted sum of squared deviations across factor values
+    for factor in factors: 
+        table.loc[factor, SS] = get_weighted_ss_across(data, ykey, factor)
+
+    # Calculate weighted sum of squared deviations within group for each factors combination
+    table.loc[within_key, SS] = get_weighted_ss_within(data, ykey, factors)
+
+    # Calculate total sum of squared deviations from grand mean across all observations
+    table.loc[tot_key, SS] = ((data[ykey] - data[ykey].mean())**2).sum()
+
+    # Calculate interaction SS terms as difference between total SS and sum of all other SS terms
+    if interaction:
+        table.loc[int_key, SS] = table.loc[tot_key, SS] - (table.loc[factors + [within_key], SS]).sum()
+
+    # Calculate MS terms (i.e. relative variability terms) as SS / df ratios
+    MSkeys = [*factors, within_key]
+    if interaction:
+        MSkeys.append(int_key)
+    for key in MSkeys:
+        table.loc[key, MS] = table.loc[key, SS] / table.loc[key, df]
+
+    # Calculate F scores as ratio of variability between groups / variability within groups
+    Fkeys = [*factors]
+    if interaction:
+        Fkeys.append(int_key)
+    for key in Fkeys:
+        table.loc[key, F] = table.loc[key, MS] / table.loc[within_key, MS]
+
+    # Calculate corresponding p-values
+    for key in Fkeys:
+        table.loc[key, pval] = fstats.sf(
+            table.loc[key, F], 
+            table.loc[key, df], 
+            table.loc[within_key, df]
+        )
+
+    # F critical 
+    if alpha is not None:
+        for key in Fkeys:
+            table.loc[key, Fcr] = fstats.ppf(
+                1 - alpha, 
+                table.loc[key, df], 
+                table.loc[within_key, df]
+            )
+
+    # Return final anova table
+    return table
+
+
 def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     '''
     Get a (cell-count-weighted or not) aggregated across datasets (mean and propagated sem)
@@ -1697,7 +1873,7 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     cats.append(xkey)
     groups = data.groupby(cats)
     # Identify columns that display intra-group variation and not
-    maxnvalspercat = groups.nunique().max(axis=0)
+    maxnvalspercat = data.groupby(cats).first().groupby(cats[1:]).nunique().max(axis=0)
     constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
     varkeys = maxnvalspercat[maxnvalspercat > 1].index.values
     # Restrict varying columns to float types only
@@ -1947,9 +2123,10 @@ def exclude_outliers(data, ykey, k=10):
     return data[iswithin]
 
 
-def compute_ROI_vs_trial_anova(s):
+def compute_ROI_vs_trial_anova(s, interaction=True):
+
     # Set all index dims as columns
-    data = s.rename('y').reset_index()
+    data = s.reset_index()
 
     # Fix ROI indexes
     iROIs_org = data[Label.ROI].unique() 
@@ -1957,15 +2134,23 @@ def compute_ROI_vs_trial_anova(s):
     ROI_mapper = dict(zip(iROIs_org, iROIs_fix))
     data[Label.ROI] = data[Label.ROI].map(ROI_mapper)
 
-    # Perform 2-way ANOVA with statsmodels
-    formula = f'y ~ C({Label.TRIAL}) + C({Label.ROI})'
-    # logger.info(f'fitting model to "{formula}"...')
-    model = ols(formula, data=data).fit()
-    # logger.info('computing anova output')
-    aov_table = sm.stats.anova_lm(model, typ=2)
+    # # Perform 2-way ANOVA with statsmodels
+    # data = data.rename(columns={s.name: 'y'})
+    # formula = f'y ~ C({Label.TRIAL}) + C({Label.ROI})'
+    # if interaction:
+    #     formula = f'{formula} + C({Label.TRIAL}):C({Label.ROI})'
+    # # logger.info(f'fitting model to "{formula}"...')
+    # model = ols(formula, data=data).fit()
+    # # logger.info('computing anova output')
+    # aov_table = sm.stats.anova_lm(model, typ=2)
+    # Ftrial, Froi = aov_table.loc[[f'C({Label.TRIAL})', f'C({Label.ROI})'], 'F'].values
+
+    # Perform 2-way ANOVA with custom function
+    aov_table = anova2d(data, s.name, [Label.TRIAL, Label.ROI], interaction=interaction)
+
+    Ftrial, Froi = aov_table.loc[[Label.TRIAL, Label.ROI], 'F'].values
     
     # Return F-scores
-    Ftrial, Froi = aov_table.loc[[f'C({Label.TRIAL})', f'C({Label.ROI})'], 'F'].values
     return Ftrial, Froi
 
 
@@ -1996,8 +2181,10 @@ def offset_by(s, by, ykey=None, rel_ygap=.5):
     if isinstance(s, pd.DataFrame):
         if ykey is None:
             raise ValueError(f'ykey argument must be provided for dataframe inputs')
-        s[ykey] = offset_by(s[ykey], by, rel_ygap=rel_ygap)
-        return s
+        # Work on copy to avoid offset accumulation upon multiple calls 
+        scopy = s.copy()
+        scopy[ykey] = offset_by(s[ykey], by, rel_ygap=rel_ygap)
+        return scopy
     # Compute and add vertical offsets to y column
     yranges = s.groupby(by).apply(np.ptp)
     yranges += rel_ygap * yranges.mean() 
@@ -2006,3 +2193,60 @@ def offset_by(s, by, ykey=None, rel_ygap=.5):
     if len(extra_mux_levels) > 0:
         yoffsets = expand_to_match(yoffsets, s.index)
     return s + yoffsets
+
+
+def get_responders_counts(data, xkey, units=None, normalize=False):
+    '''
+    Count the number of responder cells per condition
+    
+    :param data: statistics dataframe
+    :param xkey: input variable
+    :param units: extra grouping variables
+    :param normalize: whether to normalize counts per group
+    :return: dataframe of responder counts (or proportion) per group
+    '''
+    # Restrict data to input parameter dependency range
+    data = get_xdep_data(data, xkey)
+    # Add extra grouping variables, if any
+    groupby = [xkey]
+    if units is not None:
+        if isinstance(units, list):
+            groupby = groupby + units
+        else:
+            groupby.append(units)
+    # Count number of responses of each type, for each grouping variables combination
+    resp_counts = (data
+        .groupby(groupby)[Label.RESP_TYPE]
+        .value_counts()
+        .unstack()
+        .fillna(0.)
+        .astype(int)
+    )
+    # Add total count column
+    resp_counts['total'] = resp_counts.sum(axis=1)
+    # If normalization specified
+    if normalize:
+        # Convert to proportions
+        resp_props = resp_counts.div(resp_counts['total'], axis=0)
+        resp_props['count'] = resp_counts['total']
+        del resp_props['total']
+        # Compute weights per input level
+        resp_props['weight'] = (
+            resp_props['count']
+            .groupby(xkey)
+            .apply(lambda s: s / s.sum())
+        )
+        # Return proportions
+        return resp_props
+    else:
+        # Otherwise, return counts
+        return resp_counts
+
+
+def apply_test(data, groupby, testfunc, pthr=0.05):
+    ''' Apply statistical test '''
+    testres = data.groupby(groupby).agg(testfunc)
+    testres = pd.DataFrame(
+        testres.tolist(), columns=['stat', 'pval'], index=testres.index)
+    testres['H0'] = testres['pval'] >= pthr
+    return testres

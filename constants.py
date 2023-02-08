@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-01 10:07:42
+# @Last Modified time: 2023-02-08 18:10:38
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -96,6 +96,25 @@ class Label:
     RENAME_ON_AVERAGING = {
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
+
+
+# Names used for intermediate data directories along the analysis pipeline
+class DataRoot:
+    
+    # Standard pipeline
+    FIG = 'figs'
+    RAW = 'raw'
+    STACKED = 'stacked'
+    SUBSTITUTED = 'substituted'
+    FILTERED = 'filtered'
+    SEGMENTED = 'segmented'
+    CONDITIONED = 'conditioned'
+    PROCESSED = 'processed'
+    LINESTATS = 'lineagg'
+
+    # Bergamo pipeline
+    RESAMPLED = 'resampled'
+    SPLIT = 'split'
 
 
 # Response and responders type

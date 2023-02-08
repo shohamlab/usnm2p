@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-28 16:29:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 14:55:14
+# @Last Modified time: 2023-02-08 16:03:12
 
 ''' Collection of stack substitutors utilities. '''
 
@@ -10,6 +10,7 @@ import numpy as np
 
 from logger import logger
 from fileops import StackProcessor
+from constants import DataRoot
 
 
 class StackSubstitutor(StackProcessor):
@@ -52,7 +53,7 @@ class StackSubstitutor(StackProcessor):
      
     @property
     def rootcode(self):
-        return 'substituted'
+        return DataRoot.SUBSTITUTED
 
     @property
     def submap(self):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-16 17:37:22
+# @Last Modified time: 2023-02-08 16:01:11
 
 ''' Collection of image stacking utilities. '''
 
@@ -158,7 +158,7 @@ class TifStacker(ImageStacker):
             logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
 
 
-def stack_tifs(inputdir, pattern=P_TIFFILE, input_key='raw', **kwargs):
+def stack_tifs(inputdir, pattern=P_TIFFILE, input_key=None, **kwargs):
     '''
     high-level function to merge individual TIF files into an TIF stack.
 
@@ -167,11 +167,13 @@ def stack_tifs(inputdir, pattern=P_TIFFILE, input_key='raw', **kwargs):
     :param input_key: input key for output path replacement
     :return: filepath to the created tif stack
     '''
+    if input_key is None:
+        input_key = DataRoot.RAW
     # Cast inputdir to absolute path
     inputdir = os.path.abspath(inputdir)
     # Get output file name
     pardir, dirname = os.path.split(inputdir)
-    outdir = get_output_equivalent(pardir, input_key, 'stacked')
+    outdir = get_output_equivalent(pardir, input_key, DataRoot.STACKED)
     output_fpath = os.path.join(outdir, f'{dirname}.tif')
     # Get tif files list
     try:
@@ -182,7 +184,7 @@ def stack_tifs(inputdir, pattern=P_TIFFILE, input_key='raw', **kwargs):
     return TifStacker().stack(fpaths, output_fpath, **kwargs)
 
 
-def stack_trial_tifs(input_fpaths, input_key='resampled', align=True, **kwargs):
+def stack_trial_tifs(input_fpaths, input_key=None, align=True, **kwargs):
     '''
     Stack TIFs of consecutive trials together per for each run identified in a file list
     
@@ -190,6 +192,8 @@ def stack_trial_tifs(input_fpaths, input_key='resampled', align=True, **kwargs):
     :param input_key: input key for output path replacement
     :return: filepaths to the created tif stacks per run
     '''
+    if input_key is None:
+        input_key = DataRoot.RESAMPLED
     # Get TIF stacker object
     stacker = TifStacker(input_type='stack', align=align)
     # Get input and output directories
@@ -209,7 +213,7 @@ def stack_trial_tifs(input_fpaths, input_key='resampled', align=True, **kwargs):
     return output_fpaths
 
 
-def split_multichannel_tifs(input_fpaths, input_key='stacked', **kwargs):
+def split_multichannel_tifs(input_fpaths, input_key=None, **kwargs):
     '''
     Split channels for each stack file in a list
     
@@ -217,6 +221,8 @@ def split_multichannel_tifs(input_fpaths, input_key='stacked', **kwargs):
     :param input_key: input key for output path replacement
     :return: filepaths to the created tif stacks per run
     '''
+    if input_key is None:
+        input_key = DataRoot.STACKED
     output_fpaths = []
     # For each file
     for input_fpath in input_fpaths:
@@ -224,7 +230,7 @@ def split_multichannel_tifs(input_fpaths, input_key='stacked', **kwargs):
         ichannel = 0
         terminate = False
         while not terminate:
-            output_key = f'split/channel{ichannel + 1}'
+            output_key = f'{DataRoot.SPLIT}/channel{ichannel + 1}'
             channeldir = os.path.join(split_path_at(input_fpath, input_key)[0], output_key)
             if os.path.isdir(channeldir):
                 output_fpath_check = get_output_equivalent(
@@ -250,7 +256,7 @@ def split_multichannel_tifs(input_fpaths, input_key='stacked', **kwargs):
                 for i in range(nchannels):
                     # Derive channel output filepath
                     output_fpath = get_output_equivalent(
-                        input_fpath, input_key, f'split/channel{i + 1}')
+                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{i + 1}')
                     # Save channel data to specific file
                     savetif(output_fpath, stack[:, i], **kwargs)
                     output_fpaths.append(output_fpath)

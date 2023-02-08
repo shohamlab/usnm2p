@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-19 14:54:06
+# @Last Modified time: 2023-02-08 16:04:54
 
 ''' Collection of filtering utilities. '''
 
@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 from logger import logger
 from fileops import StackProcessor, NoProcessor
+from constants import DataRoot
 
 
 class StackFilter(StackProcessor):
@@ -42,7 +43,7 @@ class StackFilter(StackProcessor):
 
     @property
     def rootcode(self):
-        return 'filtered'
+        return DataRoot.FILTERED
 
 
 class NoFilter(NoProcessor):

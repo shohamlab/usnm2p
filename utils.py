@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-08 14:22:09
+# @Last Modified time: 2023-02-06 19:00:48
 
 ''' Collection of generic utilities. '''
 
@@ -701,3 +701,11 @@ def sigmoid(x, x0=0, sigma=1.):
 def bounds(x):
     ''' Extract minimum and maximum of array simultaneously '''
     return np.array([min(x), max(x)])
+
+
+def rsquared(x1, x2):
+    ''' compute the R-squared coefficient between two 1D arrays '''
+    residuals = x1 - x2
+    ss_res = np.sum(residuals**2)
+    ss_tot = np.sum((x1 - np.mean(x1))**2)
+    return 1 - (ss_res / ss_tot)

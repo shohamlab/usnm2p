@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-10-06 17:13:11
+# @Last Modified time: 2023-02-08 16:06:10
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -137,7 +137,7 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True, input_key='filtered'):
     if diff_from_default_ops is not None:
         s2p_code = f'{s2p_code}_{get_options_code(diff_from_default_ops)}'
     logger.info(f'suite2p code "{s2p_code}"')
-    seg_code = os.path.join('segmented', s2p_code)
+    seg_code = os.path.join(DataRoot.SEGMENTED, s2p_code)
 
     # List expected output files from run options
     s2p_output_files = default_output_files.copy()

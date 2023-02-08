@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-31 10:00:17
+# @Last Modified time: 2023-02-08 18:32:21
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -84,9 +84,9 @@ def get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing):
     return f'q{baseline_quantile_str}_{baseline_id}'
 
 
-def get_postpro_id(neuropil_scaling_coeff, *args):
+def get_conditioning_id(neuropil_scaling_coeff, *args):
     ''' 
-    Get post-processing code string
+    Get signal conditioning code string
     
     :param *args: parameters used for baseline computation 
     :return ID string
@@ -110,28 +110,34 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
     dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
-    # Construct post-processing ID
+    # Construct processing IDs
     prepro_id = get_prepro_id(kalman_gain=kalman_gain)
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
-    postpro_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
+    conditioning_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
     ykey_classification_str = {Label.DFF: 'dff', Label.ZSCORE: 'zscore'}[ykey_classification]
-    stats_id = f'agg{trial_aggfunc.__name__}_class{ykey_classification_str}'
+    processing_id = f'agg{trial_aggfunc.__name__}_class{ykey_classification_str}'
     if directional:
-        stats_id = f'{stats_id}_directional'
+        processing_id = f'{processing_id}_directional'
     # Get figures PDF suffix
-    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{postpro_id}_{stats_id}'
-    # Get trial-averaged input data directory
+    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{conditioning_id}_{processing_id}'
+    # Get stats input data directory
     dataroot = get_data_root()
-    trialavg_root = get_output_equivalent(dataroot, 'raw', 'trial-averaged')
-    trialavg_dir = os.path.join(
-        trialavg_root, stats_id, postpro_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
+    processed_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.PROCESSED)
+    processed_dir = os.path.join(
+        processed_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
     # Get figures directory
-    figsdir = get_output_equivalent(dataroot, 'raw', 'figs')
-    return dataset_group_id, trialavg_dir, figsdir, figs_suffix
+    figsdir = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.FIG)
+    return dataset_group_id, processed_dir, figsdir, figs_suffix
 
 
 def extract_from_batch_data(data):
     ''' Extract specific fields from batch data '''
     logger.info('extracting timeseries and stats from data...')
-    return data['timeseries'], data['trialagg_stats'], data['ROI_masks'], data['map_ops']
+    return (
+        data['timeseries'], 
+        data['trialagg_stats'], 
+        data['stats'],
+        data['ROI_masks'], 
+        data['map_ops']
+    )
 

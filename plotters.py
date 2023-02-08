@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-02 16:34:20
+# @Last Modified time: 2023-02-07 09:25:34
 
 ''' Collection of plotting utilities. '''
 
@@ -2396,9 +2396,9 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
-                              avgprop=None, errprop='inter', marker=None, avgmarker='o', err_style='band',
+                              avgprop=None, errprop='inter', marker=None, avg_color='k', err_style='band',
                               add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
-                              stacked=False, fit=False, avglw=3, avgerr=True, **kwargs):
+                              stacked=False, fit=False, avglw=3, avgerr=True, palette=None, **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2421,7 +2421,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             return plot_parameter_dependency_across_datasets(
                 data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
                 add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker,
-                fit=fit, err_style=err_style, **kwargs)
+                avg_color=avg_color, fit=fit, err_style=err_style, **kwargs)
         # Otherwise, offset values per dataset if specified
         else:
             if stacked:
@@ -2457,7 +2457,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         xkey = Label.ISPTA
 
     # Assemble common plotting arguments
-    pltkwargs = dict(ax=ax, ci=ci, marker=marker, **kwargs)
+    pltkwargs = dict(ax=ax, ci=ci, marker=marker, palette=palette, **kwargs)
     if hue_alpha == 0.:
         pltkwargs['ci'] = None
 
@@ -2504,7 +2504,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
                 countsperhue = celltypes.groupby([xkey, hue]).count().iloc[:, 0].rename('counts')
             else:
                 raise ValueError(f'unknown average propagation mode: "{avgprop}"')
-            # Compute weights vector based off of counts
+            # Compute weights vector based on counts
             ntot = countsperhue.groupby(xkey).sum()
             weightsperhue = countsperhue / ntot
             # Compute mean for each input and hue
@@ -2524,7 +2524,11 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             else:
                 raise ValueError(f'unknown error propagation mode: "{errprop}"')
         
-        avg_kwargs = dict(c='k', marker=avgmarker, markersize=10, markeredgecolor='w')
+        avg_kwargs = dict(
+            c=avg_color,
+            # markersize=10, 
+            # markeredgecolor='w'
+        )
         # Plot propagated global mean trace and standard error (as bars or band)
         sem = sem.fillna(0)
         if err_style == 'bars':
@@ -2544,7 +2548,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
             if avgerr:
                 ax.fill_between(
                     mean.index, mean.values - sem.values, mean.values + sem.values, 
-                    fc=avg_kwargs['c'], alpha=.3, ec=avg_kwargs['c'])
+                    fc=avg_kwargs['c'], alpha=.3, ec=None)
 
         if fit:
             ax.plot(
@@ -2562,7 +2566,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
 
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
-                                              marker='o', ls='-', as_ispta=False, title=None,
+                                              marker='o', avg_color='k', ls='-', as_ispta=False, title=None,
                                               weighted=True, fit=False, err_style='band', lw=1):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
@@ -2602,18 +2606,18 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         if err_style == 'bars':
             ax.errorbar(
                 aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], 
-                marker=marker, ls=ls, c='k', lw=lw, 
+                marker=marker, ls=ls, c=avg_color, lw=lw, 
                 markeredgecolor='w', markersize=10)
         else:
             ax.plot(
                 aggdata[xkey], aggdata['mean'], 
-                marker=marker, ls=ls, c='k', lw=lw, 
+                marker=marker, ls=ls, c=avg_color, lw=lw, 
                 markeredgecolor='w', markersize=10)
             if err_style == 'band':
                 ax.fill_between(
                     aggdata[xkey], 
                     aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
-                    alpha=0.3, color='k')
+                    alpha=0.3, fc=avg_color, ec=None)
 
     # Otherwise
     else:
@@ -3232,7 +3236,8 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
     return fig
 
 
-def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yref=0., **kwargs):
+def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yref=0., 
+                                avg_color='k', add_sweep_markers=False, **kwargs):
     if ax is None:
         fig, ax = plt.subplots()
         ax.set_title(f'ISPTA dependency')
@@ -3243,14 +3248,15 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yr
     # Plot ISPTA dependency profiles
     plot_parameter_dependency(
         data, xkey=Label.ISPTA, ykey=ykey, yref=yref, hue=hue, ax=ax, 
-        marker=None, as_ispta=True, avgmarker=None, **kwargs)
+        marker=None, as_ispta=True, avg_color=avg_color, **kwargs)
     # Indicate the "parameter sweep" origin of each data point
     # Plot dependencies on each parameter on same ISPTA axis
     del kwargs['err_style']
-    for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
-        plot_parameter_dependency(
-            data, xkey=xkey, ykey=ykey, yref=None, ax=ax, hue=None, weighted=True, marker=marker,
-            as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0., **kwargs)
+    if add_sweep_markers:
+        for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
+            plot_parameter_dependency(
+                data, xkey=xkey, ykey=ykey, yref=None, ax=ax, hue=None, weighted=True, 
+                marker=marker, avg_color=avg_color, as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0., **kwargs)
     return fig
 
 
@@ -3369,31 +3375,24 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
     return fig
 
 
-def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
-                        avg_overlay=True, hue_highlight=None, hue_width=False, **kwargs):
+def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
+                            avg_overlay=True, avg_color='k', hue_width=False, **kwargs):
     ''' 
-    Plot percentage of responder cells as a function of an input parameter
+    Plot fraction of responder cells as a function of an input parameter
 
     :param data: statistics dataframe
     :param xkey: input parameter name
     :return: figure handle
     '''
-    # Restrict data to input parameter dependency range
-    data = get_xdep_data(data, xkey)
-    # Count number of responses of each type, for each dataset and input value 
-    groupby = [xkey]
-    if hue is not None:
-        groupby.append(hue)
-    resp_counts = data.groupby(groupby)[Label.RESP_TYPE].value_counts().unstack()
-    # Convert to proportions
-    resp_counts['total'] = resp_counts.sum(axis=1)
-    resp_props = resp_counts.div(resp_counts['total'], axis=0) * 100
-    weights = resp_counts['total'].groupby(xkey).apply(lambda s: s / s.sum())
+    # Get fraction of responder per input and hue
+    resp_props = get_responders_counts(data, xkey, units=hue, normalize=True)
+    # Extract weights and compute weighted fraction per input level
+    weights = resp_props.pop('weight')
     weighted_resp_props = resp_props.multiply(weights, axis=0).groupby(xkey).sum()
     resp_props_sem = resp_props.groupby(xkey).sem()
-
+    # if specified, compute counts per hue level to specify line widths
     if hue is not None and hue_width:
-        countsperhue = resp_counts['total'].groupby(hue).max()
+        countsperhue = resp_props['count'].groupby(hue).max()
         if hue in resp_props.index.names:
             hvals = resp_props.index.get_level_values(hue)
         else:
@@ -3419,15 +3418,6 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
                 ci=68
             ))
         else:
-            # If specified, highlight specific hue value
-            if hue_highlight is not None:
-                huevals = resp_props.groupby(hue).first().index
-                if hue_highlight not in huevals:
-                    raise ValueError(f'"{hue_highlight}" not found in hue values')
-                huecolors = ['silver'] * len(huevals)
-                palette = dict(zip(huevals, huecolors))
-                palette[hue_highlight] = 'r'
-                pltkwargs['palette'] = palette
             if hue_width:
                 pltkwargs['size'] = 'count'
 
@@ -3456,19 +3446,22 @@ def plot_pct_responders(data, xkey, hue=Label.DATASET, xref=None, kind='line', a
         
     # Post-process figure
     sns.despine(ax=ax)
-    ax.set_ylim(0, 100)
+    ax.set_ylim(0, 1)
     ax.set_ylabel('% responders')
-    ax.axhline(PTHR_DETECTION * 100, c='k', ls='--')
+    ax.axhline(PTHR_DETECTION, c='k', ls='--')
     # Add average trace if specified and compatible
     if kind == 'line' and avg_overlay:
         wmean = weighted_resp_props['positive']
         wsem = resp_props_sem['positive']
         ax.plot(
             wmean.index, wmean.values, 
-            color='k', marker='o', markersize=10, lw=3, markeredgecolor='w')
+            lw=3, 
+            color=avg_color, 
+            # marker='o', markersize=10, markeredgecolor='w',
+        )
         ax.fill_between(
             wmean.index, wmean - wsem, wmean + wsem,
-            fc='k', ec='k', alpha=0.3)
+            fc=avg_color, ec=None, alpha=0.3)
 
     # Apply statistical comparisons with reference input, if specified
     if xref is not None:
