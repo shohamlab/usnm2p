@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 18:32:21
+# @Last Modified time: 2023-02-08 19:22:32
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -134,7 +134,8 @@ def extract_from_batch_data(data):
     ''' Extract specific fields from batch data '''
     logger.info('extracting timeseries and stats from data...')
     return (
-        data['timeseries'], 
+        data['trialagg_timeseries'],
+        data['popagg_timeseries'], 
         data['trialagg_stats'], 
         data['stats'],
         data['ROI_masks'], 

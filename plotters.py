@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-07 09:25:34
+# @Last Modified time: 2023-02-08 21:01:36
 
 ''' Collection of plotting utilities. '''
 
@@ -2692,10 +2692,11 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
         fig = axes[0].get_figure()
 
     # Disable legend for all axes but last
+    legend = kwargs.get('legend', True)
     kwargs['legend'] = False
     # Plot dependencies on each parameter on separate axes
     for i, (xkey, ax) in enumerate(zip(xkeys, axes.T)):
-        if i == len(axes) - 1:
+        if i == len(axes) - 1 and legend:
             del kwargs['legend']
         if xkey == Label.ISPTA:
             plot_intensity_dependencies(

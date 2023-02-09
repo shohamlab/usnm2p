@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 17:46:37
+# @Last Modified time: 2023-02-08 19:32:18
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1571,7 +1571,7 @@ def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_
     nonROI_groupby = list(set(trialagg_stats_conds.index.names) - set([Label.ROI]))
     popagg_timeseries_conds = expand_to_match(
         trialagg_stats_conds.groupby(nonROI_groupby).first(),
-        popagg_timeseries_conds.index)
+        popagg_timeseries.index)
     # Get stimparams: run-index mapper
     mapper = get_run_mapper(trialagg_stats_conds)
     logger.debug(f'run map:\n{pd.Series(mapper)}')
@@ -1583,7 +1583,7 @@ def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_
     popagg_timeseries = update_run_index(
         popagg_timeseries, popagg_timeseries_conds.map(mapper))
     # Return harmonized dataframes
-    return trialagg_timeseries, stats, trialagg_stats
+    return trialagg_timeseries, popagg_timeseries, stats, trialagg_stats
 
 
 def highlight_incomplete(x, xref=None):
