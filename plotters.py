@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 21:01:36
+# @Last Modified time: 2023-02-14 16:07:47
 
 ''' Collection of plotting utilities. '''
 
