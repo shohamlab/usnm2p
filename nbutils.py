@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 16:15:37
+# @Last Modified time: 2023-02-14 16:36:17
 
 ''' Notebook running utilities '''
 
@@ -99,8 +99,8 @@ def execute_notebooks(pdicts, input_nbpath, outdir, **kwargs):
     batch = Batch(execute_notebook, queue)
     nbpaths = batch.run(loglevel=logger.getEffectiveLevel(), **kwargs)
     # Log completion message
-    nouts = sum(filter(lambda x: x is not None, nbpaths))
-    logger.info(f'{nouts}/{len(nbpaths)} jobs completed.')
+    is_completed = [x is not None for x in nbpaths]
+    logger.info(f'{sum(is_completed)}/{len(nbpaths)} jobs completed.')
     # Return output filepaths
     return nbpaths
 
