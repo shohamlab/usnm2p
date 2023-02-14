@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-06 19:00:48
+# @Last Modified time: 2023-02-10 11:11:38
 
 ''' Collection of generic utilities. '''
 
@@ -224,6 +224,7 @@ def repeat_along_new_dim(df, name, inds):
     newdf[name] = [inds.values] * len(df)
     return newdf.explode(name).set_index(name, append=True)
 
+
 def repeat_along_new_dims(df, newdims):
     '''
     Repeat dataframe values along multiple new index levels
@@ -258,6 +259,16 @@ def expand_to_match(df, mux):
     if isinstance(df, pd.Series):
         name = df.name
         df = df.to_frame()
+    
+    # If common levels, make sure they have the same order
+    common_levels = list(set(mux.names).intersection(df.index.names))
+    if len(common_levels) > 0:
+        cdata = [x for x in df.index.names if x in common_levels]
+        cref = [x for x in mux.names if x in common_levels]
+        if cref != cdata:
+            raise ValueError(
+                f'the order of common index levels differ:\n - data: {cdata}\n - reference index: {cref}')
+
     # Identify index levels present in reference index but not in data
     extra_levels = list_difference(mux.names, df.index.names)
     if len(extra_levels) == 0:

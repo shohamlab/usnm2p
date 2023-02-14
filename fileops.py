@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 18:26:46
+# @Last Modified time: 2023-02-14 15:46:57
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -18,6 +18,7 @@ from tifffile import imsave, TiffFile
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
+import warnings
 
 from parsers import P_TIFFILE, parse_date_mouse_region
 from logger import logger
@@ -591,6 +592,7 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
     '''
     # Remove output file if it exists
     if os.path.isfile(fpath):
+        logger.info(f'deleting pre-existing data file...')
         os.remove(fpath)
     # Create HDF stream to store pandas objects
     with pd.HDFStore(fpath) as store:
@@ -611,7 +613,10 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
         store['ROI_masks'] = ROI_masks
         # Save map_ops in the same object
         logger.info('saving mapping options...')
+        # with warnings.catch_warnings():
+        #     warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
         store['map_ops'] = pd.Series(map_ops)
+    logger.info(f'all data fields saved to "{fpath}"')
 
 
 def load_processed_dataset(fpath):
@@ -686,7 +691,7 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
         raise ValueError(f'no valid datasets found in "{dirpath}"')
     trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, ROI_masks, map_ops = list(zip(*datasets))
     trialagg_timeseries = list(trialagg_timeseries)
-    popagg_timeseries = list(popagg_timeseries) 
+    popagg_timeseries = list(popagg_timeseries)
     stats = list(stats)
     trialagg_stats = list(trialagg_stats)
 
@@ -746,7 +751,7 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     if harmonize_runs:
         try:
             # Check run order consistency across datasets
-            check_run_order(stats, **kwargs)
+            check_run_order(trialagg_stats, **kwargs)
         except ValueError as err:
             # If needed, harmonize run indexes in stats & timeseries
             logger.warning(err)

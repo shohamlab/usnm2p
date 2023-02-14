@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 18:10:38
+# @Last Modified time: 2023-02-14 15:25:51
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -198,7 +198,7 @@ REWRITTEN_S2P_KEYS = {  # suite2p options keys that are rewritten upon suite2p p
 TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s) 
 TAU_GCAMP7F_DECAY = 0.7  # GCaMP7f exponential decay time constant (s)
 
-###################################### POST-PROCESSING ######################################
+###################################### SIGNAL CONDITIONING ######################################
 
 NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
 
@@ -250,7 +250,8 @@ DIRECTIONAL_DETECTION = True  # whether to look for directional (i.e. positive o
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 
 # Responder type classification
-PROP_CONDS_THR = 0.33  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
+ISPTA_THR = 1.0  # ISPTA lower bound restricting the conditions on which to compute fraction of response occurence (W/cm2)
+PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 ###################################### PARSING ######################################

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 19:32:18
+# @Last Modified time: 2023-02-14 14:26:09
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1162,7 +1162,7 @@ def is_valid(data):
 
 def valid(df):
     ''' Return a copy of the dataframe with only valid rows that must be included for response analysis. '''
-    out = df.loc[is_valid(df), :]
+    out = df.loc[is_valid(df), :].copy()
     cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
     for k in cols:
         del out[k]
@@ -1556,25 +1556,33 @@ def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_
     :param stats: multi-indexed stats dataframe containing multiple datasets
     :return: dataframes tuple with harmonized run indexes
     '''
-    logger.info(f'harmonizing run index by {condition} across datasets...')
-    # Get conditions from stats and trial-aggregated stats
-    if condition == 'param':
-        trialagg_stats_conds = get_param_code(trialagg_stats).rename('condition')
-        stats_conds = get_param_code(stats).rename('condition')
-    elif condition == 'offset':
-        trialagg_stats_conds = get_offset_code(trialagg_stats).rename('condition')
-        stats_conds = get_offset_code(stats).rename('condition')
-    else:
-        raise ValueError(f'unrecognized condition: "{condition}"')
-    # Get expanded conditions compatible with timeseries
+    logger.info(f'harmonizing run index by {condition} across datasets...')    
+    # Determine condition generating function
+    try:
+        condfunc = {
+            'param': get_param_code,
+            'offset': get_offset_code,
+        }[condition]
+    except KeyError:
+        raise ValueError(f'unknown condition key: "{condition}"')
+    
+    # Get conditions from extended and trial-aggregated stats
+    trialagg_stats_conds = condfunc(trialagg_stats).rename('condition')
+    stats_conds = condfunc(stats).rename('condition')
+    
+    # Expand trialagg conditions on frames to get conditions compatible with trialagg timeseries
     trialagg_timeseries_conds = expand_to_match(trialagg_stats_conds, trialagg_timeseries.index)
-    nonROI_groupby = list(set(trialagg_stats_conds.index.names) - set([Label.ROI]))
-    popagg_timeseries_conds = expand_to_match(
-        trialagg_stats_conds.groupby(nonROI_groupby).first(),
-        popagg_timeseries.index)
+    
+    # Remove ROI dimension from trial-aggregated conditions
+    nonROI_groupby = list(filter(lambda x: x != Label.ROI, trialagg_stats_conds.index.names))
+    popagg_trialagg_stats_conds = trialagg_stats_conds.groupby(nonROI_groupby).first()
+    # Expand on trials to get conditions compatible with popagg timeseries
+    popagg_timeseries_conds = expand_to_match(popagg_trialagg_stats_conds, popagg_timeseries.index)
+    
     # Get stimparams: run-index mapper
     mapper = get_run_mapper(trialagg_stats_conds)
     logger.debug(f'run map:\n{pd.Series(mapper)}')
+    
     # Get new run indexes column and update appropriate data index level
     stats = update_run_index(stats, stats_conds.map(mapper))
     trialagg_stats = update_run_index(trialagg_stats, trialagg_stats_conds.map(mapper))
@@ -1582,6 +1590,7 @@ def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_
         trialagg_timeseries, trialagg_timeseries_conds.map(mapper))
     popagg_timeseries = update_run_index(
         popagg_timeseries, popagg_timeseries_conds.map(mapper))
+
     # Return harmonized dataframes
     return trialagg_timeseries, popagg_timeseries, stats, trialagg_stats
 
@@ -1855,6 +1864,12 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     Get a (cell-count-weighted or not) aggregated across datasets (mean and propagated sem)
     for a range of parameter values
     '''
+    desc = 'computing'
+    if weighted:
+        desc = f'{desc} weighted'
+    ss = 'dataframe' if ykey is None else f'"{ykey}" series'
+    logger.info(
+        f'{desc} average of ({describe_dataframe_index(data)}) {ss} per {xkey} across datasets...')
     if weighted:
         # Count number of ROIs per dataset and input value 
         samples = data.groupby([xkey, Label.DATASET, Label.ROI]).first()
