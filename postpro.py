@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 14:26:09
+# @Last Modified time: 2023-02-14 18:26:42
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2265,3 +2265,43 @@ def apply_test(data, groupby, testfunc, pthr=0.05):
         testres.tolist(), columns=['stat', 'pval'], index=testres.index)
     testres['H0'] = testres['pval'] >= pthr
     return testres
+
+
+def get_rtype_fractions_per_ROI(data):
+    ''' 
+    Get the fraction of response type over all relevant conditions, per ROI
+    
+    :param data: multi-index (ROI, run) stats dataframe
+    :return: ROI stats dataframe 
+    '''
+    if Label.DATASET in data.index.names:
+        gby = [Label.DATASET, Label.ROI]
+    else:
+        gby = Label.ROI
+    # Save original ROIs list
+    org_ROIs = data.groupby(gby).first().index.unique()
+    # Filter data to only conditions with ISPTA values above certain threshold
+    class_data = data.loc[data[Label.ISPTA] > ISPTA_THR, :]
+    # Compute number of conditions used for classification
+    nconds = len(class_data.index.unique(Label.RUN))
+    # Compute response type fractions
+    logger.info(f'computing fraction of response occurence per ROI over {nconds} "strong ISPTA" conditions...')
+    roistats = (
+        class_data[Label.RESP_TYPE]
+        .groupby(gby)
+        .value_counts(normalize=True)
+        .unstack()
+        .fillna(0.)
+    )
+    # Extract ROIs list after filtering and conditioning
+    filt_ROIs = roistats.index.unique()
+
+    # Add "zero" fractions for ROIs that were filtered out by ISPTA criterion
+    missing_ROIs = list(set(org_ROIs) - set(filt_ROIs))
+    if len(missing_ROIs) > 0:
+        logger.info(
+            f'adding blank (0.) proportions for ROIs filtered out by ISPTA criterion {missing_ROIs}...')
+        for ROI in missing_ROIs:
+            roistats.loc[ROI, :] = 0.
+    
+    return roistats

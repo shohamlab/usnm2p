@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 16:07:47
+# @Last Modified time: 2023-02-14 18:30:04
 
 ''' Collection of plotting utilities. '''
 
@@ -3493,18 +3493,10 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
         on graph along with corresponding fraction of identified responders
     :return: figure handle
     '''
-    # Count number of conditions per response type for each ROI
-    cond_counts = (
-        data[Label.RESP_TYPE]
-        .groupby([Label.DATASET, Label.ROI])
-        .value_counts()
-        .unstack().fillna(0.)
-    )
- 
-    # Translate to proportions
-    cond_counts['total'] = cond_counts.sum(axis=1)
-    cond_fracs = cond_counts.div(cond_counts['total'], axis=0)
+    # Count fraction of conditions per response type for each ROI
+    cond_fracs = get_rtype_fractions_per_ROI(data)
 
+    # set plptting arguments
     pltkwargs = dict(
         data=cond_fracs,
         x='positive',
