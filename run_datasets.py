@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-01-31 10:16:46
+# @Last Modified time: 2023-02-14 16:15:57
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -127,4 +127,4 @@ if __name__ == '__main__':
         output_nbpaths = execute_notebooks(
             params, input_nbpath, outdir, mpi=mpi, ask_confirm=ask_confirm)
 
-logger.info('all analyses completed')
+logger.info('done.')
