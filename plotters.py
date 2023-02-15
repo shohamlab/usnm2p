@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 18:30:04
+# @Last Modified time: 2023-02-15 18:46:55
 
 ''' Collection of plotting utilities. '''
 
@@ -3540,6 +3540,108 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
         # Indicate threshold proportion and corresponding responders fraction on graph 
         ax.axvline(pthr, c='k', ls='--')
         ax.axhline(prop_pos, c='k', ls='--')
+
+    # Return figure
+    return fig
+
+
+def plot_popagg_frequency_specrum(data, ykey, fps, normalize_gby=None, fmax=None, ax=None, fref=None):
+    '''
+    Plot frequency spectrum profiles across categories
+    
+    :param data: population-aggregated timeseries data
+    :param ykey: name of variable from which to compute spectrum profiles
+    :param fps: sampling rate
+    :param normalize_gby (optional): grouping variable used to normalize spectrum profiles
+    :param fmax (optional): upper frequency limit above which the spectrum profiles are cut
+    :param ax (optional): plotting axis
+    :param fref (optional): references frequency(ies) at which to draw vertical lines
+    :return: figure handle
+    '''
+    # Compute frequency spectra across categories
+    if Label.DATASET in data.index.names:
+        gby = [Label.DATASET, Label.RUN]
+        if ax is not None:
+            raise ValueError('cannot work on unique axis for muli-dataset input')
+    else:
+        gby = [Label.RUN]
+    logger.info(f'computing frequency spectra across {" & ".join(gby)}...')
+    popagg_spectrums = (data[ykey]
+        .groupby(gby)
+        .apply(lambda s: get_power_spectrum(s, fps))
+    )
+
+    # Normalize spectra across categories, if any
+    if normalize_gby is not None:
+        logger.info(f'normalizing spectra across {" & ".join(as_iterable(normalize_gby))}...')
+        popagg_spectrums[Label.PSPECTRUM] = (popagg_spectrums[Label.PSPECTRUM]
+            .groupby(normalize_gby)
+            .apply(lambda s: s / s.max())
+        )
+
+    # Restrict to low frequencies, if specified
+    if fmax is not None:
+        logger.info(f'restricting output to frequencies below {fmax:.2f} Hz')
+        popagg_spectrums = popagg_spectrums[popagg_spectrums[Label.FREQ] < fmax]
+
+    # Offset spectra by run
+    plt_data = offset_by(popagg_spectrums, Label.RUN, ykey=Label.PSPECTRUM, rel_ygap=.2)
+
+    # Plot spectra across categories, on appropriate axes
+    pltkwargs = dict(
+        data=plt_data,
+        x=Label.FREQ,
+        y=Label.PSPECTRUM,
+        hue=Label.RUN,
+        ci=None,
+        legend='full'
+    )
+    if Label.DATASET in data.index.names:
+        pltkwargs.update(dict(
+            col=Label.DATASET,
+            col_wrap=5,
+        ))
+    if ax is None:
+        fg = sns.relplot(
+            kind='line',
+            height=4,
+            aspect=.5,
+            **pltkwargs
+        )
+        fig = fg.figure
+        fig.subplots_adjust(hspace=0.2)
+        axes = fig.axes
+    else:
+        fig = ax.get_figure()
+        sns.lineplot(**pltkwargs)
+        axes = [ax]
+    
+    # Remove axes y ticks
+    for ax in axes:
+        ax.set_yticks([])
+
+    # Mark characteristic frequencies on graphs
+    ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
+    ref_freqs = [1 / ISI]
+    if fref is not None:
+        ref_freqs = ref_freqs + as_iterable(fref)
+    if ref_freqs is not None:
+        ref_freqs_str = ', '.join([f'{x:.2f} Hz' for x in ref_freqs])
+        logger.info(f'adding reference lines at frequencies {ref_freqs_str}') 
+    for ax in axes:
+        for f in ref_freqs:
+            ax.axvline(f, c='k', ls='--', lw=1)
+
+    # Adapt axes titles, if needed
+    if Label.DATASET in data.index.names:
+        for ax in axes:
+            title = (
+                ax.get_title()
+                .lstrip(f'{Label.DATASET} = ')
+                .replace('_m', '\nm')
+                .replace('_', ' ')
+            )
+            ax.set_title(title, fontsize=10)
 
     # Return figure
     return fig

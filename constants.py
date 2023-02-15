@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 15:25:51
+# @Last Modified time: 2023-02-15 16:23:24
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -35,6 +35,10 @@ class Label:
     CH = 'channel'
     DATASET = 'dataset'
     OFFSET = 'offset (mm)'
+
+    # Frequency analysis
+    FREQ = 'frequency (Hz)'
+    PSPECTRUM = 'Power spectrum'
 
     # Data indexes
     ROI = 'ROI'

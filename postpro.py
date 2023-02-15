@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 18:26:42
+# @Last Modified time: 2023-02-15 18:08:51
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2183,12 +2183,11 @@ def get_power_spectrum(y, fs):
     ''' Compute signal power spectrum and return it as a dataframe '''
     freqs, Pxx_spec = welch(y, fs, scaling='spectrum')
     df = pd.DataFrame({
-        'Frequency (Hz)': freqs,
-        'Power spectrum': Pxx_spec
+        Label.FREQ: freqs,
+        Label.PSPECTRUM: Pxx_spec
     })
     df.index.name = 'freq index'
     return df
-    # return df.set_index('Frequency (Hz)')
 
 
 def offset_by(s, by, ykey=None, rel_ygap=.5):
@@ -2203,7 +2202,7 @@ def offset_by(s, by, ykey=None, rel_ygap=.5):
     # Compute and add vertical offsets to y column
     yranges = s.groupby(by).apply(np.ptp)
     yranges += rel_ygap * yranges.mean() 
-    yoffsets = yranges.cumsum()
+    yoffsets = -yranges.cumsum()
     extra_mux_levels = set(s.index.names) - set([by])
     if len(extra_mux_levels) > 0:
         yoffsets = expand_to_match(yoffsets, s.index)

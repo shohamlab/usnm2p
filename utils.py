@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-10 11:11:38
+# @Last Modified time: 2023-02-15 15:45:32
 
 ''' Collection of generic utilities. '''
 
@@ -720,3 +720,17 @@ def rsquared(x1, x2):
     ss_res = np.sum(residuals**2)
     ss_tot = np.sum((x1 - np.mean(x1))**2)
     return 1 - (ss_res / ss_tot)
+
+
+def bilinear(x, x0=0, A=1, iscale=0.01):
+    '''
+    Bilinear function that transitions from a constant to a linear regime.
+
+    :param x: input value
+    :param x0: inflection point (transition between constant and linear regime)
+    :param A: amplitude
+    :param iscale: inflection scale (a = 0 will yield and instantaneous transition)
+    :return: bilinear function output
+    '''
+    xrel = x0 - x
+    return A * xrel / (np.exp(xrel / iscale) - 1)
