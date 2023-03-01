@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-15 18:08:51
+# @Last Modified time: 2023-02-17 17:22:07
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -307,25 +307,26 @@ def get_maximin_baseline_func(fs, wmaximin, wsmooth=None):
     return pandas_proof(bfunc)
 
 
-def get_filter_baseline_func(fs, fc, order=2):
+def get_butter_filter_func(fs, fc, order=2, btype='low'):
     '''
-    Construct a zero-phase filter-based baseline computation function
+    Construct a pandas compatible zero-phase filter function
     
     :param fs: sampling frequency (Hz)
     :param fc: tuple of cutoff frequencies (Hz)
     :param order: filter order
     '''
-    logger.info(
-        f'defining baseline extraction function as low-pass BW filter with cutoff = {fc:.3f} Hz')
+    # Log process
+    fc_str = ' - '.join([f'{x:.3f} Hz' for x in as_iterable(fc)])
+    logger.info(f'defining order {order} {btype} BW filter with fc = {fc_str}')
     # Determine Nyquist frequency
     nyq = fs / 2
-    # Calculate Butterworth filter coefficients
-    sos = butter(order, fc / nyq, btype='low', output='sos')
-    # Define baseline extraction function
-    def bfunc(y):
+    # Calculate Butterworth filter second-order sections
+    sos = butter(order, np.asarray(fc) / nyq, btype=btype, output='sos')
+    # Define filter function
+    def myfilter(y):
         return sosfiltfilt(sos, y)
-    # Return baseline extraction function
-    return pandas_proof(bfunc)
+    # Make pandas proof and return filter function
+    return pandas_proof(myfilter)
 
 
 def compute_baseline(data, bfunc):
@@ -1861,71 +1862,120 @@ def anova2d(data, ykey, factors, alpha=None, interaction=True):
 
 def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     '''
-    Get a (cell-count-weighted or not) aggregated across datasets (mean and propagated sem)
-    for a range of parameter values
+    Average data output variable(s) across datasets for each value of an (or a combination of) input variable(s).
+    
+    :param data: multi-dataset dataframe
+    :param xkey: name(s) of input variable(s) whose values determine aggregation groups
+    :param ykey (optional): name of output variable(s) to average. If not provided, all output variables will be considered.
+    :param hue: ???
+    :param weighted: whether to compute a weighted-average based on the number of ROIs per dataset, or not
+    :return: aggregated dataframe with mean and propagated sem columns for each considered output variable 
     '''
+    # Format input
+    xkey = as_iterable(xkey)
+
+    # Log process
     desc = 'computing'
     if weighted:
-        desc = f'{desc} weighted'
+        desc = f'{desc} ROI-weighted'
     ss = 'dataframe' if ykey is None else f'"{ykey}" series'
+    xkey_str = ' & '.join(xkey)
     logger.info(
-        f'{desc} average of ({describe_dataframe_index(data)}) {ss} per {xkey} across datasets...')
-    if weighted:
-        # Count number of ROIs per dataset and input value 
-        samples = data.groupby([xkey, Label.DATASET, Label.ROI]).first()
-    else:
-        # Generate uniform vector of counts per input and dataset
-        samples = data.groupby([xkey, Label.DATASET]).first()
-    # Compute related weights vector
-    countsperdataset = samples.groupby([xkey, Label.DATASET]).count().iloc[:, 0].rename('counts')
-    ntot = countsperdataset.groupby(xkey).sum()
-    weightsperdataset = countsperdataset / ntot
+        f'{desc} average of ({describe_dataframe_index(data)}) {ss} across {xkey_str}...')
 
-    # Derive grouping categories: dataset, hue, and input value
+    # Gather samples collection for counts
+    countgby = xkey + [Label.DATASET]
+    if weighted:
+        countgby.append(Label.ROI)
+    samples = data.groupby(countgby).first()
+    
+    # Compute number of samples per group
+    nsamples = (samples
+        .groupby(xkey + [Label.DATASET])
+        .count().iloc[:, 0]
+        .rename('counts')
+    )
+
+    # Compute associated weights per dataset, for each input value
+    ntot = nsamples.groupby(xkey).sum()
+    weightsperdataset = nsamples / ntot
+
+    # Derive grouping categories: dataset, (hue,) and input value
     cats = [Label.DATASET]
     if hue is not None:
         cats.append(hue)
-    cats.append(xkey)
+    cats = cats + xkey
     groups = data.groupby(cats)
+
     # Identify columns that display intra-group variation and not
-    maxnvalspercat = data.groupby(cats).first().groupby(cats[1:]).nunique().max(axis=0)
+    maxnvalspercat = (data
+        .groupby(cats).first()  # Take first row for each dataset and group
+        .groupby(cats[1:]).nunique()  # Count number of unique values across datasets for each group
+        .max(axis=0)  # Take group with max count, for each column
+    )
     constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
     varkeys = maxnvalspercat[maxnvalspercat > 1].index.values
+    
     # Restrict varying columns to float types only
     float_columns = data.select_dtypes(include=['float64']).columns.values
     varkeys = list(set(varkeys).intersection(set(float_columns)))
+    
     # If output key not specified, assign all varying columns
     if ykey is None:
         ykey = varkeys
     ykey = as_iterable(ykey)
+    
     # Initiate weighted average dataframe with constant columns
-    allwdata = groups[constkeys].first().groupby(cats[1:]).first()
-    # Add counts per hue if hue provided
+    wdata = (groups[constkeys]  # Select constant columns
+        .first()  # Get first value of each group
+        .groupby(cats[1:]).first()  # Remove dataset dimension 
+    )
+    
+    # Add counts column 
     if hue is not None:
+        # If hue provided, add counts per hue
         countsperhue = samples.groupby(hue).count().iloc[:, 0].rename('counts')
-        allwdata['count'] = allwdata.index.get_level_values(hue).map(countsperhue)
+        wdata['count'] = wdata.index.get_level_values(hue).map(countsperhue)
     else:
-        allwdata['count'] = len(samples)
+        # Otherwise, add constant count
+        wdata['count'] = len(samples)
+    
     # For each output key
     for yk in ykey:
-        # Compute weighted means and standard errors per category
+        # Compute mean and standard error per category
         means = groups[yk].mean()
         sems = groups[yk].sem()
-        # Apply weighted aggregation for each category
-        mean = (means * weightsperdataset).groupby(cats[1:]).sum().rename('mean')
-        sem = np.sqrt((weightsperdataset * sems**2).groupby(cats[1:]).sum()).rename('sem')
-        wdata = pd.concat([mean, sem], axis=1)
+
+        # Apply weighted aggregations for means and SEs
+        mean = (
+            (weightsperdataset * means)  # Muliply means by dataset weights
+            .groupby(cats[1:]).sum()  # Sum across datasets
+            .rename('mean')
+        )
+        sem = np.sqrt(
+            (weightsperdataset * sems**2)  # Muliply squared SEs by dataset weights
+            .groupby(cats[1:]).sum()  # Sum across datasets
+            .rename('sem')
+        )  # Take square root of sum (propagated SE = RWMS of SEs)
+
+        # Concatenate outputs, and add prefix if needed
+        ykey_wdata = pd.concat([mean, sem], axis=1)
         if len(ykey) > 1:
-            wdata = wdata.add_prefix(f'{yk} - ')
-        # Add to weighted average dataframe
-        allwdata = pd.concat([allwdata, wdata], axis=1)
+            ykey_wdata = ykey_wdata.add_prefix(f'{yk} - ')
+
+        # Add outputs to weighted average dataframe
+        wdata = pd.concat([wdata, ykey_wdata], axis=1)
+    
     # Sort output dataframe by xkey value
-    allwdata = allwdata.sort_values(xkey)
+    wdata = wdata.sort_values(xkey)
+
     # If xkey not in original index, move it out of output index 
-    if xkey not in data.index.names:
-        allwdata = allwdata.reset_index()
+    for k in xkey:
+        if k not in data.index.names:
+            wdata = wdata.reset_index(k)
+    
     # Return weighted average data
-    return allwdata
+    return wdata
 
 
 def interpolate_2d_map(df, xkey, ykey, outkey, dx=None, dy=None, method='linear'):

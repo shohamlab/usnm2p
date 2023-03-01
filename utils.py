@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-15 15:45:32
+# @Last Modified time: 2023-02-22 12:28:56
 
 ''' Collection of generic utilities. '''
 
@@ -734,3 +734,19 @@ def bilinear(x, x0=0, A=1, iscale=0.01):
     '''
     xrel = x0 - x
     return A * xrel / (np.exp(xrel / iscale) - 1)
+
+
+def get_hue_pairs(data, x, hue):
+    '''
+    Generate hue comparison pairs for various input levels
+    
+    :param data: dataframe
+    :param x: name of input variable
+    :param hue: name of hue variable
+    :return: list of comparison pairs, each being a tuple of (x, hue) tuples
+    '''
+    nhues = data.groupby(hue).ngroups
+    if nhues != 2:
+        raise ValueError(f'hue pairs generation incompatible with {nhues} hue levels')
+    seq = data.groupby([x, hue]).first().index.values.tolist()
+    return list(zip(seq[::2], seq[1::2]))

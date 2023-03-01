@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-15 18:46:55
+# @Last Modified time: 2023-02-22 12:29:32
 
 ''' Collection of plotting utilities. '''
 
@@ -23,6 +23,7 @@ from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
 from scipy.stats import normaltest
+from scipy.signal import spectrogram
 
 from logger import logger
 from constants import *
@@ -3545,7 +3546,111 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
     return fig
 
 
-def plot_popagg_frequency_specrum(data, ykey, fps, normalize_gby=None, fmax=None, ax=None, fref=None):
+def plot_popagg_timecourse(data, ykey, fps, normalize_gby=None, ax=None, 
+                           legend='full', title=None):
+    '''
+    Plot population-aggregated timecourse across categories
+    
+    :param data: population-aggregated timeseries data
+    :param ykey: name of variable from which to compute spectrum profiles
+    :param fps: sampling rate
+    :param normalize_gby (optional): grouping variable used to normalize profiles
+    :param ax (optional): plotting axis
+    :return: figure handle
+    '''
+    if Label.DATASET in data.index.names and ax is not None:
+        raise ValueError('cannot work on unique axis for muli-dataset input')
+
+    # Work on copy to avoid modifying original data 
+    data = data.copy()
+    
+    # Add time along run to population-average dataframe average
+    data[Label.TIME] = get_index_along_experiment(
+        data.index, reset_every=Label.RUN) / fps
+
+    # Normalize profiles across categories, if any
+    if normalize_gby is not None:
+        logger.info(f'normalizing profiles across {" & ".join(as_iterable(normalize_gby))}...')
+        data[ykey] = (data[ykey]
+            .groupby(normalize_gby)
+            .apply(lambda s: s / s.max())
+        )
+
+    # Offset profiles by run
+    plt_data = offset_by(data, Label.RUN, ykey=ykey, rel_ygap=.2)
+
+    # Plot profiles across categories, on appropriate axes
+    pltkwargs = dict(
+        data=plt_data,
+        x=Label.TIME,
+        y=ykey,
+        hue=Label.RUN,
+        ci=None,
+        legend=legend
+    )
+    if Label.DATASET in data.index.names:
+        pltkwargs.update(dict(
+            col=Label.DATASET,
+            col_wrap=2,
+        ))
+    if ax is None:
+        fg = sns.relplot(
+            kind='line',
+            height=4,
+            aspect=2,
+            **pltkwargs
+        )
+        fig = fg.figure
+        fig.subplots_adjust(hspace=0.2)
+        axes = fig.axes
+    else:
+        fig = ax.get_figure()
+        sns.lineplot(ax=ax, **pltkwargs)
+        axes = [ax]
+    
+    # Despine and remove axes y ticks
+    for ax in axes:
+        sns.despine(ax=ax)
+        ax.set_yticks([])
+
+    # Add trial delimiters
+    ntrials_per_run = len(data.index.unique(Label.TRIAL))
+    trial_delimiters = np.arange(0, ntrials_per_run * NFRAMES_PER_TRIAL, NFRAMES_PER_TRIAL) / fps
+    for ax in axes:
+        for t in trial_delimiters:
+            ax.axvline(t, ls='--', c='k', lw=1.)
+
+    # Adapt axes titles, if needed
+    if Label.DATASET in data.index.names:
+        for ax in axes:
+            ax.set_title(
+                (
+                    ax.get_title()
+                    .lstrip(f'{Label.DATASET} = ')
+                    .replace('_m', '\nm')
+                    .replace('_', ' ')
+                ),
+                fontsize=10
+            )
+    
+    # Add global title, if any
+    pltgby = [Label.RUN]
+    if Label.DATASET in data.index.names:
+        pltgby = [Label.DATASET] + pltgby
+        pltstr = f'{ykey} time course across {" & ".join(pltgby)}'
+    if title is not None:
+        title = f'{title} - {pltstr}'
+        if len(axes) == 1:
+            ax.set_title(title)
+        else:
+            fig.suptitle(title, y=1.05)
+
+    # Return figure
+    return fig
+
+
+def plot_popagg_frequency_spectrum(data, ykey, fps, normalize_gby=None, fmax=None, ax=None, 
+                                   fband=None, legend='full', title=None):
     '''
     Plot frequency spectrum profiles across categories
     
@@ -3555,7 +3660,7 @@ def plot_popagg_frequency_specrum(data, ykey, fps, normalize_gby=None, fmax=None
     :param normalize_gby (optional): grouping variable used to normalize spectrum profiles
     :param fmax (optional): upper frequency limit above which the spectrum profiles are cut
     :param ax (optional): plotting axis
-    :param fref (optional): references frequency(ies) at which to draw vertical lines
+    :param fband (optional): frequency band to materialize with vertical span
     :return: figure handle
     '''
     # Compute frequency spectra across categories
@@ -3594,7 +3699,7 @@ def plot_popagg_frequency_specrum(data, ykey, fps, normalize_gby=None, fmax=None
         y=Label.PSPECTRUM,
         hue=Label.RUN,
         ci=None,
-        legend='full'
+        legend=legend
     )
     if Label.DATASET in data.index.names:
         pltkwargs.update(dict(
@@ -3613,35 +3718,148 @@ def plot_popagg_frequency_specrum(data, ykey, fps, normalize_gby=None, fmax=None
         axes = fig.axes
     else:
         fig = ax.get_figure()
-        sns.lineplot(**pltkwargs)
+        sns.lineplot(ax=ax, **pltkwargs)
         axes = [ax]
     
-    # Remove axes y ticks
+    # Despine and remove axes y ticks
     for ax in axes:
+        sns.despine(ax=ax)
         ax.set_yticks([])
 
-    # Mark characteristic frequencies on graphs
+    # Mark trial repetition frequency on graphs
     ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
-    ref_freqs = [1 / ISI]
-    if fref is not None:
-        ref_freqs = ref_freqs + as_iterable(fref)
-    if ref_freqs is not None:
-        ref_freqs_str = ', '.join([f'{x:.2f} Hz' for x in ref_freqs])
-        logger.info(f'adding reference lines at frequencies {ref_freqs_str}') 
+    ftrial = 1 / ISI
+    logger.info(f'adding reference lines at trial-repetition frequency ({ftrial:.2f} Hz)') 
     for ax in axes:
-        for f in ref_freqs:
-            ax.axvline(f, c='k', ls='--', lw=1)
+        ax.axvline(ftrial, c='k', ls='--', lw=1)
+    
+    # Materialize frequency band of interest, if specified
+    if fband is not None:
+        fband_str = ' - '.join([f'{x:.2f} Hz' for x in fband])
+        logger.info(f'marking {fband_str} frequency band') 
+        for ax in axes:
+            ax.axvspan(*fband, fc='silver', alpha=0.3)
 
     # Adapt axes titles, if needed
     if Label.DATASET in data.index.names:
         for ax in axes:
-            title = (
-                ax.get_title()
-                .lstrip(f'{Label.DATASET} = ')
-                .replace('_m', '\nm')
-                .replace('_', ' ')
+            ax.set_title(
+                (
+                    ax.get_title()
+                    .lstrip(f'{Label.DATASET} = ')
+                    .replace('_m', '\nm')
+                    .replace('_', ' ')
+                ), 
+                fontsize=10
             )
-            ax.set_title(title, fontsize=10)
+    
+    # Add global title, if any
+    pltgby = [Label.RUN]
+    if Label.DATASET in data.index.names:
+        pltgby = [Label.DATASET] + pltgby
+        pltstr = f'{ykey} frequency spectrum across {" & ".join(pltgby)}'
+    if title is not None:
+        title = f'{title} - {pltstr}'
+        if len(axes) == 1:
+            ax.set_title(title)
+        else:
+            fig.suptitle(title, y=1.05)
 
     # Return figure
     return fig
+
+
+def plot_spectrogram(data, ykey, fps, colwrap=4, fmax=.3):
+    # Compute trial repetition frequency
+    ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
+    fref = 1 / ISI
+
+    # Group data by run
+    groups = data[ykey].groupby(Label.RUN)
+    
+    # Create figure
+    naxes = groups.ngroups
+    nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(nrows * 3, ncols * 3))
+    fig.suptitle(f'{ykey} spectrogram across runs')
+    axes = np.ravel(axes)
+
+    # For each run
+    for iax, ((idx, gdata), ax) in enumerate(zip(data[ykey].groupby(Label.RUN), axes)):
+        # Compute and plot spectrogram
+        f, t, Sxx = spectrogram(gdata.values, fps)
+        ax.pcolormesh(t, f, Sxx, shading='gouraud')
+        ax.set_title(f'{Label.RUN} {idx}')
+        # Set axis limits and add reference frequency
+        ax.set_ylim(0, fmax)
+        ax.axhline(1 / ISI, c='w', ls='--', lw=1.)
+        # Manage conditional axis labels
+        icol, irow = iax % colwrap, iax // colwrap
+        if irow == nrows - 1:
+            ax.set_xlabel(Label.TIME)
+        else:
+            ax.set_xticks([])
+        if icol == 0:
+            ax.set_ylabel(Label.FREQ)
+        else:
+            ax.set_yticks([])
+    
+    # Hide unused axes
+    for ax in axes[naxes:]:
+        ax.set_visible(False)
+
+    # Return figure handle
+    return fig
+
+
+def annotate_facets(fg, data=None, test='t-test_ind', text_format='star', loc='outside', **pltkwargs):
+    '''
+    Apply statistical test between hue pairs on each facet of a facet grid, 
+    and annotate statistical results associated axes
+    
+    :param fg: FacetGrid object
+    :param data: dataframe used to generate FacetGrid
+    :param test: test type
+    :param text_format: text format on annotations
+    :param loc: location of annotations
+    :param pltkwargs: plot keyword arguments
+    '''
+    # Make sure "data" field is provided
+    if data is None:
+        raise ValueError('"data" input is required')
+    naxes = len(fg.axes)
+
+    # Set up axis dictionary and data groups  
+    if naxes == 1:
+        axdict = {'all': fg.ax}
+        groups = [('all', data)]
+        verbose = True
+    else:
+        col = pltkwargs.pop('col')
+        axdict = fg.axes_dict
+        groups = data.groupby(col)
+        logger.info(f'annotating {pltkwargs["hue"]} pairs on {groups.ngroups} {col} groups')
+        verbose = False
+
+    # Set up progress bar
+    with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
+
+        # For each axis/group
+        for (axkey, ax), (gkey, gdata) in zip(axdict.items(), groups):
+
+            # Check that axis and group match
+            if axkey != gkey:
+                raise ValueError(f'{col} group "{gkey}" does not match axis key ("{axkey}")')
+
+            # Generate hue pairs
+            pairs = get_hue_pairs(gdata, pltkwargs['x'], pltkwargs['hue'])
+
+            # Perform statistical tests on these pairs, and annotate results
+            annotator = Annotator(ax=ax, pairs=pairs, data=gdata, **pltkwargs)
+            if not verbose:
+                annotator.verbose = False
+            annotator.configure(test=test, text_format=text_format, loc=loc)
+            annotator.apply_and_annotate()
+
+            # Update progress bar
+            pbar.update()
