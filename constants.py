@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-15 16:23:24
+# @Last Modified time: 2023-03-01 19:02:27
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -257,6 +257,10 @@ N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "a
 ISPTA_THR = 1.0  # ISPTA lower bound restricting the conditions on which to compute fraction of response occurence (W/cm2)
 PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
+
+# Baseline fluorescence
+MAX_F0_REL_VAR = .25  # max allowed relative variation in baseline fluorescence during experiment
+PTHR_STATIONARITY = .2  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
 

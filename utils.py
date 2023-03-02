@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-22 12:28:56
+# @Last Modified time: 2023-03-01 18:24:56
 
 ''' Collection of generic utilities. '''
 
@@ -254,6 +254,12 @@ def expand_to_match(df, mux):
     '''
     Expand dataframe along new index dimensions to match reference index
     '''
+    # Make sure rectilinear expansion is possible
+    ratio, remainder = len(mux) / len(df), len(mux) % len(df)
+    if remainder != 0:
+        raise ValueError(
+            f'{len(df)}-element dataframe cannot be rectilinearly expand into {len(mux)}-element reference index (ratio = {ratio})')
+    ratio = int(ratio)
     # Transform to dataframe if needed
     name = None 
     if isinstance(df, pd.Series):
@@ -274,6 +280,10 @@ def expand_to_match(df, mux):
     if len(extra_levels) == 0:
         raise ValueError('did not find any extra index levels')
     newdims = {k: mux.unique(level=k) for k in extra_levels}
+    expansion_factor = np.prod([len(v) for v in newdims.values()])
+    if expansion_factor != ratio:
+        raise ValueError(
+            f'{extra_levels} expansion factor ({expansion_factor}) does not match dimensions ratio {(ratio)}')
     newdf = repeat_along_new_dims(df, newdims)
     if name is not None:
         return newdf.loc[:, name]
@@ -712,6 +722,11 @@ def sigmoid(x, x0=0, sigma=1.):
 def bounds(x):
     ''' Extract minimum and maximum of array simultaneously '''
     return np.array([min(x), max(x)])
+
+
+def is_within(x, bounds):
+    ''' Determine if value is within defined bounds '''
+    return np.logical_and(x >= bounds[0], x <= bounds[1])
 
 
 def rsquared(x1, x2):

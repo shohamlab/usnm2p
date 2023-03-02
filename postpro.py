@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-17 17:22:07
+# @Last Modified time: 2023-03-01 17:58:44
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -26,6 +26,9 @@ from constants import *
 from logger import logger
 from utils import *
 from parsers import parse_2D_offset
+
+# Register tqdm progress functionality to pandas
+tqdm.pandas()
 
 
 def separate_runs(data, nruns):
@@ -658,7 +661,7 @@ def get_response_types_per_ROI(data, verbose=True):
     return data.groupby(Label.ROI).first()[Label.ROI_RESP_TYPE]
 
 
-def get_trial_aggregated(data, aggfunc=None, full_output=False):
+def get_trial_aggregated(data, aggfunc=None, full_output=False, inner_call=False):
     '''
     Compute trial-aggregated statistics
     
@@ -669,7 +672,21 @@ def get_trial_aggregated(data, aggfunc=None, full_output=False):
     if aggfunc is None:
         aggfunc = lambda s: s.mean()
     # Group trials
-    groups = data.groupby([Label.ROI, Label.RUN])
+    dims = data.index.names
+    assert dims[-1] == Label.TRIAL, 'trial is not the last index dimension'
+    gby = dims[:-1]
+    if not inner_call:
+        logger.info(f'aggregating trial data over {", ".join(gby)}')
+    if Label.DATASET in gby:
+        return data.groupby(Label.DATASET).progress_apply(
+            lambda gdata: get_trial_aggregated(
+                gdata.droplevel(Label.DATASET), 
+                aggfunc=aggfunc, 
+                full_output=full_output, 
+                inner_call=True)
+        )
+
+    groups = data.groupby(gby)
     # Compute average of stat across trials
     agg_data = groups.agg(str_proof(aggfunc))
     # DataFrame case
@@ -1392,30 +1409,35 @@ def get_xdep_data(data, xkey):
         return data
 
 
-def exclude_datasets(timeseries, stats, to_exclude):
+def exclude_datasets(*dfs, to_exclude=None):
     '''
     Exclude specific datasets from analysis
     
-    :param timeseries: timeseries dataframe
-    :param stats: stats dataframe
+    :param data: list of multi-dataset dataframes
     :param to_exclude: date-mouse-region combinations to be discarded
-    :return: filtered experiment dataframe 
+    :return: filtered experiment dataframes
     '''
-    if len(to_exclude) == 0:
+    # If no exclusion -> return as is
+    if to_exclude is None or len(to_exclude) == 0:
         logger.warning('empty exclude list -> ignoring')
-        return timeseries, stats
-    candidate_datasets = stats.index.unique(level=Label.DATASET).values
+        return dfs
+    # Identify candidate datasets from first dataframe
+    candidate_datasets = dfs[0].index.unique(level=Label.DATASET).values
+    # Raise warning if exclusion candidates not found in data 
     notthere = list(set(to_exclude) - set(candidate_datasets))
     if len(notthere) > 0:
         logger.warning(f'{notthere} datasets not found -> ignoring') 
+    # Intersect exclusion list with candidate datasets 
     to_exclude = list(set(candidate_datasets).intersection(set(to_exclude)))
+    # If no exclusion candidate in data, return as is
     if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
-        return timeseries, stats
+        return dfs
+    # Exclude and return
     logger.info(
         f'excluding the following datasets from analysis:\n{itemize(to_exclude)}')
     query = f'{Label.DATASET} not in {to_exclude}'
-    return timeseries.query(query), stats.query(query)
+    return [df.query(query) for df in dfs]
 
 
 def get_param_code(data):
@@ -1878,7 +1900,7 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     desc = 'computing'
     if weighted:
         desc = f'{desc} ROI-weighted'
-    ss = 'dataframe' if ykey is None else f'"{ykey}" series'
+    ss = 'dataframe' if (ykey is None or len(as_iterable(ykey)) > 1) else f'"{ykey}" series'
     xkey_str = ' & '.join(xkey)
     logger.info(
         f'{desc} average of ({describe_dataframe_index(data)}) {ss} across {xkey_str}...')
@@ -2353,4 +2375,57 @@ def get_rtype_fractions_per_ROI(data):
         for ROI in missing_ROIs:
             roistats.loc[ROI, :] = 0.
     
+    return roistats
+
+
+def apply_linregress(s, xkey=Label.TRIAL):
+    ''' 
+    Apply linear regression on series index:values distribution
+
+    :param s: input pandas Series object
+    :param xkey: name of index dimension to use as input vector
+    :return: pandas Series with regression output metrics 
+    '''
+    res = linregress(s.index.get_level_values(xkey), y=s.values)
+    return pd.Series({
+            'slope': res.slope,
+            'intercept': res.intercept,
+            'rval': res.rvalue,
+            'pval': res.pvalue,
+            'stderr': res.stderr,
+            'intercept_stderr': res.intercept_stderr,
+    })
+
+
+def assess_significance(data, pthr, pval_key='pval', sign_key=None):
+    '''
+    Categorize responses by comparing p-values to a significance threshold, 
+    and adding a potential "sign" measure to the output 
+    '''
+    sig = data[pval_key] < pthr
+    if sign_key is not None:
+        sig = (sig * np.sign(data[sign_key])).astype(int)
+    return sig
+
+
+def classify_ROIs(data):
+    ''' 
+    Classify ROIs based on fraction of each response type across experiment
+    
+    :param data: trial-aggragated stats dataframe
+    :return: ROI classification stats dataframe
+    '''
+    # Compute fraction of response occurence in "strong" ISPTA conditions, for each ROI
+    roistats = get_rtype_fractions_per_ROI(data)
+
+    # Extract type and proportion of maximum non-weak proportion, per ROI
+    nonweakresps = roistats.drop('weak', axis=1).agg(['idxmax', 'max'], axis=1)
+
+    # Classify ROIs based on proportion of conditions in each response type
+    logger.info('classiying ROIs as a function of their response occurence fractions...')
+    roistats[Label.ROI_RESP_TYPE] = 'weak'
+    cond = nonweakresps['max'] >= PROP_CONDS_THR
+    roistats.loc[cond, Label.ROI_RESP_TYPE] = nonweakresps.loc[cond, 'idxmax']
+
+    # Return
     return roistats

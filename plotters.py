@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-22 12:29:32
+# @Last Modified time: 2023-03-01 19:37:21
 
 ''' Collection of plotting utilities. '''
 
@@ -3863,3 +3863,27 @@ def annotate_facets(fg, data=None, test='t-test_ind', text_format='star', loc='o
 
             # Update progress bar
             pbar.update()
+
+
+def plot_occurence_counts(cond_seqs, runid=None, cond=None):
+    ''' Plot distribution of presented conditions for a given run ID '''
+    if (runid is None and cond is None) or (runid is not None and cond is not None):
+        raise ValueError('exactly one of "runid" or "cond" parameters must be provided')
+    # Count conditions occurences for given run ID
+    if runid is not None:
+        xlabel = f'run ID = {runid}'
+        occurence_dist = cond_seqs.loc[runid, :].value_counts()
+    # Count run IDs occurences for given condition
+    else:
+        xlabel = f'cond = {cond}'
+        occurence_dist = (cond_seqs == cond).sum(axis=1)
+    # Plot
+    figwidth = 4
+    if occurence_dist.index.dtype == 'object':
+        figwidth = 2 * len(occurence_dist)
+    fig, ax = plt.subplots(figsize=(figwidth, 4))
+    sns.despine(ax=ax)
+    ax.set_ylabel('number of occurences')
+    ax.set_xlabel(xlabel)
+    ax.bar(occurence_dist.index, occurence_dist.values)
+    return fig
