@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-01 17:58:44
+# @Last Modified time: 2023-03-06 17:02:15
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1420,7 +1420,7 @@ def exclude_datasets(*dfs, to_exclude=None):
     # If no exclusion -> return as is
     if to_exclude is None or len(to_exclude) == 0:
         logger.warning('empty exclude list -> ignoring')
-        return dfs
+        return dfs if len(dfs) > 1 else dfs[0]
     # Identify candidate datasets from first dataframe
     candidate_datasets = dfs[0].index.unique(level=Label.DATASET).values
     # Raise warning if exclusion candidates not found in data 
@@ -1432,12 +1432,13 @@ def exclude_datasets(*dfs, to_exclude=None):
     # If no exclusion candidate in data, return as is
     if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
-        return dfs
+        return dfs if len(dfs) > 1 else dfs[0]
     # Exclude and return
     logger.info(
         f'excluding the following datasets from analysis:\n{itemize(to_exclude)}')
     query = f'{Label.DATASET} not in {to_exclude}'
-    return [df.query(query) for df in dfs]
+    dfs_out = [df.query(query) for df in dfs]
+    return dfs_out if len(dfs_out) > 1 else dfs_out[0]
 
 
 def get_param_code(data):
@@ -1651,6 +1652,26 @@ def get_detailed_ROI_count(data):
     # Format
     return ROI_detailed_count.style.apply(
         highlight_incomplete, axis=1).format('{:.0f}')
+
+
+def get_detailed_responder_counts(data, normalize=False):
+    counts = (data[Label.ROI_RESP_TYPE]
+        .groupby([Label.DATASET, Label.ROI])
+        .first()
+        .groupby(Label.DATASET)
+        .value_counts()
+        .unstack()
+        .fillna(0.)
+        .astype(int)
+    )
+    counts.loc['TOTAL'] = counts.sum()
+    totals = counts.sum(axis=1)
+    if normalize:
+        counts = counts.div(totals, axis=0)
+        counts['count'] = totals
+    else:
+        counts['total'] = totals
+    return counts
 
 
 def get_plot_data(timeseries, stats):
@@ -1882,7 +1903,7 @@ def anova2d(data, ykey, factors, alpha=None, interaction=True):
     return table
 
 
-def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
+def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add_global_avg=False):
     '''
     Average data output variable(s) across datasets for each value of an (or a combination of) input variable(s).
     
@@ -1893,6 +1914,15 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True):
     :param weighted: whether to compute a weighted-average based on the number of ROIs per dataset, or not
     :return: aggregated dataframe with mean and propagated sem columns for each considered output variable 
     '''
+    if hue is not None and add_global_avg:
+        out_by_hue = get_crossdataset_average(
+            data, xkey, ykey=ykey, hue=hue, weighted=weighted, add_global_avg=False)
+        out_avg = get_crossdataset_average(data, xkey, ykey=ykey, hue=None, weighted=weighted)
+        outlevels = out_avg.index.names
+        out_avg[hue] = 'all'
+        out_avg = out_avg.set_index(hue, append=True).reorder_levels([hue, *outlevels])
+        return pd.concat([out_by_hue, out_avg], axis=0)
+
     # Format input
     xkey = as_iterable(xkey)
 
@@ -2429,3 +2459,9 @@ def classify_ROIs(data):
 
     # Return
     return roistats
+
+
+def get_params_by_run(data):
+    ''' Get parameters by run '''
+    inputkeys = [Label.P, Label.DC, Label.ISPTA]
+    return data[inputkeys].groupby(Label.RUN).first()

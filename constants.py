@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-01 19:02:27
+# @Last Modified time: 2023-03-06 12:16:40
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -100,6 +100,15 @@ class Label:
     RENAME_ON_AVERAGING = {
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
+
+    # Exclusion criteria
+    POORSEG = 'poor segmentation'	
+    DEADCELLS = 'potential dead cells'
+    NORESP = 'no/weak response'
+    STRONGRESP = 'abnormal response amplitudes'
+    DROP5060DC = 'abnormal drop 50-60% DC'
+    DROP0406MPA = 'abnormal drop 0.4-0.6 MPa'
+    UNSTABLEFO = 'large variation in fluorescence baseline'
 
 
 # Names used for intermediate data directories along the analysis pipeline
@@ -260,7 +269,7 @@ OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best"
 
 # Baseline fluorescence
 MAX_F0_REL_VAR = .25  # max allowed relative variation in baseline fluorescence during experiment
-PTHR_STATIONARITY = .2  # Significance threshold for response non-stationarity across trials
+PTHR_STATIONARITY = .05  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
 
@@ -293,15 +302,20 @@ class Palette:
     ''' Color palettes used to visualize various categories & dependencies '''
     
     DEFAULT = 'rocket_r'  # default (continuous)
+    TERNARY = {  # response type (categorical)
+        -1: 'C1',
+        0: 'silver',
+        1: 'C2'
+    }
     RTYPE = {  # response type (categorical)
         'negative': 'C1',
         'weak': 'silver',
         'positive': 'C2'
     }
     LINE = {  # mouse line (categorical)
-        'line3': '#00ADDC',
-        'sst': '#F68B1F',
-        'pv': '#FDB913'
+        'line3': 'C0',
+        'pv': 'C1',
+        'sst': 'r'
     }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)

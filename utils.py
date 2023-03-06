@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-01 18:24:56
+# @Last Modified time: 2023-03-03 18:04:40
 
 ''' Collection of generic utilities. '''
 
@@ -765,3 +765,21 @@ def get_hue_pairs(data, x, hue):
         raise ValueError(f'hue pairs generation incompatible with {nhues} hue levels')
     seq = data.groupby([x, hue]).first().index.values.tolist()
     return list(zip(seq[::2], seq[1::2]))
+
+
+def get_exclude_table(line=None, analysis='main'):
+    df = pd.read_excel('exclude_table.xlsx', engine='openpyxl')
+    if analysis is not None:
+        df = df[df['analysis'] == analysis]
+    if line is not None:
+        df = df[df['line'] == line]
+    del df['analysis']
+    del df['line']
+    return df.set_index(Label.DATASET)
+
+
+def get_exclude_list(df, criteria=None):
+    if criteria is not None:
+        df = df[as_iterable(criteria)]
+    is_exclude = (df == 'y').any(axis=1)
+    return is_exclude[is_exclude].index.values.tolist()

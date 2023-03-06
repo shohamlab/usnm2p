@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 19:22:32
+# @Last Modified time: 2023-03-06 16:27:14
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -109,7 +109,11 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
                        trial_aggfunc, ykey_classification, directional):
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
-    dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
+    if mouseline is None:
+        dataset_group_id = 'all'
+    else:
+        dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
+
     # Construct processing IDs
     prepro_id = get_prepro_id(kalman_gain=kalman_gain)
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
@@ -122,12 +126,17 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
     figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{conditioning_id}_{processing_id}'
     # Get stats input data directory
     dataroot = get_data_root()
-    processed_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.PROCESSED)
-    processed_dir = os.path.join(
-        processed_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
+    if mouseline is not None:
+        input_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.PROCESSED)
+        input_dir = os.path.join(
+            input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
+    else:    
+        input_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.LINESTATS)
+        input_dir = os.path.join(
+            input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type)
     # Get figures directory
     figsdir = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.FIG)
-    return dataset_group_id, processed_dir, figsdir, figs_suffix
+    return dataset_group_id, input_dir, figsdir, figs_suffix
 
 
 def extract_from_batch_data(data):

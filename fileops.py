@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-14 15:46:57
+# @Last Modified time: 2023-03-06 16:29:24
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -795,7 +795,7 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     }
 
 
-def load_rtypeavg_stats(dirpath, **kwargs):
+def load_lineagg_stats(dirpath, **kwargs):
     '''
     Load multiple responder-type-averaged mouse line statistics
     

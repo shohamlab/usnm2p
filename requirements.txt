@@ -16,4 +16,6 @@ imageio
 natsort
 h5py
 statannotations
+openpyxl
+scikit-image
 suite2p==0.10.2

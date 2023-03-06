@@ -2,11 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-01 19:37:21
+# @Last Modified time: 2023-03-06 17:51:22
 
 ''' Collection of plotting utilities. '''
 
-from itertools import combinations
+from itertools import combinations, chain
 import random
 from natsort import natsorted
 import numpy as np
@@ -18,6 +18,9 @@ from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.patches import Rectangle
+from matplotlib.path import Path
+from matplotlib.collections import PathCollection
+from skimage.measure import find_contours
 import seaborn as sns
 from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
@@ -1457,7 +1460,7 @@ def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
 
         # Plot shaded area over trial interval 
         ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
-        
+
 
 def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
                   mode='contour', cmap='viridis', hue=Label.ROI_RESP_TYPE, legend=True, alpha_ROIs=0.7, 
@@ -1508,8 +1511,10 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
         Z[idx_by_type[rtype], i, ROI_mask['ypix'], ROI_mask['xpix']] = 1
     
     if mode == 'contour':
-        # Initialize pixel matrices
-        X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
+        # Extract contours for each type
+        contours = [list(chain.from_iterable(map(find_contours, z))) for z in Z]
+        # Invert x and y coordinates for compatibility with imshow
+        contours = [[c[:, ::-1] for c in clist] for clist in contours]
     else:
         # Stack Z matrices along ROIs to get 1 mask per type
         masks = np.array([z.max(axis=0) for z in Z])
@@ -1527,7 +1532,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     else:
         fig = ax.get_figure()
     if title is not None:
-        ax.set_title(title)
+        ax.set_title(title, fontsize=10)
     
     # Plot reference image 
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
@@ -1535,12 +1540,14 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     
     # Plot cell and non-cell ROIs
     for rtype, idx in idx_by_type.items():
-        c = colors[rtype]
-        if mode == 'contour':  # "contour" mode
-            for z in Z[idx]:
-                if z.max() > 0:
-                    ax.contour(X, Y, z, levels=[.5], colors=[c])
-        else:  # "fill" mode
+        # "contour" mode: add path collection defining contours for each relevant ROI
+        if mode == 'contour':
+            ax.add_collection(PathCollection(
+                [Path(ctr) for ctr in contours[idx]],
+                fc='none', ec=colors[rtype], lw=1,
+            ))
+        # "fill" mode: add mask of ROIs union
+        else:
             ax.imshow(rgbs[idx])
 
     # Add scale bar if scale provided
@@ -1560,14 +1567,17 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
             Line2D([0], [0], label=l, ms=10, **legfunc(c))
             for c, l in zip(colors, labels)]
         ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
-    
+
     return fig
 
 
-def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
-                   hue=Label.ROI_RESP_TYPE, **kwargs):
+def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
+                   hue=Label.ROI_RESP_TYPE, outliers=None, **kwargs):
     
     logger.info('plotting cell maps...')
+
+    if outliers is None:
+        outliers = []
 
     # Divide inputs per dataset
     masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
@@ -1577,7 +1587,8 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
     # Create figure
     ncols = min(ndatasets, colwrap)
     nrows = int(np.ceil(ndatasets / colwrap))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 5, nrows * 5))
+    factor = 3
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * factor, nrows * factor))
     axes = axes.ravel()
 
     # Plot map for each dataset
@@ -1590,6 +1601,12 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
                 um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, hue=hue, 
                 verbose=False, **kwargs)
             ax.set_aspect(1.)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if dataset_id in outliers:
+                for sk in ax.spines:
+                    ax.spines[sk].set_color('r')
+                    ax.spines[sk].set(linewidth=3)
             pbar.update()
 
     # Hide remaining axes
@@ -1607,9 +1624,9 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=5, mode='contour',
             legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
         else:
             legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
-        leg_items = [
-            Line2D([0], [0], label=label, ms=10, **legfunc(c))
-            for c, label in zip(Palette.RTYPE.values(), get_default_rtypes())]
+        rtypes_datasets = stats[Label.ROI_RESP_TYPE].unique()
+        leg_palette = {k: v for k, v in Palette.RTYPE.items() if k in rtypes_datasets}
+        leg_items = [Line2D([0], [0], label=l, ms=10, **legfunc(c)) for l, c in leg_palette.items()]
         axes[ndatasets - 1].legend(
             handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
@@ -2396,10 +2413,11 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
         t.set_text(enriched_s)
 
 
-def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None, hue=None,
+def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, hue=None,
                               avgprop=None, errprop='inter', marker=None, avg_color='k', err_style='band',
-                              add_leg_numbers=True, hue_alpha=None, ci=CI, legend='full', as_ispta=False,
-                              stacked=False, fit=False, avglw=3, avgerr=True, palette=None, **kwargs):
+                              add_leg_numbers=True, hue_alpha=1., ci=CI, legend='full', as_ispta=False,
+                              stacked=False, fit=False, lw=1.5, avglw=3, avgerr=True, palette=None, outliers=None,
+                              **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
@@ -2423,9 +2441,10 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
                 data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
                 add_leg_numbers=add_leg_numbers, as_ispta=as_ispta, marker=marker,
                 avg_color=avg_color, fit=fit, err_style=err_style, **kwargs)
-        # Otherwise, offset values per dataset if specified
+        # Otherwise, make copy and offset values per dataset if specified
         else:
             if stacked:
+                data = data.copy()
                 data[ykey] = offset_per_dataset(data[ykey])
     # Set plotting parameters
     hue_order = None
@@ -2438,13 +2457,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
         if hue == Label.ROI_RESP_TYPE:
             hue_order = get_default_rtypes()
     if avgprop is not None:
-        hue_alpha_eff = 0.5
         hueerr_style = 'band'
-    else:
-        hue_alpha_eff = 1.
-
-    if hue_alpha is None:
-        hue_alpha = hue_alpha_eff
 
     # Get default ykey if needed
     if ykey is None:
@@ -2453,10 +2466,22 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
     # Restrict data based on xkey
     data = get_xdep_data(data, xkey)
 
-    # Swicth xkey to ISPTA if specified
+    # Switch xkey to ISPTA if specified
     if as_ispta:
         xkey = Label.ISPTA
 
+    # Create uniform palette, if requested
+    if palette == 'uniform':
+        palette = get_uniform_palette(data)
+        legend = False
+    if outliers is not None:
+        palette = get_binary_palette(data, outliers)
+        legend = False
+    
+    # Adapt average color to mouse line, if requested
+    if avg_color == 'line':
+        avg_color = Palette.LINE[data[Label.LINE].unique()[0]]
+    
     # Assemble common plotting arguments
     pltkwargs = dict(ax=ax, ci=ci, marker=marker, palette=palette, **kwargs)
     if hue_alpha == 0.:
@@ -2466,7 +2491,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=None, ax=None,
     if hueplt:
         fig = plot_from_data(
             data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
-            err_style=hueerr_style, legend=legend, **pltkwargs)
+            err_style=hueerr_style, legend=legend, lw=lw, **pltkwargs)
         # Get legend
         if ax is None:
             ax = fig.axes[0]
@@ -2683,11 +2708,14 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
     
     # Initialize or retrieve figure        
     if axes is None:
-        height = 4
+        parent = True
+        height = 3
+        factor = height
         if kwargs.get('stacked', False):
             height = max(height, len(data.index.unique(Label.DATASET)))
-        fig, axes = plt.subplots(1, len(xkeys), figsize=(10, height))
+        fig, axes = plt.subplots(1, len(xkeys), figsize=(len(xkeys) * factor, height))
     else:
+        parent = False
         if len(axes) != len(xkeys):
             raise ValueError(f'exactly {len(xkeys)} axes must be provided')
         fig = axes[0].get_figure()
@@ -2708,6 +2736,9 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
     
     # Harmonize axes limits
     harmonize_axes_limits(axes)
+
+    if parent:
+        fig.tight_layout()
 
     if title is not None:
         fig.suptitle(title)
@@ -3199,42 +3230,58 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
     return fig
 
 
-def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0.):
+def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None):
     '''
     Plot comparative parameter dependency curves (with error bars) across
     mouse lines, for each responder type
 
     :param data: responder-type-averaged multi-line statistics dataframe
-    :param xkey: input parameter name
+    :param xkey: input parameter name(s)
     :param ykey: output parameter name
     :param yref: reference vertical level to indicate with dashed line (optional)
     :return: figure
     '''
-    depdata = get_xdep_data(data, xkey)
-    fg = sns.relplot(
-        data=depdata,
-        kind='line',
-        x=xkey, y=f'{ykey} - mean',
-        hue=Label.LINE,
-        col=Label.ROI_RESP_TYPE,
-        col_order=Palette.RTYPE.keys(),
-        marker='o',
-        lw=2, markersize=10,
-        palette=Palette.LINE
-    )
-    fig = fg.figure
-    if yref is not None:
-        for ax in fig.axes:
-            ax.axhline(0., ls='--', c='k')
-    for rtype, gdata in depdata.groupby(Label.ROI_RESP_TYPE):
-        ax = fig.axes[list(Palette.RTYPE.keys()).index(rtype)]
-        ax.set_ylabel(ykey)
-        for line, ldata in gdata.groupby(Label.LINE):
+    xkeys = as_iterable(xkey)
+    if axes is None:
+        # Create figure backbone
+        fig, axes = plt.subplots(1, len(xkeys), figsize=(3 * len(xkeys), 3))
+    else:
+        if len(axes) != len(xkeys):
+            raise ValueError(
+                f'number of axes ({len(axes)}) does not match number of inputs ({len(xkeys)})')
+        fig = axes[0].get_figure()
+    # For each input parameter x
+    for i, (xkey, ax) in enumerate(zip(xkeys, axes)):
+        sns.despine(ax=ax)
+        # Get x-dependent data
+        depdata = get_xdep_data(data, xkey)
+        # Plot mean profile, per mouse line
+        sns.lineplot(
+            data=depdata,
+            ax=ax,
+            x=xkey, y=f'{ykey} - mean',
+            hue=Label.LINE,
+            palette=Palette.LINE,
+            legend=i == len(xkeys) - 1,
+        )
+        # Plot +/-sem error bands, for each mouse line
+        for line, ldata in depdata.groupby(Label.LINE):
             ldata = ldata.sort_values(xkey)
-            ax.errorbar(
-                ldata[xkey], ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem'],
-                ls='', c=Palette.LINE[line])
-    fig.suptitle(f'{xkey} dependency', y=1.05)
+            ybar, ysem = ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem']
+            ax.fill_between(
+                ldata[xkey], ybar - ysem, ybar + ysem,
+                fc=Palette.LINE[line], alpha=0.3)
+        # Adjust y-labels
+        ax.set_ylabel(ykey)
+        # Add reference vertical level
+        if yref is not None:
+            ax.axhline(0., ls='--', c='k')
+    
+    # Clean up layout, and move legend outside of axes
+    fig.tight_layout()
+    sns.move_legend(axes[-1], 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+    
+    # Return figure
     return fig
 
 
@@ -3253,12 +3300,14 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yr
         marker=None, as_ispta=True, avg_color=avg_color, **kwargs)
     # Indicate the "parameter sweep" origin of each data point
     # Plot dependencies on each parameter on same ISPTA axis
-    del kwargs['err_style']
+    if 'err_style' in kwargs:
+        del kwargs['err_style']
     if add_sweep_markers:
         for i, (xkey, marker) in enumerate(zip([Label.P, Label.DC], ['o', '^'])):
             plot_parameter_dependency(
                 data, xkey=xkey, ykey=ykey, yref=None, ax=ax, hue=None, weighted=True, 
-                marker=marker, avg_color=avg_color, as_ispta=True, legend=False, add_leg_numbers=False, err_style=None, lw=0., **kwargs)
+                marker=marker, avg_color=avg_color, as_ispta=True, legend=False,
+                add_leg_numbers=False, err_style=None, lw=0., **kwargs)
     return fig
 
 
@@ -3378,7 +3427,8 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
 
 
 def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
-                            avg_overlay=True, avg_color='k', hue_width=False, **kwargs):
+                            avg_overlay=True, avg_color='k', hue_width=False, palette=None, outliers=None,
+                            legend='full', **kwargs):
     ''' 
     Plot fraction of responder cells as a function of an input parameter
 
@@ -3400,14 +3450,30 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
         else:
             hvals = resp_props[hue]
         resp_props['count'] = hvals.map(countsperhue)
-
-    # Plot % responders profile(s) with appropriate function
+    
+    # Create uniform palette, if requested
+    if palette == 'uniform':
+        palette = get_uniform_palette(data)
+        legend = False
+    if outliers is not None:
+        palette = get_binary_palette(data, outliers)
+     
+    # Adapt average color to mouse line, if requested
+    if avg_color == 'line':
+        avg_color = Palette.LINE[data[Label.LINE].unique()[0]]
+    
+    # Define default plotting options dict
     pltkwargs = dict(
         data=resp_props.reset_index(), 
         x=xkey, 
         y='positive', 
+        hue_order=None if hue is None else list(data.groupby(hue).indices.keys()),
+        legend=legend,
+        palette=palette,
         **kwargs
     )
+
+    # Line plot: update plotting options 
     if kind == 'line':
         pltfunc = sns.relplot
         if hue is None:
@@ -3423,14 +3489,18 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
             if hue_width:
                 pltkwargs['size'] = 'count'
 
+    # Categorical plot: update plotting options
     elif kind in ['bar', 'box', 'boxen', 'violin']:
         if hue == Label.DATASET:
             raise ValueError('cannot plot distributions if split by dataset')
         pltfunc = sns.catplot
         pltkwargs['color'] = 'C0'
+    
+    # Unknow plot type: raise error
     else:
         raise ValueError(f'unknown plot type: "{kind}"')
-    
+
+    # No axis provided: use figure-level function   
     if ax is None:
         fg = pltfunc(
             kind=kind,
@@ -3441,6 +3511,8 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
         # Extract figure and axis
         fig = fg.figure
         ax = fig.axes[0]
+    
+    # Axis provided: use-axis level function
     else:
         pltfunc = getattr(sns, f'{kind}plot')
         pltfunc(hue=hue, ax=ax, **pltkwargs)
@@ -3865,7 +3937,7 @@ def annotate_facets(fg, data=None, test='t-test_ind', text_format='star', loc='o
             pbar.update()
 
 
-def plot_occurence_counts(cond_seqs, runid=None, cond=None):
+def plot_occurence_counts(cond_seqs, runid=None, cond=None, ax=None):
     ''' Plot distribution of presented conditions for a given run ID '''
     if (runid is None and cond is None) or (runid is not None and cond is not None):
         raise ValueError('exactly one of "runid" or "cond" parameters must be provided')
@@ -3878,12 +3950,86 @@ def plot_occurence_counts(cond_seqs, runid=None, cond=None):
         xlabel = f'cond = {cond}'
         occurence_dist = (cond_seqs == cond).sum(axis=1)
     # Plot
-    figwidth = 4
-    if occurence_dist.index.dtype == 'object':
-        figwidth = 2 * len(occurence_dist)
-    fig, ax = plt.subplots(figsize=(figwidth, 4))
+    if ax is None:
+        figwidth = 4
+        if occurence_dist.index.dtype == 'object':
+            figwidth = 2 * len(occurence_dist)
+        fig, ax = plt.subplots(figsize=(figwidth, 4))
+    else:
+        fig = ax.get_figure()
     sns.despine(ax=ax)
     ax.set_ylabel('number of occurences')
     ax.set_xlabel(xlabel)
     ax.bar(occurence_dist.index, occurence_dist.values)
+    return fig
+
+
+def get_uniform_palette(data, color='silver'):
+    ''' Get a uniform palette across datasets '''
+    dataset_ids = data.index.unique(Label.DATASET)
+    return dict(zip(dataset_ids, [color] * len(dataset_ids)))
+
+
+def get_binary_palette(data, outliers, default='g', member='r'):
+    ''' Get a binary palette that highlights specific datasets '''
+    dataset_ids = data.index.unique(Label.DATASET)
+    palette = dict(zip(dataset_ids, [default] * len(dataset_ids)))
+    for outlier in outliers:
+        if outlier in palette:
+            palette[outlier] = member
+    return palette
+
+
+def plot_all_deps(data, xkeys, ykeys, **kwargs):
+
+    # Create figure backbone
+    ncols, nrows = len(xkeys), len(ykeys) + 1
+    factor = 3
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(factor * ncols, factor * nrows))
+    axes = np.atleast_2d(axes)
+
+    # Proportion of responders
+    for i, (xkey, ax) in enumerate(zip(xkeys, axes[0])):
+        plot_responder_fraction(
+            data, xkey,
+            kind='line',
+            hue=Label.DATASET,
+            ax=ax,
+            legend='full' if i == len(xkeys) - 1 else False,
+            **kwargs
+        )
+    has_legend = ax.get_legend() is not None
+    if has_legend:
+        sns.move_legend(ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+        factor = 5
+        fig.set_size_inches(factor * ncols, factor * nrows)
+
+    # Response strength metrics
+    for i, (ykey, axrow) in enumerate(zip(ykeys, axes[1:])):
+        # Determine output metrics key
+        ykey_diff = get_change_key(ykey)
+        # Plot dependencies on each parameter on separate axes
+        logger.info(f'plotting {ykey} stimulation parameters dependencies...')
+        plot_stimparams_dependency(
+            data.copy(),
+            ykey=ykey_diff, 
+            hue=Label.DATASET,
+            avgprop='whue', 
+            axes=axrow,
+            ci=None,
+            xkeys=xkeys,
+            legend=False,
+            **kwargs
+        )
+
+    for axrow in axes[1:]:
+        for ax in axrow:
+            ax.set_title(None)
+    for axrow in axes[:-1]:
+        for ax in axrow:
+            ax.set_xlabel(None)
+    if not has_legend:
+        fig.tight_layout()
+    
     return fig
