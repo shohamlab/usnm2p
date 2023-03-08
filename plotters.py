@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-06 17:51:22
+# @Last Modified time: 2023-03-08 12:18:56
 
 ''' Collection of plotting utilities. '''
 
@@ -2706,7 +2706,7 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
     if xkeys is None:
         xkeys = [Label.P, Label.DC]
     
-    # Initialize or retrieve figure        
+    # Initialize or retrieve figure
     if axes is None:
         parent = True
         height = 3
@@ -2723,6 +2723,7 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
     # Disable legend for all axes but last
     legend = kwargs.get('legend', True)
     kwargs['legend'] = False
+    tightened = False
     # Plot dependencies on each parameter on separate axes
     for i, (xkey, ax) in enumerate(zip(xkeys, axes.T)):
         if i == len(axes) - 1 and legend:
@@ -2733,12 +2734,20 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **
         else:
             plot_parameter_dependency(
                 data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', **kwargs)   
+            if parent and not tightened:
+                fig.tight_layout()
+                tightened = True
+
+        axleg = ax.get_legend()
+        if axleg is not None:
+            nentries = len(axleg.get_lines())
+            sns.move_legend(
+                ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False, 
+                ncol=int(np.ceil(nentries / 15))
+        )
     
     # Harmonize axes limits
     harmonize_axes_limits(axes)
-
-    if parent:
-        fig.tight_layout()
 
     if title is not None:
         fig.suptitle(title)
@@ -4033,3 +4042,44 @@ def plot_all_deps(data, xkeys, ykeys, **kwargs):
         fig.tight_layout()
     
     return fig
+
+
+def get_runid_palette(param_seqs, runid):
+    ''' Get palette that seperates conditions for a particular run ID '''
+    # Construct palette based on first presented parameters
+    runid_params = param_seqs.loc[runid, :]
+    mapper = dict(zip(
+        runid_params.unique(), 
+        [f'C{i}' for i in range(runid_params.nunique())]
+    ))
+    return runid_params.map(mapper).to_dict()
+
+
+def plot_ispta_fit(data, ykey):
+    ''' Compute fit between sqrt(ISPTA) and output metrics, and plot results '''
+    # Sort by increasing ISPTA
+    data = data.sort_values(Label.ISPTA)
+
+    # Perform linear fit between sqrt(ISPTA) and output metrics (for ISPTA > 1W/cm2)
+    sqrt_ispta_key = f'\u221A({Label.ISPTA})'
+    logger.info(f'performing linear fit between {sqrt_ispta_key} and {ykey}...')
+    data[sqrt_ispta_key] = np.sqrt(data[Label.ISPTA])
+    data_fit = data[data[Label.ISPTA] >= ISPTA_THR]
+    b, m = robust_linreg(data_fit[ykey], x=data_fit[sqrt_ispta_key])
+    r2 = rsquared(data[ykey], m * data[sqrt_ispta_key] + b)
+    logger.info(f'regression result: {ykey} = {m:.2e} * {sqrt_ispta_key} + {b:.2e} (R2 = {r2:.2f})')
+
+    # Plot data and fitted profiles
+    fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    sns.despine(fig=fig)
+    sns.scatterplot(
+        data=data, x=sqrt_ispta_key, y=ykey, ax=axes[0], ci=None, marker='o')
+    axes[0].plot(data_fit[sqrt_ispta_key], m * data_fit[sqrt_ispta_key] + b, '--k')
+    axes[0].text(0.2, 0.8, f'R2 = {r2:.2f}', transform=axes[0].transAxes)
+    sns.scatterplot(
+        data=data, x=Label.ISPTA, y=ykey, ax=axes[1], ci=None, marker='o')
+    axes[1].plot(data_fit[Label.ISPTA], m * data_fit[sqrt_ispta_key] + b, '--k')
+    fig.tight_layout()
+
+    # Return figure and fit result
+    return fig, (m, b)

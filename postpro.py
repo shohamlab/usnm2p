@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-06 17:02:15
+# @Last Modified time: 2023-03-08 09:51:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1436,6 +1436,8 @@ def exclude_datasets(*dfs, to_exclude=None):
     # Exclude and return
     logger.info(
         f'excluding the following datasets from analysis:\n{itemize(to_exclude)}')
+    remaining = list(set(candidate_datasets) - set(to_exclude))
+    logger.info(f'{len(remaining)} datasets remaining')
     query = f'{Label.DATASET} not in {to_exclude}'
     dfs_out = [df.query(query) for df in dfs]
     return dfs_out if len(dfs_out) > 1 else dfs_out[0]
@@ -1903,7 +1905,8 @@ def anova2d(data, ykey, factors, alpha=None, interaction=True):
     return table
 
 
-def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add_global_avg=False):
+def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, errprop='intra',
+                             add_global_avg=False):
     '''
     Average data output variable(s) across datasets for each value of an (or a combination of) input variable(s).
     
@@ -1912,12 +1915,14 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add
     :param ykey (optional): name of output variable(s) to average. If not provided, all output variables will be considered.
     :param hue: ???
     :param weighted: whether to compute a weighted-average based on the number of ROIs per dataset, or not
+    :param errprop: whether to compute standard errors between datasets or to propagate it from each dataset
     :return: aggregated dataframe with mean and propagated sem columns for each considered output variable 
     '''
     if hue is not None and add_global_avg:
         out_by_hue = get_crossdataset_average(
-            data, xkey, ykey=ykey, hue=hue, weighted=weighted, add_global_avg=False)
-        out_avg = get_crossdataset_average(data, xkey, ykey=ykey, hue=None, weighted=weighted)
+            data, xkey, ykey=ykey, hue=hue, weighted=weighted, errprop=errprop, add_global_avg=False)
+        out_avg = get_crossdataset_average(
+            data, xkey, ykey=ykey, hue=None, weighted=weighted, errprop=errprop, add_global_avg=False)
         outlevels = out_avg.index.names
         out_avg[hue] = 'all'
         out_avg = out_avg.set_index(hue, append=True).reorder_levels([hue, *outlevels])
@@ -1952,17 +1957,19 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add
     ntot = nsamples.groupby(xkey).sum()
     weightsperdataset = nsamples / ntot
 
-    # Derive grouping categories: dataset, (hue,) and input value
-    cats = [Label.DATASET]
+    # Derive grouping categories (besides dataset): (hue,) and input value(s)
+    gby = []
     if hue is not None:
-        cats.append(hue)
-    cats = cats + xkey
-    groups = data.groupby(cats)
+        gby.append(hue)
+    gby = gby + xkey
+
+    # Groupby by dataset and grouping categories
+    groups = data.groupby([Label.DATASET] + gby)
 
     # Identify columns that display intra-group variation and not
-    maxnvalspercat = (data
-        .groupby(cats).first()  # Take first row for each dataset and group
-        .groupby(cats[1:]).nunique()  # Count number of unique values across datasets for each group
+    maxnvalspercat = (
+        groups.first()  # Take first row for each group
+        .groupby(gby).nunique()  # Count number of unique values across datasets for each group
         .max(axis=0)  # Take group with max count, for each column
     )
     constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
@@ -1977,10 +1984,10 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add
         ykey = varkeys
     ykey = as_iterable(ykey)
     
-    # Initiate weighted average dataframe with constant columns
+    # Initialize weighted average dataframe with constant columns
     wdata = (groups[constkeys]  # Select constant columns
         .first()  # Get first value of each group
-        .groupby(cats[1:]).first()  # Remove dataset dimension 
+        .groupby(gby).first()  # Remove dataset dimension 
     )
     
     # Add counts column 
@@ -1994,21 +2001,32 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, add
     
     # For each output key
     for yk in ykey:
-        # Compute mean and standard error per category
+        # Compute means and standard errors (across ROIs) for each group
         means = groups[yk].mean()
         sems = groups[yk].sem()
 
-        # Apply weighted aggregations for means and SEs
+        # Compute weighted mean across datasets
         mean = (
             (weightsperdataset * means)  # Muliply means by dataset weights
-            .groupby(cats[1:]).sum()  # Sum across datasets
+            .groupby(gby).sum()  # Sum across datasets
             .rename('mean')
         )
-        sem = np.sqrt(
-            (weightsperdataset * sems**2)  # Muliply squared SEs by dataset weights
-            .groupby(cats[1:]).sum()  # Sum across datasets
-            .rename('sem')
-        )  # Take square root of sum (propagated SE = RWMS of SEs)
+
+        # If global error must be propagated from SEs in each dataset
+        if errprop == 'intra':     
+            sem = np.sqrt(
+                (weightsperdataset * sems**2)  # Muliply squared standard errors by dataset weights
+                .groupby(gby).sum()  # Sum across datasets
+                .rename('sem')
+            )  # Take square root of sum (propagated SE = weighted RMS of SEs)
+        elif errprop == 'inter':
+            # Compute standard error between hues for each input
+            sem = (means
+                .groupby(gby).sem()  # Compute SE between means of each dataset 
+                .rename('sem')
+            )
+        else:
+            raise ValueError(f'unknown error propagation mode: "{errprop}"')
 
         # Concatenate outputs, and add prefix if needed
         ykey_wdata = pd.concat([mean, sem], axis=1)
@@ -2465,3 +2483,85 @@ def get_params_by_run(data):
     ''' Get parameters by run '''
     inputkeys = [Label.P, Label.DC, Label.ISPTA]
     return data[inputkeys].groupby(Label.RUN).first()
+
+
+def find_in_dataframe(df, key):
+    ''' Find a column in a dataframe, be it in index or as a data column '''
+    if key in df.index.names:
+        return df.index.get_level_values(key)
+    else:
+        return df[key]
+
+
+def free_expand(s, ref_df, verbose=True):
+    ''' Expand series to a higher-dimensional dataframe '''
+    if verbose:
+        # Log process
+        s_desc = describe_dataframe_index(s)
+        if isinstance(s, pd.Series):
+            s_desc = f'({s_desc}) "{s.name}" series'
+        elif isinstance(s, pd.DataFrame):
+            s_desc = f'({s_desc}) input dataframe'
+        ref_desc = f'({describe_dataframe_index(ref_df)}) reference dataframe'
+        logger.info(f'expanding {s_desc} to match {ref_desc}')
+
+    # If dataframe input, expand each constituent column
+    if isinstance(s, pd.DataFrame):
+        return pd.concat([free_expand(s[ss], ref_df, verbose=False) for ss in s], axis=1)
+
+    # Extract index dimensions of series to expand
+    gby = list(s.index.names)
+   
+    # Create function to find value in series and return an expanded vector
+    def find_and_expand(df):
+        idx_small = [find_in_dataframe(df, k)[0] for k in gby]
+        val_small = s.loc[tuple(idx_small)]
+        return pd.Series(index=df.index, data=val_small)
+
+    # Groupby small idnex dimensions and apply function
+    out = ref_df.groupby(gby).apply(find_and_expand).rename(s.name)
+
+    # Remove extra index dimensions generated by apply
+    out = out.droplevel(list(range((len(gby)))))
+
+    # Sort index and return
+    return out.sort_index()
+
+
+def free_expand_and_add(smalldf, largedf, prefix=None):
+    exp_smalldf = free_expand(smalldf, largedf)
+    if prefix is not None:
+        exp_smalldf = exp_smalldf.add_prefix(prefix)
+    for k in exp_smalldf:
+        largedf[k] = exp_smalldf[k]
+
+
+def get_popavg_data(data, ykey=None):
+    '''
+    Compute population-average data
+    
+    :param data: multi-index stats dataframe
+    :param ykey (optional): output column to average
+    :return: population average stats dataframe
+    '''
+    # Extract grouping variables and group data accordingly
+    gby = list(data.index.names)
+    iroi = gby.index(Label.ROI)
+    del gby[iroi]
+    gby_str = '(' + ', '.join(gby) + ')'
+    ykey_str = ykey + ' ' if ykey is not None else ''
+    logger.info(f'computing {ykey_str}population average data across {gby_str}...')
+    groups = data.groupby(gby)
+
+    # Identify columns that vary across ROIs or not
+    maxnvalspercat = groups.nunique().max(axis=0)
+    constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
+    varkeys = maxnvalspercat[maxnvalspercat > 1].index.values
+    if ykey is not None:
+        varkeys = list(set(varkeys).intersection(as_iterable(ykey)))
+
+    # Compute population-average dataframe 
+    return pd.concat([
+        groups[constkeys].first(),  # constant columns: first value of each group 
+        groups[varkeys].mean()  # variable columns: mean of each group
+    ], axis=1)

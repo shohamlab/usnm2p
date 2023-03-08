@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-06 16:29:24
+# @Last Modified time: 2023-03-07 11:03:03
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -795,24 +795,24 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     }
 
 
-def load_lineagg_stats(dirpath, **kwargs):
+def load_lineagg_stats(dirpath, errprop='intra'):
     '''
     Load multiple responder-type-averaged mouse line statistics
     
     :param dirpath: path to input directory
     '''
+    logger.info(f'loading line-average data (with {errprop}-propagated SE) from {dirpath}:')
+
     # List stats data filepaths
     fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.csv')))
-    # Load stats datasets
-    logger.info(f'loading data from {dirpath}:')
-    stats = []
-    for fpath in fpaths:
-        stats.append(pd.read_csv(fpath))
-    if len(stats) == 0:
+
+    # Restrict to stats files with appropriate error propagation method
+    fpaths = list(filter(lambda x: errprop in os.path.basename(x), fpaths))
+    if len(fpaths) == 0:
         raise ValueError(f'no valid stats datasets found in "{dirpath}"')
 
-    # Concatenate stats datasets
-    stats = pd.concat(stats)
+    # Load and concatenate datasets
+    stats = pd.concat([pd.read_csv(fpath) for fpath in fpaths])
 
     # Create stats multi-index
     muxcols = [Label.LINE, Label.ROI_RESP_TYPE, Label.RUN]

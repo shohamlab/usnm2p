@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-06 16:27:14
+# @Last Modified time: 2023-03-08 10:29:38
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -142,12 +142,13 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
 def extract_from_batch_data(data):
     ''' Extract specific fields from batch data '''
     logger.info('extracting timeseries and stats from data...')
-    return (
-        data['trialagg_timeseries'],
-        data['popagg_timeseries'], 
-        data['trialagg_stats'], 
-        data['stats'],
-        data['ROI_masks'], 
-        data['map_ops']
-    )
+    keys = [
+        'trialagg_timeseries',
+        'popagg_timeseries', 
+        'trialagg_stats', 
+        'stats',
+        'ROI_masks',
+        'map_ops'
+    ]
+    return tuple([data[k].copy() for k in keys])
 
