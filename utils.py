@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-03 18:04:40
+# @Last Modified time: 2023-03-10 17:05:15
 
 ''' Collection of generic utilities. '''
 
@@ -707,16 +707,31 @@ def compute_mesh_edges(x, scale='lin'):
     return range_func(x[0] - dx / 2, x[-1] + dx / 2, n)
 
 
-def sigmoid(x, x0=0, sigma=1.):
+def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     ''' 
     Apply sigmoid function with specific center and width
     
     :param x: input signal
     :param x0: sigmoid center (i.e. inflection point)
     :param sigma: sigmoid width
+    :param A: sigmoid min-to-max amplitude
+    :param y0: sigmoid vertical offset
     :return sigmoid function output
     '''
-    return 1 / (1 + np.exp(-(x - x0) / sigma))
+    norm_sig = 1 / (1 + np.exp(-(x - x0) / sigma))
+    return A * norm_sig + y0
+
+
+def shift_sqrt(x, x0=0, A=1, y0=0):
+    if is_iterable(x):
+        return np.array([shift_sqrt(xx, x0=x0, A=A, y0=y0) for xx in x])
+    if x < x0:
+        return y0
+    return A * np.sqrt(x - x0) + y0
+
+
+def parabolic(x, x1, x2, A=1, y0=0):
+    return A * (x - x1) * (x - x2) + y0
 
 
 def bounds(x):

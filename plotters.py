@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-08 12:18:56
+# @Last Modified time: 2023-03-10 17:27:07
 
 ''' Collection of plotting utilities. '''
 
@@ -4055,31 +4055,69 @@ def get_runid_palette(param_seqs, runid):
     return runid_params.map(mapper).to_dict()
 
 
-def plot_ispta_fit(data, ykey):
-    ''' Compute fit between sqrt(ISPTA) and output metrics, and plot results '''
+def plot_ispta_fit(data, ykey, fit_candidates, xkey=Label.ISPTA):
+    '''
+    Compute fits between ISPTA and output metrics, and plot results
+    
+    :param data: experiment dataframe
+    :param xkey: input variable
+    :param ykey: output variable to fit to input
+    :param fit_candidates: dictionary of (objective function, initial parameters) pairs
+    :return: figure handle, and ...
+    '''
     # Sort by increasing ISPTA
-    data = data.sort_values(Label.ISPTA)
+    data = data.sort_values(xkey)
 
-    # Perform linear fit between sqrt(ISPTA) and output metrics (for ISPTA > 1W/cm2)
-    sqrt_ispta_key = f'\u221A({Label.ISPTA})'
-    logger.info(f'performing linear fit between {sqrt_ispta_key} and {ykey}...')
-    data[sqrt_ispta_key] = np.sqrt(data[Label.ISPTA])
-    data_fit = data[data[Label.ISPTA] >= ISPTA_THR]
-    b, m = robust_linreg(data_fit[ykey], x=data_fit[sqrt_ispta_key])
-    r2 = rsquared(data[ykey], m * data[sqrt_ispta_key] + b)
-    logger.info(f'regression result: {ykey} = {m:.2e} * {sqrt_ispta_key} + {b:.2e} (R2 = {r2:.2f})')
+    # # Perform linear fit between sqrt(ISPTA) and output metrics (for ISPTA > 1W/cm2)
+    # sqrt_ispta_key = f'\u221A({Label.ISPTA})'
+    # logger.info(f'performing linear fit between {sqrt_ispta_key} and {ykey}...')
+    # data[sqrt_ispta_key] = np.sqrt(data[Label.ISPTA])
+    # data_fit = data[data[Label.ISPTA] >= ISPTA_THR]
+    # b, m = robust_linreg(data_fit[ykey], x=data_fit[sqrt_ispta_key])
+    # r2 = rsquared(data[ykey], m * data[sqrt_ispta_key] + b)
+    # logger.info(f'regression result: {ykey} = {m:.2e} * {sqrt_ispta_key} + {b:.2e} (R2 = {r2:.2f})')
 
-    # Plot data and fitted profiles
-    fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    # Create figure backbone
+    nfits = len(fit_candidates)
+    fig, axes = plt.subplots(1, nfits, figsize=(nfits * 3, 3))
     sns.despine(fig=fig)
-    sns.scatterplot(
-        data=data, x=sqrt_ispta_key, y=ykey, ax=axes[0], ci=None, marker='o')
-    axes[0].plot(data_fit[sqrt_ispta_key], m * data_fit[sqrt_ispta_key] + b, '--k')
-    axes[0].text(0.2, 0.8, f'R2 = {r2:.2f}', transform=axes[0].transAxes)
-    sns.scatterplot(
-        data=data, x=Label.ISPTA, y=ykey, ax=axes[1], ci=None, marker='o')
-    axes[1].plot(data_fit[Label.ISPTA], m * data_fit[sqrt_ispta_key] + b, '--k')
+    
+    # Initialize best fit metrics
+    best_r2 = 0
+    # For each candidate objective function
+    for iax, ((objfunc, p0), ax) in enumerate(zip(fit_candidates.items(), axes)):
+        # Perform fit between input and output variables with candidate function
+        logger.info(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
+        popt, _ = curve_fit(objfunc, data[xkey], data[ykey], p0, maxfev=10000)
+        fit_data = objfunc(data[xkey], *popt)
+
+        # Compute error between fit prediction and data
+        r2 = rsquared(data[ykey], fit_data)
+        logger.info(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
+
+        # Replace best fit information, if better fit score 
+        if r2 > best_r2:
+            best_r2 = r2
+            best_func = objfunc
+            best_popt = popt
+            best_iax = iax
+
+        # Plot data and fitted profiles
+        sns.scatterplot(
+            data=data, x=xkey, y=ykey, ax=ax, ci=None, marker='o')
+        ax.plot(data[xkey], fit_data, '--k')
+        ax.text(0.1, 0.9, f'R2 = {r2:.2f}', transform=ax.transAxes)
+        ax.set_title(objfunc.__name__)
+
+    pstr = ', '.join([f'{p:.2f}' for p in best_popt])
+    logger.info(f'best fit: {ykey} = {best_func.__name__}({xkey}, {pstr}) ---> R2 = {best_r2:.2f}')
+    axes[best_iax].set_title(f'*{axes[best_iax].get_title()}')
+
+    def fitfunc(x):
+        return best_func(x, *best_popt)
+
+    # Constrain layout
     fig.tight_layout()
 
-    # Return figure and fit result
-    return fig, (m, b)
+    # Return figure, and best candidate function applied with its optimal parameters
+    return fig, fitfunc

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-08 09:51:43
+# @Last Modified time: 2023-03-10 15:03:24
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -218,7 +218,7 @@ def quantile_filter(x, w, q):
 
 def skew_to_quantile(s, qthr=0.05, sigma=1.):
     ''' Function mapping a distribution skewness value to a baseline extraction quantile '''
-    return qthr + (1 - 2 * qthr) * sigmoid(-s, sigma=sigma)
+    return sigmoid(-s, sigma=sigma, A=1 - 2 * qthr, y0=qthr)
 
 
 def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None, smooth=True):
