@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-16 12:09:31
+# @Last Modified time: 2023-03-16 12:51:02
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -880,7 +880,7 @@ def gauss_histogram_fit(data, bins=100, plot=False):
     # Fit gaussian to histogram distribution
     try:
         xmid, popt = histogram_fit(data, gauss, bins=bins, p0=p0, bounds=pbounds)
-    except ValueError as err:
+    except (ValueError, RuntimeError) as err:
         logger.warning(err)
         xmid = mids
         fig, ax = plt.subplots()
