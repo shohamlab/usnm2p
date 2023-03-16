@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-10 17:05:15
+# @Last Modified time: 2023-03-16 12:10:25
 
 ''' Collection of generic utilities. '''
 
@@ -197,8 +197,12 @@ def arrays_to_dataframe(arrs_dict, **kwargs):
 def describe_dataframe_index(df, join_str=' x '):
     ''' Describe dataframe index '''
     d = {}
-    for k in df.index.names:
-        l = len(df.index.unique(level=k))
+    if hasattr(df, 'index'):
+        mux = df.index
+    else:
+        mux = df
+    for k in mux.names:
+        l = len(mux.unique(level=k))
         key = k
         if l > 1:
             key = f'{key}s'
@@ -257,9 +261,12 @@ def expand_to_match(df, mux):
     # Make sure rectilinear expansion is possible
     ratio, remainder = len(mux) / len(df), len(mux) % len(df)
     if remainder != 0:
+        df_str = describe_dataframe_index(df)
+        mux_str = describe_dataframe_index(mux)
         raise ValueError(
-            f'{len(df)}-element dataframe cannot be rectilinearly expand into {len(mux)}-element reference index (ratio = {ratio})')
+            f'{df_str} dataframe cannot be rectilinearly expand into {mux_str} reference index (ratio = {ratio})')
     ratio = int(ratio)
+    
     # Transform to dataframe if needed
     name = None 
     if isinstance(df, pd.Series):
@@ -285,6 +292,8 @@ def expand_to_match(df, mux):
         raise ValueError(
             f'{extra_levels} expansion factor ({expansion_factor}) does not match dimensions ratio {(ratio)}')
     newdf = repeat_along_new_dims(df, newdims)
+    print(len(newdf), len(mux))
+    print((newdf.index == mux).all())
     if name is not None:
         return newdf.loc[:, name]
     else:

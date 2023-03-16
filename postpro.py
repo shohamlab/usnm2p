@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-10 15:03:24
+# @Last Modified time: 2023-03-16 12:09:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2534,6 +2534,7 @@ def free_expand_and_add(smalldf, largedf, prefix=None):
         exp_smalldf = exp_smalldf.add_prefix(prefix)
     for k in exp_smalldf:
         largedf[k] = exp_smalldf[k]
+    return largedf
 
 
 def get_popavg_data(data, ykey=None):
