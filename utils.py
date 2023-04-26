@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-16 12:10:25
+# @Last Modified time: 2023-03-20 15:33:01
 
 ''' Collection of generic utilities. '''
 
@@ -292,8 +292,6 @@ def expand_to_match(df, mux):
         raise ValueError(
             f'{extra_levels} expansion factor ({expansion_factor}) does not match dimensions ratio {(ratio)}')
     newdf = repeat_along_new_dims(df, newdims)
-    print(len(newdf), len(mux))
-    print((newdf.index == mux).all())
     if name is not None:
         return newdf.loc[:, name]
     else:
@@ -731,6 +729,25 @@ def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     return A * norm_sig + y0
 
 
+def bilinear(x, x0=0, A=1, y0=0):
+    '''
+    Bilinear function that transitions from a constant to a linear regime.
+
+    :param x: input value
+    :param x0: inflection point (transition between constant and linear regime)
+    :param A: amplitude
+    :param y0: vertical offset
+    :return: bilinear function output
+    '''
+    if is_iterable(x):
+        return np.array([bilinear(xx, x0=x0, A=A, y0=y0) for xx in x])    
+    if x < x0:
+        return y0
+    return A * (x - x0) + y0  
+    # xrel = x0 - x
+    # return A * xrel / (np.exp(xrel / iscale) - 1)
+
+
 def shift_sqrt(x, x0=0, A=1, y0=0):
     if is_iterable(x):
         return np.array([shift_sqrt(xx, x0=x0, A=A, y0=y0) for xx in x])
@@ -759,20 +776,6 @@ def rsquared(x1, x2):
     ss_res = np.sum(residuals**2)
     ss_tot = np.sum((x1 - np.mean(x1))**2)
     return 1 - (ss_res / ss_tot)
-
-
-def bilinear(x, x0=0, A=1, iscale=0.01):
-    '''
-    Bilinear function that transitions from a constant to a linear regime.
-
-    :param x: input value
-    :param x0: inflection point (transition between constant and linear regime)
-    :param A: amplitude
-    :param iscale: inflection scale (a = 0 will yield and instantaneous transition)
-    :return: bilinear function output
-    '''
-    xrel = x0 - x
-    return A * xrel / (np.exp(xrel / iscale) - 1)
 
 
 def get_hue_pairs(data, x, hue):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-06 12:16:40
+# @Last Modified time: 2023-04-26 12:25:45
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -22,6 +22,7 @@ class Label:
     DC = 'DC (%)'
     ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
     ISPTA = 'I_SPTA (W/cm2)'  # spatial peak, temporal average acoustic intensity
+    PSPTA = 'P_SPTA (MPa)'   # spatial peak, temporal average pressure
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
     FPS = 'fps'
@@ -48,6 +49,7 @@ class Label:
 
     # Time-varying signals
     TIME = 'time (s)'
+    HOURS = 'hours'
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
@@ -89,6 +91,7 @@ class Label:
     PRESTIM_RATE = 'pre-stim rate'
     IS_RESP = 'trial response?'
     PCT_RESP_CELLS = '% responding cells'
+    RESP_FRAC = 'responder fraction'
     POS_COND = 'positive condition?'
 
     # ROI classification 
@@ -174,6 +177,7 @@ SI_POWERS = {
 # Conversion constants
 PA_TO_MPA = 1e-6
 M2_TO_CM2 = 1e4
+UM2_TO_MM2 = 1e-6
 
 ###################################### DATA ACQUISITION ######################################
 
@@ -188,6 +192,7 @@ NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 OFFSET_DIRECTIONS = ('backward', 'left', 'right') # Potential lateral offset directions
+MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value for acquisition settings
 
 ####################################### PRE-PROCESSING ######################################
 
@@ -268,8 +273,8 @@ PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response ty
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 # Baseline fluorescence
-MAX_F0_REL_VAR = .25  # max allowed relative variation in baseline fluorescence during experiment
-PTHR_STATIONARITY = .05  # Significance threshold for response non-stationarity across trials
+MAX_F0_REL_VAR = .3  # max allowed relative variation in baseline fluorescence during experiment
+PTHR_STATIONARITY = .1  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
 
@@ -322,6 +327,11 @@ class Palette:
     OFFSET = sns.cubehelix_palette(  # spatial offset distance (continous)
         start=.5, rot=-.5, reverse=True, as_cmap=True)
 
+# Sweep markers
+sweep_markers = {
+    Label.P: 'o',
+    Label.DC: '^',
+}
 
 CI = 68  # default confidence interval error reporting
 
@@ -329,7 +339,7 @@ CI = 68  # default confidence interval error reporting
 
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {
-    'line3': 1000.,
-    'sst': 400., 
-    'pv': 200.,
+    'line3': 1400.,
+    'sst': None,
+    'pv': None,
 }

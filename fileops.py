@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-07 11:03:03
+# @Last Modified time: 2023-04-26 12:24:22
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -20,7 +20,7 @@ from tqdm import tqdm
 from natsort import natsorted
 import warnings
 
-from parsers import P_TIFFILE, parse_date_mouse_region
+from parsers import parse_experiment_parameters, P_TIFFILE, parse_date_mouse_region
 from logger import logger
 from utils import *
 from viewers import get_stack_viewer
@@ -127,7 +127,7 @@ def get_sorted_filelist(dir, pattern=None):
 def is_tif_dir(dir):
     ''' Assess whether or not a directory contains any TIF files. '''
     try:
-        get_sorted_filelist(dir, P_TIFFILE)
+        get_sorted_filelist(dir, pattern=P_TIFFILE)
         return True
     except ValueError:
         return False
@@ -205,7 +205,7 @@ def get_output_equivalent(in_path, basein, baseout, mkdirs=True):
     return out_path
 
     
-def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[], rec_call=False):
+def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patterns=[], rec_call=False, sortby=None):
     '''
     Get data folders inside a root directory by searching (recursively or not) throughout
     a tree-like folder architecture.
@@ -217,34 +217,68 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     :param rec_call (default: False): whether or not this is a recursive function call
     :return: list of data folders
     '''
-    logger.debug(f'Searching through {basedir}')
-    if not rec_call:
-        logger.info(basedir)
-    # Populate folder list
+    # Log
+    if rec_call:
+        logger.debug(f'Searching through {basedir}')
+    else:
+        logger.info(f'Searching through {basedir}')
+
+    # Initialize empty folders list
     datafolders = []
-    # Loop through content of base directory 
+
+    # For each sub-item in base directory 
     for item in os.listdir(basedir):
-        # Only consider folders that are not directly an exclusion pattern
+        # If sub-item is not an exclusion pattern
         if item not in exclude_patterns:
+            # Reconstruct full path to sub-item
             absitem = os.path.join(basedir, item)
-            # If content item is a directory containing TIF files, add to list
+
+            # If sub-item is a directory containing TIF files, add to list
             if is_tif_dir(absitem):
                 datafolders.append(absitem)
-            # If content item is a directory and recursive call enabled, call function
-            # recursively on child folder and add output to list
+
+            # If content item is a directory and recursive call enabled, 
+            # call function recursively on child folder and add output to list
             if recursive and os.path.isdir(absitem):
                 datafolders += get_data_folders(
                     absitem,
                     exclude_patterns=exclude_patterns, include_patterns=include_patterns,
-                    rec_call=True)
+                    rec_call=True
+                )
+    
+    # Log 
+    nfolders = len(datafolders)
+    if not rec_call:
+        logger.info(f'found {len(datafolders)} folders containing TIF files')
+
+    # Log raw list
     logger.debug(f'raw list: {datafolders}')
+
     # Filter out excluded folders
     for k in exclude_patterns:
         datafolders = list(filter(lambda x: k not in os.path.basename(x), datafolders))
+
     # Restrict to included patterns
     for k in include_patterns:
         datafolders = list(filter(lambda x: k in os.path.basename(x), datafolders))
+
+    # Log filtered list
     logger.debug(f'filtered list: {datafolders}')
+    if not rec_call and len(datafolders) != nfolders:
+        logger.info(f'{len(datafolders)} folders remain after filtering')
+
+    # If sorting key specified, sort output according to it
+    if sortby is not None:
+        params_by_folder = [parse_experiment_parameters(os.path.basename(f)) for f in datafolders]
+        if any(sortby not in p for p in params_by_folder):
+            raise ValueError(f'"{sortby}" is not a valid input sorting key')
+        if not rec_call:
+            logger.info(f'sorting folders by {sortby}')
+        vals_by_folder = [p[sortby] for p in params_by_folder]
+        _, datafolders = zip(*sorted(zip(vals_by_folder, datafolders)))
+        logger.debug(f'sorted list: {datafolders}')
+
+    # Return
     return datafolders
 
 

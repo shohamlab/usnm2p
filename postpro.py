@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-16 12:51:02
+# @Last Modified time: 2023-04-13 10:31:35
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -310,14 +310,42 @@ def get_maximin_baseline_func(fs, wmaximin, wsmooth=None):
     return pandas_proof(bfunc)
 
 
-def get_butter_filter_func(fs, fc, order=2, btype='low'):
+def get_butter_filter_func(fs, fc, order=2, kind='pass'):
     '''
-    Construct a pandas compatible zero-phase filter function
+    Construct zero-phase filter func
     
     :param fs: sampling frequency (Hz)
     :param fc: tuple of cutoff frequencies (Hz)
     :param order: filter order
+    :param kind: filter type ("pass" or "stop")
+    :return: 
+        - Second-order sections representation of the IIR filter.
+        - pandas-proof filter function
     '''
+    # Check validity of inputs
+    all_kinds = ('pass', 'stop')
+    if kind not in all_kinds:
+        raise ValueError(f'invalid filter kind: "{kind}" (options are {all_kinds})')
+    fc = np.asarray(fc)
+    if fc.size != 2:
+        raise ValueError(f'invalid cutoff frequencies: {fc} (you must provide a pair of values)')
+    if any(fc != np.sort(fc)):
+        raise ValueError('cutoff frequencies must be provided in ascending order')
+    if fc[0] < 0:
+        raise ValueError(f'invalid cutoff frequency: {fc[0]} (must be positive)')
+    if fc[0] == 0. and fc[1] >= fs:
+        raise ValueError(f'invalid cutoff frequencies: {fc} (no filtering needed)')
+    # Determine filter range (low, high or band)
+    brange = 'band'
+    if fc[0] == 0.:
+        brange = 'low'
+        fc = fc[1]
+    elif fc[1] >= fs:
+        brange = 'high'
+        fc = fc[0]
+    if kind == 'stop' and brange != 'band':
+        raise ValueError(f'cannot design "{brange}{kind}" filter') 
+    btype = f'{brange}{kind}'
     # Log process
     fc_str = ' - '.join([f'{x:.3f} Hz' for x in as_iterable(fc)])
     logger.info(f'defining order {order} {btype} BW filter with fc = {fc_str}')
@@ -329,7 +357,7 @@ def get_butter_filter_func(fs, fc, order=2, btype='low'):
     def myfilter(y):
         return sosfiltfilt(sos, y)
     # Make pandas proof and return filter function
-    return pandas_proof(myfilter)
+    return sos, pandas_proof(myfilter)
 
 
 def compute_baseline(data, bfunc):
@@ -1632,7 +1660,7 @@ def highlight_incomplete(x, xref=None):
     return ''
 
 
-def get_detailed_ROI_count(data):
+def get_detailed_ROI_count(data, style=False):
     ''' 
     Generate HTML table showing a detailed ROI count per dataset & run,
     along with parameter references 
@@ -1651,9 +1679,11 @@ def get_detailed_ROI_count(data):
     params_per_run[Label.DC] = params_per_run[Label.DC].map('{:02.0f}'.format)
     ROI_detailed_count.columns = pd.MultiIndex.from_arrays(
         [ROI_detailed_count.columns, params_per_run[Label.P], params_per_run[Label.DC]])
-    # Format
-    return ROI_detailed_count.style.apply(
-        highlight_incomplete, axis=1).format('{:.0f}')
+    # Format if specified
+    if style:
+        ROI_detailed_count = ROI_detailed_count.style.apply(
+            highlight_incomplete, axis=1).format('{:.0f}')
+    return ROI_detailed_count
 
 
 def get_detailed_responder_counts(data, normalize=False):
@@ -1990,7 +2020,7 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, err
         .groupby(gby).first()  # Remove dataset dimension 
     )
     
-    # Add counts column 
+    # Add counts column
     if hue is not None:
         # If hue provided, add counts per hue
         countsperhue = samples.groupby(hue).count().iloc[:, 0].rename('counts')
@@ -2299,34 +2329,64 @@ def tmean(x):
     return tstats.fit(x)[-2]
 
 
-def get_power_spectrum(y, fs):
+def get_power_spectrum(y, fs, **kwargs):
     ''' Compute signal power spectrum and return it as a dataframe '''
-    freqs, Pxx_spec = welch(y, fs, scaling='spectrum')
+    if isinstance(y, pd.DataFrame):
+        out = pd.concat([get_power_spectrum(y[k], fs, **kwargs) for k in y], axis=1)
+        return out.loc[:,~out.columns.duplicated()]
+    spname = Label.PSPECTRUM
+    if isinstance(y, pd.Series):
+        spname = f'{y.name} {spname}'
+    freqs, Pxx_spec = welch(y, fs, scaling='spectrum', **kwargs)
     df = pd.DataFrame({
         Label.FREQ: freqs,
-        Label.PSPECTRUM: Pxx_spec
+        spname: Pxx_spec
     })
     df.index.name = 'freq index'
     return df
 
 
-def offset_by(s, by, ykey=None, rel_ygap=.5):
-    ''' Offset series according to some index level '''
-    if isinstance(s, pd.DataFrame):
-        if ykey is None:
-            raise ValueError(f'ykey argument must be provided for dataframe inputs')
-        # Work on copy to avoid offset accumulation upon multiple calls 
-        scopy = s.copy()
-        scopy[ykey] = offset_by(s[ykey], by, rel_ygap=rel_ygap)
-        return scopy
-    # Compute and add vertical offsets to y column
+def get_offsets_by(s, by, rel_gap=.2, ascending=True, match_idx=False):
+    ''' 
+    Compute offsets to enable data separation between categories
+    
+    :param s: multi-indexed pandas Series
+    :param by: name of separation variable in multi-index
+    :param rel_gap: relative offset gap (w.r.t. mean variation range)
+    :param ascending: whether offset should be ascending or descending
+    :param match_idx: whether to expand offsets to match original index size
+    :return: Series of offsets per category
+    '''
+    # Compute data variation range for each category
     yranges = s.groupby(by).apply(np.ptp)
-    yranges += rel_ygap * yranges.mean() 
-    yoffsets = -yranges.cumsum()
-    extra_mux_levels = set(s.index.names) - set([by])
-    if len(extra_mux_levels) > 0:
-        yoffsets = expand_to_match(yoffsets, s.index)
-    return s + yoffsets
+    # Compute associated gap from mean variation range
+    ygap = rel_gap * yranges.mean()
+    # Add gap to ranges
+    yranges += ygap
+    # Compute offset as cumulative sum of ranges + gap
+    yoffsets = yranges.cumsum()
+    # If descending offset, adjust sign
+    if not ascending:
+        yoffsets = -yoffsets
+    # If specified, expand offsets series to match original index size
+    if match_idx:
+        extra_mux_levels = list(filter(lambda x: x not in as_iterable(by), s.index.names))
+        if len(extra_mux_levels) > 0:
+            yoffsets = free_expand(yoffsets, s)
+    # Return
+    return yoffsets
+
+
+def offset_by(s, by, **kwargs):
+    ''' 
+    Offset series according to some index level
+    
+    :param s: pandas Series
+    :param by: offseting categorical variable 
+    :return: offseted series
+    '''
+    # Compute and add vertical offsets to y column
+    return s + get_offsets_by(s, by, match_idx=True, **kwargs)
 
 
 def get_responders_counts(data, xkey, units=None, normalize=False):
@@ -2434,6 +2494,16 @@ def apply_linregress(s, xkey=Label.TRIAL):
     :param xkey: name of index dimension to use as input vector
     :return: pandas Series with regression output metrics 
     '''
+    # x = s.index.get_level_values(xkey)
+    # x = sm.add_constant(x)
+    # norm = sm.robust.norms.HuberT()
+    # model = sm.RLM(s.values, x, M=norm)
+    # fit = model.fit()
+    # return pd.Series({
+    #     'slope': fit.params[1],
+    #     'intercept': fit.params[0],
+    #     'pval': fit.pvalues[1],
+    # })
     res = linregress(s.index.get_level_values(xkey), y=s.values)
     return pd.Series({
             'slope': res.slope,
@@ -2518,11 +2588,18 @@ def free_expand(s, ref_df, verbose=True):
         val_small = s.loc[tuple(idx_small)]
         return pd.Series(index=df.index, data=val_small)
 
-    # Groupby small idnex dimensions and apply function
+    # Group by small index dimensions and apply function
     out = ref_df.groupby(gby).apply(find_and_expand).rename(s.name)
 
-    # Remove extra index dimensions generated by apply
-    out = out.droplevel(list(range((len(gby)))))
+    # Remove redundant index dimensions generated by apply, if any
+    for gb in gby:
+        if gb in ref_df.index.names:
+            out = out.droplevel(0)
+    
+    # Remove extra index dimensions generated by apply, if any
+    extra_levels = list(filter(lambda x: x not in ref_df.index.names, out.index.names))
+    if len(extra_levels) > 0:
+        out = out.droplevel(extra_levels)
 
     # Sort index and return
     return out.sort_index()
@@ -2566,3 +2643,20 @@ def get_popavg_data(data, ykey=None):
         groups[constkeys].first(),  # constant columns: first value of each group 
         groups[varkeys].mean()  # variable columns: mean of each group
     ], axis=1)
+
+
+def compare_halves(df, ykey, testfunc, **testkwargs):
+    ''' Compare distributions of specific variable between trials in both sequence halves '''
+    # Extract trial sequences for both halves
+    y1 = df[df['half'] == 1][ykey]
+    y2 = df[df['half'] != 1][ykey]
+    # Compare their distributions
+    stat, pval = testfunc(y1, y2, nan_policy='raise', **testkwargs)
+    # Average both distributions, and compute difference of means
+    y1, y2 = y1.mean(), y2.mean()
+    ydiff = y2 - y1
+    # Return mmeans, differences, test stat, and p-value 
+    return pd.Series(dict(zip(
+        ['half1', 'half2', 'diff', 'stat', 'pval'], 
+        [y1, y2, ydiff, stat, pval]
+    )))

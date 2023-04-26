@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-12-12 17:56:08
+# @Last Modified time: 2023-04-26 12:21:03
 
 ''' Collection of parsing utilities. '''
 
 from xml.dom import minidom
+from tqdm import tqdm
 import re
 import os
 import numpy as np
@@ -214,7 +215,34 @@ def simplify_Bruker_settings(settings):
     del mpp['ZAxis']
     assert mpp['XAxis'] == mpp['YAxis'], f'differing spatial resolution across axes: {mpp}'
     settings['micronsPerPixel'] = mpp['XAxis']
-    return settings
+    
+    # Cast DAQ gain and pre-amp filter to float
+    settings['DAQ gain'] = float(settings.pop('daq')[0][:-1])
+    preampfilter = settings.pop('preampFilter')[1]
+    filtval, filtunit = preampfilter.split(' ')
+    filtfactor = np.power(10, SI_POWERS[filtunit.replace('Hz', '')])
+    filtval = float(filtval) * filtfactor
+    settings['preampFilter (MHz)'] = filtval * 1e-6
+
+    # Curate Pockels power
+    settings['Pockels power'] = settings.pop('laserPower')[0]
+
+    # Simplify complex settings
+    curated_settings = {}
+    for k, v in settings.items():
+        # Dictionary: expand
+        if isinstance(v, dict):
+            for kk, vv in v.items():
+                curated_settings[f'{k} {kk}'] = vv
+        # Tuple: only keep first item
+        elif isinstance(v, tuple):
+            curated_settings[f'{k}'] = v[0]
+        # Normal fields: propagate
+        else:
+            curated_settings[k] = v
+
+    # Return
+    return curated_settings
     
 
 def parse_acquisition_settings(folders):
@@ -222,27 +250,93 @@ def parse_acquisition_settings(folders):
     Extract data acquisition settings from raw data folders.
     
     :param folders: full list of data folders containing the raw TIF files.
-    :return: dictionary containing data aquisition settings that are common across all data folders 
+    :return: 2-tuples with:
+        - dictionary containing data aquisition settings that are common across all data folders 
+        - list of folders for which acquisition settings vary significantly from reference
     '''
+    logger.info(f'extracting acquisition settings across {len(folders)} folders...')
+
+    # Identify common prefix across folders
     pref = os.path.commonprefix(folders)
+
+    # Extract index of prefix end
     iprefend = pref.rindex('_')
+
+    # Assemble dictionary of folder suffix: folder path pairs
+    fdict = {folder[iprefend + 1:]: folder for folder in folders}
+
     # Parse aquisition settings of each data folder into common dataframe
     daq_settings = pd.DataFrame()
-    for folder in folders:
+    for folder in tqdm(folders):
         fkey = folder[iprefend + 1:]
         daq_settings[fkey] = pd.Series(
             parse_Bruker_XML(get_Bruker_XML(folder)))
-    # Identify which settgins match across folders and which do not
-    ismatch = daq_settings.eq(daq_settings.iloc[:, 0], axis=0).all(1)
-    # Log warning message for unmatched settings (if any)
-    if ismatch.sum() < len(ismatch):
-        diff_settings = daq_settings[~ismatch]
+    daq_settings = daq_settings.transpose()
+
+    # Convert all possible settings to float
+    for k in daq_settings:
+        try:
+            daq_settings[k] = pd.to_numeric(daq_settings[k])
+        except ValueError:
+            pass
+
+    # Identify reference (i.e., most common) value across runs, for each setting
+    logger.info(f'identifying reference value for {daq_settings.shape[1]} settings')
+    ref_daq_settings = (
+        daq_settings
+        .mode(axis=0)
+        .stack()
+        .droplevel(0)
+        .rename('settings')
+    )
+
+    # Initialize empty lists of outlier runs and "truly differing" settings
+    outliers = []
+    diff_settings = []
+
+    logger.info('checking for settings consistency across folders...')
+    
+    # Identify mismatches across runs for each setting
+    ismatch = daq_settings.eq(ref_daq_settings, axis=1).all(axis=0)
+    nonmatching_settings = ismatch[~ismatch].index.values
+
+    # For each differing setting
+    for k in nonmatching_settings:
+        # Extract values across runs, and reference value
+        vals = daq_settings[k]
+        ref_val = ref_daq_settings[k]
+
+        # If numeric setting and not XYZ position
+        if vals.dtype == 'float64' and 'positionCurrent' not in k:
+            # Compute absolute relative deviations from reference value
+            rel_vars = ((vals - ref_val) / ref_val).abs()
+            logger.debug(f'absolute relative deviations from {k} reference:\n{rel_vars}')
+            
+            # Identify runs with significant relative deviations
+            current_outliers = rel_vars[rel_vars > MAX_DAQ_REL_DEV].index.values.tolist()
+        
+        # Otherwise
+        else:
+            # Identify runs that differ from ref value 
+            current_outliers = vals[vals != ref_val].index.values.tolist()
+        
+        # If outliers were detected, store differing setting
+        if len(current_outliers) > 0:
+            diff_settings.append(k)
+
+        # Add outliers runs to global list
+        outliers += current_outliers
+
+    # If truly differing settings were found, log warning message
+    if len(diff_settings) > 0:
         logger.warning(
-            f'varying acquisition parameters across runs:\n{diff_settings}')
-        if 'micronsPerPixel' in diff_settings.index:
-            logger.warning(f'differing zoom factors:\n{diff_settings.loc["micronsPerPixel", :]}')
-    # Extract and return common settings
-    return daq_settings[ismatch].iloc[:, 0].rename('settings')
+            f'found {len(diff_settings)} acquisition setting(s) varying across runs:\n{daq_settings[diff_settings]}')
+    
+    # Extract folders for each run in outliers list
+    outliers = [fdict[k] for k in list(set(outliers))]
+
+    # Return common settings and list of outliers folders
+    return ref_daq_settings, outliers
 
 
 def parse_date_mouse_region(s):
@@ -344,3 +438,10 @@ def resolve_mouseline(s):
         return 'sst'
     else:
         raise ValueError(f'invalid mouse line: {s}')
+
+
+def extract_FOV_area(map_ops):
+    ''' Extract the field of view (FOV) area (in mm2)'''
+    w = map_ops['micronsPerPixel'] * map_ops['Lx']  # um
+    h = map_ops['micronsPerPixel'] * map_ops['Lx']  # um
+    return w * h * UM2_TO_MM2  # mm2

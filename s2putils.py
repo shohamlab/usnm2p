@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 16:06:10
+# @Last Modified time: 2023-04-26 12:37:32
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -124,8 +124,9 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True, input_key='filtered'):
     '''
     # Fetch default options
     defops = default_ops()
+
     # Get default-normalized input options
-    ops = get_normalized_options(ops, defops)            
+    ops = get_normalized_options(ops, defops)
     logger.info(f'running suite2p {version} with the following options:\n{pprint.pformat(ops)}')
     if db is None:
         raise ValueError('"db" keyword argument must be provided')
@@ -175,7 +176,7 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True, input_key='filtered'):
                     # If no difference with previous run -> exclude folder from run
                     logger.info('run options match 100% -> ignoring')
                     excluded_dirs.append(inputdir)
-                    
+    
     # Apply folders exclusion
     db['data_path'] = list(set(db['data_path']) - set(excluded_dirs))
     
