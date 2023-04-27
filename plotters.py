@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 13:14:27
+# @Last Modified time: 2023-04-26 17:07:41
 
 ''' Collection of plotting utilities. '''
 
@@ -27,6 +27,7 @@ from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
 from scipy.stats import normaltest
 from scipy.signal import spectrogram, sosfreqz 
+from scipy.interpolate import griddata
 
 from logger import logger
 from constants import *
@@ -532,7 +533,7 @@ def plot_stack_summary_frames(stack, cmap='viridis', title=None, um_per_px=None)
     return fig
 
 
-def add_scale_bar(ax, npx, um_per_px, color='k'):
+def add_scale_bar(ax, npx, um_per_px, color='k', fs=None):
     '''
     Add a scale bar to a micrograph axis
     
@@ -554,6 +555,11 @@ def add_scale_bar(ax, npx, um_per_px, color='k'):
     npx_bar_length = um_bar_length / um_per_px
     rel_bar_length = npx_bar_length / npx
 
+    # Set up fontproperties dict
+    fontproperties = None
+    if fs is not None:
+        fontproperties = {'size': fs}
+    
     # Define scale bar artist object
     scalebar = AnchoredSizeBar(ax.transAxes,
         rel_bar_length, 
@@ -562,7 +568,9 @@ def add_scale_bar(ax, npx, um_per_px, color='k'):
         pad=0.1,
         color=color,
         frameon=False,
-        size_vertical=.01)
+        size_vertical=.01,
+        fontproperties=fontproperties
+    )
     
     # Add scale bar to axis
     ax.add_artist(scalebar)
@@ -1650,6 +1658,80 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
         axes[ndatasets - 1].legend(
             handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
     
+    return fig
+
+
+def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per_px=None,
+                      cmap='viridis', ax=None, fs=15):
+    '''
+    Plot spatial distribution of population responsiveness on the recording plane.
+
+    :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+    :param Fstats: statistics dataframe
+    :param ops: suite2p output options dictionary
+    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
+        on each image are replaced by a scale bar on the graph.
+    :param title (optional): figure title
+    :param cmap (default: viridis): colormap used to render reference image
+    :param hue: hue parameter used to draw heatmap
+    :return: figure handle
+    '''
+    # Compute location (i.e. mask center of) mass for each ROI
+    ROIstats = ROI_masks[['xpix', 'ypix']].groupby(Label.ROI).mean()
+
+    # Compute hue metrics per ROI
+    ROIstats[hue] = Fstats.groupby(Label.ROI)[hue].first()
+
+    # Create interpolation meshgrid covering FOV
+    Ly, Lx = ops['Ly'], ops['Lx']
+    n = Lx // 10
+    x = np.linspace(0, Lx, n)  #np.arange(Lx)
+    y = np.linspace(0, Ly, n)  #np.arange(Ly)
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    xy_grid = np.array([X.ravel(), Y.ravel()]).T
+    
+    # Interpolate hue values over grid
+    zgrid = griddata(
+        ROIstats[['xpix', 'ypix']].values,
+        ROIstats[hue].values,
+        xy_grid,
+        method='linear')
+    z = zgrid.reshape((x.size, y.size))
+
+    # Create figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+    else:
+        fig = ax.get_figure()
+
+    # Add title if specified
+    if title is not None:
+        ax.set_title(title, fontsize=fs)
+
+    # Prepare axis
+    sns.despine(ax=ax, bottom=True, left=True)
+    ax.set_aspect(1.)
+
+    # Plot interpolated heatmap
+    sm = ax.pcolormesh(x, y, z, shading='gouraud', cmap=cmap)
+
+    # Add colorbar
+    pos = ax.get_position()
+    fig.subplots_adjust(right=0.93)
+    cbar_ax = fig.add_axes([0.95, pos.y0, 0.02, pos.y1 - pos.y0])
+    cbar_ax.set_title(hue, fontsize=fs)
+    fig.colorbar(sm, cax=cbar_ax)
+    cbar_ax.tick_params(labelsize=fs-2)
+
+    # Add scale bar if scale provided
+    if um_per_px is not None:
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        add_scale_bar(ax, Lx, um_per_px, color='k', fs=fs-2)
+
+    # Return figure handle
     return fig
 
 

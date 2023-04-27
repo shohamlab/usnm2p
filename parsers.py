@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 12:21:03
+# @Last Modified time: 2023-04-27 11:19:56
 
 ''' Collection of parsing utilities. '''
 
@@ -285,8 +285,7 @@ def parse_acquisition_settings(folders):
     ref_daq_settings = (
         daq_settings
         .mode(axis=0)
-        .stack()
-        .droplevel(0)
+        .iloc[0, :]
         .rename('settings')
     )
 

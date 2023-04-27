@@ -2,10 +2,11 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-20 15:33:01
+# @Last Modified time: 2023-04-26 18:53:31
 
 ''' Collection of generic utilities. '''
 
+import os
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -14,6 +15,14 @@ from functools import wraps
 
 from constants import SI_POWERS, IND_LETTERS, Label
 from logger import logger
+
+
+def check_conda_env():
+    ''' Check that the correct anaconda environment is activated '''
+    env = os.environ['CONDA_DEFAULT_ENV']
+    if env != ENV_NAME:
+        raise EnvironmentError(
+            f'Wrong conda environment: {env}. Use "conda activate {ENV_NAME}"')
 
 
 def is_iterable(x):

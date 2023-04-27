@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 12:25:45
+# @Last Modified time: 2023-04-26 18:54:01
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+# Conda environment name
+ENV_NAME = 'usnm2p'
 
 ###################################### LABELS ######################################
 
