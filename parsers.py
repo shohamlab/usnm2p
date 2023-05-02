@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-27 11:19:56
+# @Last Modified time: 2023-05-02 16:07:56
 
 ''' Collection of parsing utilities. '''
 
@@ -216,8 +216,9 @@ def simplify_Bruker_settings(settings):
     assert mpp['XAxis'] == mpp['YAxis'], f'differing spatial resolution across axes: {mpp}'
     settings['micronsPerPixel'] = mpp['XAxis']
     
-    # Cast DAQ gain and pre-amp filter to float
-    settings['DAQ gain'] = float(settings.pop('daq')[0][:-1])
+    # Cast DAQ gain and pre-amp filter to float (if present)
+    if 'daq' in settings:
+        settings['DAQ gain'] = float(settings.pop('daq')[0][:-1])
     preampfilter = settings.pop('preampFilter')[1]
     filtval, filtunit = preampfilter.split(' ')
     filtfactor = np.power(10, SI_POWERS[filtunit.replace('Hz', '')])

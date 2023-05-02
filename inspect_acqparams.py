@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2023-05-02 15:47:25
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 15:58:27
+# @Last Modified time: 2023-05-02 16:08:05
 
 ''' Utility script to inspect acquisition parameters across runs & datasets '''
 
@@ -54,4 +54,4 @@ if __name__ == '__main__':
 
         # Extract acquisition settings from each run, and outlier runs
         ref_daq_settings, _ = parse_acquisition_settings(tif_folders)
-        print(ref_daq_settings)
+        # print(ref_daq_settings)
