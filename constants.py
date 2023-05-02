@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 14:38:24
+# @Last Modified time: 2023-05-02 16:32:49
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -194,6 +194,8 @@ NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 OFFSET_DIRECTIONS = ('backward', 'left', 'right') # Potential lateral offset directions
+MAX_POS_ABS_DEV = 1.  # maximum allowed absolute deviation from reference value for X, Y or Z position (in um)
+MAX_LASER_POWER_REL_DEV = .05  # maximum allowed relative deviation from reference value for laser power
 MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value for acquisition settings
 
 ####################################### PRE-PROCESSING ######################################

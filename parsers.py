@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 16:07:56
+# @Last Modified time: 2023-05-02 16:33:17
 
 ''' Collection of parsing utilities. '''
 
@@ -306,14 +306,24 @@ def parse_acquisition_settings(folders):
         vals = daq_settings[k]
         ref_val = ref_daq_settings[k]
 
-        # If numeric setting and not XYZ position
-        if vals.dtype == 'float64' and 'positionCurrent' not in k:
+        # If numeric XYZ position
+        if 'positionCurrent' not in k:
+            # Compute absolute deviations (in um)
+            abs_devs = (vals - ref_val).abs()  # um
+            logger.debug(f'absolute deviations from {k} reference:\n{abs_devs}')
+
+            # Identify runs with significant positional deviations
+            current_outliers = abs_devs[abs_devs > MAX_POS_ABS_DEV].index.values.tolist()
+
+        # If numeric setting
+        elif vals.dtype == 'float64':
             # Compute absolute relative deviations from reference value
-            rel_vars = ((vals - ref_val) / ref_val).abs()
-            logger.debug(f'absolute relative deviations from {k} reference:\n{rel_vars}')
-            
+            rel_devs = ((vals - ref_val) / ref_val).abs()
+            logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
+
             # Identify runs with significant relative deviations
-            current_outliers = rel_vars[rel_vars > MAX_DAQ_REL_DEV].index.values.tolist()
+            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'twophotonLaserPower' else MAX_DAQ_REL_DEV  # for input laser power: allow 5% dev            
+            current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
         
         # Otherwise
         else:
