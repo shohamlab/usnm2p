@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 16:33:17
+# @Last Modified time: 2023-05-02 16:35:28
 
 ''' Collection of parsing utilities. '''
 
@@ -307,7 +307,7 @@ def parse_acquisition_settings(folders):
         ref_val = ref_daq_settings[k]
 
         # If numeric XYZ position
-        if 'positionCurrent' not in k:
+        if 'positionCurrent' in k:
             # Compute absolute deviations (in um)
             abs_devs = (vals - ref_val).abs()  # um
             logger.debug(f'absolute deviations from {k} reference:\n{abs_devs}')
@@ -322,7 +322,7 @@ def parse_acquisition_settings(folders):
             logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
 
             # Identify runs with significant relative deviations
-            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'twophotonLaserPower' else MAX_DAQ_REL_DEV  # for input laser power: allow 5% dev            
+            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'twophotonLaserPower' else MAX_DAQ_REL_DEV  # for input laser power: allow 5% dev
             current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
         
         # Otherwise
