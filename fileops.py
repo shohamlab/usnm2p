@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 12:24:22
+# @Last Modified time: 2023-04-27 13:37:08
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -783,27 +783,28 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
         level=[Label.DATASET, Label.ROI], inplace=True)
 
     if harmonize_runs:
-        try:
-            # Check run order consistency across datasets
-            check_run_order(trialagg_stats, **kwargs)
-        except ValueError as err:
-            # If needed, harmonize run indexes in stats & timeseries
-            logger.warning(err)
-            trialagg_timeseries, popagg_timeseries, stats, trialagg_stats = harmonize_run_index(
-                trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, **kwargs) 
+        # try:
+        #     # Check run order consistency across datasets
+        #     check_run_order(trialagg_stats, **kwargs)
+        # except ValueError as err:
+        #     # If needed, harmonize run indexes in stats & timeseries
+        #     logger.warning(err)
+        
+        trialagg_timeseries, popagg_timeseries, stats, trialagg_stats = harmonize_run_index(
+            trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, **kwargs) 
 
-            # Sort index for each dataset AGAIN
-            logger.info('sorting dataset indexes...')
-            trialagg_timeseries.sort_index(
-                level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
-            popagg_timeseries.sort_index(
-                level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
-            stats.sort_index(
-                level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
-            trialagg_stats.sort_index(
-                level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
-            ROI_masks.sort_index(
-                level=[Label.DATASET, Label.ROI], inplace=True)
+        # Sort index for each dataset AGAIN
+        logger.info('sorting dataset indexes...')
+        trialagg_timeseries.sort_index(
+            level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
+        popagg_timeseries.sort_index(
+            level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
+        stats.sort_index(
+            level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
+        trialagg_stats.sort_index(
+            level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
+        ROI_masks.sort_index(
+            level=[Label.DATASET, Label.ROI], inplace=True)
     
     # Process run IDs to uncover run sequences
     logger.info('processing run IDs to uncover run sequences...')

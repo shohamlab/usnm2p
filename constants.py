@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 18:54:01
+# @Last Modified time: 2023-05-02 14:38:24
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -275,7 +275,7 @@ PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response ty
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 # Baseline fluorescence
-MAX_F0_REL_VAR = .3  # max allowed relative variation in baseline fluorescence during experiment
+MAX_F0_REL_DEV = .2  # max relative deviation of baseline fluorescence from its mean allowed during experiment
 PTHR_STATIONARITY = .1  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
@@ -341,7 +341,7 @@ CI = 68  # default confidence interval error reporting
 
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {
-    'line3': 1400.,
+    'line3': 1200.,
     'sst': None,
     'pv': None,
 }
