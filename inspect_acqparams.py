@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2023-05-02 15:47:25
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 16:08:05
+# @Last Modified time: 2023-05-03 09:11:47
 
 ''' Utility script to inspect acquisition parameters across runs & datasets '''
 

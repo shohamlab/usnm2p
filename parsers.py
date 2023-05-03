@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-02 16:35:28
+# @Last Modified time: 2023-05-03 11:54:20
 
 ''' Collection of parsing utilities. '''
 
@@ -306,17 +306,8 @@ def parse_acquisition_settings(folders):
         vals = daq_settings[k]
         ref_val = ref_daq_settings[k]
 
-        # If numeric XYZ position
-        if 'positionCurrent' in k:
-            # Compute absolute deviations (in um)
-            abs_devs = (vals - ref_val).abs()  # um
-            logger.debug(f'absolute deviations from {k} reference:\n{abs_devs}')
-
-            # Identify runs with significant positional deviations
-            current_outliers = abs_devs[abs_devs > MAX_POS_ABS_DEV].index.values.tolist()
-
-        # If numeric setting
-        elif vals.dtype == 'float64':
+        # If numeric setting and not XYZ position
+        if vals.dtype == 'float64' and 'positionCurrent' not in k:
             # Compute absolute relative deviations from reference value
             rel_devs = ((vals - ref_val) / ref_val).abs()
             logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
@@ -334,8 +325,14 @@ def parse_acquisition_settings(folders):
         if len(current_outliers) > 0:
             diff_settings.append(k)
 
-        # Add outliers runs to global list
-        outliers += current_outliers
+        # If not XYZ position, add outliers runs to global list. The reason for
+        # this exception is that DAQ position changes are not necessarily related
+        # to changes in physical location (e.g. the position vector can be "zeroed" 
+        # halfway through the expeirments without any actual translation). Hence, 
+        # no automatic checks are performed for position vectors, but movies and
+        # registration metrics should be inspected to check for potential drifts.
+        if 'positionCurrent' not in k:
+            outliers += current_outliers
 
     # If truly differing settings were found, log warning message
     if len(diff_settings) > 0:
