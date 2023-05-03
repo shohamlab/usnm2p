@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 11:54:20
+# @Last Modified time: 2023-05-03 12:24:15
 
 ''' Collection of parsing utilities. '''
 
@@ -320,7 +320,7 @@ def parse_acquisition_settings(folders):
         else:
             # Identify runs that differ from ref value 
             current_outliers = vals[vals != ref_val].index.values.tolist()
-        
+
         # If outliers were detected, store differing setting
         if len(current_outliers) > 0:
             diff_settings.append(k)
@@ -331,6 +331,7 @@ def parse_acquisition_settings(folders):
         # halfway through the expeirments without any actual translation). Hence, 
         # no automatic checks are performed for position vectors, but movies and
         # registration metrics should be inspected to check for potential drifts.
+        # A warning message will still be issued though.
         if 'positionCurrent' not in k:
             outliers += current_outliers
 

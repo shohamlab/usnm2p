@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 11:46:51
+# @Last Modified time: 2023-05-03 12:08:38
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -199,6 +199,7 @@ MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value
 
 ####################################### PRE-PROCESSING ######################################
 
+FOLDER_EXCLUDE_PATTERNS = ['MIP', 'References', 'incomplete', 'duplicated', 'deprecated']  # folders exclusion patterns for raw TIF data
 IREF_FRAMES_BERGAMO = slice(-200, None)  # index range of reference frames for detrending on corrupted Bergamo acquisitions 
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions

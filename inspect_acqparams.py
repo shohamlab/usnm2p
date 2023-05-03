@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2023-05-02 15:47:25
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 09:11:47
+# @Last Modified time: 2023-05-03 12:29:45
 
 ''' Utility script to inspect acquisition parameters across runs & datasets '''
 
@@ -47,11 +47,11 @@ if __name__ == '__main__':
         # Get raw list of subolders containing tifs, sorted by run ID
         tif_folders = get_data_folders(
             datadir, 
-            exclude_patterns=['MIP', 'References', 'incomplete', 'duplicated'], 
+            exclude_patterns=FOLDER_EXCLUDE_PATTERNS, 
             include_patterns=[resolve_mouseline(d['mouseline'])], 
             sortby=Label.RUNID
         )
 
         # Extract acquisition settings from each run, and outlier runs
-        ref_daq_settings, _ = parse_acquisition_settings(tif_folders)
-        # print(ref_daq_settings)
+        daq_settings, _ = parse_acquisition_settings(tif_folders)
+        # print(daq_settings)
