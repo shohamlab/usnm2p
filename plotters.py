@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 14:33:59
+# @Last Modified time: 2023-05-04 18:38:26
 
 ''' Collection of plotting utilities. '''
 
@@ -4260,7 +4260,7 @@ def get_runid_palette(param_seqs, runid):
 
 
 def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xscale=None, 
-                      fs=12, title=None, height=4, innercall=False):
+                      fs=12, title=None, height=4, innercall=False, fitsweepkey=None):
     '''
     Compute fits between input parameter and response output metrics, and plot results
     
@@ -4283,7 +4283,7 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         for xk, ax in zip(xkey, axes):
             _, fitfuncs[xk] = plot_response_fit(
                 data, ykey, fit_candidates, xkey=xk, ax=ax, xscale=xscale, 
-                fs=fs, innercall=True)
+                fs=fs, fitsweepkey=fitsweepkey, innercall=True)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
         return fig, fitfuncs
@@ -4314,28 +4314,40 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     ax.set_xlabel(xkey, fontsize=fs)
     ax.set_ylabel(ykey, fontsize=fs)
     
-    # Plot data points
-    ax.errorbar(
-        data[xkey], data[mu_ykey], yerr=data[se_ykey], c='k', fmt='o', markersize=5)
+    # Plot data points, with sweep color code
+    cdict = {
+        Label.P: 'C0',
+        Label.DC: 'C1'
+    }
+    for subxkey, color in cdict.items():
+        subdata = get_xdep_data(data, subxkey, add_DC0=True)
+        ax.errorbar(
+            subdata[xkey], subdata[mu_ykey], yerr=subdata[se_ykey], 
+            fmt='o', c=color, markersize=5
+        )
     
     # Initialize best fit metrics
     best_r2 = 0
 
+    # Extract reference y profile for fit 
+    if fitsweepkey is None:
+        fit_data = data.copy()
+    else:
+        fit_data = get_xdep_data(data, fitsweepkey, add_DC0=True)
+    xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
+
     # For each candidate objective function
     for objfunc, p0_func in fit_candidates.items():
-        if p0_func is not None:
-            # Call function to estimate initial parameters
-            p0 = p0_func(data[xkey], data[mu_ykey])
-            # Perform fit between input and output variables with candidate function
-            logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
-            popt, _ = curve_fit(objfunc, data[xkey], data[mu_ykey], p0, maxfev=10000)
-            fit_data = objfunc(data[xkey], *popt)
-        else:
-            popt = None
-            fit_data = objfunc(data[xkey])
+        # Call function to estimate initial parameters
+        p0 = p0_func(xdata, ydata)
+        
+        # Perform fit between input and output variables with candidate function
+        logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
+        popt, _ = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+        yfit = objfunc(xdata, *popt)
 
         # Compute error between fit prediction and data
-        r2 = rsquared(data[mu_ykey], fit_data)
+        r2 = rsquared(ydata, yfit)
         logger.debug(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
 
         # Replace best fit information, if better fit score 
@@ -4344,10 +4356,34 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             best_func = objfunc
             best_popt = popt
 
-        # Plot fitted profile
+        # Plot dense fitted profile
+        xdense = np.linspace(xdata.min(), xdata.max(), 1000)
+        yfitdense = objfunc(xdense, *popt)
         ax.plot(
-            data[xkey], fit_data, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}')
-        ax.tick_params(axis='both', labelsize=fs)
+            xdense, yfitdense, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}',
+            c=cdict.get(fitsweepkey, 'k')
+        )
+
+        # If fit was performed on particular sweep
+        if fitsweepkey is not None:
+            # Get data from other sweep
+            otherkey = list(set(cdict.keys()) - set(fitsweepkey))[0]
+            other_data = get_xdep_data(data, otherkey, add_DC0=True)
+            xother, yother = other_data[xkey], other_data[mu_ykey]
+
+            # Apply fit on input range from other sweep
+            yotherfit = objfunc(xother, *popt)
+
+            # Compute prediction accuracy
+            ζ = symmetric_accuracy(yother, yotherfit)
+
+            # Plot divergence between fit and data points from other sweep
+            iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
+            ax.fill(
+                np.hstack((xdense[iswithin], xother[::-1])), 
+                np.hstack((yfitdense[iswithin], yother[::-1])),
+                fc='silver', label=f'ζ = {ζ:.2f}'
+            )
         
         # Adjust x-scale if specified
         if xscale is not None:
@@ -4358,10 +4394,13 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             else:
                 ax.set_xscale(xscale)
 
+        # Adjust tick labels fontsize
+        ax.tick_params(axis='both', labelsize=fs)
+
     # Add legend with fit metrics
     pstr = ', '.join([f'{p:.2f}' for p in best_popt])
     logger.info(f'best {ykey} fit = {best_func.__name__}({xkey}, {pstr}): R2 = {best_r2:.2f}')    
-    ax.legend(frameon=False, fontsize=fs)
+    ax.legend(frameon=False, fontsize=fs, loc='upper left')
 
     # Add title, if provided
     if title is not None:

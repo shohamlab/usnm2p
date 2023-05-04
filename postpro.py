@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 14:28:22
+# @Last Modified time: 2023-05-04 18:40:03
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1419,19 +1419,37 @@ def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     return stats
 
 
-def get_xdep_data(data, xkey):
+def get_xdep_data(data, xkey, add_DC0=False):
     '''
     Restrict data to relevant subset to estimate parameter dependency.
     
     :param data: multi-indexed experiment dataframe
     :param xkey: input parameter of interest (pressure or duty cycle)
+    :param add_DC0: for DC sweeps, whether to add (DC = 0) data taken from P = 0
     :return: multi-indexed experiment dataframe containing only the row entries
         necessary to evaluate the dependency on the input parameter
     '''
+    # If pressure sweep
     if xkey == Label.P:
+        # Restrict data to pressures at reference duty cycle
         return data[data[Label.DC] == DC_REF]
+
+    # If duty cycle sweep
     elif xkey == Label.DC:
-        return data[data[Label.P] == P_REF]
+        # Restrict data to duty cycles at reference pressure
+        subdata = data[data[Label.P] == P_REF]
+        # If DC = 0 values is required
+        if add_DC0:
+            # Extract (P = 0, DC = DCref) data, and re-format it as (P = Pref, DC = 0)
+            data0 = data[data[Label.P] == 0.].copy()
+            data0[Label.P] = P_REF
+            data0[Label.DC] = 0
+            # Add to sub-data and sort index
+            subdata = pd.concat([data0, subdata]).sort_index()
+        # Return
+        return subdata
+    
+    # If unknown sweep, do nothing
     else:
         logger.warning(f'{xkey} not part of ({Label.P}, {Label.DC}) -> no filtering')
         return data

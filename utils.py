@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 12:04:57
+# @Last Modified time: 2023-05-04 18:27:04
 
 ''' Collection of generic utilities. '''
 
@@ -784,12 +784,46 @@ def is_within(x, bounds):
     return np.logical_and(x >= bounds[0], x <= bounds[1])
 
 
-def rsquared(x1, x2):
-    ''' compute the R-squared coefficient between two 1D arrays '''
-    residuals = x1 - x2
+def rsquared(y, ypred):
+    '''
+    Compute the R-squared coefficient between two 1D arrays
+    
+    :param x: reference (i.e. data) array
+    :param xpred: predictor array
+    :return: R2 of predictor
+    '''
+    # Compute SS of residuals
+    residuals = y - ypred
     ss_res = np.sum(residuals**2)
-    ss_tot = np.sum((x1 - np.mean(x1))**2)
+    # Compute total SS
+    ss_tot = np.sum((y - np.mean(y))**2)
+    # Compute and return R2
     return 1 - (ss_res / ss_tot)
+
+
+def symmetric_accuracy(y, ypred, aggfunc='mean'):
+    '''
+    Compute the symmetric accuracy between two arrays. Inspired by:
+    *Morley, S.K., Brito, T.V., and Welling, D.T. (2018). Measures of Model
+    Performance Based On the Log Accuracy Ratio. Space Weather 16, 69–88.*,
+    but with a choice of log-space aggregating function.
+
+    :param x: reference (i.e. data) array
+    :param xpred: predictor array
+    :param aggfunc: aggregating function in the logarithmic space (default = mean)
+    :return: MSA of predictor
+    '''
+    # Extract aggregation function
+    aggfunc = {
+        'mean': np.nanmean,
+        'median': np.nanmedian,
+    }[aggfunc]
+    # Compute log of accuracy ratio logQ
+    logQ = np.log(ypred / y)
+    # Compute aggregate value of absolute logQ
+    aggabslogQ = aggfunc(np.abs(logQ))
+    # Project back to original space, and subtract 1 to bring to [0 - ∞] range
+    return np.exp(aggabslogQ) - 1
 
 
 def get_hue_pairs(data, x, hue):
