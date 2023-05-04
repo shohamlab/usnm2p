@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-13 10:31:35
+# @Last Modified time: 2023-05-04 14:28:22
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2058,10 +2058,9 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, err
         else:
             raise ValueError(f'unknown error propagation mode: "{errprop}"')
 
-        # Concatenate outputs, and add prefix if needed
+        # Concatenate outputs, and add prefix
         ykey_wdata = pd.concat([mean, sem], axis=1)
-        if len(ykey) > 1:
-            ykey_wdata = ykey_wdata.add_prefix(f'{yk} - ')
+        ykey_wdata = ykey_wdata.add_prefix(f'{yk} - ')
 
         # Add outputs to weighted average dataframe
         wdata = pd.concat([wdata, ykey_wdata], axis=1)

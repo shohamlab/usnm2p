@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-03-08 10:29:38
+# @Last Modified time: 2023-05-03 15:43:25
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -27,8 +27,11 @@ def get_prepro_id(kalman_gain=KALMAN_GAIN):
     :param klaman_gain: Kalmain gain (0 - 1)
     :return ID string
     '''
-    submap = [(1, 0), (FrameIndex.STIM - 1, FrameIndex.STIM)]
-    ss = StackSubstitutor(submap, repeat_every=NFRAMES_PER_TRIAL)
+    submap = [
+        (1, 0, None),
+        (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
+    ]
+    ss = StackSubstitutor(submap)
     kd = KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter
     return os.path.join(kd.code, ss.code)
 

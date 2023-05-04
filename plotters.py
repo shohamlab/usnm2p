@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 17:07:41
+# @Last Modified time: 2023-05-04 14:33:59
 
 ''' Collection of plotting utilities. '''
 
@@ -1513,7 +1513,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     elif hue == 'positive':
         hue_per_ROI = Fstats.groupby(Label.ROI)[hue].first()
         hues = np.sort(np.unique(hue_per_ROI))
-        ROI_cmap = sns.color_palette(Palette.DEFAULT, as_cmap=True)
+        ROI_cmap = sns.color_palette('rocket', as_cmap=True)
         colors = {x: ROI_cmap(x) for x in hues}
     else:
         raise ValueError(f'invalid hue parameter: "{hue}"')
@@ -1662,7 +1662,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
 
 
 def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per_px=None,
-                      cmap='viridis', ax=None, fs=15):
+                      cmap='viridis', ax=None, fs=15, add_cbar=True):
     '''
     Plot spatial distribution of population responsiveness on the recording plane.
 
@@ -1676,6 +1676,18 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     :param hue: hue parameter used to draw heatmap
     :return: figure handle
     '''
+    if Label.DATASET in Fstats.index.names: 
+        fg = sns.FacetGrid(Fstats.reset_index(), col=Label.DATASET, col_wrap=4)
+        fig = fg.figure
+        axes = fig.axes
+        for i, (ax, (dataset_id, gstats)) in enumerate(zip(axes, Fstats.groupby(Label.DATASET))):
+            plot_response_map(
+                ROI_masks.loc[dataset_id], gstats.droplevel(Label.DATASET),
+                ops[dataset_id], ax=ax, title=dataset_id,
+                um_per_px=ops[dataset_id]['micronsPerPixel'],
+                add_cbar=i == len(axes) - 1, fs=fs)
+        return fig
+
     # Compute location (i.e. mask center of) mass for each ROI
     ROIstats = ROI_masks[['xpix', 'ypix']].groupby(Label.ROI).mean()
 
@@ -1684,7 +1696,7 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
 
     # Create interpolation meshgrid covering FOV
     Ly, Lx = ops['Ly'], ops['Lx']
-    n = Lx // 10
+    n = Lx // 5
     x = np.linspace(0, Lx, n)  #np.arange(Lx)
     y = np.linspace(0, Ly, n)  #np.arange(Ly)
     X, Y = np.meshgrid(x, y, indexing='ij')
@@ -1695,7 +1707,7 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
         ROIstats[['xpix', 'ypix']].values,
         ROIstats[hue].values,
         xy_grid,
-        method='linear')
+        method='cubic')
     z = zgrid.reshape((x.size, y.size))
 
     # Create figure
@@ -1713,15 +1725,20 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     ax.set_aspect(1.)
 
     # Plot interpolated heatmap
-    sm = ax.pcolormesh(x, y, z, shading='gouraud', cmap=cmap)
+    sm = ax.pcolormesh(x, y, z, shading='nearest', cmap=cmap)
+
+    # # Plot contours
+    # levels = [.5]
+    # ax.contour(x, y, z, levels=levels, colors='k')
 
     # Add colorbar
-    pos = ax.get_position()
-    fig.subplots_adjust(right=0.93)
-    cbar_ax = fig.add_axes([0.95, pos.y0, 0.02, pos.y1 - pos.y0])
-    cbar_ax.set_title(hue, fontsize=fs)
-    fig.colorbar(sm, cax=cbar_ax)
-    cbar_ax.tick_params(labelsize=fs-2)
+    if add_cbar:
+        pos = ax.get_position()
+        fig.subplots_adjust(right=0.93)
+        cbar_ax = fig.add_axes([0.95, pos.y0, 0.02, pos.y1 - pos.y0])
+        cbar_ax.set_title(hue, fontsize=fs)
+        fig.colorbar(sm, cax=cbar_ax)
+        cbar_ax.tick_params(labelsize=fs-2)
 
     # Add scale bar if scale provided
     if um_per_px is not None:
@@ -2882,7 +2899,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     else:
         bar = Label.DATASET
         count = None
-    axdim = {Label.ROI_RESP_TYPE: 'x', Label.DATASET: 'y'}[bar]
+    axdim = 'y' if bar == Label.DATASET else 'x'
 
     # Determine plotting order
     orders = {
@@ -4242,51 +4259,80 @@ def get_runid_palette(param_seqs, runid):
     return runid_params.map(mapper).to_dict()
 
 
-def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None):
+def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xscale=None, 
+                      fs=12, title=None, height=4, innercall=False):
     '''
     Compute fits between input parameter and response output metrics, and plot results
     
     :param data: experiment dataframe
     :param xkey: input variable
     :param ykey: output variable to fit to input
-    :param fit_candidates: dictionary of (objective function, initial parameters) pairs
-    :return: figure handle, and ...
+    :param fit_candidates: dictionary of (objective function, initial parameters generator function) pairs
+    :return: figure handle, and best fit function applied with its optimal parameters
     '''
+    # Generate title if not provided and possible
+    if title is None and not innercall:
+        for k in data.index.names:
+            if len(data.index.unique(level=k)) == 1:
+                title = data.index.unique(level=k)[0]
+    
+    # If multiple xkeys, generate multiple axes and call function recursively
     if is_iterable(xkey):
-        fig, axes = plt.subplots(1, len(xkey), figsize=(4 * len(xkey), 4))
+        fig, axes = plt.subplots(1, len(xkey), figsize=(height * len(xkey), height))
         fitfuncs = {}
         for xk, ax in zip(xkey, axes):
-            _, fitfuncs[xk] = plot_response_fit(data, ykey, fit_candidates, xkey=xk, ax=ax)
+            _, fitfuncs[xk] = plot_response_fit(
+                data, ykey, fit_candidates, xkey=xk, ax=ax, xscale=xscale, 
+                fs=fs, innercall=True)
+        if title is not None:
+            fig.suptitle(title, fontsize=fs + 3)
         return fig, fitfuncs
 
+    # Generate P_SPTA / P_RMS values if needed 
     if xkey == Label.PSPTA:
         data[xkey] = data[Label.P] * data[Label.DC] * 1e-2
+    elif xkey == Label.PRMS:
+        data[xkey] = data[Label.P] * np.sqrt(data[Label.DC] * 1e-2)
+    elif xkey == Label.IRMS:
+        data[xkey] = data[Label.ISPPA] * np.sqrt(data[Label.DC] * 1e-2)
 
     # Sort by increasing input value
     data = data.sort_values(xkey)
 
-    mu_ykey = 'mean'
-    se_ykey = 'sem'
+    # Get mean and sem keys
+    mu_ykey = f'{ykey} - mean'
+    se_ykey = f'{ykey} - sem'
 
-    # Create figure backbone and plot data points
+    # Fetch axis, or create figure
     if ax is None:
-        fig, ax = plt.subplots(figsize=(4, 4))
+        fig, ax = plt.subplots(figsize=(height, height))
     else:
         fig = ax.get_figure()
+    
+    # Set up axis layout 
     sns.despine(ax=ax)
-    ax.set_xlabel(xkey)
-    ax.set_ylabel(ykey)
+    ax.set_xlabel(xkey, fontsize=fs)
+    ax.set_ylabel(ykey, fontsize=fs)
+    
+    # Plot data points
     ax.errorbar(
         data[xkey], data[mu_ykey], yerr=data[se_ykey], c='k', fmt='o', markersize=5)
     
     # Initialize best fit metrics
     best_r2 = 0
+
     # For each candidate objective function
-    for ifit, (objfunc, p0) in enumerate(fit_candidates.items()):
-        # Perform fit between input and output variables with candidate function
-        logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
-        popt, _ = curve_fit(objfunc, data[xkey], data[mu_ykey], p0, maxfev=10000)
-        fit_data = objfunc(data[xkey], *popt)
+    for objfunc, p0_func in fit_candidates.items():
+        if p0_func is not None:
+            # Call function to estimate initial parameters
+            p0 = p0_func(data[xkey], data[mu_ykey])
+            # Perform fit between input and output variables with candidate function
+            logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
+            popt, _ = curve_fit(objfunc, data[xkey], data[mu_ykey], p0, maxfev=10000)
+            fit_data = objfunc(data[xkey], *popt)
+        else:
+            popt = None
+            fit_data = objfunc(data[xkey])
 
         # Compute error between fit prediction and data
         r2 = rsquared(data[mu_ykey], fit_data)
@@ -4297,20 +4343,35 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None):
             best_r2 = r2
             best_func = objfunc
             best_popt = popt
-            best_ifit = ifit
 
         # Plot fitted profile
         ax.plot(
             data[xkey], fit_data, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}')
+        ax.tick_params(axis='both', labelsize=fs)
+        
+        # Adjust x-scale if specified
+        if xscale is not None:
+            if xscale == 'sqrt':
+                ax.set_xscale('function', functions=(np.sqrt, np.square))
+                ax.set_xticks([0] + ax.get_xticks())
+                ax.spines['left'].set_position(('outward', 10))
+            else:
+                ax.set_xscale(xscale)
 
+    # Add legend with fit metrics
     pstr = ', '.join([f'{p:.2f}' for p in best_popt])
     logger.info(f'best {ykey} fit = {best_func.__name__}({xkey}, {pstr}): R2 = {best_r2:.2f}')    
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, fontsize=fs)
 
+    # Add title, if provided
+    if title is not None:
+        ax.set_title(title, fontsize=fs + 3)
+
+    # Generate best fit function applied with its optimal parameters 
     def fitfunc(x):
         return best_func(x, *best_popt)
 
-    # Return figure, and best candidate function applied with its optimal parameters
+    # Return figure and best fit function
     return fig, fitfunc
 
 

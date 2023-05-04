@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 18:53:31
+# @Last Modified time: 2023-05-04 12:04:57
 
 ''' Collection of generic utilities. '''
 
@@ -13,7 +13,7 @@ from pandas.api.types import is_numeric_dtype
 import operator
 from functools import wraps
 
-from constants import SI_POWERS, IND_LETTERS, Label
+from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME
 from logger import logger
 
 
@@ -738,28 +738,33 @@ def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     return A * norm_sig + y0
 
 
-def bilinear(x, x0=0, A=1, y0=0):
+def custom_sigmoid(x, x0=0, sigma=1, p=1, A=1, y0=0):
+    y = 1 + np.exp(x - x0) / sigma
+    return A * (1 - np.power(y, -p))
+
+
+def bilinear(x, x0=0, y0=0, A=1, B=-1):
     '''
-    Bilinear function that transitions from a constant to a linear regime.
+    Bilinear function that transitions between two linear regimes.
 
     :param x: input value
-    :param x0: inflection point (transition between constant and linear regime)
-    :param A: amplitude
-    :param y0: vertical offset
+    :param x0: transition point x-coordinate
+    :param y0: transition point y-coordinate
+    :param A: amplitude of first linear segment
+    :param B: amplitude of second linear segment
     :return: bilinear function output
     '''
     if is_iterable(x):
-        return np.array([bilinear(xx, x0=x0, A=A, y0=y0) for xx in x])    
-    if x < x0:
-        return y0
-    return A * (x - x0) + y0  
+        return np.array([bilinear(xx, x0=x0, y0=0, A=A, B=B) for xx in x])
+    c = A if x < x0 else B
+    return c * (x - x0) + y0
     # xrel = x0 - x
     # return A * xrel / (np.exp(xrel / iscale) - 1)
 
 
-def shift_sqrt(x, x0=0, A=1, y0=0):
+def mysqrt(x, A=1, x0=0, y0=0):
     if is_iterable(x):
-        return np.array([shift_sqrt(xx, x0=x0, A=A, y0=y0) for xx in x])
+        return np.array([mysqrt(xx, A=A, x0=x0, y0=y0) for xx in x])
     if x < x0:
         return y0
     return A * np.sqrt(x - x0) + y0

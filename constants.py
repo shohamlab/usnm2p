@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 12:08:38
+# @Last Modified time: 2023-05-04 14:24:25
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -25,6 +25,8 @@ class Label:
     ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
     ISPTA = 'I_SPTA (W/cm2)'  # spatial peak, temporal average acoustic intensity
     PSPTA = 'P_SPTA (MPa)'   # spatial peak, temporal average pressure
+    PRMS = 'P_RMS (MPa)'  # RMS pressure
+    IRMS = 'I_RMS (W/cm2)'  # RMS intensity
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
     FPS = 'fps'
@@ -199,7 +201,7 @@ MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value
 
 ####################################### PRE-PROCESSING ######################################
 
-FOLDER_EXCLUDE_PATTERNS = ['MIP', 'References', 'incomplete', 'duplicated', 'deprecated']  # folders exclusion patterns for raw TIF data
+FOLDER_EXCLUDE_PATTERNS = ['MIP', 'References', 'incomplete', 'duplicated', 'excluded']  # folders exclusion patterns for raw TIF data
 IREF_FRAMES_BERGAMO = slice(-200, None)  # index range of reference frames for detrending on corrupted Bergamo acquisitions 
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
@@ -343,7 +345,7 @@ CI = 68  # default confidence interval error reporting
 
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {
-    'line3': 1200.,
+    'line3': 1400.,
     'sst': None,
     'pv': None,
 }
