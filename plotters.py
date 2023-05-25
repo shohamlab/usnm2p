@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 18:38:26
+# @Last Modified time: 2023-05-24 20:38:07
 
 ''' Collection of plotting utilities. '''
 
@@ -25,9 +25,9 @@ import seaborn as sns
 from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
-from scipy.stats import normaltest
+from scipy.stats import normaltest, binned_statistic_dd
 from scipy.signal import spectrogram, sosfreqz 
-from scipy.interpolate import griddata
+from scipy.interpolate import interp2d, griddata
 
 from logger import logger
 from constants import *
@@ -1556,7 +1556,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     
     # Plot reference image 
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
-    ax.imshow(refimg, cmap=cmap)
+    ax.imshow(refimg, cmap=cmap, origin='lower')
     
     # Plot cell and non-cell ROIs
     for rtype, idx in idx_by_type.items():
@@ -1568,7 +1568,7 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
             ))
         # "fill" mode: add mask of ROIs union
         else:
-            ax.imshow(rgbs[idx])
+            ax.imshow(rgbs[idx], origin='lower')
 
     # Add scale bar if scale provided
     if um_per_px is not None:
@@ -1652,7 +1652,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
             leg_palette = {k: v for k, v in Palette.RTYPE.items() if k in hues}
         elif hue == 'positive':
             hues = np.linspace(0, 1, 5)
-            ROI_cmap = sns.color_palette(Palette.DEFAULT, as_cmap=True)
+            ROI_cmap = sns.color_palette('rocket', as_cmap=True)
             leg_palette = {f'{x:.2f}': ROI_cmap(x) for x in hues}
         leg_items = [Line2D([0], [0], label=l, ms=10, **legfunc(c)) for l, c in leg_palette.items()]
         axes[ndatasets - 1].legend(
@@ -1662,7 +1662,8 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
 
 
 def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per_px=None,
-                      cmap='viridis', ax=None, fs=15, add_cbar=True):
+                      cmap='viridis', ax=None, fs=15, add_cbar=True, mark_ROIs=False,
+                      ncells_per_ax=5, interp_method='cubic', alpha_map=None):
     '''
     Plot spatial distribution of population responsiveness on the recording plane.
 
@@ -1674,19 +1675,30 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     :param title (optional): figure title
     :param cmap (default: viridis): colormap used to render reference image
     :param hue: hue parameter used to draw heatmap
+    :param ax (optional): axis handle
+    :param fs (default: 15): font size
+    :param add_cbar (default: True): whether to add a colorbar
+    :param mark_ROIs (default: False): whether to mark ROIs on the heatmap
     :return: figure handle
     '''
+    # If multiple datasets, plot each on a separate axis
     if Label.DATASET in Fstats.index.names: 
-        fg = sns.FacetGrid(Fstats.reset_index(), col=Label.DATASET, col_wrap=4)
+        fg = sns.FacetGrid(Fstats.reset_index(), col=Label.DATASET, col_wrap=4, height=2.5)
         fig = fg.figure
         axes = fig.axes
         for i, (ax, (dataset_id, gstats)) in enumerate(zip(axes, Fstats.groupby(Label.DATASET))):
+            logger.info(f'dataset: {dataset_id}')
             plot_response_map(
                 ROI_masks.loc[dataset_id], gstats.droplevel(Label.DATASET),
-                ops[dataset_id], ax=ax, title=dataset_id,
-                um_per_px=ops[dataset_id]['micronsPerPixel'],
-                add_cbar=i == len(axes) - 1, fs=fs)
+                ops[dataset_id], ax=ax, title=dataset_id, um_per_px=um_per_px,
+                add_cbar=i == len(axes) - 1, fs=fs, cmap=cmap,
+                mark_ROIs=mark_ROIs, ncells_per_ax=ncells_per_ax, 
+                interp_method=interp_method, alpha_map=alpha_map)
         return fig
+
+    # If no scale given, try to fetch it from ops 
+    if um_per_px is None:
+        um_per_px = ops.get('micronsPerPixel', None)
 
     # Compute location (i.e. mask center of) mass for each ROI
     ROIstats = ROI_masks[['xpix', 'ypix']].groupby(Label.ROI).mean()
@@ -1694,42 +1706,93 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     # Compute hue metrics per ROI
     ROIstats[hue] = Fstats.groupby(Label.ROI)[hue].first()
 
-    # Create interpolation meshgrid covering FOV
+    # Remove ROIs with no hue value
+    ROIstats = ROIstats[~ROIstats[hue].isna()]
+
+    # Create 2D meshgrid covering FOV
     Ly, Lx = ops['Ly'], ops['Lx']
-    n = Lx // 5
-    x = np.linspace(0, Lx, n)  #np.arange(Lx)
-    y = np.linspace(0, Ly, n)  #np.arange(Ly)
-    X, Y = np.meshgrid(x, y, indexing='ij')
-    xy_grid = np.array([X.ravel(), Y.ravel()]).T
-    
-    # Interpolate hue values over grid
-    zgrid = griddata(
+    x = np.linspace(0, Lx, ncells_per_ax + 1)
+    y = np.linspace(0, Ly, ncells_per_ax + 1)
+
+    # Compute average response score in each grid cell
+    logger.info(f'Computing average response scores over {x.size}-by-{y.size} grid')
+    z, *_ = binned_statistic_dd(
         ROIstats[['xpix', 'ypix']].values,
         ROIstats[hue].values,
-        xy_grid,
-        method='cubic')
-    z = zgrid.reshape((x.size, y.size))
+        statistic='mean', bins=(x, y)
+    )
+
+    # If interpolation required
+    if interp_method is not None:
+        # Create coordinate vectors for grid cell centers
+        xmids = (x[:-1] + x[1:]) / 2
+        ymids = (y[:-1] + y[1:]) / 2
+
+        # Create dense interpolation grid
+        x = np.arange(Lx)
+        y = np.arange(Ly)
+
+        # If all grid cells containg a valid aggregate, use structured interpolation
+        if np.all(~np.isnan(z)):
+            logger.info(f'applying {interp_method} interpolation over {x.size}-by-{y.size} evaluation grid')
+            finterp = interp2d(xmids, ymids, z.T, kind=interp_method)
+            z = finterp(x, y).T
+        
+        # Otherwise, use unstructured interpolation
+        else:
+            # Create 2D meshgrid of grid cell centers
+            X, Y = np.meshgrid(xmids, ymids, indexing='ij')
+
+            # Serialize, merge with z-values, and remove invalid cells
+            xyz_grid = np.array([X.ravel(), Y.ravel(), z.ravel()]).T
+            isvalid = np.all(~np.isnan(xyz_grid), axis=1)
+            xyz_grid = xyz_grid[isvalid]
+            logger.info(f'defining unstructured {interp_method} interpolator from {xyz_grid.shape[0]}/{z.size} grid points')
+
+            # Interpolate response map over dense grid to generate denser heatmap
+            logger.info(f'applying interpolator over {x.size}-by-{y.size} evaluation grid')
+            X, Y = np.meshgrid(x, y, indexing='ij')
+            xyeval = np.array([x.ravel() for x in [X, Y]])
+            z = griddata(
+                xyz_grid[:, :2], xyz_grid[:, 2], xyeval.T, 
+                method=interp_method, fill_value=np.nan
+            )
+            z = z.reshape(X.shape)
 
     # Create figure
     if ax is None:
         fig, ax = plt.subplots(figsize=(5, 5))
     else:
         fig = ax.get_figure()
-
+    
     # Add title if specified
     if title is not None:
         ax.set_title(title, fontsize=fs)
 
     # Prepare axis
-    sns.despine(ax=ax, bottom=True, left=True)
     ax.set_aspect(1.)
+    for k in ax.spines.keys():
+        ax.spines[k].set_visible(True)
 
-    # Plot interpolated heatmap
-    sm = ax.pcolormesh(x, y, z, shading='nearest', cmap=cmap)
+    # Create normalizer and associated mappable objects
+    norm = plt.Normalize(0, 1)
 
-    # # Plot contours
-    # levels = [.5]
-    # ax.contour(x, y, z, levels=levels, colors='k')
+    # Plot heatmap
+    if alpha_map is None:
+        alpha_map = 0.5 if mark_ROIs else 1
+    sm = ax.pcolormesh(
+        x, y, z.T, norm=norm, cmap=cmap, alpha=alpha_map)
+
+    # Mark ROIs if specified
+    if mark_ROIs:
+        logger.info('adding ROI markers')
+        ax.scatter(
+            ROIstats['xpix'], ROIstats['ypix'], s=15,
+            c=ROIstats[hue], cmap=cmap, marker='o', norm=norm)
+
+    # Plot contours
+    levels = [.5]
+    ax.contour(x, y, z.T, levels=levels, colors='k')
 
     # Add colorbar
     if add_cbar:
@@ -2744,6 +2807,8 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     sns.despine(ax=ax)
     ax.set_xlabel(xkey)
     ax.set_ylabel(ykey)
+
+    mu_key, sem_key = f'{ykey} - mean', f'{ykey} sem'
     
     # If hue not specified
     if hue is None:
@@ -2752,18 +2817,18 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
         # Plot single weifghted average trace with propagated standard errors 
         if err_style == 'bars':
             ax.errorbar(
-                aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'], 
+                aggdata[xkey], aggdata[mu_key], yerr=aggdata[sem_key], 
                 marker=marker, ls=ls, c=avg_color, lw=lw, 
                 markeredgecolor='w', markersize=markersize)
         else:
             ax.plot(
-                aggdata[xkey], aggdata['mean'], 
+                aggdata[xkey], aggdata[mu_key], 
                 marker=marker, ls=ls, c=avg_color, lw=lw, 
                 markeredgecolor='w', markersize=markersize)
             if err_style == 'band':
                 ax.fill_between(
                     aggdata[xkey], 
-                    aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                    aggdata[mu_key] - aggdata[sem_key], aggdata[mu_key] + aggdata[sem_key],
                     alpha=0.3, fc=avg_color, ec=None)
 
     # Otherwise
@@ -2779,24 +2844,24 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
             
             if err_style == 'bars':
                 ax.errorbar(
-                    aggdata[xkey], aggdata['mean'], yerr=aggdata['sem'],
+                    aggdata[xkey], aggdata[mu_key], yerr=aggdata[sem_key],
                     marker=marker, ls=ls, label=htype, color=color, 
                     linewidth=0 if fit else None, elinewidth=2 if fit else None)
             else:
                 ax.plot(
-                    aggdata[xkey], aggdata['mean'],
+                    aggdata[xkey], aggdata[mu_key],
                     marker=marker, ls=ls, label=htype, color=color, 
                     linewidth=0 if fit else None)
                 if err_style == 'band':
                     ax.fill_between(
                         aggdata[xkey], 
-                        aggdata['mean'] - aggdata['sem'], aggdata['mean'] + aggdata['sem'],
+                        aggdata[mu_key] - aggdata[sem_key], aggdata[mu_key] + aggdata[sem_key],
                         alpha=0.3, color=color)
 
             # Add 3rd order polynomial fit if required
             if fit:
                 ax.plot(
-                    *get_cubic_fit(aggdata[xkey], aggdata['mean']),
+                    *get_cubic_fit(aggdata[xkey], aggdata[mu_key]),
                     ls='--', color=color)
         if legend:
             ax.legend(frameon=False)
@@ -4260,7 +4325,8 @@ def get_runid_palette(param_seqs, runid):
 
 
 def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xscale=None, 
-                      fs=12, title=None, height=4, innercall=False, fitsweepkey=None):
+                      fs=12, title=None, height=4, innercall=False, fitsweepkey=None, 
+                      error_aggfunc='mean', norm=False, plot_respmetrics=False):
     '''
     Compute fits between input parameter and response output metrics, and plot results
     
@@ -4270,6 +4336,9 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     :param fit_candidates: dictionary of (objective function, initial parameters generator function) pairs
     :return: figure handle, and best fit function applied with its optimal parameters
     '''
+    if fitsweepkey is not None and len(fit_candidates) > 1:
+        raise ValueError('cannot fit multiple functions with sweep key specified')
+
     # Generate title if not provided and possible
     if title is None and not innercall:
         for k in data.index.names:
@@ -4283,18 +4352,22 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         for xk, ax in zip(xkey, axes):
             _, fitfuncs[xk] = plot_response_fit(
                 data, ykey, fit_candidates, xkey=xk, ax=ax, xscale=xscale, 
-                fs=fs, fitsweepkey=fitsweepkey, innercall=True)
+                fs=fs, fitsweepkey=fitsweepkey, error_aggfunc=error_aggfunc,
+                innercall=True, norm=norm, plot_respmetrics=plot_respmetrics)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
         return fig, fitfuncs
 
     # Generate P_SPTA / P_RMS values if needed 
+    DC = data[Label.DC] * 1e-2
     if xkey == Label.PSPTA:
-        data[xkey] = data[Label.P] * data[Label.DC] * 1e-2
-    elif xkey == Label.PRMS:
-        data[xkey] = data[Label.P] * np.sqrt(data[Label.DC] * 1e-2)
-    elif xkey == Label.IRMS:
-        data[xkey] = data[Label.ISPPA] * np.sqrt(data[Label.DC] * 1e-2)
+        data[xkey] = data[Label.P] * DC
+    elif xkey == Label.PSPTRMS:
+        data[xkey] = data[Label.P] * np.sqrt(DC / 2)
+    elif xkey == Label.ISPTRMS:
+        data[xkey] = data[Label.ISPPA] * np.sqrt(3 * DC) / 2
+    elif xkey == Label.DC:
+        data = get_xdep_data(data, Label.DC, add_DC0=True)
 
     # Sort by increasing input value
     data = data.sort_values(xkey)
@@ -4302,6 +4375,14 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     # Get mean and sem keys
     mu_ykey = f'{ykey} - mean'
     se_ykey = f'{ykey} - sem'
+
+    # If normalization specified
+    if norm:
+        # Get maximum value of ykey
+        ymax= data[mu_ykey].max()
+        # Normalize mean and sem columns by max y value
+        for yk in [mu_ykey, se_ykey]:
+            data[yk] /= ymax
 
     # Fetch axis, or create figure
     if ax is None:
@@ -4316,8 +4397,8 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     
     # Plot data points, with sweep color code
     cdict = {
-        Label.P: 'C0',
-        Label.DC: 'C1'
+        Label.P: 'darkgray',
+        Label.DC: 'dimgray',
     }
     for subxkey, color in cdict.items():
         subdata = get_xdep_data(data, subxkey, add_DC0=True)
@@ -4334,10 +4415,12 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         fit_data = data.copy()
     else:
         fit_data = get_xdep_data(data, fitsweepkey, add_DC0=True)
+    
+    # Extract x and mean y data
     xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
 
     # For each candidate objective function
-    for objfunc, p0_func in fit_candidates.items():
+    for ifit, (objfunc, p0_func) in enumerate(fit_candidates.items()):
         # Call function to estimate initial parameters
         p0 = p0_func(xdata, ydata)
         
@@ -4356,18 +4439,40 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             best_func = objfunc
             best_popt = popt
 
+        # Determine fit color
+        if fitsweepkey is not None:
+            c = cdict[fitsweepkey]
+        else:
+            c = 'k' if len(fit_candidates) == 1 else f'C{ifit}'
+
         # Plot dense fitted profile
         xdense = np.linspace(xdata.min(), xdata.max(), 1000)
         yfitdense = objfunc(xdense, *popt)
         ax.plot(
-            xdense, yfitdense, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}',
-            c=cdict.get(fitsweepkey, 'k')
-        )
+            xdense, yfitdense, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=c)
+
+        # If response metrics requested
+        if plot_respmetrics:
+            # If fit function does not have a sigmoid shape, raise warning
+            if objfunc.__name__ != 'sigmoid':
+                logger.warning(f'response threshold and saturation extraction only enabled with sigmoid functions')
+            # Else, extract and plot response metrics
+            else:
+                ymaxfit = popt[-1]
+                rel_yresps = {'threshold': .1, 'staturation': .9}
+                yresps = {k: yrel * ymaxfit for k, yrel in rel_yresps.items()}
+                xresps = {k: np.interp(yresp, yfitdense, xdense) for k, yresp in yresps.items()}
+                for k, xresp in xresps.items():
+                    ax.axhline(yresps[k], ls='--', c=c)
+                    ax.axvline(xresp, ls='--', c=c)
+                    logger.info(f'{k} {xkey} = {xresp:.2f}')
+                xratio = xresps['staturation'] / xresps['threshold']
+                ax.text(.5, .1, f'ratio = {xratio:.2f}', transform=ax.transAxes, fontsize=fs)
 
         # If fit was performed on particular sweep
         if fitsweepkey is not None:
             # Get data from other sweep
-            otherkey = list(set(cdict.keys()) - set(fitsweepkey))[0]
+            otherkey = list(set(cdict.keys()) - set([fitsweepkey]))[0]
             other_data = get_xdep_data(data, otherkey, add_DC0=True)
             xother, yother = other_data[xkey], other_data[mu_ykey]
 
@@ -4375,14 +4480,14 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             yotherfit = objfunc(xother, *popt)
 
             # Compute prediction accuracy
-            ζ = symmetric_accuracy(yother, yotherfit)
+            ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
 
             # Plot divergence between fit and data points from other sweep
             iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
             ax.fill(
                 np.hstack((xdense[iswithin], xother[::-1])), 
                 np.hstack((yfitdense[iswithin], yother[::-1])),
-                fc='silver', label=f'ζ = {ζ:.2f}'
+                fc='peru', label=f'ζ = {ζ:.2f}'
             )
         
         # Adjust x-scale if specified
@@ -4449,4 +4554,51 @@ def plot_filter_frequency_response(sos, as_gain=False, fs=None, fc=None):
     if fc is not None:
         for fc in as_iterable(fc):
             ax.axvline(fc, c='k', ls='--')
+    return fig
+
+
+def plot_fluorescence_ratios(data, mouseline):
+    '''
+    Plot median Fneu/F ratio for each dataset
+
+    :param data: population average fluorescence dataframe with
+    ROI and neuropil fluorescence vectors of each dataset over time
+    :param mouseline: mouse line
+    :return: figure handle
+    '''
+    # Compute median Fneu/Froi ratio for each dataset
+    ratios = (data[Label.F_NEU] / data[Label.F_ROI]).rename('Fneu/F')
+    median_ratios = ratios.groupby(Label.DATASET).median()
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(1.5, 5))
+    sns.despine(ax=ax)
+
+    # Create boxplot of median F/Fneu ratios
+    sns.boxplot(
+        data=median_ratios.reset_index(),
+        ax=ax,
+        y='Fneu/F',
+        showfliers=False,
+        color=Palette.LINE[mouseline],
+    )
+
+    # Show individual data points
+    sns.stripplot(
+        data=median_ratios.reset_index(),
+        ax=ax,
+        y='Fneu/F',
+        color='k',
+    )
+
+    # Add horizontal line at 1, and adjust y-axis limits
+    ax.axhline(1, c='k', ls='--')
+    ax.set_ylim(.0, 1.05)
+
+    # Adjust figure layout
+    ax.tick_params(axis='both', labelsize=15)
+    ax.set_ylabel('median F/Fneu', fontsize=15)
+    ax.set_xticklabels([mouseline], fontsize=15)
+
+    # Return figure 
     return fig

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 18:27:04
+# @Last Modified time: 2023-05-23 23:09:29
 
 ''' Collection of generic utilities. '''
 
@@ -813,11 +813,14 @@ def symmetric_accuracy(y, ypred, aggfunc='mean'):
     :param aggfunc: aggregating function in the logarithmic space (default = mean)
     :return: MSA of predictor
     '''
-    # Extract aggregation function
-    aggfunc = {
-        'mean': np.nanmean,
-        'median': np.nanmedian,
-    }[aggfunc]
+    # Extract aggregation function, and raise error if not valid
+    try:
+        aggfunc = {
+            'mean': np.nanmean,
+            'median': np.nanmedian,
+        }[aggfunc]
+    except KeyError:
+        raise ValueError(f'invalid aggregation function: {aggfunc}')
     # Compute log of accuracy ratio logQ
     logQ = np.log(ypred / y)
     # Compute aggregate value of absolute logQ

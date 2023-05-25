@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-04 14:24:25
+# @Last Modified time: 2023-05-25 12:45:46
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -25,8 +25,10 @@ class Label:
     ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
     ISPTA = 'I_SPTA (W/cm2)'  # spatial peak, temporal average acoustic intensity
     PSPTA = 'P_SPTA (MPa)'   # spatial peak, temporal average pressure
-    PRMS = 'P_RMS (MPa)'  # RMS pressure
-    IRMS = 'I_RMS (W/cm2)'  # RMS intensity
+    PSPPRMS = 'P_SPPRMS (MPa)'  # spatial peak, pulse RMS pressure
+    PSPTRMS = 'P_SPTRMS (MPa)'  # spatial peak, temporal RMS pressure 
+    ISPPRMS = 'I_SPPRMS (W/cm2)'  # spatial peak, pulse RMS intensity
+    ISPTRMS = 'I_SPTRMS (W/cm2)'  # spatial peak, temporal RMS intensity
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
     FPS = 'fps'
