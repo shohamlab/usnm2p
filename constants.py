@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-25 17:45:33
+# @Last Modified time: 2023-05-26 11:45:33
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -140,7 +140,11 @@ class DataRoot:
 
 
 # Response and responders type
-RTYPE_MAP = {-1: 'negative', 0: 'weak', 1: 'positive'}
+RTYPE_MAP = {
+    # -1: 'negative',
+    0: 'weak',
+    1: 'positive'
+}
 RTYPE = pd.api.types.CategoricalDtype(
     categories=list(RTYPE_MAP.values()), ordered=True)
 
@@ -264,7 +268,7 @@ TRIAL_AGGFUNC = np.median   # trial aggregation function
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 10, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
+    PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM + 1, STIM + 12)  # indexes used for post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
@@ -276,7 +280,7 @@ DIRECTIONAL_DETECTION = True  # whether to look for directional (i.e. positive o
 N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 
 # Responder type classification
-ISPTA_THR = 1.0  # ISPTA lower bound restricting the conditions on which to compute fraction of response occurence (W/cm2)
+ISPTA_THR = 2.0  # ISPTA lower bound restricting the conditions on which to compute fraction of response occurence (W/cm2)
 PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response type for a cell to be classified as that same respone type
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 

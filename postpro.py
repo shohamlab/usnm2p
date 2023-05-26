@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-26 09:00:01
+# @Last Modified time: 2023-05-26 10:22:27
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1391,17 +1391,6 @@ def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     :param npost: number of post-stimulus samples
     :return: updated stats dataframe
     '''
-    # Determine new keys
-    ykey_prestim_avg, ykey_poststim_avg, ykey_diff = get_change_key(ykey, full_output=True)
-    if npre is None and npost is None and ykey_diff in stats:
-        logger.warning(f'default {ykey_diff} already present in stats -> ignoring')
-        return stats
-    logger.info(f'adding {ykey_diff} metrics to stats dataset...')
-    
-    # Define series averaging function
-    def series_avg(s):
-        return s.mean()
-
     # Define windows sizes if not provided
     if npre is None:
         npre = FrameIndex.PRESTIM.stop - FrameIndex.PRESTIM.start - 1
@@ -1413,7 +1402,7 @@ def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
     wpost = slice(FrameIndex.STIM + 1, FrameIndex.STIM + 2 + npost)
     
     # Compute evoked change
-    stats[ykey_diff] = compute_evoked_change(timeseries, ykey, wpre=wpre, wpost=wpost)
+    stats[get_change_key(ykey)] = compute_evoked_change(timeseries, ykey, wpre=wpre, wpost=wpost)
     
     # Return
     return stats
