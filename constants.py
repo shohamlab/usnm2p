@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-25 12:46:52
+# @Last Modified time: 2023-05-25 17:45:33
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -259,7 +259,7 @@ ZTHR_REJECTION = 3.  # threshold absolute z-score for signal rejection
 PTHR_REJECTION = 0.01  # significance threshold probability for signal rejection
 
 # Trial aggregation
-TRIAL_AGGFUNC = np.mean   # trial aggregation function
+TRIAL_AGGFUNC = np.median   # trial aggregation function
 
 # Frame indexes
 class FrameIndex:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-24 20:38:07
+# @Last Modified time: 2023-05-25 16:22:50
 
 ''' Collection of plotting utilities. '''
 
@@ -3858,9 +3858,8 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
             .apply(lambda s: s / s.max())
         )
 
-    # Offset profiles by run
+    # Offset profiles by any category that is not trial or frame
     by = list(filter(lambda s: s not in [Label.TRIAL, Label.FRAME], data.index.names)) 
-    by = Label.RUN
     yoffsets = get_offsets_by(
         data[ykeys[0]], by, match_idx=True, ascending=False)
     plt_data = data.copy()
