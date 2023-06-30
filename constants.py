@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-26 11:45:33
+# @Last Modified time: 2023-06-26 14:54:39
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -56,6 +56,9 @@ class Label:
     # Time-varying signals
     TIME = 'time (s)'
     HOURS = 'hours'
+    TRIALPHASE = 'trial phase (rad)'
+    PHASE = 'phase (rad)'
+    ENV = 'envelope'
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
@@ -270,6 +273,7 @@ class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
     PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM + 1, STIM + 12)  # indexes used for post-stimulus response computation per trial.
+    RESPSHORT = slice(STIM + 1, STIM + 6)  # indexes used for short post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 

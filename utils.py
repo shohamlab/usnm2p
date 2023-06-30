@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-23 23:09:29
+# @Last Modified time: 2023-06-26 12:07:16
 
 ''' Collection of generic utilities. '''
 
@@ -13,7 +13,7 @@ from pandas.api.types import is_numeric_dtype
 import operator
 from functools import wraps
 
-from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME
+from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME, PA_TO_MPA, M2_TO_CM2
 from logger import logger
 
 
@@ -554,6 +554,54 @@ def intensity_to_pressure(I, rho=1046.0, c=1546.3):
     return np.sqrt(I * 2 * rho * c)
 
 
+def get_dose_metric(P, DC, key):
+    '''
+    Compute a specific ultrasonic dose metric based on peak pressure
+    and stimulus duty cycle values
+    
+    :param P: peak pressure amplitude (in MPa)
+    :param DC: duty cycle (in %)
+    :param key: dose metric key
+    :return: dose metric value
+    '''
+    # Convert DC to fraction
+    DC = DC * 1e-2
+
+    # case: P
+    if key == Label.P:
+        return P  # MPa
+    
+    # case: DC
+    if key == Label.DC:
+        return DC  # (-)
+
+    # case: P_SPTA 
+    if key == Label.PSPTA:
+        return P * DC  # MPa
+
+    # case: P_RMS 
+    if key == Label.PSPTRMS:
+        return P * np.sqrt(DC / 2)
+    
+    # Compute Isppa
+    Isppa = pressure_to_intensity(P / PA_TO_MPA) / M2_TO_CM2  # W/cm2
+
+    # case: I_SPPA
+    if key == Label.ISPPA:
+        return Isppa  # W/cm2
+    
+    # case: I_SPTA
+    if key == Label.ISPTA:
+        return Isppa * DC  # W/cm2
+
+    # case: I_RMS
+    if key == Label.ISPTRMS:
+        return Isppa * np.sqrt(3 * DC) / 2  # W/cm2
+    
+    raise ValueError(f'invalid dose metric key: "{key}"')
+
+
+
 def normalize_stack(x, bounds=(0, 1000)):
     '''
     Normalize stack to a given interval
@@ -738,6 +786,22 @@ def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     return A * norm_sig + y0
 
 
+def get_sigmoid_params(x, y):
+    '''
+    Function estimating the initial parameters of a sigmoidal function to fit
+    to a pair of input - output vectors
+    
+    :param x: input vector
+    :param y: output vector
+    :return: initial fit parameters 
+    '''
+    return [
+        x.mean(),  # inflection point: mean of x range
+        np.ptp(x) / 2,  # width: half of x range
+        y.max()  # maximum: max of y range
+    ]
+
+
 def custom_sigmoid(x, x0=0, sigma=1, p=1, A=1, y0=0):
     y = 1 + np.exp(x - x0) / sigma
     return A * (1 - np.power(y, -p))
@@ -776,6 +840,8 @@ def parabolic(x, x1, x2, A=1, y0=0):
 
 def bounds(x):
     ''' Extract minimum and maximum of array simultaneously '''
+    if isinstance(x, slice):
+        return np.array([x.start, x.stop - 1])    
     return np.array([min(x), max(x)])
 
 
@@ -801,6 +867,17 @@ def rsquared(y, ypred):
     return 1 - (ss_res / ss_tot)
 
 
+def relative_error(y, yref):
+    '''
+    Return relative error between 2 arrays
+    
+    :param y: evaluated array
+    :param yref: reference array
+    :return: relative error
+    '''
+    return np.mean(np.abs((y - yref) / yref))
+
+
 def symmetric_accuracy(y, ypred, aggfunc='mean'):
     '''
     Compute the symmetric accuracy between two arrays. Inspired by:
@@ -808,8 +885,8 @@ def symmetric_accuracy(y, ypred, aggfunc='mean'):
     Performance Based On the Log Accuracy Ratio. Space Weather 16, 69–88.*,
     but with a choice of log-space aggregating function.
 
-    :param x: reference (i.e. data) array
-    :param xpred: predictor array
+    :param y: reference (i.e. data) array
+    :param ypred: predictor array
     :param aggfunc: aggregating function in the logarithmic space (default = mean)
     :return: MSA of predictor
     '''
@@ -861,3 +938,8 @@ def get_exclude_list(df, criteria=None):
         df = df[as_iterable(criteria)]
     is_exclude = (df == 'y').any(axis=1)
     return is_exclude[is_exclude].index.values.tolist()
+
+
+def complex_exponential(x):
+    ''' Compute complex exponential of x '''
+    return np.exp(1j * x)

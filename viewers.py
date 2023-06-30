@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-17 16:07:36
+# @Last Modified time: 2023-06-13 23:09:38
 
 ''' Notebook image viewing utilities. '''
 
@@ -20,7 +20,8 @@ import imageio as iio
 from constants import S2P_UINT16_NORM_FACTOR
 
 from logger import logger
-from utils import float_to_uint8
+from utils import float_to_uint8, is_iterable
+from constants import REF_NFRAMES, NFRAMES_PER_TRIAL
 
 
 class StackViewer:
@@ -362,3 +363,52 @@ class InteractivePlotViewer:
     
 def view_interactive_plot(*args, **kwargs):
     return InteractivePlotViewer(*args, **kwargs)
+
+
+def extract_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, aggtrials=False, aggfunc=np.median):
+    '''
+    Extract a sequence of frames from registered movie for a given run and trial
+
+    :param ops: suite2p output options dictionary
+    :param irun: run index
+    :param itrial: trial(s) index. If not provided, frames will be extracted from all available trials 
+    :param iframes: list of frame indexes to extract
+    :param ntrials_per_run (optional): number of trials per run. If none provided,
+        inferred from REF_NFRAMES.
+    :param aggtrials: boolean stating whether or not to aggregatre frames across selected trials
+    :return: frames stack array
+    '''
+    # Cast frames list to array
+    iframes = np.atleast_1d(np.asarray(iframes))
+
+    # Compute number of trials per run if not specified
+    if ntrials_per_run is None:
+        ntrials_per_run = REF_NFRAMES // NFRAMES_PER_TRIAL
+    nframes_per_run = ntrials_per_run * NFRAMES_PER_TRIAL
+    
+    # If multiple trials provided, transpose trial vector
+    if is_iterable(itrial):
+        itrial = np.atleast_2d(itrial).transpose()
+
+    # Compute extended frame indexes for given run and trial
+    iframes_ext = irun * nframes_per_run + itrial * NFRAMES_PER_TRIAL + iframes
+    iframes_ext = np.ravel(iframes_ext)
+    itrial = np.ravel(itrial)
+
+    # Initialize stack viewer and extract frames
+    viewer = get_stack_viewer(ops)
+    logger.info(f'extracting frames {iframes} from run {irun}, trial(s) {itrial} (indexes = {iframes_ext})')
+    frames = []
+    for i in iframes_ext:
+        frames.append(viewer.get_frame(viewer.fobjs[0], int(i)))
+        viewer.reload_binary_file(viewer.fobjs[0])
+    frames = np.array(frames)
+
+    # If specified, aggregate frames across trials
+    if aggtrials:
+        logger.info(f'aggregating frames across trials {itrial} with {aggfunc.__name__} function...')
+        frames = np.reshape(frames, (len(itrial), len(iframes), *frames.shape[1:]))
+        frames = aggfunc(frames, axis=0)
+
+    # Return stack 
+    return frames

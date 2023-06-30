@@ -2,18 +2,20 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-25 16:22:50
+# @Last Modified time: 2023-06-30 18:33:28
 
 ''' Collection of plotting utilities. '''
 
 from itertools import combinations, chain
 import random
+import sys
 from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
+from matplotlib.ticker import FormatStrFormatter
 from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
@@ -33,7 +35,7 @@ from logger import logger
 from constants import *
 from utils import *
 from postpro import *
-from viewers import get_stack_viewer
+from viewers import get_stack_viewer, extract_registered_frames
 from fileops import loadtif
 from parsers import get_info_table, parse_quantile
 
@@ -41,7 +43,8 @@ from parsers import get_info_table, parse_quantile
 import matplotlib
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
-matplotlib.rcParams['font.family'] = 'arial'
+if sys.platform != 'linux':
+    matplotlib.rcParams['font.family'] = 'arial'
 
 # Colormaps
 rdgn = sns.diverging_palette(h_neg=130, h_pos=10, s=99, l=55, sep=3, as_cmap=True)
@@ -141,6 +144,26 @@ def harmonize_axes_limits(axes, axkey='y'):
         limsetter(ax)(*bounds)
 
 
+def adjust_xscale(ax, xscale=None):
+    ''' Adjust x-scale if specified '''
+    if xscale is not None:
+        def signed_sqrt(x):
+                if is_iterable(x):
+                    return np.array([signed_sqrt(xi) for xi in x])
+                return np.sqrt(x) if x >= 0 else -np.sqrt(-x)
+        if xscale == 'sqrt':
+            ax.set_xscale('function', functions=(signed_sqrt, np.square))
+            xticks = list(filter(lambda x: x >= 0, ax.get_xticks()))
+            if 0 not in xticks:
+                xticks = [0] + xticks
+            ax.set_xticks(xticks)
+            xlims = ax.get_xlim()
+            ax.set_xlim(-.001 * xlims[1], xlims[1])
+            ax.spines['left'].set_position(('outward', 10))
+        else:
+            ax.set_xscale(xscale)
+
+
 def harmonize_jointplot_limits(jg):
     ''' Harmonize X and Y limits of joint plots '''
     lims = jg.ax_joint.get_xlim() + jg.ax_joint.get_ylim()
@@ -225,6 +248,98 @@ def set_normalizer(cmap, bounds, scale='lin'):
     sm = cm.ScalarMappable(norm=norm, cmap=cmap)
     sm._A = []
     return norm, sm
+
+
+def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=False,
+                           cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, **kwargs):
+    '''
+    Plot a series of frames from registered movie for a given run and trial
+
+    :param ops: suite2p output options dictionary
+    :param irun: run index
+    :param itrial: trial(s) index
+    :param iframes: list of frame indexes to plot
+    :param ntrials_per_run (optional): number of trials per run. If none provided,
+        inferred from REF_NFRAMES.
+    :param fps (optional): frame rate (in Hz) used to infer the time of extracted frames
+    :param norm (optional): whether to normalize frames to a common color scale (default = False)
+    :param cmap (optional): colormap (default = 'gray')
+    :param fs (optional): fontsize (default = 12)
+    :param height (optional): figure height (default = 3)
+    :return: figure handle
+    '''
+    # Cast frames list to array
+    iframes = np.atleast_1d(np.asarray(iframes))
+    nframes = iframes.size
+
+    # Compute number of trials per run if not specified
+    if ntrials_per_run is None:
+        ntrials_per_run = REF_NFRAMES // NFRAMES_PER_TRIAL
+
+    # If no trial index provided, gather frames from all trials
+    if itrial is None:
+        itrial = np.arange(ntrials_per_run)
+
+    # If several trial indexes provided, call function recursively
+    if is_iterable(itrial) and not aggtrials:
+        fig, axes = plt.subplots(len(itrial), len(iframes), figsize=(len(iframes) * height, len(itrial) * height))
+        for i, it in enumerate(itrial):
+            plot_registered_frames(
+                ops, irun, it, iframes, ntrials_per_run=ntrials_per_run, fps=fps, norm=norm,
+                cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label)
+            fig.suptitle(f'run {irun}, trials {itrial}', fontsize=fs, y=1)
+        return fig
+
+    # Extract frames stack
+    frames = extract_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, aggtrials=aggtrials, **kwargs)
+
+    # Assess whether trial-aggregation is specified
+    trial_str = f'trials {itrial}'
+    if aggtrials:
+        trial_str = f'aggregate across {trial_str}'
+
+    # Normalize frames to common color scale if requested
+    if norm:
+        sig_bounds = (frames.min(), frames.max())
+        logger.info(f'normalizing frames to common {sig_bounds} interval')
+        norm, _ = set_normalizer(cmap, sig_bounds)
+    else:
+        norm = None
+
+    # Create / retrieve figure and axes
+    if axes is None:
+        fig, axes = plt.subplots(1, nframes, figsize=(nframes * height, height))
+        axes = np.atleast_1d(axes)
+    else:
+        fig = axes[0].get_figure()
+        if len(axes) != nframes:
+            raise ValueError(f'number of axis objects ({len(axes)}) does not match number of frames ({nframes})')
+    
+    # Plot frames
+    for ax, iframe, frame in zip(axes, iframes, frames):
+        ax.imshow(frame, cmap=cmap, norm=norm)
+        ax.axis('off')
+        iframe_diff = iframe - FrameIndex.STIM
+        if fps is None:
+            title = 'frame = stim'
+            if iframe_diff < 0:
+                title = f'{title} - {-iframe_diff}'
+            elif iframe_diff > 0:
+                title = f'{title} + {iframe_diff}'
+        else:
+            title = 't = stim'
+            if iframe_diff < 0:
+                title = f'{title} - {-iframe_diff / fps:.2f} s'
+            elif iframe_diff > 0:
+                title = f'{title} + {iframe_diff / fps:.2f} s'
+        if overlay_label:
+            ax.text(.5, .9, title, color='w', va='center', ha='center', fontsize=fs, transform=ax.transAxes)
+        else:
+            ax.set_title(title, fontsize=fs)
+        fig.suptitle(f'run {irun}, {trial_str}', fontsize=fs, y=1)
+
+    # Return figure handle
+    return fig
 
 
 def plot_stack_histogram(stacks, title=None, yscale='log'):
@@ -2087,7 +2202,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
                    ci=CI, legend='full', err_style='band', ax=None, alltraces=False, kind='line',
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, ls='-', lw=2,
-                   height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=7,
+                   height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=6,
                    hide_col_prefix=False, col_count_key=None, color=None, **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
@@ -2210,7 +2325,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         err_style = err_style,     # error visualization style 
         lw        = lw,           # line width
         palette   = palette,       # color palette
-        legend    = legend         # use all hue entries in the legend
+        legend    = legend,        # use all hue entries in the legend
     )
 
     # Adjust traces alpha if specified
@@ -2596,22 +2711,36 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, hue=None,
-                              avgprop=None, errprop='inter', marker=None, avg_color='k', err_style='band',
-                              add_leg_numbers=True, hue_alpha=1., ci=CI, legend='full', as_ispta=False,
-                              stacked=False, fit=False, lw=1.5, avglw=3, avgerr=True, palette=None, outliers=None,
-                              **kwargs):
+                              avgprop=None, errprop='inter', marker=None, avg_color='k',
+                              err_style='band', add_leg_numbers=True, hue_alpha=1., ci=CI,
+                              legend='full', as_ispta=False, stacked=False, fit=None,
+                              lw=1.5, avglw=3, avgerr=True, palette=None, outliers=None,
+                              xscale='linear', **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
     :param data: trial-averaged experiment dataframe
-    :param xkey (optional): key indicating the independent variable of the x-axis
-    :param ykey (optional): key indicating the dependent variable of the y-axis
-    :param yref (optional): vertical at which to draw a "reference" horizontal line
-    :param hue: hue grouping parameter
+    :param xkey (optional): key indicating the independent variable of the x-axis (default = P)
+    :param ykey (optional): key indicating the dependent variable of the y-axis (default: evoked DFF)
+    :param yref (optional): vertical at which to draw a "reference" horizontal line (default: 0)
+    :param hue (optional): hue grouping parameter (default: None)
     :param avgprop: whether and how to propagate the data for global average reporting (None, "all", "hue" or "whue")
     :param errprop: how to propagate data for global standard error reporting ("inter or "intra")
-    :param add_leg_numbers: whether to add sample counts for each legend entry  
+    :param marker (optional): marker to use for data points (if any)
+    :param avg_color (optional): color to use for global average trend (default: "k")
+    :param legend (optional): whether to plot a legend for each hue level (default: "full")
+    :param add_leg_numbers: whether to add sample counts for each legend entry (default = False)
+    :pramhue_alpha (optional): opacity level of indidvidual hue traces (default = 1)
     :param ci: confidence interval used to plot shaded areas around traces
         (default = 68 === SEM)
+    :param as_ispta (optional): whether to project input parameter to ISPTA space (default: False)
+    :param stacked (optional): whether to offset each hue trend vertically (default: False)
+    :param fit (optional): tuple of (objective fit function, initial fit parameters function) to used to fit a function to the average dependency profile
+    :param lw (optional): line width for individual traces
+    :param avglw (optional): line width for global average trace
+    :param avgerr: whether to plot the standard error for the globsl average (default: True)
+    :param palette (optional): color palette for hue levels
+    :param outliers (optional): specific hue categories that should be materialized as outliers (default = None)
+    :param xscale (optional): scale of the x-axis (default = 'linear')
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
@@ -2734,7 +2863,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         
         avg_kwargs = dict(
             c=avg_color,
-            # markersize=10, 
+            markersize=3, 
             # markeredgecolor='w'
         )
         # Plot propagated global mean trace and standard error (as bars or band)
@@ -2744,11 +2873,12 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
                 ax.errorbar(
                     mean.index, mean.values, yerr=sem.values, 
                     lw=0 if fit else avglw, elinewidth=2 if fit else avglw,
+                    marker=marker,
                     **avg_kwargs)
             else:
                 ax.plot(
                     mean.index, mean.values, 
-                    lw=0 if fit else avglw, **avg_kwargs)
+                    lw=0 if fit else avglw, marker=marker, **avg_kwargs)
         elif err_style == 'band':
             ax.plot(
                 mean.index, mean.values, 
@@ -2760,18 +2890,76 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         else:
             raise ValueError(f'invalid error style: {err_style}')
 
+        # If fit objects provided, compute and add to axis
         if fit:
-            ax.plot(
-                *get_cubic_fit(mean.index, mean.values), 
-                ls='--', lw=avglw, **avg_kwargs)
+            objfunc, initfunc = fit
+            pltkwargs = dict(ls='--', lw=avglw, **avg_kwargs)
+            compute_and_add_fit(
+                ax, mean.index.values, mean.values, objfunc, initfunc=initfunc, **pltkwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
         for y in as_iterable(yref):
             ax.axhline(y, c='k', ls='--')
     
+
+    # Adjust x-scale
+    adjust_xscale(ax, xscale=xscale)
+    
     # Return figure handle
     return fig
+
+
+def compute_and_add_fit(ax, xdata, ydata, objfunc, initfunc=None, **pltkwargs):
+    '''
+    Fit a function to and X-Y profile, compute the goodness of fit (R-squared)
+    and plot the resulting function across the X-data range
+
+    :param ax: axis object
+    :param xdata: x data range
+    :param ydata: y data range
+    :param objfunc: function to fit to data
+    :param initfunc (optional): function to estimate initial fit parameters
+    :param pltkwargs: plotting keyword arguments
+    '''
+    # Call function to estimate initial parameters, if provided
+    if initfunc is not None:
+        logger.info(f'estimating initial fit parameters for {objfunc.__name__} function')
+        p0 = initfunc(xdata, ydata)
+    else:
+        p0 = None
+    
+    # If specified, perform polynomial fit
+    if isinstance(objfunc, str) and objfunc.startswith('poly'):
+        order = int(objfunc[4])
+        fitname = objfunc
+        logger.info(f'fitting order {order} polynomial to data')
+        objfunc = np.poly1d(np.polyfit(xdata, ydata, order))
+        popt = []
+
+    # Otherwise, perform classic fit
+    else:
+        fitname = objfunc.__name__
+        logger.debug(f'computing fit with {fitname} function: p0 = {p0}')
+        popt, _ = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+    
+    # Compute output value with fit predictor
+    yfit = objfunc(xdata, *popt)
+
+    # Compute error between fit prediction and data
+    r2 = rsquared(ydata, yfit)
+    logger.info(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
+
+    # Plot fit profile
+    xdense = np.linspace(*bounds(xdata), 100)
+    yfitdense = objfunc(xdense, *popt)
+    ax.plot(xdense, yfitdense, **pltkwargs)
+
+    # Display fit results on graph
+    ax.text(
+        .5, .9, f'{fitname} fit: R2 = {r2:.2f}', ha='center', va='top', 
+        transform=ax.transAxes, fontsize=12)
+
 
 
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
@@ -2860,8 +3048,9 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
 
             # Add 3rd order polynomial fit if required
             if fit:
-                ax.plot(
-                    *get_cubic_fit(aggdata[xkey], aggdata[mu_key]),
+                objfunc, initfunc = fit
+                compute_and_add_fit(
+                    ax, aggdata[xkey], aggdata[mu_key], objfunc, initfunc=initfunc,
                     ls='--', color=color)
         if legend:
             ax.legend(frameon=False)
@@ -2880,7 +3069,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     return fig
 
 
-def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, add_sweep_markers=True, **kwargs):
+def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, **kwargs):
     '''
     Plot dependency of a specific response metrics on stimulation parameters
     
@@ -2914,15 +3103,12 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, ad
     for i, (xkey, ax) in enumerate(zip(xkeys, axes.T)):
         if i == len(axes) - 1 and legend:
             del kwargs['legend']
-        if xkey == Label.ISPTA:
-            plot_intensity_dependencies(
-                data, ykey, ax=ax, add_sweep_markers=add_sweep_markers, **kwargs)
-        else:
-            plot_parameter_dependency(
-                data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', **kwargs)   
-            if parent and not tightened:
-                fig.tight_layout()
-                tightened = True
+        plot_parameter_dependency(
+            data, xkey=xkey, ax=ax, ykey=ykey, title=f'{xkey} dependency', 
+            xscale='sqrt' if xkey==Label.ISPTA else 'linear', **kwargs)   
+        if parent and not tightened:
+            fig.tight_layout()
+            tightened = True
 
         axleg = ax.get_legend()
         if axleg is not None:
@@ -3056,53 +3242,116 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     return fig
 
 
-def plot_P_DC_map(P, DC, fs=12, ax=None):
+def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket', color='silver', s=30,
+                  ncontours=4, contour_labels=False, fs=12, ax=None):
     ''' 
     Plot sonication protocol in the DC - pressure space
     
-    :param P: array of peak pressure amplitudes (in MPa)
-    :param DC: array of duty cycles (in %)
+    :param P (optional): array of peak pressure amplitudes (in MPa)
+    :param DC (optional): array of duty cycles (in %)
+    :param dose_key (optional): dose metrics to overlay as 2D colormap
+    :param cmap: colormap to use for dose metrics plotting (default: 'rocket')
+    :param s: size of sampled points (default: 30)
+    :param color: color used to plot sampled points (default: 'silver')
+    :param ncontours: number of contour levels to plot (default: 4)
+    :param contour_labels: whether to plot dose contour labels (default: False)
+    :param fs: font size (default: 12)
+    :param ax: axis handle
     :return: figure handle
     '''
-
-    # Compute time average intensities over P - DC grid
-    nperax = 100
-    Prange = np.linspace(0, 1.25 * P.max(), nperax)  # MPa
-    DCrange = np.linspace(0, 100, nperax)  # %
-    Isppa = pressure_to_intensity(Prange / PA_TO_MPA) / M2_TO_CM2  # W/cm2
-    Ispta = np.dot(np.atleast_2d(Isppa).T, np.atleast_2d(DCrange)) * 1e-2  # W/cm2
+    # If multiple dose metrics specified, create figure and plot each in a separate axis
+    if is_iterable(dose_key):
+        fig, axes = plt.subplots(len(dose_key), 1, figsize=(1.5, 2 * len(dose_key)))
+        fig.subplots_adjust(hspace=0.5, wspace=.7)
+        for key, ax in zip(dose_key, axes.ravel()):
+            plot_P_DC_map(
+                P=P, DC=DC, dose_key=key, cmap=cmap, color=color, s=20, 
+                ncontours=ncontours, contour_labels=contour_labels, fs=fs, ax=ax)
+        return fig
 
     # Create or retrieve figure
     if ax is None:
         fig, ax = plt.subplots(figsize=(4, 4))
     else:
         fig = ax.get_figure()
-    ax.set_title(Label.ISPTA, fontsize=fs)
     ax.set_xlabel(Label.DC, fontsize=fs)
     ax.set_ylabel(Label.P, fontsize=fs)
     sns.despine(ax=ax)
     for item in ax.get_xticklabels() + ax.get_yticklabels():
         item.set_fontsize(fs)
 
-    # Plot Ispta colormap over DC - DC space
-    cmap = sns.color_palette('rocket', as_cmap=True).reversed()
-    ax.pcolormesh(
-        DCrange, Prange, Ispta, shading='gouraud', rasterized=True, cmap=cmap)
+    # Determine pressure axis upper limit
+    Pup = 1.25 * P.max() if P is not None else 1.    
 
-    # Plot contours for characteristic Ispta values
-    Ispta_levels = np.array([.01, .2, 1, 2, 5, 10, 20])
-    labels_DC = 80
-    labels_Ispta = Ispta_levels / labels_DC * 1e2  # W/cm2
-    labels_P = intensity_to_pressure(labels_Ispta * M2_TO_CM2) * PA_TO_MPA 
-    labels_locs = [(labels_DC, p) for p in labels_P]
-    CS = ax.contour(DCrange, Prange, Ispta, levels=Ispta_levels, colors='k')
-    ax.clabel(CS, fontsize=fs, inline=True, fmt='%.2g', manual=labels_locs)
+    # Compute P and DC range vectors for plotting
+    nperax = 100
+    Prange = np.linspace(0, Pup, nperax)  # MPa
+    DCrange = np.linspace(0, 100, nperax)  # %
 
-    # Plot sampled DC - P combinations
-    ax.scatter(DC, P, c='deepskyblue', edgecolors='k', zorder=80)
+    # Set axis limits
+    ax.set_xlim(DCrange.min(), DCrange.max())
+    ax.set_ylim(Prange.min(), Prange.max())
 
-    # Finalize figure layout
-    fig.tight_layout()
+    # Compute 2D grid of P and DC values
+    Pgrid, DCgrid = np.meshgrid(Prange, DCrange, indexing='ij')
+
+    # Plot sampled DC - P combinations, if provided
+    if P is not None and DC is not None:
+        ax.scatter(DC, P, c=color, edgecolors='k', zorder=80, s=s)
+    
+    # If aggregate metrics is provided
+    if dose_key is not None:
+        
+        # Compute 2D array of metric values over P - DC grid
+        dose_values = get_dose_metric(Pgrid, DCgrid, dose_key)
+    
+        # Plot dose metric colormap over DC - DC space
+        cmap = sns.color_palette(cmap, as_cmap=True).reversed()
+        sm = ax.pcolormesh(
+            DCrange, Prange, dose_values, shading='nearest', rasterized=True, cmap=cmap)
+        
+        # Create axis for colorbar on the right side of the plot
+        bbox = ax.get_position()
+        cax = fig.add_axes([
+            bbox.x1 + bbox.width * .05, 
+            bbox.y0, 
+            bbox.width * 0.1, 
+            bbox.height
+        ])
+        
+        # Add colorbar
+        cbar = fig.colorbar(sm, pad=0.02, aspect=40, cax=cax)
+        cbar.set_label(dose_key, fontsize=fs)
+        cbar.set_ticks([dose_values.min(), dose_values.max()])
+        cbar.ax.yaxis.set_major_formatter(FormatStrFormatter('%.2g'))
+        for item in cbar.ax.get_yticklabels():
+            item.set_fontsize(fs)
+
+        # Add dose metric contours if specified 
+        if ncontours > 0:
+            # Get reference dose value
+
+            # If no contour labels specified, use half of max dose value
+            if not contour_labels:
+                refdose = dose_values.max() * .5
+
+            # If contour labels specified, round reference dose to nearest 10^exp value
+            if contour_labels: 
+                maxdose = dose_values.max()
+                maxdose_factor = 10 ** np.floor(np.log10(maxdose))
+                refdose = np.floor(maxdose / maxdose_factor) * maxdose_factor
+
+            # Determine characteristic dose levels to mark on plot
+            dose_levels = np.logspace(-2, 0, ncontours) * refdose
+            CS = ax.contour(
+                DCrange, Prange, dose_values, levels=dose_levels, colors='k')
+            
+            # Add contour labels, if specified
+            if contour_labels:
+                ax.clabel(CS, fontsize=fs, inline=True, fmt='%.2g')
+
+    # # Finalize figure layout
+    # fig.tight_layout()
 
     # Return figure
     return fig
@@ -3425,7 +3674,8 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
     return fig
 
 
-def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None, norm=False):
+def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None, norm=False, 
+                                           err_style='band', connect='line', fill_between=True):
     '''
     Plot comparative parameter dependency curves (with error bars) across
     mouse lines, for each responder type
@@ -3458,6 +3708,13 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
             raise ValueError(
                 f'number of axes ({len(axes)}) does not match number of inputs ({len(xkeys)})')
         fig = axes[0].get_figure()
+
+    # Determine plot function
+    if connect is None:
+        pltfunc = sns.scatterplot
+    elif connect == 'line':
+        pltfunc = sns.lineplot
+                       
     # For each input parameter x
     for i, (xkey, ax) in enumerate(zip(xkeys, axes)):
         sns.despine(ax=ax)
@@ -3467,27 +3724,60 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
             hue=Label.LINE,
             palette=Palette.LINE,
         )
+        
         # Get x-dependent data
         if xkey != Label.ISPTA:
             depdata = get_xdep_data(data, xkey)
             # Plot mean profile, per mouse line
-            sns.lineplot(data=depdata, legend=i == len(xkeys) - 1, **pltkwargs)
+            pltfunc(
+                data=depdata, legend=i == len(xkeys) - 1, **pltkwargs)                
         else:
             for xk, ls in {Label.P: '--', Label.DC: '-'}.items(): 
                 # Plot mean profile, per mouse line
-                sns.lineplot(
+                pltfunc(
                     data=get_xdep_data(data, xk), ls=ls,
                     legend=i == len(xkeys) - 1 and xk == Label.DC,
                     **pltkwargs
                 )
             depdata = data.copy()
-        # Plot +/-sem error bands, for each mouse line
-        for line, ldata in depdata.groupby(Label.LINE):
+
+        # Create fill vectors, if requested 
+        if fill_between:
+            xfill = []
+            yfill = []
+        
+        # Plot +/-sem error, for each mouse line
+        for iline, (line, ldata) in enumerate(depdata.groupby(Label.LINE)):
             ldata = ldata.sort_values(xkey)
-            ybar, ysem = ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem']
-            ax.fill_between(
-                ldata[xkey], ybar - ysem, ybar + ysem,
-                fc=Palette.LINE[line], alpha=0.3)
+            ymu, ysem = ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem']
+            if err_style == 'band':
+                ax.fill_between(
+                    ldata[xkey], ymu - ysem, ymu + ysem,
+                    fc=Palette.LINE[line], alpha=0.3)
+            elif err_style == 'bars':
+                ax.errorbar(
+                    ldata[xkey], ymu, yerr=ysem,
+                    c=Palette.LINE[line], fmt='.')
+        
+            # Append to fill vectors, if requested
+            if fill_between:
+                if iline % 2 == 0:
+                    xfill.append(ldata[xkey])
+                    yfill.append(ymu)
+                else:
+                    xfill.append(ldata[xkey][::-1])
+                    yfill.append(ymu[::-1])
+
+            iline += 1
+
+        # Apply fill, if requested
+        if fill_between:
+            ax.fill(
+                np.hstack(xfill),
+                np.hstack(yfill),
+                fc='silver',
+            )
+
         # Adjust y-labels
         ax.set_ylabel(ykey)
         # Add reference vertical level
@@ -3514,7 +3804,8 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yr
     # Plot ISPTA dependency profiles
     plot_parameter_dependency(
         data, xkey=Label.ISPTA, ykey=ykey, yref=yref, hue=hue, ax=ax, 
-        marker=None, as_ispta=True, 
+        # marker=None, 
+        as_ispta=True, 
         avglw=0 if add_sweep_markers else 3, 
         avg_color=avg_color, **kwargs)
     # Indicate the "parameter sweep" origin of each data point
@@ -3531,7 +3822,7 @@ def plot_intensity_dependencies(data, ykey, ax=None, hue=Label.ROI_RESP_TYPE, yr
                 weighted=True, as_ispta=True,
                 avg_color=avg_color, 
                 add_leg_numbers=False, 
-                lw=3,
+                # lw=3,
                 ls={Label.P: '--', Label.DC: '-'}[xkey],
                 **kwargs
             )
@@ -3631,7 +3922,8 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
 
 def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
                             avg_overlay=True, avg_color='k', hue_width=False, palette=None, outliers=None,
-                            legend='full', **kwargs):
+                            legend='full', fit=None, avglw=3, err_style='band', xscale='linear',
+                            **kwargs):
     ''' 
     Plot fraction of responder cells as a function of an input parameter
 
@@ -3677,13 +3969,13 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
     )
 
     # Line plot: update plotting options 
-    if kind == 'line':
+    if kind in ('line', 'scatter'):
         pltfunc = sns.relplot
         if hue is None:
             pltkwargs.update(dict(
                 marker = 'o',
                 color='b',
-                markersize=10,
+                markersize=8,
                 lw=3,
                 markeredgecolor='w',
                 ci=68
@@ -3728,22 +4020,41 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
     ax.axhline(PTHR_DETECTION, c='k', ls='--')
     
     # Add average trace if specified and compatible
-    if kind == 'line' and avg_overlay:
+    if kind in ('line', 'scatter') and avg_overlay:
+
+        # Compute weighted mean ans SE
         wmean = weighted_resp_props['positive']
         wsem = resp_props_sem['positive']
-        ax.fill_between(
-            wmean.index, wmean - wsem, wmean + wsem,
-            fc=avg_color, ec=None, alpha=0.3)
-        if xkey == Label.ISPTA:
-            pbyrun = get_params_by_run(data)
-            for xk, ls in {Label.P: '--', Label.DC: '-'}.items():
-                idx = get_xdep_data(pbyrun, xk)[Label.ISPTA]
-                ax.plot(
-                    wmean.loc[idx].index, wmean.loc[idx].values, 
-                    lw=3, ls=ls, color=avg_color, label=f'{xk} sweep')
-            ax.legend()
-        else:
-            ax.plot(wmean.index, wmean.values, lw=3, color=avg_color)
+        
+        if err_style == 'band':
+            ax.plot(wmean.index, wmean.values, lw=avglw, c=avg_color)
+            ax.fill_between(
+                wmean.index, wmean - wsem, wmean + wsem,
+                fc=avg_color, ec=None, alpha=0.3)
+        elif err_style == 'bars':
+            ax.errorbar(
+                wmean.index, wmean.values, yerr=wsem.values, 
+                lw=0 if fit else avglw, elinewidth=2 if fit else avglw,
+                marker='o', markersize=5, color=avg_color)
+
+        # If fit objects provided, compute and add to axis
+        if fit:
+            objfunc, initfunc = fit
+            pltkwargs = dict(ls='--', lw=avglw, color=avg_color)
+            compute_and_add_fit(
+                ax, wmean.index.values, wmean.values, objfunc, initfunc=initfunc, ls='--', lw=avglw, color=avg_color)
+
+        # if xkey == Label.ISPTA:
+        #     pbyrun = get_params_by_run(data)
+        #     for xk, ls in {Label.P: '--', Label.DC: '-'}.items():
+        #         idx = get_xdep_data(pbyrun, xk)[Label.ISPTA]
+        #         ax.plot(
+        #             wmean.loc[idx].index, wmean.loc[idx].values, 
+        #             lw=3, ls=ls, color=avg_color, label=f'{xk} sweep')
+        #     ax.legend()
+        # else:
+        #     ax.plot(wmean.index, wmean.values, lw=avglw, color=avg_color)
+    
 
     # Apply statistical comparisons with reference input, if specified
     if xref is not None:
@@ -3760,6 +4071,9 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
             comparisons_correction='Bonferroni'
         )
         annotator.apply_and_annotate()
+    
+    # Adjust x-scale
+    adjust_xscale(ax, xscale=xscale)
 
     return fig
 
@@ -3826,8 +4140,8 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
     return fig
 
 
-def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None, 
-                           legend='full', title=None):
+def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, ax=None, 
+                           legend='full', title=None, offset=True, col_wrap=2):
     '''
     Plot population-aggregated timecourse across categories
     
@@ -3858,29 +4172,34 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
             .apply(lambda s: s / s.max())
         )
 
-    # Offset profiles by any category that is not trial or frame
-    by = list(filter(lambda s: s not in [Label.TRIAL, Label.FRAME], data.index.names)) 
-    yoffsets = get_offsets_by(
-        data[ykeys[0]], by, match_idx=True, ascending=False)
+    # Copy data for plotting purposes
     plt_data = data.copy()
-    for k in ykeys:
-        plt_data[k] += yoffsets
+
+    # Offset spectra by hue, if any
+    if offset and hue is not None:
+        yoffsets = get_offsets_by(
+            data, hue, y=ykeys[0], match_idx=True, ascending=False)
+        yoffsets = yoffsets.iloc[:, 0]
+        for k in ykeys:
+            plt_data[k] += yoffsets
     
     # Create common plot arguments
     pltkwargs = dict(
         data=plt_data,
         x=Label.TIME,
         y=ykeys[0],
-        hue=Label.RUN,
+        hue=hue,
         ci=None,
         legend=legend
     )
+    
     # If data is indexed by dataset, add arguments to create 1 axis per dataset
     if Label.DATASET in data.index.names:
         pltkwargs.update(dict(
             col=Label.DATASET,
-            col_wrap=2,
+            col_wrap=col_wrap,
         ))
+    
     # If no axis provided, use figure-level plot function, extract figure & axes
     if ax is None:
         fg = sns.relplot(
@@ -3892,6 +4211,7 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
         fig = fg.figure
         fig.subplots_adjust(hspace=0.2)
         axes = fig.axes
+    
     # If axis provided, use it, and assemble 1-axis list
     else:
         fg = None
@@ -3922,8 +4242,11 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
     for ykey, ls in zip(ykeys[1:], ['--', '-.', ':']):
         pltkwargs['y'] = ykey
         pltkwargs['ls'] = ls
+        for k in ['col', 'col_wrap']:
+            if k in pltkwargs:
+                del pltkwargs[k]
         if fg is not None:
-            fg.map_dataframe(kind='line', **pltkwargs)
+            fg.map_dataframe(sns.lineplot, **pltkwargs)
         else:
             sns.lineplot(ax=ax, **pltkwargs)
 
@@ -3948,7 +4271,7 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
             )
     
     # Add global title, if any
-    pltgby = [Label.RUN]
+    pltgby = [hue]
     if Label.DATASET in data.index.names:
         pltgby = [Label.DATASET] + pltgby
         pltstr = f'{ykeys[0]} time course across {" & ".join(pltgby)}'
@@ -3964,12 +4287,13 @@ def plot_popagg_timecourse(data, ykeys, fps, normalize_gby=None, ax=None,
 
 
 def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=None, ax=None, 
-                                   fband=None, fband_color='silver', legend='full', title=None, **kwargs):
+                                   fband=None, fband_color='silver', legend='full', title=None,
+                                   hue=Label.RUN, **kwargs):
     '''
     Plot frequency spectrum profiles across categories
     
     :param data: population-aggregated timeseries data
-    :param ykey: name of variable from which to compute spectrum profiles
+    :param ykey: name of variable(s) from which to compute spectrum profiles
     :param fps: sampling rate
     :param normalize_gby (optional): grouping variable used to normalize spectrum profiles
     :param fmax (optional): upper frequency limit above which the spectrum profiles are cut
@@ -3977,7 +4301,7 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     :param fband (optional): frequency band to materialize with vertical span
     :return: figure handle
     '''
-    # Compute frequency spectra across categories
+    # Compute frequency spectra for each continous recording (i.e. run, per dataset)
     if Label.DATASET in data.index.names:
         gby = [Label.DATASET, Label.RUN]
         if ax is not None:
@@ -3989,13 +4313,21 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
         .groupby(gby)
         .apply(lambda s: get_power_spectrum(s, fps, **kwargs))
     )
+
+    # Extract spectrum key(s)
     ykeys_spectrum = popagg_spectrums.columns.values.tolist()[1:]
+
+    # If hue not in spectrum index, add it as column
+    if hue is not None and hue not in popagg_spectrums.index.names:
+        hue_by_gby = data[hue].groupby(gby).first()
+        expand_and_add(hue_by_gby, popagg_spectrums)
 
     # Normalize spectra across categories, if any
     if normalize_gby is not None:
         logger.info(f'normalizing {ykeys} spectra across {" & ".join(as_iterable(normalize_gby))}...')
-        popagg_spectrums[ykeys_spectrum] = (popagg_spectrums[ykeys_spectrum]
+        popagg_spectrums[ykeys_spectrum] = (popagg_spectrums
             .groupby(normalize_gby)
+            [ykeys_spectrum]
             .apply(lambda s: s / s.max())
         )
 
@@ -4004,19 +4336,23 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
         logger.info(f'restricting output to frequencies below {fmax:.2f} Hz')
         popagg_spectrums = popagg_spectrums[popagg_spectrums[Label.FREQ] < fmax]
 
-    # Offset spectra by run
-    yoffsets = get_offsets_by(
-        popagg_spectrums[ykeys_spectrum[0]], Label.RUN, match_idx=True, ascending=False)
+    # Copy data into sperate dataframe for plotting
     plt_data = popagg_spectrums.copy()
-    for k in ykeys_spectrum:
-        plt_data[k] += yoffsets
+    
+    # Offset spectra by hue, if any
+    if hue is not None:
+        yoffsets = get_offsets_by(
+            popagg_spectrums, hue, y=ykeys_spectrum[0], match_idx=True, ascending=False)        
+        yoffsets = yoffsets.iloc[:, 0]
+        for k in ykeys_spectrum:
+            plt_data[k] += yoffsets
 
-    # Create common plot arguments
+    # Create common plot arguments with first output variable
     pltkwargs = dict(
         data=plt_data,
         x=Label.FREQ,
         y=ykeys_spectrum[0],
-        hue=Label.RUN,
+        hue=hue,
         ci=None,
         legend=legend
     )
@@ -4087,7 +4423,7 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
             )
     
     # Add global title, if any
-    pltgby = [Label.RUN]
+    pltgby = [hue]
     if Label.DATASET in data.index.names:
         pltgby = [Label.DATASET] + pltgby
         pltstr = f'{ykey} frequency spectrum across {" & ".join(pltgby)}'
@@ -4256,33 +4592,16 @@ def get_binary_palette(data, outliers, default='g', member='r'):
     return palette
 
 
-def plot_all_deps(data, xkeys, ykeys, add_sweep_markers=False, **kwargs):
+def plot_all_deps(data, xkeys, ykeys, height=3, **kwargs):
 
     # Create figure backbone
     ncols, nrows = len(xkeys), len(ykeys) + 1
-    factor = 3
     fig, axes = plt.subplots(
-        nrows, ncols, figsize=(factor * ncols, factor * nrows))
+        nrows, ncols, figsize=(height * ncols, height * nrows))
     axes = np.atleast_2d(axes)
 
-    # Proportion of responders
-    for i, (xkey, ax) in enumerate(zip(xkeys, axes[0])):
-        plot_responder_fraction(
-            data, xkey,
-            kind='line',
-            hue=Label.DATASET,
-            ax=ax,
-            legend='full' if i == len(xkeys) - 1 else False,
-            **kwargs
-        )
-    has_legend = ax.get_legend() is not None
-    if has_legend:
-        sns.move_legend(ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False)
-        factor = 5
-        fig.set_size_inches(factor * ncols, factor * nrows)
-
     # Response strength metrics
-    for i, (ykey, axrow) in enumerate(zip(ykeys, axes[1:])):
+    for i, (ykey, axrow) in enumerate(zip(ykeys, axes[:-1])):
         # Determine output metrics key
         ykey_diff = get_change_key(ykey)
         # Plot dependencies on each parameter on separate axes
@@ -4296,9 +4615,29 @@ def plot_all_deps(data, xkeys, ykeys, add_sweep_markers=False, **kwargs):
             ci=None,
             xkeys=xkeys,
             legend=False,
-            add_sweep_markers=add_sweep_markers,
             **kwargs
         )
+    
+    # Proportion of responders
+    for i, (xkey, ax) in enumerate(zip(xkeys, axes[-1])):
+        plot_responder_fraction(
+            data, xkey,
+            hue=Label.DATASET,
+            ax=ax,
+            legend='full' if i == len(xkeys) - 1 else False,
+            xscale='sqrt' if xkey==Label.ISPTA else 'linear',
+            **kwargs
+        )
+    
+    # Process legend
+    has_legend = ax.get_legend() is not None
+    if has_legend:
+        sns.move_legend(ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+        fig.set_size_inches(height * ncols, height * nrows)
+        fig.tight_layout()
+    
+    for ax in axes.ravel():
+        ax.set_box_aspect(1)
 
     for axrow in axes[1:]:
         for ax in axrow:
@@ -4353,20 +4692,20 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
                 data, ykey, fit_candidates, xkey=xk, ax=ax, xscale=xscale, 
                 fs=fs, fitsweepkey=fitsweepkey, error_aggfunc=error_aggfunc,
                 innercall=True, norm=norm, plot_respmetrics=plot_respmetrics)
+        harmonize_axes_limits(axes)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
         return fig, fitfuncs
 
-    # Generate P_SPTA / P_RMS values if needed 
-    DC = data[Label.DC] * 1e-2
-    if xkey == Label.PSPTA:
-        data[xkey] = data[Label.P] * DC
-    elif xkey == Label.PSPTRMS:
-        data[xkey] = data[Label.P] * np.sqrt(DC / 2)
-    elif xkey == Label.ISPTRMS:
-        data[xkey] = data[Label.ISPPA] * np.sqrt(3 * DC) / 2
-    elif xkey == Label.DC:
-        data = get_xdep_data(data, Label.DC, add_DC0=True)
+    # Restrict data range if P or DC is given as input
+    if xkey == Label.DC:
+        data = get_xdep_data(data, Label.DC, add_DC0=True)    
+    elif xkey == Label.P:
+        data = get_xdep_data(data, Label.P)
+
+    # Compute dose metrics if not already present  
+    if xkey not in data.columns:
+        data[xkey] = get_dose_metric(data[Label.P], data[Label.DC], xkey)
 
     # Sort by increasing input value
     data = data.sort_values(xkey)
@@ -4395,15 +4734,20 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     ax.set_ylabel(ykey, fontsize=fs)
     
     # Plot data points, with sweep color code
-    cdict = {
-        Label.P: 'darkgray',
-        Label.DC: 'dimgray',
+    line_color = Palette.LINE[data.index.unique(level=Label.LINE).values[0]]
+    alpha_dict = {
+        Label.P: 1., # 'darkgray',
+        Label.DC: 1. # .5, # 'dimgray',
     }
-    for subxkey, color in cdict.items():
-        subdata = get_xdep_data(data, subxkey, add_DC0=True)
+    for subxkey, alpha in alpha_dict.items():
+        subdata = get_xdep_data(data, subxkey, add_DC0=xkey != Label.P)
+        # if subxkey != fitsweepkey:
         ax.errorbar(
-            subdata[xkey], subdata[mu_ykey], yerr=subdata[se_ykey], 
-            fmt='o', c=color, markersize=5
+            subdata[xkey], subdata[mu_ykey], 
+            yerr=subdata[se_ykey] if subxkey != fitsweepkey else None, 
+            fmt='o' if subxkey != fitsweepkey else 'x', 
+            c=line_color, markersize=5, 
+            # alpha=alpha
         )
     
     # Initialize best fit metrics
@@ -4439,10 +4783,7 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             best_popt = popt
 
         # Determine fit color
-        if fitsweepkey is not None:
-            c = cdict[fitsweepkey]
-        else:
-            c = 'k' if len(fit_candidates) == 1 else f'C{ifit}'
+        c = line_color if len(fit_candidates) == 1 else f'C{ifit}'
 
         # Plot dense fitted profile
         xdense = np.linspace(xdata.min(), xdata.max(), 1000)
@@ -4458,45 +4799,50 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             # Else, extract and plot response metrics
             else:
                 ymaxfit = popt[-1]
-                rel_yresps = {'threshold': .1, 'staturation': .9}
+                rel_yresps = {'threshold': .1, 'saturation': .9}
                 yresps = {k: yrel * ymaxfit for k, yrel in rel_yresps.items()}
                 xresps = {k: np.interp(yresp, yfitdense, xdense) for k, yresp in yresps.items()}
                 for k, xresp in xresps.items():
                     ax.axhline(yresps[k], ls='--', c=c)
                     ax.axvline(xresp, ls='--', c=c)
                     logger.info(f'{k} {xkey} = {xresp:.2f}')
-                xratio = xresps['staturation'] / xresps['threshold']
+                xratio = xresps['saturation'] / xresps['threshold']
                 ax.text(.5, .1, f'ratio = {xratio:.2f}', transform=ax.transAxes, fontsize=fs)
+
+                # Extract transition data (data points between threshold and saturation)
+                transition_data = data[is_within(data[xkey], (xresps['threshold'], xresps['saturation']))]
+
+                # Perform linear regression on transition data
+                transition_data = transition_data.sort_values(xkey)
+                xtrans, ytrans = transition_data[xkey], transition_data[mu_ykey]
+                _, _, r_value, *_ = linregress(xtrans, ytrans)
+                ax.text(.5, .02, f'linear fit: R2 = {r_value**2:.2f}', transform=ax.transAxes, fontsize=fs)
 
         # If fit was performed on particular sweep
         if fitsweepkey is not None:
             # Get data from other sweep
-            otherkey = list(set(cdict.keys()) - set([fitsweepkey]))[0]
+            otherkey = list(set(alpha_dict.keys()) - set([fitsweepkey]))[0]
             other_data = get_xdep_data(data, otherkey, add_DC0=True)
-            xother, yother = other_data[xkey], other_data[mu_ykey]
+            xother, yother, yothersem = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
 
             # Apply fit on input range from other sweep
             yotherfit = objfunc(xother, *popt)
 
             # Compute prediction accuracy
-            ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            ζ = np.mean(np.abs(yotherfit - yother) / yothersem)
+            # ζ = relative_error(yother, yotherfit)
+            # ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
 
             # Plot divergence between fit and data points from other sweep
             iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
             ax.fill(
                 np.hstack((xdense[iswithin], xother[::-1])), 
                 np.hstack((yfitdense[iswithin], yother[::-1])),
-                fc='peru', label=f'ζ = {ζ:.2f}'
+                fc='silver', label=f'ζ = {ζ:.2f}'
             )
         
         # Adjust x-scale if specified
-        if xscale is not None:
-            if xscale == 'sqrt':
-                ax.set_xscale('function', functions=(np.sqrt, np.square))
-                ax.set_xticks([0] + ax.get_xticks())
-                ax.spines['left'].set_position(('outward', 10))
-            else:
-                ax.set_xscale(xscale)
+        adjust_xscale(ax, xscale=xscale)
 
         # Adjust tick labels fontsize
         ax.tick_params(axis='both', labelsize=fs)

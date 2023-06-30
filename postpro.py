@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-26 10:22:27
+# @Last Modified time: 2023-06-30 18:08:26
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch
+from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -310,7 +310,7 @@ def get_maximin_baseline_func(fs, wmaximin, wsmooth=None):
     return pandas_proof(bfunc)
 
 
-def get_butter_filter_func(fs, fc, order=2, kind='pass'):
+def get_butter_filter_func(fs, fc, order=2, kind='pass', verbose=True):
     '''
     Construct zero-phase filter func
     
@@ -348,7 +348,8 @@ def get_butter_filter_func(fs, fc, order=2, kind='pass'):
     btype = f'{brange}{kind}'
     # Log process
     fc_str = ' - '.join([f'{x:.3f} Hz' for x in as_iterable(fc)])
-    logger.info(f'defining order {order} {btype} BW filter with fc = {fc_str}')
+    if verbose:
+        logger.info(f'defining order {order} {btype} BW filter with fc = {fc_str}')
     # Determine Nyquist frequency
     nyq = fs / 2
     # Calculate Butterworth filter second-order sections
@@ -610,7 +611,7 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     
     :param data: dataframe contanining all the info about the experiment.
     :param key: name of the time column in the new info table
-    :param index_key (optional): name of index level to use as reference to compute the time vector 
+    :param frame_offset (optional): reference frame by which to offset frame vector prior to computing time 
     :return: modified info table
     '''
     if key in data:
@@ -628,6 +629,27 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     # Set time as first column
     cols = data.columns
     data = data.reindex(columns=[cols[-1], *cols[:-1]])
+    return data
+
+
+def add_trial_phase_to_table(data, key=Label.TRIALPHASE, frame_offset=FrameIndex.STIM, fps=None):
+    '''
+    Add trial interval phase information to info table
+    
+    :param data: dataframe contanining all the info about the experiment.
+    :param key: name of the time column in the new info table
+    :param frame_offset (optional): reference frame by which to offset frame vector prior to computing phase
+    :return: modified info table
+    '''
+    if key in data:
+        logger.warning(f'"{key}" column is already present in dataframe -> ignoring')
+        return data
+    logger.info('adding phase info to table...')
+    # Extract frame indexes
+    iframes = data.index.get_level_values(Label.FRAME)
+    # Compute and add phase column
+    data[key] = (iframes - frame_offset) / NFRAMES_PER_TRIAL * 2 * np.pi
+    # Return dataframe
     return data
 
 
@@ -687,6 +709,23 @@ def get_response_types_per_ROI(data, verbose=True):
     if verbose:
         logger.info('extracting responses types per ROI...')
     return data.groupby(Label.ROI).first()[Label.ROI_RESP_TYPE]
+
+
+def aggregate_along(data, level=Label.TRIAL, aggfunc=None, verbose=True):
+    '''
+    Aggregate data along a given level of the index
+    
+    :param data: multi-indexed series (or dataframe)
+    :param aggfunc: aggregation function
+    :param level: index level to aggregate along
+    :return: aggregated data
+    '''
+    if aggfunc is None:
+        aggfunc = lambda s: s.mean()
+    if verbose:
+        logger.info(f'aggregating {describe_dataframe_index(data)} data along {level} dimension...')
+    gby = [n for n in data.index.names if n != level]
+    return data.groupby(gby).mean()
 
 
 def get_trial_aggregated(data, aggfunc=None, full_output=False, inner_call=False):
@@ -1365,7 +1404,7 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
-def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE):
+def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, verbose=True):
     ''' 
     Compute stimulus-evoked change in specific variable
     
@@ -1374,8 +1413,8 @@ def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.
     :return: evoked change series
     '''
     # Compute metrics average in pre-stimulus and response windows for each ROI & run
-    ypre = apply_in_window(data, ykey, wpre)
-    ypost = apply_in_window(data, ykey, wpost)
+    ypre = apply_in_window(data, ykey, wpre, verbose=verbose)
+    ypost = apply_in_window(data, ykey, wpost, verbose=verbose)
     # Compute eovked change as their difference
     return (ypost - ypre).rename(get_change_key(ykey))
 
@@ -2263,13 +2302,6 @@ def offset_per_dataset(s, rel_offset=.5):
     return s.groupby(Label.DATASET).transform(offset_func)
 
 
-def get_cubic_fit(x, y):
-    ''' Get a cubic fit '''
-    p = np.poly1d(np.polyfit(x, y, 3))
-    xfit = np.linspace(*bounds(x), 100)
-    return xfit, p(xfit)
-
-
 def exclude_outliers(data, ykey, k=10):
     '''
     Exclude data points falling outside of median +/- k * stdev variation range
@@ -2336,13 +2368,20 @@ def tmean(x):
 
 
 def get_power_spectrum(y, fs, **kwargs):
-    ''' Compute signal power spectrum and return it as a dataframe '''
+    '''
+    Compute signal power spectrum and return it as a dataframe
+    
+    :param y: input signal
+    :param fs: sampling frequency
+    :param kwargs: additional arguments to scipy.signal.welch
+    :return: dataframe with frequency and power spectrum columns
+    '''
     if isinstance(y, pd.DataFrame):
         out = pd.concat([get_power_spectrum(y[k], fs, **kwargs) for k in y], axis=1)
         return out.loc[:,~out.columns.duplicated()]
     spname = Label.PSPECTRUM
-    if isinstance(y, pd.Series):
-        spname = f'{y.name} {spname}'
+    # if isinstance(y, pd.Series):
+    #     spname = f'{y.name} {spname}'
     freqs, Pxx_spec = welch(y, fs, scaling='spectrum', **kwargs)
     df = pd.DataFrame({
         Label.FREQ: freqs,
@@ -2352,26 +2391,45 @@ def get_power_spectrum(y, fs, **kwargs):
     return df
 
 
-def get_offsets_by(s, by, rel_gap=.2, ascending=True, match_idx=False):
+def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
     ''' 
     Compute offsets to enable data separation between categories
     
     :param s: multi-indexed pandas Series
     :param by: name of separation variable in multi-index
+    :param y: name of variable(s) to compute offsets for
     :param rel_gap: relative offset gap (w.r.t. mean variation range)
     :param ascending: whether offset should be ascending or descending
     :param match_idx: whether to expand offsets to match original index size
     :return: Series of offsets per category
     '''
+    by = as_iterable(by)
+    for b in by:
+        # If grouping variable not in index
+        if b not in s.index.names:
+            # If input is dataframe and grouping variable is a column
+            if isinstance(s, pd.DataFrame) and b in s.columns:
+                # Add grouping variable to index
+                s = s.set_index(b, append=True)
+            # Otherwise, raise error
+            else:
+                raise ValueError(f'grouping variable "{b}" not found in index')
+
+    # If input is dataframe, restrict to column(s) of interest and add axis to operations
+    kwargs = {}
+    if isinstance(s, pd.DataFrame) and y is not None:
+        s = s[as_iterable(y)]
+        kwargs['axis'] = 0
+
     logger.info(f'computing offsets by {", ".join(by)}')
     # Compute data variation range for each category
-    yranges = s.groupby(by).apply(np.ptp)
+    yranges = s.groupby(by).apply(np.ptp, **kwargs)
     # Compute associated gap from mean variation range
-    ygap = rel_gap * yranges.mean()
+    ygap = rel_gap * yranges.mean(**kwargs)
     # Add gap to ranges
     yranges += ygap
     # Compute offset as cumulative sum of ranges + gap
-    yoffsets = yranges.cumsum()
+    yoffsets = yranges.cumsum(**kwargs)
     # If descending offset, adjust sign
     if not ascending:
         yoffsets = -yoffsets
@@ -2493,12 +2551,13 @@ def get_rtype_fractions_per_ROI(data):
     return roistats
 
 
-def apply_linregress(s, xkey=Label.TRIAL):
+def apply_linregress(df, xkey=Label.TRIAL, ykey=None):
     ''' 
-    Apply linear regression on series index:values distribution
+    Apply linear regression between two column series
 
-    :param s: input pandas Series object
-    :param xkey: name of index dimension to use as input vector
+    :param df: input pandas Dataframe / Series object
+    :param xkey: name of column / index dimension to use as input vector
+    :param ykey: name of column to use as output vector (optional for series)
     :return: pandas Series with regression output metrics 
     '''
     # x = s.index.get_level_values(xkey)
@@ -2511,7 +2570,24 @@ def apply_linregress(s, xkey=Label.TRIAL):
     #     'intercept': fit.params[0],
     #     'pval': fit.pvalues[1],
     # })
-    res = linregress(s.index.get_level_values(xkey), y=s.values)
+
+    # Extract input vector
+    if xkey in df.index.names:
+        x = df.index.get_level_values(xkey)
+    else:
+        if isinstance(df, pd.Series):
+            raise ValueError('xkey must be an index dimension for Series inputs')
+        x = df[xkey].values
+    
+    # Extract output vector
+    if isinstance(df, pd.Series):
+        y = df.values
+    else:
+        if ykey is None:
+            raise ValueError('ykey must be specified for DataFrame inputs')
+        y = df[ykey].values
+
+    res = linregress(x, y=y)
     return pd.Series({
             'slope': res.slope,
             'intercept': res.intercept,
@@ -2571,7 +2647,14 @@ def find_in_dataframe(df, key):
 
 
 def free_expand(s, ref_df, verbose=True):
-    ''' Expand series to a higher-dimensional dataframe '''
+    '''
+    Expand series to a higher-dimensional dataframe
+    
+    :param s: input pandas Series object
+    :param ref_df: reference dataframe to match index dimensions to
+    :param verbose: whether to log process
+    :return: expanded pandas Series object
+    '''
     if verbose:
         # Log process
         s_desc = describe_dataframe_index(s)
@@ -2668,3 +2751,26 @@ def compare_halves(df, ykey, testfunc, **testkwargs):
         ['half1', 'half2', 'diff', 'stat', 'pval'], 
         [y1, y2, ydiff, stat, pval]
     )))
+
+
+def extract_hilbert(s, unwrap_phase=False):
+    '''
+    Extract signal envelope mangnitude and instantaneous phase from a signal
+
+    :param s: pandas series containing the signal
+    :param unwrap_phase: whether to unwrap the phase (default: False)
+    :return: pandas dataframe containing the signal envelope and phase
+    '''
+    # Compute hilbert transform
+    h = hilbert(s)
+
+    # Compute envelope magnitude and phase
+    env = np.abs(h)
+    phi = np.angle(h)
+
+    # Unwrap phase if requested
+    if unwrap_phase:
+        phi = np.unwrap(phi)
+    
+    # Return phase and envelope as dataframe
+    return pd.DataFrame({Label.ENV: env, Label.PHASE: phi}, index=s.index)
