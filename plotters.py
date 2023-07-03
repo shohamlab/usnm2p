@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-06-30 18:33:28
+# @Last Modified time: 2023-07-03 13:47:45
 
 ''' Collection of plotting utilities. '''
 
@@ -581,9 +581,9 @@ def plot_stack_frequency_spectrum(stacks, fs, title=None, yscale='log'):
     # Compute stacks frequency power spectrums (using FFT) along time axis
     logger.info('computing stack(s) fft...')
     nframes = stacks[list(stacks.keys())[0]].shape[0]
-    freqs = np.fft.rfftfreq(nframes, 1 / fs)
-    ffts = {k: np.abs(np.fft.rfft(v, axis=0)) for k, v in stacks.items()}
-    ps_avg = {k: np.array([(x**2).mean() for x in v]) for k, v in ffts.items()}
+    freqs = np.fft.rfftfreq(nframes, 1 / fs)  # extract frequencies >= 0
+    ffts = {k: np.abs(np.fft.rfft(v, axis=0)) for k, v in stacks.items()}  # compute FFT for each pixel along time axis
+    ps_avg = {k: np.array([(x**2).mean() for x in v]) for k, v in ffts.items()}  # compute time-average FFT power spectrum for each pixel
 
     # Initialize figure
     logger.info('plotting stack(s) frequency spectrum...')

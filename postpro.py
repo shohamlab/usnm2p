@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-06-30 18:08:26
+# @Last Modified time: 2023-07-03 19:04:57
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -13,11 +13,12 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert
+from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert, periodogram, stft
 from scipy.stats import skew, norm, ttest_ind, linregress
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
 from scipy.interpolate import griddata, interp1d
+import spectrum
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from functools import wraps
@@ -649,6 +650,26 @@ def add_trial_phase_to_table(data, key=Label.TRIALPHASE, frame_offset=FrameIndex
     iframes = data.index.get_level_values(Label.FRAME)
     # Compute and add phase column
     data[key] = (iframes - frame_offset) / NFRAMES_PER_TRIAL * 2 * np.pi
+    # Return dataframe
+    return data
+
+
+def add_inter_trial_interval_to_table(data):
+    '''
+    Add inter-trial interval information to info table
+
+    :param data: dataframe contanining all the info about the experiment.
+    :return: modified info table with an extra "iti" column containing
+        the inter-trial interval index for each frame
+    '''
+    # Extract frame index values
+    iframe = data.index.get_level_values(Label.FRAME).values
+    # Extract trial index values as iti
+    iti = data.index.get_level_values(Label.TRIAL).values
+    # Decrement by one iti of frames preceding stim onset, for each trial
+    iti[iframe < FrameIndex.STIM] -= 1
+    # Add iti column to dataframe
+    data[Label.ITI] = iti
     # Return dataframe
     return data
 
@@ -1785,8 +1806,8 @@ def compute_1way_anova(data, xkey, ykey):
     # Extract results table for 1-way ANOVA 
     anova_table = sm.stats.anova_lm(model, typ=2)
     # Extract relevant p-value for dependency
-    F = anova_table.loc['x', 'PR(>F)']
-    return F
+    p = anova_table.loc['x', 'PR(>F)']
+    return p
 
 
 
@@ -2367,27 +2388,126 @@ def tmean(x):
     return tstats.fit(x)[-2]
 
 
-def get_power_spectrum(y, fs, **kwargs):
+def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True, 
+                       add_suffix=False, **kwargs):
     '''
     Compute signal power spectrum and return it as a dataframe
     
     :param y: input signal
     :param fs: sampling frequency
-    :param kwargs: additional arguments to scipy.signal.welch
+    :param method: method to use for power spectrum estimation
+    :param scaling: whether to return raw power spectrum ("spectrum") of power spectral density ("density")
+    :param remove_dc: whether to remove DC component from signal before computing power spectrum
+    :param add_suffix: whether to add variable suffix to the output power spectrum column 
+    :param kwargs: additional arguments to spectrum estimation function
     :return: dataframe with frequency and power spectrum columns
     '''
+    # If input is a dataframe, 
     if isinstance(y, pd.DataFrame):
-        out = pd.concat([get_power_spectrum(y[k], fs, **kwargs) for k in y], axis=1)
+        # Apply function to each column, and concatenate results
+        out = pd.concat([
+            get_power_spectrum(
+                y[k], fs, method=method, scaling=scaling, remove_dc=remove_dc,
+                add_suffix=True, **kwargs)
+            for k in y], 
+            axis=1)
+        # Remove duplicate frequency columns and return
         return out.loc[:,~out.columns.duplicated()]
+
+    # Determine number of samples
+    nsamples = len(y)
+
+    # Determine power spectrum output column name, and convert to numpy array if necessary
     spname = Label.PSPECTRUM
-    # if isinstance(y, pd.Series):
-    #     spname = f'{y.name} {spname}'
-    freqs, Pxx_spec = welch(y, fs, scaling='spectrum', **kwargs)
+    if scaling == 'density':
+        spname = f'{spname} density'
+    if isinstance(y, pd.Series):
+        if add_suffix and y.name is not None:
+            spname = f'{y.name} {spname}'
+        y = y.values
+
+    # Mean-rectify signal to remove DC spectrum component, if requested
+    if remove_dc:
+        y -= y.mean()
+    
+    # Compute power spectrum with appropriate method
+    if method == 'fft':
+        # standard FFT method
+        freqs = np.fft.rfftfreq(nsamples, d=1 / fs)
+        yfft = np.fft.rfft(y)
+        Pxx_spec = np.abs(yfft)**2
+        if scaling == 'density':
+            Pxx_spec /= nsamples
+    elif method == 'stft':
+        # short-time Fourier transform method
+        freqs, _, Zxx = stft(y, fs=fs, **kwargs)
+        Pxx_spec = np.mean(np.abs(Zxx)**2, axis=1)
+        if scaling == 'density':
+            Pxx_spec /= nsamples
+    elif method == 'welch':
+        # Welch's method
+        freqs, Pxx_spec = welch(y, fs=fs, scaling=scaling, **kwargs)
+    elif method == 'periodogram':
+        # standard periodogram method
+        freqs, Pxx_spec = periodogram(y, fs=fs, scaling=scaling, **kwargs)
+    else:
+        # Determine PSD kwargs for Spectrum package methods
+        PSD_kwargs = dict(
+            sampling=fs,
+            scale_by_freq=False,
+            **kwargs)
+
+        if method == 'pma':
+            # MA model
+            pobj = spectrum.pma(y, 64, 128, **PSD_kwargs)
+        elif method == 'pyule':
+            # Yule Walker method
+            pobj = spectrum.pyule(y, 7, **PSD_kwargs) 
+        elif method == 'pburg':
+            # Burg method
+            pobj = spectrum.pburg(y, 7, **PSD_kwargs)
+        elif method == 'pcovar':
+            # covar method
+            pobj = spectrum.pcovar(y, 7, **PSD_kwargs)
+        elif method == 'pmodcovar':
+            # mod covar method
+            pobj = spectrum.pmodcovar(y, 7, **PSD_kwargs)
+        elif method == 'pcorrelogram':
+            # correlogram method
+            pobj = spectrum.pcorrelogram(y, lag=60, **PSD_kwargs)
+        elif method == 'pminvar':
+            # minvar method
+            pobj = spectrum.pminvar(y, 7, **PSD_kwargs)
+        elif method == 'pmusic':
+            # MUSIC method
+            pobj = spectrum.pmusic(y, 10, NSIG=4, **PSD_kwargs)
+        elif method == 'pev':
+            # Eigenvalues method
+            pobj = spectrum.pev(y, 10, 4, **PSD_kwargs)
+        elif method == 'mtaper':
+            # Multi-taper method
+            pobj = spectrum.MultiTapering(y, NW=4.5, **PSD_kwargs)()
+        else:
+            # Unknown method
+            raise ValueError(f'unknown spectrum estimation method "{method}"')
+
+        # Extract frequency and power spectrum density from object  
+        freqs, Pxx_spec = np.array(pobj.frequencies()), pobj.psd
+
+        # Scale power spectrum if requested
+        if scaling == 'spectrum':
+            Pxx_spec *= nsamples
+
+    # Assemble as two-column dataframe
     df = pd.DataFrame({
         Label.FREQ: freqs,
         spname: Pxx_spec
     })
+    
+    # Set index name
     df.index.name = 'freq index'
+
+    # Return
     return df
 
 
@@ -2774,3 +2894,21 @@ def extract_hilbert(s, unwrap_phase=False):
     
     # Return phase and envelope as dataframe
     return pd.DataFrame({Label.ENV: env, Label.PHASE: phi}, index=s.index)
+
+
+def remove_frames(df, fslice):
+    '''
+    Remove a range of frames from a dataframe
+    
+    :param df: input dataframe
+    :param fslice: slice object specifying frames to remove
+    :return: dataframe with frames removed
+    '''
+    # Identify frames falling inside defined frame slice
+    is_in_slice = is_within(df.index.get_level_values(Label.FRAME), bounds(fslice))
+    # Create copy of input data to avoid modifying it directly
+    dfout = df.copy()
+    # Remove identified frames
+    dfout = dfout[~is_in_slice]
+    # Return dataframe with frames removed
+    return dfout

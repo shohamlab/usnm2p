@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-06-26 14:54:39
+# @Last Modified time: 2023-07-03 17:59:04
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -52,6 +52,7 @@ class Label:
     RUN = 'run'
     TRIAL = 'trial'
     ISTART = 'istart'
+    ITI = 'iti'  # inter-trial interval
 
     # Time-varying signals
     TIME = 'time (s)'

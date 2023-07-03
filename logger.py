@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 13:30:15
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2021-10-25 09:59:15
+# @Last Modified time: 2023-07-03 17:52:59
 
 ''' Collection of logging utilities. '''
 
@@ -53,3 +53,4 @@ class TqdmHandler(logging.StreamHandler):
 
 
 logger = setLogger('mylogger', my_log_formatter)
+logger.setLevel(logging.INFO)

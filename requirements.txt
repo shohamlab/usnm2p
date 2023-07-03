@@ -18,4 +18,5 @@ h5py
 statannotations
 openpyxl
 scikit-image
+spectrum
 suite2p==0.10.2
