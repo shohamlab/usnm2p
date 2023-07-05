@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-06-26 12:07:16
+# @Last Modified time: 2023-07-05 12:34:41
 
 ''' Collection of generic utilities. '''
 
@@ -12,6 +12,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 import operator
 from functools import wraps
+from fractions import Fraction
 
 from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME, PA_TO_MPA, M2_TO_CM2
 from logger import logger
@@ -80,6 +81,18 @@ def si_format(x, precision=0, space=' ', **kwargs):
         return [si_format(float(item), precision, space) for item in x]
     else:
         raise ValueError(f'cannot si_format {type(x)} objects')
+
+
+def rad_to_pifrac(rad, max_denominator=1000):
+    ''' Translate radian value into a readable pi fraction '''
+    if is_iterable(rad):
+        return [rad_to_pifrac(r) for r in rad]
+    pifrac = Fraction(rad / np.pi).limit_denominator(max_denominator)
+    if pifrac == 0:
+        return '0'
+    num = {1: '', -1: '-'}.get(pifrac.numerator, str(pifrac.numerator))
+    denom = '/{}'.format(pifrac.denominator) if pifrac.denominator != 1 else ''
+    return Label.PI.join((num, denom))
 
 
 def get_singleton(df, key, delete=False):

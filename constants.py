@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-03 17:59:04
+# @Last Modified time: 2023-07-05 12:22:25
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -59,6 +59,8 @@ class Label:
     HOURS = 'hours'
     TRIALPHASE = 'trial phase (rad)'
     PHASE = 'phase (rad)'
+    ANGLE = 'angle (rad)'  # i.e. unwrapped phase
+    ITPC = 'ITPC'  # inter-trial phase coherence
     ENV = 'envelope'
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
@@ -70,6 +72,7 @@ class Label:
     F_DETRENDED = 'F_detrended (a.u.)'
     F0_DETRENDED = 'F0 detrended (a.u.)'
     DFF = '\u0394F/F0'
+    PI = '\u03C0'
     ZSCORE = f'Z({DFF})'
     REL_DFF = f'{DFF} - {DFF}_stim'
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-03 13:47:45
+# @Last Modified time: 2023-07-04 19:42:33
 
 ''' Collection of plotting utilities. '''
 
@@ -4438,44 +4438,143 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     return fig
 
 
-def plot_spectrogram(data, ykey, fps, colwrap=4, fmax=.3):
+def plot_spectrogram(data, ykey, fps, mode='psd', nsegpertrial=10, gby=None, trialavg=False, 
+                     colwrap=4, fmax=None, cmap='viridis', add_cbar=True, fs=12):
+    ''' 
+    Plot spectrogram of specific experimental variable, with optional grouping. 
+    
+    :param data: experiment dataframe
+    :param ykey: variable from which to extract spectrogram
+    :param fps: frames per second
+    :param mode (optional): mode of spectrogram computation (default: 'psd')
+    :param nsegpertrial (optional): number of spetrogram segments per trial (default: 10)
+    :param gby (optional): optional grouping variable
+    :param trialavg (optional): whether to average spectrogram across trials (default: False)
+    :param colwrap (optional): number of axes per row for multi-axes figure
+    :param fmax (optional): maximum frequency to plot
+    :param cmap (optional): colormap
+    :param add_cbar (optional): whether to add colorbar
+    :param fs (optional): font size
+    :return: figure handle
+    '''
+    # Define number of frames per segment based on requested number of segments per trial
+    nperseg_dict = {
+        1: 100,
+        2: 50,
+        5: 22,
+        10: 11,
+        20: 5,
+        50: 2,
+    }
+    try:
+        nperseg = nperseg_dict[nsegpertrial]
+    except KeyError:
+        raise ValueError(f'nsegpertrial must be one of {list(nperseg_dict.keys())}')
+
     # Compute trial repetition frequency
     ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
-    fref = 1 / ISI
 
-    # Group data by run
-    groups = data[ykey].groupby(Label.RUN)
+    # Define generic title
+    title = f'{ykey} {mode} spectrogram'
+
+    # If grouping variable provided,
+    if gby is not None:
+        # Create groups
+        groups = data.groupby(gby)[ykey]
+        
+        # Create figure
+        naxes = groups.ngroups
+        nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(nrows * 3, ncols * 3))
+        fig.suptitle(f'{title} across {gby}', y=.92, fontsize=fs)
+        axes = np.ravel(axes)
     
-    # Create figure
-    naxes = groups.ngroups
-    nrows, ncols = int(np.ceil(naxes / colwrap)), min(colwrap, naxes)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(nrows * 3, ncols * 3))
-    fig.suptitle(f'{ykey} spectrogram across runs')
-    axes = np.ravel(axes)
+    # If no grouping variable provided, create single axis figure
+    else:
+        fig, ax = plt.subplots()
+        groups = [(None, data[ykey])]
+        nrows, ncols, naxes = 1, 1, 1
+        axes = [ax]
+        ax.set_title(title, fontsize=fs)
 
-    # For each run
-    for iax, ((idx, gdata), ax) in enumerate(zip(data[ykey].groupby(Label.RUN), axes)):
-        # Compute and plot spectrogram
-        f, t, Sxx = spectrogram(gdata.values, fps)
-        ax.pcolormesh(t, f, Sxx, shading='gouraud')
-        ax.set_title(f'{Label.RUN} {idx}')
+    # For each axis-group pair
+    for iax, ((idx, gdata), ax) in enumerate(zip(groups, axes)):
+        # Compute spectrogram
+        f, t, Sxx = spectrogram(gdata.values, fps, mode=mode, nperseg=nperseg)
+
+        # Extract segment indexes
+        isegs = (t * fps).astype(int)
+
+        # If trial-averaging requested, average spectrogram across trials
+        if trialavg:
+            # Assert that trial interval is a multiple of inter-segment interval
+            delta_iframes = isegs[1] - isegs[0]
+            if NFRAMES_PER_TRIAL % delta_iframes != 0:
+                raise ValueError(
+                    f'''inter-segment interval ({delta_iframes} frames) is not a divider of
+                    trial interval ({NFRAMES_PER_TRIAL} frames)''')
+
+            # Generate dataframe from spectrogram output
+            _, F = np.meshgrid(t, f, indexing='ij')
+            dfout = pd.DataFrame({
+                Label.FREQ: F.ravel(),
+                mode: Sxx.T.ravel(),
+            })
+
+            # Assign index from input data
+            mux = gdata.index[isegs]
+            dfout.index = mux.repeat(f.size)
+            dfout.set_index(Label.FREQ, append=True, inplace=True)
+
+            # Average across trials
+            df_trialavg = (dfout
+                .groupby([Label.FRAME, Label.FREQ])
+                [mode]
+                .mean()
+                .unstack()
+            )
+
+            t = df_trialavg.index.values / fps
+            Sxx = df_trialavg.values.T
+
+        # Plot spectrogram
+        dt, df = t[1] - t[0], f[1] - f[0]
+        tedges = np.linspace(t[0] - dt / 2, t[-1] + dt / 2, t.size + 1)
+        fedges = np.linspace(f[0] - df / 2, f[-1] + df / 2, f.size + 1)
+        sm = ax.pcolormesh(tedges, fedges, Sxx, cmap=cmap)
+
+        # Add group title, if any
+        if gby is not None:
+            ax.set_title(f'{gby} {idx}', fontsize=fs)
+
         # Set axis limits and add reference frequency
-        ax.set_ylim(0, fmax)
-        ax.axhline(1 / ISI, c='w', ls='--', lw=1.)
+        ax.set_ylim(0, fmax if fmax is not None else fedges[-1])
+        ax.axhline(1 / ISI, c='w' if cmap == 'viridis' else 'k', ls='--', lw=1.)
+
         # Manage conditional axis labels
         icol, irow = iax % colwrap, iax // colwrap
         if irow == nrows - 1:
-            ax.set_xlabel(Label.TIME)
+            ax.set_xlabel(Label.TIME, fontsize=fs)
         else:
             ax.set_xticks([])
         if icol == 0:
-            ax.set_ylabel(Label.FREQ)
+            ax.set_ylabel(Label.FREQ, fontsize=fs)
         else:
             ax.set_yticks([])
     
     # Hide unused axes
     for ax in axes[naxes:]:
         ax.set_visible(False)
+
+    # Add colorbar, if requested
+    if add_cbar:
+        top = axes[0].get_position().y1
+        bottom = axes[-1].get_position().y0
+        fig.subplots_adjust(right=0.93)
+        cbar_ax = fig.add_axes([0.95, bottom, 0.02, top - bottom])
+        cbar_ax.set_title(mode, fontsize=fs)
+        fig.colorbar(sm, cax=cbar_ax)
+        cbar_ax.tick_params(labelsize=fs-2)
 
     # Return figure handle
     return fig

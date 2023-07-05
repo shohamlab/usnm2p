@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-03 19:04:57
+# @Last Modified time: 2023-07-05 18:22:23
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -14,7 +14,7 @@ from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert, periodogram, stft
-from scipy.stats import skew, norm, ttest_ind, linregress
+from scipy.stats import skew, norm, ttest_ind, linregress, chi2
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
 from scipy.interpolate import griddata, interp1d
@@ -633,7 +633,7 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     return data
 
 
-def add_trial_phase_to_table(data, key=Label.TRIALPHASE, frame_offset=FrameIndex.STIM, fps=None):
+def add_trial_phase_to_table(data, key=Label.TRIALPHASE, frame_offset=0):
     '''
     Add trial interval phase information to info table
     
@@ -2873,27 +2873,21 @@ def compare_halves(df, ykey, testfunc, **testkwargs):
     )))
 
 
-def extract_hilbert(s, unwrap_phase=False):
+def extract_hilbert(s):
     '''
     Extract signal envelope mangnitude and instantaneous phase from a signal
 
     :param s: pandas series containing the signal
-    :param unwrap_phase: whether to unwrap the phase (default: False)
     :return: pandas dataframe containing the signal envelope and phase
     '''
     # Compute hilbert transform
     h = hilbert(s)
-
-    # Compute envelope magnitude and phase
-    env = np.abs(h)
-    phi = np.angle(h)
-
-    # Unwrap phase if requested
-    if unwrap_phase:
-        phi = np.unwrap(phi)
     
     # Return phase and envelope as dataframe
-    return pd.DataFrame({Label.ENV: env, Label.PHASE: phi}, index=s.index)
+    return pd.DataFrame({
+        Label.ENV: np.abs(h), 
+        Label.PHASE: np.angle(h)
+    }, index=s.index)
 
 
 def remove_frames(df, fslice):
@@ -2912,3 +2906,92 @@ def remove_frames(df, fslice):
     dfout = dfout[~is_in_slice]
     # Return dataframe with frames removed
     return dfout
+
+
+def circ_corrcl(alpha, x):
+    '''
+    Compute correlation between a circular and a linear variable
+
+    Adapted from circ_corrcl function of CircStat package matlab toolbox:
+    *Berens, P. (2009). CircStat: A MATLAB Toolbox for Circular Statistics. 
+    J. Stat. Soft. 31. 10.18637/jss.v031.i10.*
+
+    :param alpha: circular variable
+    :param x: linear variable
+    :return: circular-linear correlation coefficient, and associated p-value
+    '''
+    # Check that input dimensions match
+    if len(alpha) != len(x):
+        raise ValueError(f'Input dimensions ({len(alpha)}, {len(x)}) do not match')
+    
+    # Extract number of samples
+    n = len(alpha)
+
+    # If input is a pandas series, extract values and log process
+    if isinstance(alpha, pd.Series) and isinstance(x, pd.Series):
+        logger.info(f'computing circular-linear correlation between {alpha.name} and {x.name} (n = {n})')
+        alpha, x = alpha.values, x.values
+
+    # Compute circular-linear correlation coefficient
+    rcx = np.corrcoef(np.cos(alpha), x)[0, 1]
+    rsx = np.corrcoef(np.sin(alpha), x)[0, 1]
+    rcs = np.corrcoef(np.cos(alpha), np.sin(alpha))[0, 1]
+    rho = np.sqrt((rcx**2 + rsx**2 - 2 * rcx * rsx * rcs) / (1 - rcs**2))
+
+    # Compute associated p-value from chi-square CDF with 2 degrees of freedom
+    pval = 1 - chi2(2).cdf(n * rho**2)
+
+    # Return correlation coefficient and p-value
+    return rho, pval
+
+
+def pandas_circ_corrcl(data, ckey, lkey):
+    '''
+    Compute circular-linear correlation between a circular and a linear variable
+    in a pandas dataframe
+
+    :param data: input dataframe
+    :param ckey: circular variable key
+    :param lkey: linear variable key
+    :return: 2-item series with circular-linear correlation coefficient, and associated p-value
+    '''
+    # Extract circular and linear variables
+    c = data[ckey]
+    l = data[lkey]
+    
+    # Compute circular-linear correlation
+    rho, pval = circ_corrcl(c, l)
+
+    # Return correlation coefficient and p-value as series
+    return pd.Series(dict(zip(['rho', 'pval'], [rho, pval])))
+
+
+def circ_rtest(alpha):
+    '''
+    Compute Rayleigh test for non-uniformity of circular data
+
+    Adapted from circ_rtest function of CircStat package matlab toolbox:
+    *Berens, P. (2009). CircStat: A MATLAB Toolbox for Circular Statistics.
+    J. Stat. Soft. 31. 10.18637/jss.v031.i10.*
+
+    :param alpha: circular variable
+    :return: mean resultant vector, Rayleigh test statistic, and associated p-value
+    '''
+    # Extract number of samples 
+    n = len(alpha)
+    # Project circular data onto unit circle
+    p = np.exp(1j * alpha)
+    # Compute mean resultant vector
+    r = np.abs(p.mean())
+    # Compute Rayleigh's R
+    R = n * r
+    # Compute Rayleigh's z
+    z = R**2 / n
+    # Compute associated p-value
+    pval = np.exp(
+        np.sqrt(1 + 4 * n + 4 * (n**2 - R**2))
+        - (1 + 2 * n)
+    )
+    # Return Rayleigh test statistic and p-value
+    return r, z, pval
+
