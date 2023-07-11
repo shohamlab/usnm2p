@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-04 19:42:33
+# @Last Modified time: 2023-07-11 00:10:53
 
 ''' Collection of plotting utilities. '''
 
@@ -937,7 +937,7 @@ def plot_suite2p_sparse_maps(ops, um_per_px=None):
     :return: figure handle
     '''
     # Check if sparse mode maps are present 
-    if not ops['sparse_mode']:
+    if not ops.get('sparse_mode', True):
         logger.warning('looks like sparse mode was not turned on -> ignoring')
         return None
     
@@ -1591,76 +1591,145 @@ def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
         ax.axvspan(istart, iend, fc=color, ec=None, alpha=.3)
 
 
-def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vcorr',
-                  mode='contour', cmap='viridis', hue=Label.ROI_RESP_TYPE, legend=True, 
-                  alpha_ROIs=0.7, ax=None, verbose=True):
+def get_hue_per_ROI(Fstats, hue, verbose=False):
     '''
-    Plot spatial distribution of cells (per response type) on the recording plane.
+    Determine hue per ROI based on hue type.
 
-    :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
-
-    :param Fstats: statistics dataframe
-    :param ops: suite2p output options dictionary
-    :param title (optional): figure title
-    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
-        on each image are replaced by a scale bar on the graph.
-    :param refkey: key used to access the reference image in the output options dictionary
-    :param mode (default: contour): ROIs render mode ('fill' or 'contour')
-    :param cmap (default: viridis): colormap used to render reference image
-    :param hue: hue parameter determining the color of each ROI
-    :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
-    :return: figure handle
+    :param Fstats: fluorescence stats dataframe
+    :param hue: hue type
+    :param verbose (optional): verbosity level
+    :return: 3-tuple with:
+        - hue per ROI
+        - list of hue values
+        - dictionary of hue values to colors
     '''
-    # Fetch parameters from data
-    slog = 'plotting cells map'
-    Ly, Lx = ops['Ly'], ops['Lx']
+    log_suffix = ''
+    # If no hue is provided, all cells are plotted in gray
     if hue is None:
         iROIs = Fstats.index.unique(level=Label.ROI)
         hue_per_ROI = pd.Series(data=['notype'] * len(iROIs), index=iROIs) 
         hues = ['notype']
         colors = {'notype': 'silver'}
-        legend = False
+    
+    # If hue is responder type, use discrete color-coding
     elif hue == Label.ROI_RESP_TYPE:
         hue_per_ROI = get_response_types_per_ROI(Fstats, verbose=verbose)
         hues = get_default_rtypes()
         colors = Palette.RTYPE
-        slog = f'{slog} color-coded by response type'
+        log_suffix = ' color-coded by response type'
+    
+    # If hue is fraction of positive responses, use continuous color-coding
     elif hue == 'positive':
         hue_per_ROI = Fstats.groupby(Label.ROI)[hue].first()
         hues = np.sort(np.unique(hue_per_ROI))
         ROI_cmap = sns.color_palette('rocket', as_cmap=True)
         colors = {x: ROI_cmap(x) for x in hues}
+        log_suffix = ' color-coded by fraction of positive responses'
+    
+    # If hue is not recognized, raise error
     else:
         raise ValueError(f'invalid hue parameter: "{hue}"')
-    count_by_hue = {k: (hue_per_ROI == k).sum() for k in hues}
-    
+
+    # Log process if specified
     if verbose:
-        logger.info(f'{slog}...')
+        logger.info(f'generating cells map{log_suffix}')
 
-    # Initialize pixels by cell matrix
-    idx_by_type = dict(zip(hues, np.arange(len(hues))))
-    Z = np.zeros((len(hues), hue_per_ROI.size, Ly, Lx), dtype=np.float32)
+    # Return hue per ROI, hues, and colors    
+    return hue_per_ROI, hues, colors
 
-    # Compute mask per ROI & response type
-    for i, (rtype, (_, ROI_mask)) in enumerate(zip(hue_per_ROI, ROI_masks.groupby(Label.ROI))):
-        Z[idx_by_type[rtype], i, ROI_mask['ypix'], ROI_mask['xpix']] = 1
+
+def get_cells_mplobjs(ROI_masks, Fstats, dims, mode='contour', hue=None, verbose=False, alpha=1):
+    '''
+    Get matplotlib objects to plot the spatial distribution of cells in the field of view.
     
-    if mode == 'contour':
-        # Extract contours for each type
-        contours = [list(chain.from_iterable(map(find_contours, z))) for z in Z]
-        # Invert x and y coordinates for compatibility with imshow
-        contours = [[c[:, ::-1] for c in clist] for clist in contours]
+    :param ROI_masks (optional): ROI-indexed dataframe of (x, y) coordinates and weights
+    :param Fstats (optional): statistics dataframe
+    :param dims: (Ly, Lx) dimensions of the image
+    :param mode (optional): 'contour' or 'mask'
+    :param hue (optional): name of column in Fstats to use for cells color-coding
+    :param verbose (optional): verbosity level
+    :return: 3-tuple with:
+        - mplobjs: dictionary of [matplotlib objects to plot] for each hue level
+        - colors: dictionary of colors per hue level
+        - lgdlabels: legend labels per hue level
+    '''
+    # Check inputs
+    if mode not in ['contour', 'mask']:
+        raise ValueError(f'unknown mode {mode} (can be "contour" or "mask")')
+
+    # Get hue information
+    hue_per_ROI, hues, colors = get_hue_per_ROI(Fstats, hue, verbose=verbose)
+    
+    # Get number of ROIs
+    nROIs = len(hue_per_ROI)
+
+    # Generate legend labels
+    count_by_hue = {k: (hue_per_ROI == k).sum() for k in hues}
+    if hue == 'positive':
+        lgd_labels = [f'{k:.2f} ({v})' for k, v in count_by_hue.items()]
     else:
-        # Stack Z matrices along ROIs to get 1 mask per type
-        masks = np.array([z.max(axis=0) for z in Z])
+        lgd_labels = [f'{k} ({v})' for k, v in count_by_hue.items()]
+
+    # Initialize empty 3D mask-per-cell matrix for each hue level
+    Z = {k: np.zeros((nROIs, *dims), dtype=np.float32) for k in hues}
     
+    # Compute mask per ROI & response type
+    for i, (hue, (_, ROI_mask)) in enumerate(zip(hue_per_ROI, ROI_masks.groupby(Label.ROI))):
+        Z[hue][i, ROI_mask['ypix'], ROI_mask['xpix']] = 1
+    
+    # Mask "contour" mode
+    if mode == 'contour':
+        # Extract contours for each hue
+        contours = {k: list(chain.from_iterable(map(find_contours, z))) for k, z in Z.items()}
+        
+        # Invert x and y coordinates for compatibility with imshow
+        contours = {k: [c[:, ::-1] for c in clist] for k, clist in contours.items()}
+        
+        # Assign contours as output objects
+        mplobjs = contours
+
+    # Full "mask" mode
+    else:
+        # Stack Z matrices along ROIs to get 1 mask matrix per hue
+        masks = {k: z.max(axis=0) for k, z in Z.items()}
+
         # Assign color and transparency to each mask
-        rgbs = np.zeros((*masks.shape, 4))
-        for i, (c, mask) in enumerate(zip(colors.values(), masks)):
+        rgbmasks = {k: np.zeros((*m.shape, 4)) for k, m in masks.items()}
+        for k, mask in masks.items():
+            c = colors[k]
             if isinstance(c, str):
                 c = to_rgb(c)
-            rgbs[i][mask == 1] = [*c, alpha_ROIs]
+            rgbmasks[k][mask == 1] = [*c, alpha]
+        
+        # Assign masks as output objects
+        mplobjs = rgbmasks
     
+    # Return mpl objects, colors, and legend labels
+    return mplobjs, colors, lgd_labels 
+
+
+def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=None,
+                       refkey='Vcorr', mode='contour', cmap='viridis', 
+                       hue=None, legend=True, alpha_ROIs=0.7, ax=None, 
+                       verbose=True, relvmax=None):
+    '''
+    Plot field of view, with optional overlay of cells.
+
+    :param ops: suite2p output options dictionary, containing various projection images
+    :param ROI_masks (optional): ROI-indexed dataframe of (x, y) coordinates and weights
+    :param Fstats (optional): statistics dataframe
+    :param title (optional): figure title
+    :param um_per_px (optional): spatial resolution (um/pixel). If provided, ticks and tick labels
+        on each image are replaced by a scale bar on the graph.
+    :param refkey (default: Vcorr): key used to access the specified projection image in the
+        output options dictionary
+    :param mode (default: contour): ROIs render mode ('fill' or 'contour')
+    :param cmap (default: viridis): colormap used to render reference image
+    :param hue (optional): hue parameter determining the color of each ROI
+    :param legend (default: True): whether to add an ROI classification legend to the figure
+    :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
+    :return: figure handle
+    '''
     # Create figure
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 6))
@@ -1669,58 +1738,69 @@ def plot_cell_map(ROI_masks, Fstats, ops, title=None, um_per_px=None, refkey='Vc
     if title is not None:
         ax.set_title(title, fontsize=10)
     
-    # Plot reference image 
+    # Plot reference image with optional color bounding
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
-    ax.imshow(refimg, cmap=cmap, origin='lower')
-    
-    # Plot cell and non-cell ROIs
-    for rtype, idx in idx_by_type.items():
-        # "contour" mode: add path collection defining contours for each relevant ROI
-        if mode == 'contour':
-            ax.add_collection(PathCollection(
-                [Path(ctr) for ctr in contours[idx]],
-                fc='none', ec=colors[rtype], lw=1,
-            ))
-        # "fill" mode: add mask of ROIs union
-        else:
-            ax.imshow(rgbs[idx], origin='lower')
+    vmax = np.nanmax(refimg) * relvmax if relvmax is not None else None
+    ax.imshow(refimg, cmap=cmap, origin='lower', vmax=vmax)
 
     # Add scale bar if scale provided
     if um_per_px is not None:
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-        add_scale_bar(ax, Lx, um_per_px, color='w')
+        add_scale_bar(ax, ops['Lx'], um_per_px, color='w')
+    
+    # If ROI masks and Fstats provided
+    if ROI_masks is not None and Fstats is not None:
+        
+        # Get corresponding matplotlib objects to plot cells
+        pltobjs, colors, pltlabels = get_cells_mplobjs(
+            ROI_masks, Fstats, (ops['Ly'], ops['Lx']), 
+            mode=mode, hue=hue, verbose=verbose, alpha=alpha_ROIs)
 
-    # Add legend
-    if legend:
-        if hue == 'positive':
-            labels = [f'{k:.2f} ({v})' for k, v in count_by_hue.items()]
-        else:
-            labels = [f'{k} ({v})' for k, v in count_by_hue.items()]
-        if mode == 'contour':
-            legfunc = lambda k: dict(c='none', marker='o', mfc='none', mec=colors[k], mew=2)
-        else:
-            legfunc = lambda k: dict(c='none', marker='o', mfc=colors[k], mec='none')
-        leg_items = [
-            Line2D([0], [0], label=l, ms=10, **legfunc(c))
-            for c, l in zip(colors, labels)]
-        ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
+        # Plot cell and non-cell ROIs
+        for hue, pp in pltobjs.items():
+            # "contour" mode: add path collection defining contours for each relevant ROI
+            if mode == 'contour':
+                ax.add_collection(PathCollection(
+                    [Path(ctr) for ctr in pp],
+                    fc='none', ec=colors[hue], lw=1,
+                ))
+            # "fill" mode: add mask of ROIs union
+            else:
+                ax.imshow(pp, origin='lower')
+
+        # Add legend
+        if legend:
+            if mode == 'contour':
+                legfunc = lambda k: dict(c='none', marker='o', mfc='none', mec=colors[k], mew=2)
+            else:
+                legfunc = lambda k: dict(c='none', marker='o', mfc=colors[k], mec='none')
+            leg_items = [
+                Line2D([0], [0], label=l, ms=10, **legfunc(c))
+                for c, l in zip(colors, pltlabels)]
+            ax.legend(handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
 
     return fig
 
 
-def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
-                   hue=Label.ROI_RESP_TYPE, outliers=None, **kwargs):
-    
+def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4, 
+                        mode='contour', hue=None, outliers=None, **kwargs):
+    '''
+    Plot field of view (with optional overlaid cells) for each dataset in the options dictionary.
+    '''
     logger.info('plotting cell maps...')
 
     if outliers is None:
         outliers = []
 
     # Divide inputs per dataset
-    masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
-    stats_groups = stats.groupby(Label.DATASET)
-    ndatasets = stats_groups.ngroups
+    datasets = list(ops.keys())
+    if ROI_masks is not None:
+        masks_groups = dict(tuple(ROI_masks.groupby(Label.DATASET)))
+    if Fstats is not None:
+        stats_groups = dict(tuple(Fstats.groupby(Label.DATASET)))
+        datasets = list(stats_groups.keys())
+    ndatasets = len(datasets)
 
     # Create figure
     ncols = min(ndatasets, colwrap)
@@ -1731,11 +1811,12 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
 
     # Plot map for each dataset
     with tqdm(total=ndatasets, position=0, leave=True) as pbar:
-        for ax, (dataset_id, sgroup) in zip(axes, stats_groups):
-            mgroup = masks_groups[dataset_id]
+        for ax, dataset_id in zip(axes, datasets):
             ogroup = ops[dataset_id]
-            plot_cell_map(
-                mgroup, sgroup, ogroup, title=dataset_id, mode=mode, 
+            mgroup = masks_groups[dataset_id] if ROI_masks is not None else None
+            sgroup = stats_groups[dataset_id] if Fstats is not None else None
+            plot_field_of_view(
+                ogroup, ROI_masks=mgroup, Fstats=sgroup, title=dataset_id, mode=mode, 
                 um_per_px=ogroup['micronsPerPixel'], ax=ax, legend=False, hue=hue, 
                 verbose=False, **kwargs)
             ax.set_aspect(1.)
@@ -1762,7 +1843,7 @@ def plot_cell_maps(ROI_masks, stats, ops, title=None, colwrap=4, mode='contour',
             legfunc = lambda color: dict(c='none', marker='o', mfc='none', mec=color, mew=2)
         else:
             legfunc = lambda color: dict(c='none', marker='o', mfc=color, mec='none')
-        hues = stats[hue].unique()
+        hues = Fstats[hue].unique()
         if hue == Label.ROI_RESP_TYPE:
             leg_palette = {k: v for k, v in Palette.RTYPE.items() if k in hues}
         elif hue == 'positive':
@@ -4763,7 +4844,8 @@ def get_runid_palette(param_seqs, runid):
 
 def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xscale=None, 
                       fs=12, title=None, height=4, innercall=False, fitsweepkey=None, 
-                      error_aggfunc='mean', norm=False, plot_respmetrics=False):
+                      error_aggfunc='mean', norm=False, plot_respmetrics=False,
+                      fit_store_dict=None):
     '''
     Compute fits between input parameter and response output metrics, and plot results
     
@@ -4813,13 +4895,50 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     mu_ykey = f'{ykey} - mean'
     se_ykey = f'{ykey} - sem'
 
-    # If normalization specified
-    if norm:
-        # Get maximum value of ykey
-        ymax= data[mu_ykey].max()
-        # Normalize mean and sem columns by max y value
-        for yk in [mu_ykey, se_ykey]:
-            data[yk] /= ymax
+    # If normalization by fit specified
+    p0, popt, yfit, r2, xdense, yfitdense = None, None, None, None, None, None
+    if isinstance(norm, str) and norm == 'fit':
+        # Check that only one fit candidate is provided
+        if len(fit_candidates) > 1:
+            raise ValueError('cannot normalize by fit with multiple fit candidates')
+        # Fit candidate function to data
+        norm_objfunc, norm_p0func = next(iter((fit_candidates.items())))
+        # Extract x and mean y data
+        xdata, ydata = data[xkey], data[mu_ykey]
+        # Generate initial parameters
+        p0 = norm_p0func(xdata, ydata)        
+        # Perform fit between input and output variables with candidate function
+        logger.info(f'fitting {ykey} to {xkey} using {norm_objfunc.__name__} function: p0 = {p0}')
+        popt, _ = curve_fit(norm_objfunc, xdata, ydata, p0, maxfev=10000)
+        yfit = norm_objfunc(xdata, *popt)
+        # Compute error between fit prediction and data
+        r2 = rsquared(ydata, yfit)
+        logger.debug(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
+        # Compute min and max values of fit predictor across determined input range
+        xdense = np.linspace(xdata.min(), 1.5 * xdata.max(), 1000)
+        yfitdense = norm_objfunc(xdense, *popt)
+        ymin, ymax = yfitdense.min(), yfitdense.max()
+
+    # If standard normalization is specified
+    elif norm:
+        # Extract minimum and maximum values of ykey across input data range
+        ymin, ymax = data[mu_ykey].min(), data[mu_ykey].max()
+    
+    # If no normalization is specified
+    else:
+        # Set min and max values to None
+        ymin, ymax = None, None
+    
+    # Normalize mean and sem columns, if normalization range is specified
+    if ymin is not None and ymax is not None:
+        # ymin = 0
+        logger.info(f'normalizing {ykey} to range [{ymin:.3g}, {ymax:.3g}]')
+        yptp = ymax - ymin
+        data[mu_ykey] = (data[mu_ykey] - ymin) / yptp
+        data[se_ykey] /= yptp
+        if yfit is not None:
+            yfit = (yfit - ymin) / yptp
+            yfitdense = (yfitdense - ymin) / yptp
 
     # Fetch axis, or create figure
     if ax is None:
@@ -4863,17 +4982,20 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
 
     # For each candidate objective function
     for ifit, (objfunc, p0_func) in enumerate(fit_candidates.items()):
-        # Call function to estimate initial parameters
-        p0 = p0_func(xdata, ydata)
-        
-        # Perform fit between input and output variables with candidate function
-        logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
-        popt, _ = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
-        yfit = objfunc(xdata, *popt)
 
-        # Compute error between fit prediction and data
-        r2 = rsquared(ydata, yfit)
-        logger.debug(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
+        if len(fit_candidates) > 1 or yfitdense is None:
+
+            # Call function to estimate initial parameters
+            p0 = p0_func(xdata, ydata)
+            
+            # Perform fit between input and output variables with candidate function
+            logger.debug(f'fitting {ykey} to {xkey} using {objfunc.__name__} function: p0 = {p0}')
+            popt, _ = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+            yfit = objfunc(xdata, *popt)
+
+            # Compute error between fit prediction and data
+            r2 = rsquared(ydata, yfit)
+            logger.debug(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
 
         # Replace best fit information, if better fit score 
         if r2 > best_r2:
@@ -4885,10 +5007,16 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         c = line_color if len(fit_candidates) == 1 else f'C{ifit}'
 
         # Plot dense fitted profile
-        xdense = np.linspace(xdata.min(), xdata.max(), 1000)
-        yfitdense = objfunc(xdense, *popt)
+        if len(fit_candidates) > 1 or yfitdense is None:
+            xdense = np.linspace(xdata.min(), 1.5 * xdata.max(), 1000)
+            yfitdense = objfunc(xdense, *popt)
         ax.plot(
             xdense, yfitdense, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=c)
+
+        if len(fit_candidates) == 1 and fit_store_dict is not None:
+            if xkey not in fit_store_dict:
+                fit_store_dict[xkey] = xdense
+            fit_store_dict[data.index[0][0]] = yfitdense
 
         # If response metrics requested
         if plot_respmetrics:
@@ -4928,9 +5056,9 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
             yotherfit = objfunc(xother, *popt)
 
             # Compute prediction accuracy
-            ζ = np.mean(np.abs(yotherfit - yother) / yothersem)
+            # ζ = np.mean(np.abs(yotherfit - yother) / yothersem)
             # ζ = relative_error(yother, yotherfit)
-            # ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
 
             # Plot divergence between fit and data points from other sweep
             iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
