@@ -79,7 +79,7 @@ alias 3lrename="bash ~/$MYNAME/code/bash/rename_3_levels.sh"
 - Move to a data transfer node: `datamover`
 - Mount the lab research drive on your session: `mountlab`
 - Move to the destination directory on BigPurple, e.g.: `cd ~/scratch/data`
-- Transfer the data from the source (i.e. a folder on the mounted research drive) to the destination (e.g. a folder in your scratch directory): `rsync $TRANSFERFMT $RDRIVE/<path_to_source_folder> ~/scratch/<path_to_folder_folder>`.
+- Transfer the data from the source (i.e. a folder on the mounted research drive) to the destination (e.g. a folder in your scratch directory): `rsync $RSYNC_FMT $RDRIVE/<path_to_source_folder> ~/scratch/<path_to_folder_folder>`.
 
 ## Run an analysis notebook interactively on BigPurple
 
