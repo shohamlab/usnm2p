@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-11 00:10:53
+# @Last Modified time: 2023-08-22 18:11:12
 
 ''' Collection of plotting utilities. '''
 
@@ -282,12 +282,16 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
 
     # If several trial indexes provided, call function recursively
     if is_iterable(itrial) and not aggtrials:
-        fig, axes = plt.subplots(len(itrial), len(iframes), figsize=(len(iframes) * height, len(itrial) * height))
+        fig, axes = plt.subplots(
+            len(itrial), len(iframes), figsize=(len(iframes) * height, len(itrial) * height),
+            facecolor='white')
         for i, it in enumerate(itrial):
             plot_registered_frames(
                 ops, irun, it, iframes, ntrials_per_run=ntrials_per_run, fps=fps, norm=norm,
                 cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label)
-            fig.suptitle(f'run {irun}, trials {itrial}', fontsize=fs, y=1)
+            axes[i, 0].set_ylabel(f'trial {it}')
+            fig.subplots_adjust(top=0.97)
+            fig.suptitle(f'run {irun}', fontsize=fs, y=.98)
         return fig
 
     # Extract frames stack
@@ -318,7 +322,9 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     # Plot frames
     for ax, iframe, frame in zip(axes, iframes, frames):
         ax.imshow(frame, cmap=cmap, norm=norm)
-        ax.axis('off')
+        sns.despine(ax=ax, bottom=True, left=True)
+        ax.tick_params(
+            left=False, labelleft=False, bottom=False, labelbottom=False)
         iframe_diff = iframe - FrameIndex.STIM
         if fps is None:
             title = 'frame = stim'
