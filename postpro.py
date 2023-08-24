@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-05 18:22:23
+# @Last Modified time: 2023-08-24 12:09:33
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2995,3 +2995,14 @@ def circ_rtest(alpha):
     # Return Rayleigh test statistic and p-value
     return r, z, pval
 
+
+def get_frames_indexes(irelstart=-2, irelend=12, every=1):
+    '''
+    Get indexes of frames relative to stimulus onset
+    
+    :param irelstart: relative index of first frame w.r.t. stimulus onset (default = -2)
+    :param irelend: relative index of last frame w.r.t. stimulus onset (default = 12)
+    :param every: frame sampling rate (default = 1, i.e. every frame)
+    :return: array of frame indexes
+    '''
+    return (np.arange(irelend - irelstart + 1) + irelstart + FrameIndex.STIM)[::every]

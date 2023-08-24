@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-08-22 18:11:12
+# @Last Modified time: 2023-08-24 13:31:26
 
 ''' Collection of plotting utilities. '''
 
@@ -250,8 +250,9 @@ def set_normalizer(cmap, bounds, scale='lin'):
     return norm, sm
 
 
-def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=False,
-                           cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, **kwargs):
+def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=True,
+                           cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, 
+                           colwrap=5, add_cbar=False, relvmax=None, **kwargs):
     '''
     Plot a series of frames from registered movie for a given run and trial
 
@@ -262,10 +263,13 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     :param ntrials_per_run (optional): number of trials per run. If none provided,
         inferred from REF_NFRAMES.
     :param fps (optional): frame rate (in Hz) used to infer the time of extracted frames
-    :param norm (optional): whether to normalize frames to a common color scale (default = False)
+    :param norm (optional): whether to normalize frames to a common color scale (default = True)
     :param cmap (optional): colormap (default = 'gray')
     :param fs (optional): fontsize (default = 12)
     :param height (optional): figure height (default = 3)
+    :param colwrap (optional): number of axes per row for single trial or trial-aggregated (default = 5)
+    :param add_cbar (optional): whether to add a colorbar (default = False)
+    :param relvmax (optional): relative vmax value for colorbar (default = None)
     :return: figure handle
     '''
     # Cast frames list to array
@@ -297,30 +301,39 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     # Extract frames stack
     frames = extract_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, aggtrials=aggtrials, **kwargs)
 
-    # Assess whether trial-aggregation is specified
-    trial_str = f'trials {itrial}'
-    if aggtrials:
-        trial_str = f'aggregate across {trial_str}'
+    # Assess whether trial-aggregation is specified and adapt title
+    if isinstance(itrial, int) or len(itrial) == 1:
+        trial_str = f'trial {itrial}'
+    else:
+        if itrial.data.contiguous:
+            trial_str = f'trials {itrial[0]} - {itrial[-1]}'
+        else:
+            trial_str = f'trials {itrial}'
+        if aggtrials:
+            trial_str = f'aggregate across {trial_str}'
 
     # Normalize frames to common color scale if requested
     if norm:
         sig_bounds = (frames.min(), frames.max())
+        if relvmax is not None:
+            sig_bounds = (sig_bounds[0], sig_bounds[0] + relvmax * (sig_bounds[1] - sig_bounds[0]))
         logger.info(f'normalizing frames to common {sig_bounds} interval')
-        norm, _ = set_normalizer(cmap, sig_bounds)
+        norm, sm = set_normalizer(cmap, sig_bounds)
     else:
-        norm = None
+        norm, sm = None, None
 
     # Create / retrieve figure and axes
     if axes is None:
-        fig, axes = plt.subplots(1, nframes, figsize=(nframes * height, height))
-        axes = np.atleast_1d(axes)
+        nrows, ncols = int(np.ceil(nframes / colwrap)), min(nframes, colwrap)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height), facecolor='white')
+        axes = np.atleast_1d(axes).ravel()
     else:
         fig = axes[0].get_figure()
         if len(axes) != nframes:
             raise ValueError(f'number of axis objects ({len(axes)}) does not match number of frames ({nframes})')
     
     # Plot frames
-    for ax, iframe, frame in zip(axes, iframes, frames):
+    for iax, (ax, iframe, frame) in enumerate(zip(axes, iframes, frames)):
         ax.imshow(frame, cmap=cmap, norm=norm)
         sns.despine(ax=ax, bottom=True, left=True)
         ax.tick_params(
@@ -342,7 +355,25 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
             ax.text(.5, .9, title, color='w', va='center', ha='center', fontsize=fs, transform=ax.transAxes)
         else:
             ax.set_title(title, fontsize=fs)
-        fig.suptitle(f'run {irun}, {trial_str}', fontsize=fs, y=1)
+
+    # Hide unused axes 
+    for ax in axes[iax + 1:]:
+        ax.axis('off')
+        
+    # Add colorbar, if specified
+    if add_cbar:
+        if norm is None:
+            raise ValueError('colorbar cannot be added if frames are not normalized')
+        yb, yt = axes[-1].get_position().y0, axes[0].get_position().y1
+        fig.subplots_adjust(right=0.93)
+        cbar_ax = fig.add_axes([0.95, yb, 0.02, yt - yb])
+        cbar_ax.set_title('F (a.u.)', fontsize=fs)
+        fig.colorbar(sm, cax=cbar_ax, ticks=sig_bounds)
+        cbar_ax.tick_params(labelsize=fs-2)
+
+    # Adjust figure layout 
+    fig.subplots_adjust(top=0.95)
+    fig.suptitle(f'run {irun}, {trial_str}', fontsize=fs, y=.98)
 
     # Return figure handle
     return fig
