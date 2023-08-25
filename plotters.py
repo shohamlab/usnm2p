@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-08-24 13:31:26
+# @Last Modified time: 2023-08-25 11:12:22
 
 ''' Collection of plotting utilities. '''
 
 from itertools import combinations, chain
 import random
+import logging
 import sys
 from natsort import natsorted
 import numpy as np
@@ -252,7 +253,7 @@ def set_normalizer(cmap, bounds, scale='lin'):
 
 def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=True,
                            cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, 
-                           colwrap=5, add_cbar=False, relvmax=None, **kwargs):
+                           colwrap=5, add_cbar=False, qmin=None, qmax=None, **kwargs):
     '''
     Plot a series of frames from registered movie for a given run and trial
 
@@ -269,9 +270,18 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     :param height (optional): figure height (default = 3)
     :param colwrap (optional): number of axes per row for single trial or trial-aggregated (default = 5)
     :param add_cbar (optional): whether to add a colorbar (default = False)
-    :param relvmax (optional): relative vmax value for colorbar (default = None)
+    :param qmin (optional): minimum quantile used to bound colormap for image rendering (default = None)
+    :param qmax (optional): maximum quantile used to bound colormap for image rendering (default = None)
     :return: figure handle
     '''
+    # Check quantiles validity if provided
+    if qmin is not None and not is_within(qmin, (0, 1)):
+        raise ValueError(f'invalid lower bound quantile: {qmin}')
+    if qmax is not None and not is_within(qmax, (0, 1)):
+        raise ValueError(f'invalid upper bound quantile: {qmax}')
+    if qmin is not None and qmax is not None and qmin >= qmax:
+        raise ValueError(f'invalid quantiles: {qmin} >= {qmax}')
+
     # Cast frames list to array
     iframes = np.atleast_1d(np.asarray(iframes))
     nframes = iframes.size
@@ -289,20 +299,32 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
         fig, axes = plt.subplots(
             len(itrial), len(iframes), figsize=(len(iframes) * height, len(itrial) * height),
             facecolor='white')
-        for i, it in enumerate(itrial):
+        logger.info(f'plotting frames {iframes} from trials {itrial}...')
+
+        loglvl = logger.getEffectiveLevel()
+        logger.setLevel(logging.WARNING)
+        for i, it in enumerate(tqdm(itrial)):
             plot_registered_frames(
                 ops, irun, it, iframes, ntrials_per_run=ntrials_per_run, fps=fps, norm=norm,
-                cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label)
+                cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label, 
+                qmin=qmin, qmax=qmax)
             axes[i, 0].set_ylabel(f'trial {it}')
-            fig.subplots_adjust(top=0.97)
-            fig.suptitle(f'run {irun}', fontsize=fs, y=.98)
+        logger.setLevel(loglvl)
+
+        fig.subplots_adjust(top=0.97)
+        fig.suptitle(f'run {irun}', fontsize=fs, y=.98)
         return fig
 
+    # Reduce trial index to scalar if single-index iterable
+    if is_iterable(itrial) and len(itrial) == 1:
+        itrial = itrial[0]
+    
     # Extract frames stack
-    frames = extract_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, aggtrials=aggtrials, **kwargs)
+    frames = extract_registered_frames(
+        ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, aggtrials=aggtrials, **kwargs)
 
     # Assess whether trial-aggregation is specified and adapt title
-    if isinstance(itrial, int) or len(itrial) == 1:
+    if isinstance(itrial, (int, np.int64)):
         trial_str = f'trial {itrial}'
     else:
         if itrial.data.contiguous:
@@ -312,11 +334,14 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
         if aggtrials:
             trial_str = f'aggregate across {trial_str}'
 
-    # Normalize frames to common color scale if requested
+    # Normalize frames to common color scale (and optional maximal bound) if requested
     if norm:
-        sig_bounds = (frames.min(), frames.max())
-        if relvmax is not None:
-            sig_bounds = (sig_bounds[0], sig_bounds[0] + relvmax * (sig_bounds[1] - sig_bounds[0]))
+        vmin, vmax = frames.min(), frames.max()
+        if qmax is not None:
+            vmax = np.quantile(frames, qmax)
+        if qmin is not None:
+            vmin = np.quantile(frames, qmin)
+        sig_bounds = (vmin, vmax)
         logger.info(f'normalizing frames to common {sig_bounds} interval')
         norm, sm = set_normalizer(cmap, sig_bounds)
     else:
@@ -334,7 +359,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     
     # Plot frames
     for iax, (ax, iframe, frame) in enumerate(zip(axes, iframes, frames)):
-        ax.imshow(frame, cmap=cmap, norm=norm)
+        ax.imshow(frame, cmap=cmap, norm=norm, interpolation='none')
         sns.despine(ax=ax, bottom=True, left=True)
         ax.tick_params(
             left=False, labelleft=False, bottom=False, labelbottom=False)
