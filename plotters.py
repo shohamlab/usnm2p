@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-08-25 11:12:22
+# @Last Modified time: 2023-09-01 10:32:51
 
 ''' Collection of plotting utilities. '''
 
@@ -1773,7 +1773,7 @@ def get_cells_mplobjs(ROI_masks, Fstats, dims, mode='contour', hue=None, verbose
 def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=None,
                        refkey='Vcorr', mode='contour', cmap='viridis', 
                        hue=None, legend=True, alpha_ROIs=0.7, ax=None, 
-                       verbose=True, relvmax=None):
+                       verbose=True, qmin=None, qmax=None):
     '''
     Plot field of view, with optional overlay of cells.
 
@@ -1790,6 +1790,10 @@ def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=N
     :param hue (optional): hue parameter determining the color of each ROI
     :param legend (default: True): whether to add an ROI classification legend to the figure
     :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
+    :param ax (optional): axis on which to plot the figure
+    :param verbose (default: True): verbosity level
+    :param qmin (optional): lower quantile used to clip reference image
+    :param qmax (optional): upper quantile used to clip reference image
     :return: figure handle
     '''
     # Create figure
@@ -1802,8 +1806,12 @@ def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=N
     
     # Plot reference image with optional color bounding
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
-    vmax = np.nanmax(refimg) * relvmax if relvmax is not None else None
-    ax.imshow(refimg, cmap=cmap, origin='lower', vmax=vmax)
+    vmin, vmax = None, None
+    if qmin is not None:
+        vmin = np.nanquantile(refimg, qmin)
+    if qmax is not None:
+        vmax = np.nanquantile(refimg, qmax)
+    ax.imshow(refimg, cmap=cmap, origin='lower', vmin=vmin, vmax=vmax)
 
     # Add scale bar if scale provided
     if um_per_px is not None:
@@ -1868,7 +1876,9 @@ def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4,
     ncols = min(ndatasets, colwrap)
     nrows = int(np.ceil(ndatasets / colwrap))
     factor = 3
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * factor, nrows * factor))
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(ncols * factor, nrows * factor),
+        facecolor='w')
     axes = axes.ravel()
 
     # Plot map for each dataset
@@ -2343,10 +2353,11 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
                    ci=CI, legend='full', err_style='band', ax=None, alltraces=False, kind='line',
-                   nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, 
+                   nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, fs=None,
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, ls='-', lw=2,
-                   height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=6,
-                   hide_col_prefix=False, col_count_key=None, color=None, **filter_kwargs):
+                   height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=5,
+                   hide_col_prefix=False, col_count_key=None, color=None, markeredgecolor='k', 
+                   **filter_kwargs):
     ''' Generic function to draw line plots from the experiment dataframe.
     
     :param data: experiment dataframe
@@ -2460,6 +2471,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         ls        = ls,            # line style
         marker    = marker,        # marker type
         markersize = markersize,   # marker size
+        markeredgecolor = markeredgecolor,  # marker edge color
         hue       = hue,           # hue grouping variable
         hue_order = hue_order,     # hue plotting order 
         estimator = aggfunc,       # aggregating function
@@ -2658,7 +2670,28 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
             if len(label_values) == 1:
                 add_label_mark(ax, label_values[0], cmap=label_cmap)
 
+    ###################### XY Label size ######################
+
+    if fs is not None:
+        for ax in axlist:
+            if ax.get_xlabel() is not None:
+                ax.set_xlabel(ax.get_xlabel(), fontsize=fs)
+            if ax.get_ylabel() is not None:
+                ax.set_ylabel(ax.get_ylabel(), fontsize=fs)
+            for item in ax.get_xticklabels() + ax.get_yticklabels():
+                item.set_fontsize(fs)
+
     ###################### Title & legend ######################
+
+    # Adjust legend font size if specified
+    if fs is not None:
+        for ax in axlist:
+            leg = ax.get_legend()
+            if leg is not None:
+                for item in leg.texts:
+                    item.set_fontsize(fs)
+                if leg.get_title() is not None:
+                    leg.set_title(leg.get_title().get_text(), prop={'size': fs})
 
     # Determine title 
     if title is None:
@@ -2669,12 +2702,12 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     # Use appropriate title function depending on number of axes
     if col is None: 
         # If only 1 axis (i.e. no column grouping) -> add to axis
-        axlist[0].set_title(title)
+        axlist[0].set_title(title, fontsize=fs)
     else:
         # Otherwise -> add as suptitle
         height = fig.get_size_inches()[1]
         fig.subplots_adjust(top=1 - dy_title / height)
-        fig.suptitle(title)
+        fig.suptitle(title, fontsize=fs)
 
     # Return figure handle
     return fig
@@ -2832,11 +2865,16 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
     :param ykey: name of the dependent variable on the graph from which legend was created
     :param hue: hue parameter on the graph from which legend was created
     '''
+    logger.info(f'adding sample counts per {hue} on legend labels...')
+
     # Count number of samples per hue and x-axis value
-    counts_by_hue = data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
+    counts_data = data
+    if Label.ROI in data.index.names:
+        counts_data = data.groupby([hue, xkey, Label.ROI]).first()
+    counts_by_hue = counts_data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
 
     # Keep only the max across all x-levels for each hue
-    counts_by_hue = counts_by_hue.max(axis=1)
+    counts_by_hue = counts_by_hue.max(axis=1).astype(int)
 
     # Extract counts index as string
     counts_by_hue.index = counts_by_hue.index.astype(str)
@@ -2857,7 +2895,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
                               avgprop=None, errprop='inter', marker=None, avg_color='k',
                               err_style='band', add_leg_numbers=True, hue_alpha=1., ci=CI,
                               legend='full', as_ispta=False, stacked=False, fit=None,
-                              lw=1.5, avglw=3, avgerr=True, palette=None, outliers=None,
+                              lw=1.5, avgmarker=None, avgmarkersize=5, avglw=3, avgerr=True, palette=None, outliers=None,
                               xscale='linear', **kwargs):
     ''' Plot parameter dependency of responses for specific sub-datasets.
     
@@ -2937,7 +2975,13 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         avg_color = Palette.LINE[data[Label.LINE].unique()[0]]
     
     # Assemble common plotting arguments
-    pltkwargs = dict(ax=ax, ci=ci, marker=marker, palette=palette, **kwargs)
+    pltkwargs = dict(
+        ax=ax, 
+        ci=ci, 
+        marker=marker,
+        palette=palette, 
+        **kwargs
+    )
     if hue_alpha == 0.:
         pltkwargs['ci'] = None
 
@@ -3006,7 +3050,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         
         avg_kwargs = dict(
             c=avg_color,
-            markersize=3, 
+            markersize=avgmarkersize, 
             # markeredgecolor='w'
         )
         # Plot propagated global mean trace and standard error (as bars or band)
@@ -3016,12 +3060,12 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
                 ax.errorbar(
                     mean.index, mean.values, yerr=sem.values, 
                     lw=0 if fit else avglw, elinewidth=2 if fit else avglw,
-                    marker=marker,
-                    **avg_kwargs)
+                    marker=avgmarker, **avg_kwargs)
             else:
                 ax.plot(
                     mean.index, mean.values, 
-                    lw=0 if fit else avglw, marker=marker, **avg_kwargs)
+                    lw=0 if fit else avglw,
+                    marker=avgmarker, **avg_kwargs)
         elif err_style == 'band':
             ax.plot(
                 mean.index, mean.values, 
@@ -3108,7 +3152,8 @@ def compute_and_add_fit(ax, xdata, ydata, objfunc, initfunc=None, **pltkwargs):
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey=None, ax=None,
                                               legend=True, yref=None, add_leg_numbers=True,
                                               marker='o', avg_color='k', ls='-', as_ispta=False, title=None,
-                                              weighted=True, fit=False, err_style='band', lw=1, markersize=10):
+                                              weighted=True, fit=None, err_style='band', errprop='inter', 
+                                              lw=1, markersize=6):
     '''
     Plot dependency of output metrics on a input parameter, using cell count-weighted
     averages and propagated standard errors from individual datasets
@@ -3139,40 +3184,54 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
     ax.set_xlabel(xkey)
     ax.set_ylabel(ykey)
 
-    mu_key, sem_key = f'{ykey} - mean', f'{ykey} sem'
+    # Define propagated average and standard error keys
+    mu_key, sem_key = f'{ykey} - mean', f'{ykey} - sem'
+
+    # Adapt average color to mouse line, if requested
+    if avg_color == 'line':
+        avg_color = Palette.LINE[data[Label.LINE].unique()[0]]
     
     # If hue not specified
     if hue is None:
         # Aggregate data with cell-count weighting
-        aggdata = get_crossdataset_average(data, xkey, ykey=ykey, hue=hue, weighted=weighted)
-        # Plot single weifghted average trace with propagated standard errors 
+        aggdata = get_crossdataset_average(
+            data, xkey, ykey=ykey, hue=hue, weighted=weighted, errprop=errprop)
+
+        # Plot single weighted average trace with propagated standard errors 
         if err_style == 'bars':
             ax.errorbar(
                 aggdata[xkey], aggdata[mu_key], yerr=aggdata[sem_key], 
-                marker=marker, ls=ls, c=avg_color, lw=lw, 
-                markeredgecolor='w', markersize=markersize)
+                marker=marker, ls=ls, c=avg_color, markeredgecolor='none',
+                lw=lw, elinewidth=2, markersize=markersize)
         else:
             ax.plot(
                 aggdata[xkey], aggdata[mu_key], 
                 marker=marker, ls=ls, c=avg_color, lw=lw, 
-                markeredgecolor='w', markersize=markersize)
+                markeredgecolor='none', markersize=markersize)
             if err_style == 'band':
                 ax.fill_between(
                     aggdata[xkey], 
                     aggdata[mu_key] - aggdata[sem_key], aggdata[mu_key] + aggdata[sem_key],
                     alpha=0.3, fc=avg_color, ec=None)
+        
+        # Add fit if required
+        if fit is not None:
+            objfunc, initfunc = fit
+            compute_and_add_fit(
+                ax, aggdata[xkey], aggdata[mu_key], objfunc, initfunc=initfunc,
+                ls='--', color=avg_color)
 
     # Otherwise
     else:
         # For each hue value
         for htype, rdata in data.groupby(hue):
             # Aggregate data with cell-count weighting
-            aggdata = get_crossdataset_average(rdata, xkey, ykey=ykey, hue=hue, weighted=weighted)
+            aggdata = get_crossdataset_average(
+                rdata, xkey, ykey=ykey, hue=hue, weighted=weighted, errprop=errprop)
             if hue == Label.ROI_RESP_TYPE:
                 color = Palette.RTYPE[htype]
             else:
                 color = None
-            
             if err_style == 'bars':
                 ax.errorbar(
                     aggdata[xkey], aggdata[mu_key], yerr=aggdata[sem_key],
@@ -3189,8 +3248,8 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, hue=None, ykey
                         aggdata[mu_key] - aggdata[sem_key], aggdata[mu_key] + aggdata[sem_key],
                         alpha=0.3, color=color)
 
-            # Add 3rd order polynomial fit if required
-            if fit:
+            # Add fit if required
+            if fit is not None:
                 objfunc, initfunc = fit
                 compute_and_add_fit(
                     ax, aggdata[xkey], aggdata[mu_key], objfunc, initfunc=initfunc,
@@ -3385,7 +3444,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
     return fig
 
 
-def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket', color='silver', s=30,
+def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket_r', color='silver', s=30,
                   ncontours=4, contour_labels=False, fs=12, ax=None):
     ''' 
     Plot sonication protocol in the DC - pressure space
@@ -3447,11 +3506,14 @@ def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket', color='silver',
         
         # Compute 2D array of metric values over P - DC grid
         dose_values = get_dose_metric(Pgrid, DCgrid, dose_key)
-    
+
+        # Fetch colormap
+        cmap = sns.color_palette(cmap, as_cmap=True)
+        
         # Plot dose metric colormap over DC - DC space
-        cmap = sns.color_palette(cmap, as_cmap=True).reversed()
         sm = ax.pcolormesh(
-            DCrange, Prange, dose_values, shading='nearest', rasterized=True, cmap=cmap)
+            DCrange, Prange, dose_values,
+            shading='nearest', rasterized=True, cmap=cmap)
         
         # Create axis for colorbar on the right side of the plot
         bbox = ax.get_position()
@@ -3751,7 +3813,7 @@ def plot_comparative_metrics_across_datasets(data, ykey, compkey, groupby=Label.
     return fig
 
 
-def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box', 
+def plot_comparative_metrics_across_conditions(data, ykey, condkey, order=None, kind='box', fs=12,  
                                                test='t-test', paired=False, correct=False):
     '''
     Plot comparative distributions of center vs fixed offset conditions
@@ -3763,8 +3825,17 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
     :param kind: type of categorical plot (default = 'bar')
     :param add_stats: whther or not to add statistical comparisons
     '''
+    logger.info(f'plotting {ykey} across {condkey}')
     # Aggregate output metrics across conditions and datasets 
     yagg = data.groupby([Label.DATASET, condkey]).mean()[ykey]
+
+    # Reindex to enforce condition order display
+    if order is not None:
+        yagg = yagg.reindex(order, level=condkey)
+
+    # Determine if condition is categorical
+    is_cond_categorical = yagg.index.get_level_values(condkey).dtype == 'O'
+
     # Establish pairs of conditions to compare
     pairs = list(combinations(yagg.unstack().columns, 2)) 
     
@@ -3772,25 +3843,37 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
     pltkwargs = dict(
         data=yagg.reset_index(condkey),
         x=condkey,
-        y=ykey
+        y=ykey,
     )
+    
     # Render categorical plot 
     fg = sns.catplot(
         kind=kind, 
         whis=False, 
         showfliers=False, 
+        height=3,
         **pltkwargs
     )
+
+    # Extract figure and axis
     fig = fg.figure
     ax = fig.axes[0]
+
+    # Restrict y ticks if normalized y unit
+    if 'normalized' in ykey:
+        ax.set_yticks([0, 0.5, 1])
+    
     # Show underlying data points
     sns.scatterplot(
         ax=ax, 
         hue=condkey, 
-        s=100,
+        s=50,
+        edgecolor='k',
+        linewidth=1.5,
         zorder=20,
         legend=None,
         **pltkwargs)
+    
     # If paired data
     if paired:
         # Set appropriate test
@@ -3799,7 +3882,8 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
         # Show links between points
         tmp = yagg.unstack().transpose()
         for s in tmp:
-            ax.plot(tmp.index, tmp[s], c='k', zorder=10)
+            ax.plot(tmp.index, tmp[s], c='darkgray', zorder=10)
+
     # If test provided, apply and annotate
     if test is not None:
         annotator = Annotator(
@@ -3813,7 +3897,23 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, kind='box',
             loc='outside',
             comparisons_correction='Bonferroni' if correct else None
         )
-        annotator.apply_and_annotate()
+        if fs is not None:
+            with sns.plotting_context(rc={'font.size': fs}):
+                annotator.apply_and_annotate()
+        else:
+            annotator.apply_and_annotate()
+    
+    if is_cond_categorical:
+        ax.set_xlabel(None)
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+
+    # Adapt labels font size
+    if fs is not None:
+        ax.set_xlabel(ax.get_xlabel(), fontsize=fs)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=fs)
+        for item in ax.get_xticklabels() + ax.get_yticklabels():
+            item.set_fontsize(fs)
+    
     return fig
 
 
@@ -4066,7 +4166,7 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
 def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line', ax=None, 
                             avg_overlay=True, avg_color='k', hue_width=False, palette=None, outliers=None,
                             legend='full', fit=None, avglw=3, err_style='band', xscale='linear',
-                            **kwargs):
+                            avgmarker=None, **kwargs):
     ''' 
     Plot fraction of responder cells as a function of an input parameter
 
@@ -4108,6 +4208,8 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
         hue_order=None if hue is None else list(data.groupby(hue).indices.keys()),
         legend=legend,
         palette=palette,
+        markeredgecolor='k',
+        markersize=5,
         **kwargs
     )
 
@@ -4116,11 +4218,10 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
         pltfunc = sns.relplot
         if hue is None:
             pltkwargs.update(dict(
-                marker = 'o',
+                marker='o',
                 color='b',
                 markersize=8,
                 lw=3,
-                markeredgecolor='w',
                 ci=68
             ))
         else:
@@ -4859,7 +4960,7 @@ def plot_all_deps(data, xkeys, ykeys, height=3, **kwargs):
             legend=False,
             **kwargs
         )
-    
+
     # Proportion of responders
     for i, (xkey, ax) in enumerate(zip(xkeys, axes[-1])):
         plot_responder_fraction(
@@ -4907,7 +5008,7 @@ def get_runid_palette(param_seqs, runid):
 def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xscale=None, 
                       fs=12, title=None, height=4, innercall=False, fitsweepkey=None, 
                       error_aggfunc='mean', norm=False, plot_respmetrics=False,
-                      fit_store_dict=None):
+                      rel_xmax=None, fit_store_dict=None):
     '''
     Compute fits between input parameter and response output metrics, and plot results
     
@@ -4929,12 +5030,14 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     # If multiple xkeys, generate multiple axes and call function recursively
     if is_iterable(xkey):
         fig, axes = plt.subplots(1, len(xkey), figsize=(height * len(xkey), height))
+        axes = np.atleast_1d(axes)
         fitfuncs = {}
         for xk, ax in zip(xkey, axes):
             _, fitfuncs[xk] = plot_response_fit(
                 data, ykey, fit_candidates, xkey=xk, ax=ax, xscale=xscale, 
                 fs=fs, fitsweepkey=fitsweepkey, error_aggfunc=error_aggfunc,
-                innercall=True, norm=norm, plot_respmetrics=plot_respmetrics)
+                innercall=True, norm=norm, plot_respmetrics=plot_respmetrics,
+                rel_xmax=rel_xmax)
         harmonize_axes_limits(axes)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
@@ -4977,7 +5080,10 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         r2 = rsquared(ydata, yfit)
         logger.debug(f'fitting results: popt = {popt}, R2 = {r2:.2f}')
         # Compute min and max values of fit predictor across determined input range
-        xdense = np.linspace(xdata.min(), 1.5 * xdata.max(), 1000)
+        xbounds = np.array([xdata.min(), xdata.max()])
+        if rel_xmax is not None:
+            xbounds[1] *= rel_xmax
+        xdense = np.linspace(*xbounds, 1000)
         yfitdense = norm_objfunc(xdense, *popt)
         ymin, ymax = yfitdense.min(), yfitdense.max()
 
@@ -5015,16 +5121,13 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
     
     # Plot data points, with sweep color code
     line_color = Palette.LINE[data.index.unique(level=Label.LINE).values[0]]
-    alpha_dict = {
-        Label.P: 1., # 'darkgray',
-        Label.DC: 1. # .5, # 'dimgray',
-    }
-    for subxkey, alpha in alpha_dict.items():
+    subxkeys = [Label.P, Label.DC]
+    for subxkey in subxkeys:
         subdata = get_xdep_data(data, subxkey, add_DC0=xkey != Label.P)
         # if subxkey != fitsweepkey:
         ax.errorbar(
             subdata[xkey], subdata[mu_ykey], 
-            yerr=subdata[se_ykey] if subxkey != fitsweepkey else None, 
+            # yerr=subdata[se_ykey] if subxkey != fitsweepkey else None, 
             fmt='o' if subxkey != fitsweepkey else 'x', 
             c=line_color, markersize=5, 
             # alpha=alpha
@@ -5070,7 +5173,10 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
 
         # Plot dense fitted profile
         if len(fit_candidates) > 1 or yfitdense is None:
-            xdense = np.linspace(xdata.min(), 1.5 * xdata.max(), 1000)
+            xbounds = np.array([xdata.min(), xdata.max()])
+            if rel_xmax is not None:
+                xbounds[1] *= rel_xmax
+            xdense = np.linspace(*xbounds, 1000)
             yfitdense = objfunc(xdense, *popt)
         ax.plot(
             xdense, yfitdense, ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=c)
@@ -5110,7 +5216,7 @@ def plot_response_fit(data, ykey, fit_candidates, xkey=Label.ISPTA, ax=None, xsc
         # If fit was performed on particular sweep
         if fitsweepkey is not None:
             # Get data from other sweep
-            otherkey = list(set(alpha_dict.keys()) - set([fitsweepkey]))[0]
+            otherkey = list(set(subxkeys) - set([fitsweepkey]))[0]
             other_data = get_xdep_data(data, otherkey, add_DC0=True)
             xother, yother, yothersem = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
 
