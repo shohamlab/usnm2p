@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-01 10:32:51
+# @Last Modified time: 2023-09-12 15:20:11
 
 ''' Collection of plotting utilities. '''
 
@@ -5341,4 +5341,106 @@ def plot_fluorescence_ratios(data, mouseline):
     ax.set_xticklabels([mouseline], fontsize=15)
 
     # Return figure 
+    return fig
+
+
+def plot_enriched_parameter_dependency(df, xkey=Label.ISPTA, ykey=None, yref=0., ax=None, title=None,
+                                       xscale='linear', run_anova=True, run_linreg=True, textfs=10):
+    ''' 
+    Plot dependency of specific output variable on specific run parameter, 
+    with optional ANOVA testing and linear regression 
+
+    :param s: pandas.Series containing output variable
+    :param xkey: parameter to plot against
+    :param yref: reference value for output variable
+    :param ax (optional): axis handle
+    :param title (optional): figure title
+    :param run_anova: whether to run ANOVA test (default: True)
+    :param run_linreg: whether to run linear regression (default: True)
+    :return: figure handle
+    '''
+    # Convert input series to dataframe if needed, and reset index
+    df = df.copy()
+    if isinstance(df, pd.Series):
+        if ykey is None:
+            ykey = df.name
+        df = df.to_frame()
+    df = df.reset_index()
+
+    if ykey is None:
+        raise ValueError('ykey must be provided')
+
+    # If no axis handle provided, create figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(4, 4))
+    else:
+        fig = ax.get_figure()
+    
+    # Plot output variable vs run parameters
+    sns.despine(ax=ax)
+    logger.info(f'plotting {ykey} vs {xkey}')
+    for hue in [Label.DATASET, None]:
+        sns.lineplot(
+            ax=ax,
+            data=df,
+            x=xkey, 
+            y=ykey,
+            color='k' if hue is None else None,
+            lw=0,
+            marker='o',
+            markersize=8 if hue is None else 6,
+            hue=hue,
+            err_style='bars',
+        )
+    
+    # Adjust x-scale
+    adjust_xscale(ax, xscale=xscale)
+
+    # Add reference line and move legend
+    ax.axhline(yref, ls='--', c='k')
+    sns.move_legend(ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+
+    # Add title, if provided
+    if title is not None:
+        ax.set_title(title)
+    
+    # Set initial text vertical position
+    ytext = .95
+    
+    # If ANOVA requested
+    if run_anova:
+        # Assess dependency of output variable on parameter
+        logger.info(f'assessing dependence of {ykey} on {xkey} with ANOVA...')
+        anova_pval = anova1d(df, xkey, ykey)
+        logger.info(f'pvalue = {anova_pval:.3g}')
+
+        # Add significance level
+        ax.text(
+            .05, ytext, f'ANOVA: p = {anova_pval:.3g}', transform=ax.transAxes, 
+            ha='left', va='center', fontsize=textfs)
+        ytext -= .07
+
+    # If linear regression requested
+    if run_linreg:
+        # Regress variable on param and assess wether trend it is significant
+        logger.info(f'computing linear regression of {ykey} on {xkey}')
+        regout = apply_linregress(df, xkey=xkey, ykey=ykey)
+        logger.info(f'pvalue = {regout.pval:.3g}')
+
+        # Add linear regression line
+        sns.regplot(
+            ax=ax,
+            data=df,
+            x=xkey,
+            y=ykey,
+            color='k',
+            line_kws=dict(lw=3),
+        )
+        # Add significance level
+        ax.text(
+            .05, ytext, f'linreg: p = {regout.pval:.3g}', transform=ax.transAxes, 
+            ha='left', va='center', fontsize=textfs)
+        ytext -= .07
+
+    # Return figure handle
     return fig

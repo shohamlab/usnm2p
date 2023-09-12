@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-08-24 12:09:33
+# @Last Modified time: 2023-09-12 13:17:08
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1789,7 +1789,7 @@ def get_plot_data(timeseries, stats):
     return plt_data
 
 
-def compute_1way_anova(data, xkey, ykey):
+def compute_1way_anova(data, xkey, ykey, full_output=False):
     '''
     Perform a 1-way ANOVA to assess whether a dependent variable is dependent
     on a given independent variable (i.e. group, factor).
@@ -1797,7 +1797,8 @@ def compute_1way_anova(data, xkey, ykey):
     :param data: pandas dataframe
     :param xkey: name of column containing the independent variable
     :param ykey: name of column containing the dependent variable
-    :return: p-value for dependency
+    :param full_output: whether to return full ANOVA table or just the p-value
+    :return: p-value for dependency of y on x, or full ANOVA table
     '''
     # Rename columns of interest to ensure statsmodels compatibility
     data = data.rename(columns={xkey: 'x', ykey: 'y'})
@@ -1805,10 +1806,11 @@ def compute_1way_anova(data, xkey, ykey):
     model = ols('y ~ x', data=data).fit()
     # Extract results table for 1-way ANOVA 
     anova_table = sm.stats.anova_lm(model, typ=2)
-    # Extract relevant p-value for dependency
-    p = anova_table.loc['x', 'PR(>F)']
-    return p
-
+    # Return full table if requested
+    if full_output:
+        return anova_table
+    # Otherwise, return relevant p-value for dependency
+    return anova_table.loc['x', 'PR(>F)']
 
 
 def sum_of_square_devs(x):
@@ -2752,10 +2754,38 @@ def classify_ROIs(data):
     return roistats
 
 
-def get_params_by_run(data):
-    ''' Get parameters by run '''
+def get_params_by_run(data, extra_dims=None):
+    ''' 
+    Get parameters by run
+    
+    :param data: multi-index stats dataframe
+    :param extra_dims (optional): extra index dimensions to conserve in output
+    :return: dataframe with parameters by run (and potential extra dimensions)
+    '''
+    # Check that run is in data index
+    if Label.RUN not in data.index.names:
+        raise ValueError(f'"{Label.RUN}" not found in index dimensions')
+    gby = [Label.RUN]
+
+    # Check validity of extra dimensions if any
+    if extra_dims is not None:
+        if isinstance(extra_dims, str):
+            extra_dims = [extra_dims]
+        for d in extra_dims:
+            if d not in data.index.names:
+                raise ValueError(f'"{d}" not found in index dimensions')
+        # Add extra dimensions to groupby list, in same order as in original index
+        gby = gby + extra_dims
+        gby = list(filter(lambda x: x in gby, data.index.names))
+
+    # Parameter keys to extract
     inputkeys = [Label.P, Label.DC, Label.ISPTA]
-    return data[inputkeys].groupby(Label.RUN).first()
+    
+    # Extract first value of each parameter for each group
+    first_params_by_run = data[inputkeys].groupby(gby).first()
+
+    # Return
+    return first_params_by_run
 
 
 def find_in_dataframe(df, key):
