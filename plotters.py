@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-12 15:20:11
+# @Last Modified time: 2023-09-14 14:51:47
 
 ''' Collection of plotting utilities. '''
 
@@ -1325,7 +1325,7 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
 
 def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
                           itrial=None, tbounds=None, icorrect=None, cmap='viridis',
-                          groupbyROI=False, ci=None, ax=None, **kwargs):
+                          groupbyROI=False, errorbar=None, ax=None, **kwargs):
     '''
     Plot ROI-aggregated traces across runs/trials or all dataset
     
@@ -1344,7 +1344,7 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
         traces are aligned according to a characteristic quantile of their distribution
     :param cmap (optional): colormap used to render the different traces
     :param groupbyROI (optional): whether to group data by ROI before aggregating
-    :param ci: confidence interval used to render shaded areas aroudn traces. If none is given,
+    :param errorbar: errorbar method used to render shaded areas around traces. If none is given,
         only mean aggregate traces across ROIs are rendered
     :return: figure handle
     '''
@@ -1467,8 +1467,10 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
             
             # Plot aggregated traces
             sns.lineplot(
-                data=plt_data, x=Label.TIME, y=(y, k), hue=hue, ci=ci,
-                palette=cmap, legend='auto', ax=ax, **kwargs)
+                data=plt_data, x=Label.TIME, y=(y, k), 
+                errorbar=errorbar,
+                hue=hue, palette=None if hue is None else cmap, 
+                legend='auto', ax=ax, **kwargs)
             if hue is None:
                 custom_lines.append(
                     Line2D([0], [0], color=f'C{i}', lw=4))
@@ -1607,7 +1609,7 @@ def plot_linreg(data, iROI, x=Label.F_NEU, y=Label.F_ROI):
         # Plot linear regression and add reference y=x line
         sns.regplot(
             data=subdata, x=x, y=y, ax=ax, label='data',
-            robust=True, ci=None)
+            robust=True, errorbar=None)
         ax.axline((0, 0), (1, 1), ls='--', color='k')
 
         # Perform robust linear regression and extract fitted parameters
@@ -2352,7 +2354,7 @@ def add_label_mark(ax, x, cmap=None, w=0.1):
 
 
 def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean', weightby=None,
-                   ci=CI, legend='full', err_style='band', ax=None, alltraces=False, kind='line',
+                   errorbar='se', legend='full', err_style='band', ax=None, alltraces=False, kind='line',
                    nmaxtraces=None, hue=None, hue_order=None, col=None, col_order=None, fs=None,
                    label=None, title=None, dy_title=0.6, markerfunc=None, max_colwrap=5, ls='-', lw=2,
                    height=None, aspect=1.5, alpha=None, palette=None, marker=None, markersize=5,
@@ -2367,7 +2369,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     :param ybounds (optional): y-axis limits for plot
     :param aggfunc (optional): method for aggregating across multiple observations within group.
     :param weightby (optional): column used to weight observations upon aggregration.
-    :param ci (optional): size of the confidence interval around mean traces (int, “sd” or None)
+    :param errorbar (optional): errorbar method to plot shaded area around mean traces
     :param err_style (“band” or “bars”): whether to draw the confidence intervals with translucent error bands or discrete error bars.
     :param alltraces (optional): whether to plot all individual traces
     :param nmaxtraces (optional): maximum number of traces that can be plot per group
@@ -2431,7 +2433,7 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
     # Add aggregation and confidence interval information to log, if specified
     if aggfunc is not None:
         s.append('averaging')
-    if ci is not None:
+    if errorbar is not None:
         s.append('estimating confidence intervals')
     
     # Log
@@ -2476,9 +2478,9 @@ def plot_from_data(data, xkey, ykey, xbounds=None, ybounds=None, aggfunc='mean',
         hue_order = hue_order,     # hue plotting order 
         estimator = aggfunc,       # aggregating function
         color     = color,         # plot color
-        ci        = ci,            # confidence interval estimator
+        errorbar  = errorbar,      # errorbar estimation method
         err_style = err_style,     # error visualization style 
-        lw        = lw,           # line width
+        lw        = lw,            # line width
         palette   = palette,       # color palette
         legend    = legend,        # use all hue entries in the legend
     )
@@ -2809,7 +2811,7 @@ def plot_responses_across_datasets(data, ykey=Label.DFF, pkey=Label.P, avg=False
         max_colwrap = 4, # number of axes per line
         height = 2.3 if not avg else 3,  # height of each figure axis
         aspect = 1.,  # width / height aspect ratio of each axis
-        ci = None,  # no error shading
+        errorbar = None,  # no error shading
     )
 
     # Determine dataset filter depending on parameter key
@@ -2893,7 +2895,7 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
 
 def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, hue=None,
                               avgprop=None, errprop='inter', marker=None, avg_color='k',
-                              err_style='band', add_leg_numbers=True, hue_alpha=1., ci=CI,
+                              err_style='band', add_leg_numbers=True, hue_alpha=1., errorbar='se',
                               legend='full', as_ispta=False, stacked=False, fit=None,
                               lw=1.5, avgmarker=None, avgmarkersize=5, avglw=3, avgerr=True, palette=None, outliers=None,
                               xscale='linear', **kwargs):
@@ -2911,8 +2913,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     :param legend (optional): whether to plot a legend for each hue level (default: "full")
     :param add_leg_numbers: whether to add sample counts for each legend entry (default = False)
     :pramhue_alpha (optional): opacity level of indidvidual hue traces (default = 1)
-    :param ci: confidence interval used to plot shaded areas around traces
-        (default = 68 === SEM)
+    :param errorbar: errorbar method to plot shaded areas around traces (default = 'se' == SEM)
     :param as_ispta (optional): whether to project input parameter to ISPTA space (default: False)
     :param stacked (optional): whether to offset each hue trend vertically (default: False)
     :param fit (optional): tuple of (objective fit function, initial fit parameters function) to used to fit a function to the average dependency profile
@@ -2977,13 +2978,13 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     # Assemble common plotting arguments
     pltkwargs = dict(
         ax=ax, 
-        ci=ci, 
+        errorbar=errorbar, 
         marker=marker,
         palette=palette, 
         **kwargs
     )
     if hue_alpha == 0.:
-        pltkwargs['ci'] = None
+        pltkwargs['errorbar'] = None
 
     # If hueplt specified
     if hueplt:
@@ -3424,10 +3425,14 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None):
             # Plot counts on pie chart
             ax2 = fig.add_axes([0.8, 0.1, 0.35, 0.8])
             counts_by_rtype.plot.pie(
-                ax=ax2, ylabel='', autopct='%1.0f%%',
+                ax=ax2, 
+                ylabel='', 
+                autopct='%1.0f%%',
                 colors=[Palette.RTYPE[k] for k in counts_by_rtype.index],
-                startangle=90, textprops={'fontsize': 12}, 
-                wedgeprops={'edgecolor': 'k', 'alpha': 0.7})
+                startangle=90, 
+                textprops={'fontsize': 12}, 
+                wedgeprops={'edgecolor': 'k', 'alpha': 0.7}
+            )
         else:
             raise ValueError(f'invalid count mode: "{count}"')
 
@@ -3794,7 +3799,7 @@ def plot_comparative_metrics_across_datasets(data, ykey, compkey, groupby=Label.
         combs = conds.groupby(Label.DATASET).apply(lambda s: list(combinations(s, 2)))
         maxcondsperdataset = max([len(x) for x in combs])
         combs = combs.explode()
-        pairs = [[(dataset, item) for item in pair] for dataset, pair in combs.iteritems()]
+        pairs = [[(dataset, item) for item in pair] for dataset, pair in combs.items()]
         # Perform tests and add statistical annotations
         annotator = Annotator(
             ax=ax, pairs=pairs, **pltkwargs)
@@ -3826,8 +3831,8 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, order=None, 
     :param add_stats: whther or not to add statistical comparisons
     '''
     logger.info(f'plotting {ykey} across {condkey}')
-    # Aggregate output metrics across conditions and datasets 
-    yagg = data.groupby([Label.DATASET, condkey]).mean()[ykey]
+    # Aggregate output metrics across conditions and datasets
+    yagg = data.groupby([Label.DATASET, condkey])[ykey].mean()
 
     # Reindex to enforce condition order display
     if order is not None:
@@ -4137,7 +4142,7 @@ def plot_stat_graphs(data, ykey, run_order=None, irun_marker=None):
     ax = axes[1]
     sns.barplot(
         ax=ax, data=data.reset_index(level=Label.RUN),
-        x=Label.RUN, y=ykey, ci=68, 
+        x=Label.RUN, y=ykey, errorbar='se', 
         order=run_order.index.values)
     # Add zero line
     ax.axhline(0., c='k', lw=1)
@@ -4222,7 +4227,7 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
                 color='b',
                 markersize=8,
                 lw=3,
-                ci=68
+                errorbar='se',
             ))
         else:
             if hue_width:
@@ -4433,7 +4438,7 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
         x=Label.TIME,
         y=ykeys[0],
         hue=hue,
-        ci=None,
+        errorbar=None,
         legend=legend
     )
     
@@ -4597,7 +4602,7 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
         x=Label.FREQ,
         y=ykeys_spectrum[0],
         hue=hue,
-        ci=None,
+        errorbar=None,
         legend=legend
     )
     # If data is indexed by dataset, add arguments to create 1 axis per dataset
@@ -4955,7 +4960,7 @@ def plot_all_deps(data, xkeys, ykeys, height=3, **kwargs):
             hue=Label.DATASET,
             avgprop='whue', 
             axes=axrow,
-            ci=None,
+            errorbar=None,
             xkeys=xkeys,
             legend=False,
             **kwargs
@@ -5385,11 +5390,12 @@ def plot_enriched_parameter_dependency(df, xkey=Label.ISPTA, ykey=None, yref=0.,
             data=df,
             x=xkey, 
             y=ykey,
+            hue=hue,
+            errorbar='se' if hue is None else None,
             color='k' if hue is None else None,
             lw=0,
             marker='o',
             markersize=8 if hue is None else 6,
-            hue=hue,
             err_style='bars',
         )
     

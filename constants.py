@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-07-05 12:22:25
+# @Last Modified time: 2023-09-14 11:58:24
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -46,6 +46,7 @@ class Label:
     # Frequency analysis
     FREQ = 'frequency (Hz)'
     PSPECTRUM = 'Power spectrum'
+    PSPECTRUM_DB = 'Power spectrum (dB)'
 
     # Data indexes
     ROI = 'ROI'
@@ -352,8 +353,6 @@ sweep_markers = {
     Label.P: 'o',
     Label.DC: '^',
 }
-
-CI = 68  # default confidence interval error reporting
 
 ###################################### DATASETS ######################################
 

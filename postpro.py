@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-12 13:17:08
+# @Last Modified time: 2023-09-14 14:17:01
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2560,6 +2560,9 @@ def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
         extra_mux_levels = list(filter(lambda x: x not in as_iterable(by), s.index.names))
         if len(extra_mux_levels) > 0:
             yoffsets = free_expand(yoffsets, s)
+    # If by is not in index, remove it from offsets index
+    if by not in s.index.names:
+        yoffsets = yoffsets.droplevel(by)
     # Return
     return yoffsets
 
@@ -2615,7 +2618,7 @@ def get_responders_counts(data, xkey, units=None, normalize=False):
         resp_props['weight'] = (
             resp_props['count']
             .groupby(xkey)
-            .apply(lambda s: s / s.sum())
+            .transform(lambda s: s / s.sum())
         )
         # Return proportions
         return resp_props
@@ -2876,6 +2879,14 @@ def get_popavg_data(data, ykey=None):
     maxnvalspercat = groups.nunique().max(axis=0)
     constkeys = maxnvalspercat[maxnvalspercat == 1].index.values
     varkeys = maxnvalspercat[maxnvalspercat > 1].index.values
+
+    # Remove object-typed columns from variable columns, if any
+    objcols = data.dtypes[data.dtypes == object].index.values
+    objvarkeys = list(set(varkeys).intersection(set(objcols)))
+    if len(objvarkeys) > 0:
+        logger.warning(f'ignoring object-typed columns {objvarkeys} in population average data')    
+        varkeys = [k for k in varkeys if k not in objcols]
+
     if ykey is not None:
         varkeys = list(set(varkeys).intersection(as_iterable(ykey)))
 
@@ -2975,6 +2986,65 @@ def circ_corrcl(alpha, x):
     return rho, pval
 
 
+def circ_mean(alpha):
+    ''' Circular mean '''
+    # Project circular data onto unit circle
+    p = np.exp(1j * alpha)
+    # Return angle of mean resultant vector
+    return np.angle(p.mean())
+
+
+def circ_corrcc(alpha, beta):
+    '''
+    Compute correlation between two circular variables
+
+    Adapted from circ_corrcc function of CircStat package matlab toolbox:
+    *Berens, P. (2009). CircStat: A MATLAB Toolbox for Circular Statistics.
+    J. Stat. Soft. 31. 10.18637/jss.v031.i10.*
+
+    :param alpha: first circular variable
+    :param beta: second circular variable
+    :return: circular-circular correlation coefficient, and associated p-value
+    '''
+    # Check that input dimensions match
+    if len(alpha) != len(beta):
+        raise ValueError(f'Input dimensions ({len(alpha)}, {len(beta)}) do not match')
+    
+    # Extract number of samples
+    n = len(alpha)
+
+    # If input is a pandas series, extract values and log process
+    if isinstance(alpha, pd.Series) and isinstance(beta, pd.Series):
+        logger.info(f'computing circular-circular correlation between {alpha.name} and {beta.name} (n = {n})')
+        alpha, beta = alpha.values, beta.values
+
+    # Compute angular mean of each variable
+    mu_alpha = circ_mean(alpha)
+    mu_beta = circ_mean(beta)
+
+    # Compute relative angles
+    alphar = alpha - mu_alpha
+    betar = beta - mu_beta
+
+    # Compute circular-circular correlation coefficient
+    num = np.sum(np.sin(alphar)) * np.sum(np.sin(betar))
+    den = np.sqrt(np.sum(np.sin(alphar)**2) * np.sum(np.sin(betar)**2))
+    rho = num / den
+
+    # Compute associated t-statistic
+    l20 = np.mean(np.sin(alphar)**2)
+    l02 = np.mean(np.sin(betar)**2)
+    l22 = np.mean((np.sin(alphar)**2) * (np.sin(betar)**2))
+    f = n * l20 * l02 / l22
+    ts = np.sqrt(f) * rho
+    
+    # Compute associated p-value
+    pval = 2 * (1 - norm.cdf(np.abs(ts)))
+
+    # Return correlation coefficient and p-value
+    return rho, pval
+
+
 def pandas_circ_corrcl(data, ckey, lkey):
     '''
     Compute circular-linear correlation between a circular and a linear variable
@@ -3018,10 +3088,7 @@ def circ_rtest(alpha):
     # Compute Rayleigh's z
     z = R**2 / n
     # Compute associated p-value
-    pval = np.exp(
-        np.sqrt(1 + 4 * n + 4 * (n**2 - R**2))
-        - (1 + 2 * n)
-    )
+    pval = np.exp(np.sqrt(1 + 4 * n + 4 * (n**2 - R**2)) - (1 + 2 * n))
     # Return Rayleigh test statistic and p-value
     return r, z, pval
 
@@ -3036,3 +3103,74 @@ def get_frames_indexes(irelstart=-2, irelend=12, every=1):
     :return: array of frame indexes
     '''
     return (np.arange(irelend - irelstart + 1) + irelstart + FrameIndex.STIM)[::every]
+
+
+def phase_clustering(phi, aggby):
+    ''' 
+    Compute phase clustering of data along specified dimension. 
+
+    :param phi: multi-indexed pandas Series with angular phase data
+    :param aggby: dimension along which to aggregate data to compute phase clustering
+    :return: pandas Series with phase clustering values
+    '''
+    # Compute phase projection onto unit circle
+    logger.info(f'projecting {phi.name} onto unit circle')
+    xy = complex_exponential(phi)
+
+    # Check that aggregation dimension is valid
+    dims = list(phi.index.names)
+    if aggby not in dims:
+        raise ValueError(f'{aggby} is not a dimension of {phi.name}')
+
+    # Derive suffix from aggregating dimension
+    k = aggby[0].upper()
+    suffix = f'I{k}PC'
+
+    # Derive groupby dimensions from aggregation dimension
+    gby = [d for d in dims if d != aggby]
+
+    # Group data and compute resultant mean vector amplitude in each group
+    logger.info(f'computing inter-{aggby} {phi.name} clustering')
+    return (xy
+        .groupby(gby)
+        .mean()
+        .abs()
+        .rename(f'{phi.name} {suffix}')
+    )
+
+
+def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=True, remove_utri=True):
+    '''
+    Compute correlation matrix of data grouped by `by` dimension.
+
+    :param s: multi-indexed pandas Series with data to correlate
+    :param by: dimension along which to measure pairwise correlations
+    :param sort: whether to sort correlation matrix by mean correlation
+    :param shuffle: whether to shuffle data before computing correlation matrix
+    :param remove_diag: whether to remove diagonal elements from correlation matrix
+    :param remove_utri: whether to remove upper triangular elements from correlation matrix
+    :return: pandas dataframe with correlation matrix
+    '''
+    # Check that correlation dimension is present in index
+    if by not in s.index.names:
+        raise ValueError(f'"{by}" dimension not found in index of input Series') 
+    logger.info(f'computing {"shuffled " if shuffle else ""}{s.name} pairwise correlations between ROIs')
+    # Unstack data along correlation dimension
+    df = s.unstack(by)
+    # Shuffle data, if specified
+    if shuffle:
+        df = df.apply(lambda x: x.sample(frac=1).to_numpy())
+    # Compute pairwise correlation matrix
+    corrs = df.corr()
+    # Remove diagonal elements, if specified
+    if remove_diag:
+        np.fill_diagonal(corrs.values, np.nan)
+    # Sort correlation matrix by mean correlation, if specified 
+    if sort:
+        isort = corrs.mean().sort_values(ascending=False).index
+        corrs = corrs[isort].reindex(isort)
+    # Remove upper triangular elements, if specified
+    if remove_utri:
+        corrs.values[np.triu_indices(len(corrs))] = np.nan
+    # Return correlation matrix
+    return corrs
