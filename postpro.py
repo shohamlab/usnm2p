@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-14 14:17:01
+# @Last Modified time: 2023-09-14 16:08:39
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2391,7 +2391,7 @@ def tmean(x):
 
 
 def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True, 
-                       add_suffix=False, **kwargs):
+                       normalize=False, add_db=True, add_suffix=False, **kwargs):
     '''
     Compute signal power spectrum and return it as a dataframe
     
@@ -2400,6 +2400,8 @@ def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True
     :param method: method to use for power spectrum estimation
     :param scaling: whether to return raw power spectrum ("spectrum") of power spectral density ("density")
     :param remove_dc: whether to remove DC component from signal before computing power spectrum
+    :param normalize: whether to normalize power spectrum to its maximal value
+    :param add_db: whether to add a column with power spectrum in dB
     :param add_suffix: whether to add variable suffix to the output power spectrum column 
     :param kwargs: additional arguments to spectrum estimation function
     :return: dataframe with frequency and power spectrum columns
@@ -2410,7 +2412,7 @@ def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True
         out = pd.concat([
             get_power_spectrum(
                 y[k], fs, method=method, scaling=scaling, remove_dc=remove_dc,
-                add_suffix=True, **kwargs)
+                normalize=normalize, add_db=add_db, add_suffix=True, **kwargs)
             for k in y], 
             axis=1)
         # Remove duplicate frequency columns and return
@@ -2499,12 +2501,20 @@ def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True
         # Scale power spectrum if requested
         if scaling == 'spectrum':
             Pxx_spec *= nsamples
-
+    
+    # Normalize power spectrum if requested
+    if normalize:
+        Pxx_spec /= Pxx_spec.max()
+    
     # Assemble as two-column dataframe
     df = pd.DataFrame({
         Label.FREQ: freqs,
         spname: Pxx_spec
     })
+
+    # Convert to dB if requested
+    if add_db:
+        df[f'{spname} (dB)'] = 10 * np.log10(df[spname])
     
     # Set index name
     df.index.name = 'freq index'

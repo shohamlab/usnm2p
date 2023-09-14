@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-14 14:51:47
+# @Last Modified time: 2023-09-14 16:08:53
 
 ''' Collection of plotting utilities. '''
 
@@ -4560,12 +4560,12 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     logger.info(f'computing frequency spectra across {" & ".join(gby)}...')
     popagg_spectrums = (data[ykeys]
         .groupby(gby)
-        .apply(lambda s: get_power_spectrum(s, fps, **kwargs))
+        .apply(lambda s: get_power_spectrum(s, fps, add_db=False, **kwargs))
     )
 
     # Extract spectrum key(s)
     ykeys_spectrum = popagg_spectrums.columns.values.tolist()[1:]
-
+    
     # If hue not in spectrum index, add it as column
     if hue is not None and hue not in popagg_spectrums.index.names:
         hue_by_gby = data[hue].groupby(gby).first()
