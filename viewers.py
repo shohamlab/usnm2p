@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-06-13 23:09:38
+# @Last Modified time: 2023-09-15 11:36:42
 
 ''' Notebook image viewing utilities. '''
 
@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy_image_widget as niw
-from ipywidgets import IntSlider, VBox, HBox, HTML, Button, Output
+from ipywidgets import IntSlider, FloatSlider, VBox, HBox, HTML, Button, Output
 from IPython.display import display
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
@@ -103,32 +103,51 @@ class StackViewer:
     #     for sobj in self.fobjs:
     #         sobj.close()
 
-    def get_frame_range(self, bounds):
+    def get_frame_index_range(self, fbounds):
         ''' Get a range of frames indexes given specified index bounds '''
-        if bounds is None:
-            bounds = [0, self.nframes - 1]
+        if fbounds is None:
+            fbounds = [0, self.nframes - 1]
         else:
-            logger.info(f'frame frange: {bounds}')
-        return range(bounds[0], bounds[1] + 1)
+            logger.info(f'frame frange: {fbounds}')
+        return range(fbounds[0], fbounds[1] + 1)
     
-    def get_intensity_range(self, i, frange):
-        ''' Get the range of pixel intensity across the whole stack. '''
-        # Get evolution of min and max frame intensity
+    def get_dynamic_range(self, i, frange):
+        ''' 
+        Get dynamic range of pixel values across a stack.
+        
+        :param i: stack index
+        :param frange: frame index range
+        :return: lower and upper bounds of pixel values across the stack
+        '''
+        logger.info(f'computing stack dynamic range across frames {frange.start} - {frange.stop -1}...')
+        # Get vectors of min and max intensity values across frames
         Imin, Imax = self.get_frame_metric_evolution(
             self.fobjs[i], frange, func=lambda x: (x.min(), x.max())).T
+        # Get min and max values across the stack
         Imin, Imax = np.min(Imin), np.max(Imax)
-        logger.info(f'intensity range: {Imin} - {Imax}')
+        # Log and return
+        logger.info(f'stack dynamic range range: {Imin} - {Imax}')
         return (Imin, Imax)
 
     def get_slider(self, frange):
         ''' Get slider control to change frame. '''
-        return IntSlider(
-            value=frange.start,
-            min=frange.start,
-            max=frange.stop - 1,
-            continuous_update=self.continuous_update,
-            description='Frame'
-        )
+        if self.fps is None:
+            return IntSlider(
+                value=frange.start,
+                min=frange.start,
+                max=frange.stop - 1,
+                continuous_update=self.continuous_update,
+                description='Frame'
+            )
+        else:
+            return FloatSlider(
+                value=frange.start / self.fps,
+                min=frange.start / self.fps,
+                max=(frange.stop - 1) / self.fps,
+                step=1 / self.fps,
+                continuous_update=self.continuous_update,
+                description='Time (s)'
+            )
     
     def get_header(self, text):
         ''' Get header text component '''
@@ -213,21 +232,37 @@ class StackViewer:
     
     def update(self, event):
         ''' Event handler: update view(s) upon change in slider index. '''
+        # Get current frame index from slider value
+        if isinstance(self.slider.value, float):
+            iframe = int(np.round(self.slider.value * self.fps))
+        else:
+            iframe = self.slider.value
+        # Update view(s) with current frame
         for i in range(len(self.fpaths)):
-            arr = self.get_frame(self.fobjs[i], self.slider.value)
-            self.views[i].data = self.process_frame(arr, self.norms[i], self.slider.value)
+            arr = self.get_frame(self.fobjs[i], iframe)
+            self.views[i].data = self.process_frame(arr, self.norms[i], iframe)
+    
+    def get_vbounds(self, x, rel_vbounds):
+        ''' Get value bounds from relative value bounds. '''
+        vrange = x[1] - x[0]
+        lb = x[0] + rel_vbounds[0] * vrange
+        ub = x[0] + rel_vbounds[1] * vrange
+        return (lb, ub)
 
-    def init_render(self, norm=True, cmap='viridis', bounds=None, ilabels=None):
+    def init_render(self, fps=None, norm=True, rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None):
         '''
         Initialize stacks rendering.
         
+        :param fps (optional): frame rate (in Hz) used to convert frame index to time (in s)
         :param norm (default = True): whether to normalize the stack data to [0-1] range upon rendering
         :param cmap (optional): colormap used to display grayscale image. If none, a gray colormap is used by default.
-        :param bounds (optional): boundary frame indexes. If none, the entire stack is rendered.
+        :param fbounds (optional): boundary frame indexes. If none, the entire stack is rendered.
         :param ilabels (optional): array of frame indexes to label.
         '''
+        # Initialize fps
+        self.fps = fps
         # Get frame range
-        self.frange = self.get_frame_range(bounds)
+        self.frange = self.get_frame_index_range(fbounds)
         # Initialize label arrray
         is_labeled = np.zeros(self.nframes)
         if ilabels is not None:
@@ -239,8 +274,9 @@ class StackViewer:
         self.cmap = plt.get_cmap(cmap)
         # Initialize normalizers
         if norm:
-            logger.info(f'computing stack intensity range across {self.frange.start} - {self.frange.stop -1} frame range...')
-            lims = [self.get_intensity_range(i, self.frange) for i in range(len(self.fobjs))]
+            lims = [self.get_dynamic_range(i, self.frange) for i in range(len(self.fobjs))]
+            if rel_vbounds is not None:
+                lims = [self.get_vbounds(x, rel_vbounds) for x in lims]
             self.norms = [plt.Normalize(vmin=x[0], vmax=x[1]) for x in lims]
         else:
             self.norms = [None] * len(self.fobjs)
@@ -316,12 +352,14 @@ def view_stack(*args, **kwargs):
     ''' Interface function to view stacks '''
     if args[0] is None:
         return
-    norm = kwargs.pop('norm', True)
     cmap = kwargs.pop('cmap', 'viridis')
-    bounds = kwargs.pop('bounds', None)
+    norm = kwargs.pop('norm', True)
+    rel_vbounds = kwargs.pop('rel_vbounds', None)
+    fbounds = kwargs.pop('fbounds', None)
+    fps = kwargs.pop('fps', None)
     ilabels = kwargs.pop('ilabels', None)
     return get_stack_viewer(*args, **kwargs).render(
-        norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+        fps=fps, norm=norm, rel_vbounds=rel_vbounds, cmap=cmap, fbounds=fbounds, ilabels=ilabels)
 
 
 

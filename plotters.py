@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-14 16:08:53
+# @Last Modified time: 2023-09-15 11:42:25
 
 ''' Collection of plotting utilities. '''
 
@@ -509,11 +509,11 @@ def plot_stack_timecourse(*args, **kwargs):
     ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
     norm = kwargs.pop('norm', True)  # normalize across frames before rendering
     cmap = kwargs.pop('cmap', 'viridis')  # colormap
-    bounds = kwargs.pop('bounds', None)  # bounds
+    fbounds = kwargs.pop('fbounds', None)  # frame index bounds
 
     # Initialize viewer and initialize its rendering
     viewer = get_stack_viewer(*args, **kwargs)
-    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+    viewer.init_render(norm=norm, cmap=cmap, fbounds=fbounds, ilabels=ilabels)
 
     # Initialize figure if not provided
     if ax is None:

@@ -19,7 +19,13 @@ These can be downloaded from https://www.anaconda.com/products/individual.
 - Move inside the repository: `cd usnm2p` 
 - Install the package dependencies: `pip install -r requirements.txt`
 - Install the pre-built package for PyTables directly from conda: `conda install pytables`
-- Create a user configuration file called `config.py`, and define in a variable called `dataroot` indicating the path to the root directory for the raw data to be analyzed.
+- Create a user configuration file called `config.py`, and define in it:
+    - a variable called `dataroot` indicating the path to the root directory for the raw data to be analyzed.
+    - a dictionary called `default_dataset` indicating parameters of the default dataset to analyze, with the following keys:
+        - `mouseline`: mouse line
+        - `expdate`: experiment date
+        - `mouseid`: mouse number
+        - `region`: brain region
 - Save the configuration file in the repository top folder. You're all set!
 
 ### Usage
