@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 11:36:42
+# @Last Modified time: 2023-09-15 15:41:31
 
 ''' Notebook image viewing utilities. '''
 
@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy_image_widget as niw
-from ipywidgets import IntSlider, FloatSlider, VBox, HBox, HTML, Button, Output
+from ipywidgets import Label, IntSlider, Play, VBox, HBox, HTML, Button, Output, jslink
 from IPython.display import display
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
@@ -128,26 +128,40 @@ class StackViewer:
         # Log and return
         logger.info(f'stack dynamic range range: {Imin} - {Imax}')
         return (Imin, Imax)
-
-    def get_slider(self, frange):
-        ''' Get slider control to change frame. '''
-        if self.fps is None:
-            return IntSlider(
-                value=frange.start,
-                min=frange.start,
-                max=frange.stop - 1,
-                continuous_update=self.continuous_update,
-                description='Frame'
-            )
+    
+    def slider_format(self, val):
+        ''' Format slider readout value '''
+        if self.fps is not None:
+            return f'{val / self.fps:.2f} s'
         else:
-            return FloatSlider(
-                value=frange.start / self.fps,
-                min=frange.start / self.fps,
-                max=(frange.stop - 1) / self.fps,
-                step=1 / self.fps,
-                continuous_update=self.continuous_update,
-                description='Time (s)'
-            )
+            return f'{val}'
+
+    def set_slider(self, frange):
+        ''' Set slider control to change frame. '''
+        # Define default slider parameters
+        slider_params = dict(
+            value=frange.start,
+            min=frange.start,
+            max=frange.stop - 1,
+            step=1,
+            continuous_update=self.continuous_update,
+            description='Frame'
+        )
+
+        # Create play widget
+        self.play = Play(
+            interval=100 if self.fps is None else 1000 / self.fps, 
+            **slider_params
+        )
+        
+        # Create slider object and link it to play widget
+        self.slider = IntSlider(readout=False)
+        
+        # Link slider and play widgets
+        jslink((self.play, 'value'), (self.slider, 'value'))
+
+        # Create slider label
+        self.slider_label = Label(value=self.slider_format(self.slider.value))
     
     def get_header(self, text):
         ''' Get header text component '''
@@ -233,10 +247,9 @@ class StackViewer:
     def update(self, event):
         ''' Event handler: update view(s) upon change in slider index. '''
         # Get current frame index from slider value
-        if isinstance(self.slider.value, float):
-            iframe = int(np.round(self.slider.value * self.fps))
-        else:
-            iframe = self.slider.value
+        iframe = self.slider.value
+        # Update slider readout
+        self.slider_label.value = self.slider_format(iframe)
         # Update view(s) with current frame
         for i in range(len(self.fpaths)):
             arr = self.get_frame(self.fobjs[i], iframe)
@@ -296,7 +309,7 @@ class StackViewer:
         for i in range(len(self.fpaths)):
             self.views.append(self.init_view())
         # Set up slider control to change frame
-        self.slider = self.get_slider(self.frange)
+        self.set_slider(self.frange)
         # Connect slider to image view and update view with first frame in range
         self.slider.observe(self.update)
         self.update(None)
@@ -304,7 +317,7 @@ class StackViewer:
         container = HBox([VBox([self.get_header(h), v]) for h, v in zip(self.headers, self.views)])
         if self.title is not None:
             container = HBox([VBox([self.get_header(self.title), container])])
-        return VBox([container, self.slider])
+        return VBox([container, HBox([self.play, self.slider, self.slider_label])])
 
     def save_as_gif(self, outdir, fps):
         ''' Save stack(s) as GIF(s) '''
