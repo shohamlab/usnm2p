@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 15:41:31
+# @Last Modified time: 2023-09-15 16:05:22
 
 ''' Notebook image viewing utilities. '''
 
@@ -136,7 +136,7 @@ class StackViewer:
         else:
             return f'{val}'
 
-    def set_slider(self, frange):
+    def set_frame_slider(self, frange):
         ''' Set slider control to change frame. '''
         # Define default slider parameters
         slider_params = dict(
@@ -144,24 +144,27 @@ class StackViewer:
             min=frange.start,
             max=frange.stop - 1,
             step=1,
-            continuous_update=self.continuous_update,
-            description='Frame'
         )
 
         # Create play widget
+        playback_interval = 100 if self.fps is None else 1000 / self.fps
         self.play = Play(
-            interval=100 if self.fps is None else 1000 / self.fps, 
+            interval=playback_interval, 
             **slider_params
         )
         
-        # Create slider object and link it to play widget
-        self.slider = IntSlider(readout=False)
+        # Create slider object
+        self.frame_slider = IntSlider(
+            continuous_update=self.continuous_update,
+            readout=False,
+            **slider_params
+        )
         
-        # Link slider and play widgets
-        jslink((self.play, 'value'), (self.slider, 'value'))
+        # Link frame slider and play widgets
+        jslink((self.play, 'value'), (self.frame_slider, 'value'))
 
         # Create slider label
-        self.slider_label = Label(value=self.slider_format(self.slider.value))
+        self.frame_slider_label = Label(value=self.frame_slider_format(self.frame_slider.value))
     
     def get_header(self, text):
         ''' Get header text component '''
@@ -247,9 +250,9 @@ class StackViewer:
     def update(self, event):
         ''' Event handler: update view(s) upon change in slider index. '''
         # Get current frame index from slider value
-        iframe = self.slider.value
+        iframe = self.frame_slider.value
         # Update slider readout
-        self.slider_label.value = self.slider_format(iframe)
+        self.frame_slider_label.value = self.frame_slider_format(iframe)
         # Update view(s) with current frame
         for i in range(len(self.fpaths)):
             arr = self.get_frame(self.fobjs[i], iframe)
@@ -309,20 +312,20 @@ class StackViewer:
         for i in range(len(self.fpaths)):
             self.views.append(self.init_view())
         # Set up slider control to change frame
-        self.set_slider(self.frange)
+        self.set_frame_slider(self.frange)
         # Connect slider to image view and update view with first frame in range
-        self.slider.observe(self.update)
+        self.frame_slider.observe(self.update)
         self.update(None)
         # Return ipywidget
         container = HBox([VBox([self.get_header(h), v]) for h, v in zip(self.headers, self.views)])
         if self.title is not None:
             container = HBox([VBox([self.get_header(self.title), container])])
-        return VBox([container, HBox([self.play, self.slider, self.slider_label])])
+        return VBox([container, HBox([self.play, self.frame_slider, self.frame_slider_label])])
 
     def save_as_gif(self, outdir, fps):
         ''' Save stack(s) as GIF(s) '''
         # For each stack object
-        for i, (header, fpath, fobj, norm) in enumerate(zip(self.headers, self.fpaths, self.fobjs, self.norms)):
+        for header, fpath, fobj, norm in zip(self.headers, self.fpaths, self.fobjs, self.norms):
             # Fetch output file path from header (if any) or from input file path
             if header is None:
                 fcode = os.path.splitext(os.path.basename(fpath))[0]
@@ -333,7 +336,7 @@ class StackViewer:
             logger.info(f'exporting "{fcode}.gif"...')
             with iio.get_writer(new_fpath, mode='I', duration=1 / fps) as writer:
                 def add_frame(iframe, x):
-                    writer.append_data(float_to_uint8(self.process_frame(x, self.norms[i], iframe)))
+                    writer.append_data(float_to_uint8(self.process_frame(x, norm, iframe)))
                 self.iter_frames(fobj, self.frange, add_frame)
 
 
