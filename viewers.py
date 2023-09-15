@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 16:17:45
+# @Last Modified time: 2023-09-15 16:24:19
 
 ''' Notebook image viewing utilities. '''
 
@@ -147,7 +147,8 @@ class StackViewer:
         )
 
         # Create play widget
-        playback_interval = 100 if self.fps is None else 1000 / self.fps
+        playback_interval = 100. if self.fps is None else 1000 / self.fps
+        playback_interval /= self.playback_speed
         self.play = Play(
             interval=playback_interval, 
             **slider_params
@@ -265,18 +266,21 @@ class StackViewer:
         ub = x[0] + rel_vbounds[1] * vrange
         return (lb, ub)
 
-    def init_render(self, fps=None, norm=True, rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None):
+    def init_render(self, fps=None, norm=True, rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None, playback_speed=1.):
         '''
         Initialize stacks rendering.
         
         :param fps (optional): frame rate (in Hz) used to convert frame index to time (in s)
         :param norm (default = True): whether to normalize the stack data to [0-1] range upon rendering
+        :param rel_vbounds (optional): relative value bounds used to normalize the stack data.
         :param cmap (optional): colormap used to display grayscale image. If none, a gray colormap is used by default.
         :param fbounds (optional): boundary frame indexes. If none, the entire stack is rendered.
         :param ilabels (optional): array of frame indexes to label.
+        :param playback_speed (optional): playback speed factor (default = 1.)
         '''
-        # Initialize fps
+        # Initialize fps and playback speed
         self.fps = fps
+        self.playback_speed = playback_speed
         # Get frame range
         self.frange = self.get_frame_index_range(fbounds)
         # Initialize label arrray
@@ -374,8 +378,10 @@ def view_stack(*args, **kwargs):
     fbounds = kwargs.pop('fbounds', None)
     fps = kwargs.pop('fps', None)
     ilabels = kwargs.pop('ilabels', None)
+    playback_speed = kwargs.pop('playback_speed', 1.)
     return get_stack_viewer(*args, **kwargs).render(
-        fps=fps, norm=norm, rel_vbounds=rel_vbounds, cmap=cmap, fbounds=fbounds, ilabels=ilabels)
+        fps=fps, norm=norm, rel_vbounds=rel_vbounds, cmap=cmap, fbounds=fbounds, 
+        ilabels=ilabels, playback_speed=playback_speed)
 
 
 
