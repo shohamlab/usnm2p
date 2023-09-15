@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 11:42:25
+# @Last Modified time: 2023-09-15 13:14:56
 
 ''' Collection of plotting utilities. '''
 
@@ -555,6 +555,56 @@ def plot_stack_timecourse(*args, **kwargs):
     ax.legend(frameon=False)
     
     # Return figure handle
+    return fig
+
+
+def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None):
+    '''
+    Select pixel based on specific quantile in aggregate intensity,
+    and plot its time course
+
+    :param fpath: path to TIF file
+    :param projfunc: projection function (default: np.mean)
+    :param q: quantile of aggregate pixel intensity from which to select pixel (default: 0)
+    :return: figure handle
+    '''
+    # Load stack
+    stack = loadtif(fpath)
+
+    # Compute projection image
+    proj = projfunc(stack, axis=0)
+
+    # Compute target value of aggregate pixel intensity corresponding to specified quantile
+    vtarget = np.quantile(proj, q)
+    logger.info(f'target intensity value based on {q * 1e2:.1f}-th percentile: {vtarget:.2f}')
+
+    # Select pixel with aggregate intensity closest to target value
+    xypix = np.unravel_index(np.argmin(np.abs(proj - vtarget)), proj.shape)
+    vpix = proj[xypix]
+    logger.info(f'pixel with aggregate intensity closest to target: P{xypix}={vpix:.2f}')
+
+    # Extract pixel time course
+    ypix = stack[:, xypix[0], xypix[1]]
+
+    # Plot projection image, and mark selected pixel
+    fig, axes = plt.subplots(1, 2, figsize=(11, 3), width_ratios=(1, 2))
+    ax = axes[0]
+    ax.imshow(proj, cmap='gray')
+    ax.scatter(*xypix[::-1], s=50, ec='r', fc='none', lw=2)
+
+    # Plot pixel time course
+    ax = axes[1]
+    sns.despine(ax=ax)
+    xvec = np.arange(ypix.size)
+    if fps is not None:
+        xvec = xvec / fps
+        ax.set_xlabel('time (s)')
+    else:
+        ax.set_xlabel('frame index')
+    ax.plot(xvec, ypix)
+    ax.set_ylabel('pixel intensity')
+
+    # Return
     return fig
 
 

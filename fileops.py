@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-27 13:37:08
+# @Last Modified time: 2023-09-15 12:50:30
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -320,7 +320,7 @@ def loadtif(fpath, verbose=True, metadata=False):
             meta = None
     # If stack has more than 2 dimensions (i.e. contains multiple frames), log info
     if stack.ndim > 2:
-        logfunc(f'loaded {stack.shape} {stack.dtype} stack from "{fpath}"')
+        logfunc(f'loaded {stack.shape} {stack.dtype} stack')
     # Return
     if meta is None:
         return stack
