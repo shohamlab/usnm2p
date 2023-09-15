@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 13:47:59
+# @Last Modified time: 2023-09-15 14:05:47
 
 ''' Collection of plotting utilities. '''
 
@@ -558,16 +558,19 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None):
+def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None, 
+                          add_spectrum=False, cmap='viridis'):
     '''
     Select pixel based on specific quantile in aggregate intensity,
-    and plot its time course
+    and plot its location and time course (and power spectrum, if specified)
 
     :param fpath: path to TIF file
     :param projfunc: projection function (default: np.mean)
     :param q: quantile of aggregate pixel intensity from which to select pixel (default: 0)
     :param fps: frame rate (in Hz) used to infer the time of extracted frames
     :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
+    :param add_spectrum: whether to add power spectrum plot (default: False)
+    :param cmap: colormap for projection image rendering (default: 'viridis')
     :return: figure handle
     '''
     # Load stack
@@ -586,7 +589,7 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None):
     logger.info(f'pixel with aggregate intensity closest to target: P{xypix}={vpix:.2f}')
 
     # Extract pixel time course
-    ypix = stack[:, xypix[0], xypix[1]]
+    ypix = stack[:, xypix[0], xypix[1]].astype(float)
 
     # Low-pass filter pixel time course, if cutoff frequency specified
     ypix_filt = None
@@ -598,10 +601,24 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None):
         sos = butter(order, fc / nyq, btype='low', output='sos')
         ypix_filt = sosfiltfilt(sos, ypix)
 
+    # Define figure layout
+    width_ratios = [1, 2]
+
+    # Compute power spectrum, if specified
+    spectrum = None
+    if add_spectrum:
+        if fps is None:
+            raise ValueError('frame rate must be specified to compute power spectrum')
+        spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
+        width_ratios.append(1)
+
+    # Create figure backbone
+    naxes = len(width_ratios)
+    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 3), width_ratios=width_ratios)
+    
     # Plot projection image, and mark selected pixel
-    fig, axes = plt.subplots(1, 2, figsize=(11, 3), width_ratios=(1, 2))
     ax = axes[0]
-    ax.imshow(proj, cmap='gray')
+    ax.imshow(proj, cmap=cmap)
     ax.scatter(*xypix[::-1], s=50, ec='r', fc='none', lw=2)
 
     # Plot pixel time course
@@ -617,6 +634,14 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None):
     ax.plot(xvec, ypix, label='raw')
     if ypix_filt is not None:
         ax.plot(xvec, ypix_filt, label=f'low-pass filtered (fc={fc} Hz)')
+        ax.legend(frameon=False)
+    
+    # Plot power spectrum (positive frequencies only), if specified
+    if spectrum is not None:
+        ax = axes[2]
+        sns.despine(ax=ax)
+        sns.lineplot(data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, ax=ax)
+        ax.set_xscale('log')
 
     # Return
     return fig
