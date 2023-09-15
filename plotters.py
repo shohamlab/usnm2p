@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 14:26:14
+# @Last Modified time: 2023-09-15 17:53:48
 
 ''' Collection of plotting utilities. '''
 
@@ -558,7 +558,7 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None, 
+def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
                           add_spectrum=False, cmap='viridis'):
     '''
     Select pixel based on specific quantile in aggregate intensity,
@@ -566,7 +566,8 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None,
 
     :param fpath: path to TIF file
     :param projfunc: projection function (default: np.mean)
-    :param q: quantile(s) of aggregate pixel intensity from which to select pixel (default: 0)
+    :param q: quantile(s) of aggregate pixel intensity from which to select pixel (default: 0.5)
+    :param nperq: number of pixels to select per quantile (default: 1)
     :param fps: frame rate (in Hz) used to infer the time of extracted frames
     :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
     :param add_spectrum: whether to add power spectrum plot (default: False)
@@ -615,16 +616,18 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None,
         vtarget = np.quantile(proj, q)
         logger.info(f'target intensity value based on {q * 1e2:.1f}-th percentile: {vtarget:.2f}')
 
-        # Select pixel with aggregate intensity closest to target value
-        xypix = np.unravel_index(np.argmin(np.abs(proj - vtarget)), proj.shape)
-        vpix = proj[xypix]
-        logger.info(f'pixel with aggregate intensity closest to target: P{xypix}={vpix:.2f}')
+        # Select pixel(s) with aggregate intensity closest to target value
+        dists = np.abs(proj - vtarget)
+        iclose = np.argpartition(dists.ravel(), nperq-1)[:nperq]
+        xpix, ypix = np.unravel_index(iclose, proj.shape)
+        logger.info(f'identified {nperq} pixels with aggregate intensity closest to target')
 
         # Mark selected pixel on projection image
-        axes[0].scatter(*xypix[::-1], s=50, ec=c, fc='none', lw=2)
+        axes[0].scatter(ypix, xpix, s=30, ec=c, fc='none', lw=1)
 
-        # Extract pixel time course
-        ypix = stack[:, xypix[0], xypix[1]].astype(float)
+        # Extract pixel(s) time course
+        ypixs = np.array([stack[:, xp, yp] for xp, yp in zip(xpix, ypix)])
+        ypix = ypixs.mean(axis=0).astype(float)
 
         # Plot pixel time course
         xvec = np.arange(ypix.size)
