@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 18:15:06
+# @Last Modified time: 2023-09-15 18:41:41
 
 ''' Collection of plotting utilities. '''
 
@@ -559,7 +559,7 @@ def plot_stack_timecourse(*args, **kwargs):
 
 
 def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
-                          add_spectrum=False, cmap='viridis', yout='F'):
+                          add_spectrum=False, cmap='viridis', yout='F', delimiters=None):
     '''
     Select pixel based on specific quantile in aggregate intensity,
     and plot its location and time course (and power spectrum, if specified)
@@ -573,6 +573,7 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
     :param add_spectrum: whether to add power spectrum plot (default: False)
     :param cmap: colormap for projection image rendering (default: 'viridis')
     :param yout: output unit for fluorescence vectors (default: 'F')
+    :param delimiters: list of frame indexes to delimitate (default: None)
     :return: figure handle
     '''
     # Load stack
@@ -598,6 +599,11 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
     else:
         ax.set_xlabel('frame')
     ax.set_ylabel({'F': Label.F, 'dFF': Label.DFF, 'Z': Label.ZSCORE}[yout])
+    if delimiters is not None:
+        if fps is not None:
+            delimiters = np.asarray(delimiters) / fps
+        for iframe in delimiters:
+            ax.axvline(iframe, color='k', linestyle='--')
     if add_spectrum:
         ax = axes[2]
         sns.despine(ax=ax)
