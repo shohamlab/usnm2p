@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 13:14:56
+# @Last Modified time: 2023-09-15 13:47:59
 
 ''' Collection of plotting utilities. '''
 
@@ -29,7 +29,7 @@ from statannotations.Annotator import Annotator
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from tqdm import tqdm
 from scipy.stats import normaltest, binned_statistic_dd
-from scipy.signal import spectrogram, sosfreqz 
+from scipy.signal import spectrogram, sosfreqz, butter, sosfiltfilt
 from scipy.interpolate import interp2d, griddata
 
 from logger import logger
@@ -558,7 +558,7 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None):
+def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None):
     '''
     Select pixel based on specific quantile in aggregate intensity,
     and plot its time course
@@ -566,6 +566,8 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None):
     :param fpath: path to TIF file
     :param projfunc: projection function (default: np.mean)
     :param q: quantile of aggregate pixel intensity from which to select pixel (default: 0)
+    :param fps: frame rate (in Hz) used to infer the time of extracted frames
+    :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
     :return: figure handle
     '''
     # Load stack
@@ -586,6 +588,16 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None):
     # Extract pixel time course
     ypix = stack[:, xypix[0], xypix[1]]
 
+    # Low-pass filter pixel time course, if cutoff frequency specified
+    ypix_filt = None
+    if fc is not None:
+        if fps is None:
+            raise ValueError('frame rate must be specified to filter pixel time course')
+        order = 2
+        nyq = 0.5 * fps
+        sos = butter(order, fc / nyq, btype='low', output='sos')
+        ypix_filt = sosfiltfilt(sos, ypix)
+
     # Plot projection image, and mark selected pixel
     fig, axes = plt.subplots(1, 2, figsize=(11, 3), width_ratios=(1, 2))
     ax = axes[0]
@@ -601,8 +613,10 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None):
         ax.set_xlabel('time (s)')
     else:
         ax.set_xlabel('frame index')
-    ax.plot(xvec, ypix)
     ax.set_ylabel('pixel intensity')
+    ax.plot(xvec, ypix, label='raw')
+    if ypix_filt is not None:
+        ax.plot(xvec, ypix_filt, label=f'low-pass filtered (fc={fc} Hz)')
 
     # Return
     return fig
