@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 17:53:48
+# @Last Modified time: 2023-09-15 18:04:41
 
 ''' Collection of plotting utilities. '''
 
@@ -559,7 +559,7 @@ def plot_stack_timecourse(*args, **kwargs):
 
 
 def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
-                          add_spectrum=False, cmap='viridis'):
+                          add_spectrum=False, cmap='viridis', norm=False):
     '''
     Select pixel based on specific quantile in aggregate intensity,
     and plot its location and time course (and power spectrum, if specified)
@@ -572,6 +572,7 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
     :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
     :param add_spectrum: whether to add power spectrum plot (default: False)
     :param cmap: colormap for projection image rendering (default: 'viridis')
+    :param norm: whether to normalize fluorescence vectors (default: False)
     :return: figure handle
     '''
     # Load stack
@@ -595,8 +596,8 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
     if fps is not None:
         ax.set_xlabel('time (s)')
     else:
-        ax.set_xlabel('frame index')
-    ax.set_ylabel('pixel intensity')
+        ax.set_xlabel('frame')
+    ax.set_ylabel(Label.DFF if norm else Label.F)
     if add_spectrum:
         ax = axes[2]
         sns.despine(ax=ax)
@@ -627,6 +628,13 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
 
         # Extract pixel(s) time course
         ypixs = np.array([stack[:, xp, yp] for xp, yp in zip(xpix, ypix)])
+
+        # Normalize pixel(s) time course if requested
+        if norm:
+            ybaselines = np.quantile(ypixs, 0.5, axis=1)[:, np.newaxis]
+            ypixs = (ypixs - ybaselines) / ybaselines
+        
+        # Average time course across pixels
         ypix = ypixs.mean(axis=0).astype(float)
 
         # Plot pixel time course
