@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 14:05:47
+# @Last Modified time: 2023-09-15 14:26:14
 
 ''' Collection of plotting utilities. '''
 
@@ -566,7 +566,7 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None,
 
     :param fpath: path to TIF file
     :param projfunc: projection function (default: np.mean)
-    :param q: quantile of aggregate pixel intensity from which to select pixel (default: 0)
+    :param q: quantile(s) of aggregate pixel intensity from which to select pixel (default: 0)
     :param fps: frame rate (in Hz) used to infer the time of extracted frames
     :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
     :param add_spectrum: whether to add power spectrum plot (default: False)
@@ -579,71 +579,82 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0, fps=None, fc=None,
     # Compute projection image
     proj = projfunc(stack, axis=0)
 
-    # Compute target value of aggregate pixel intensity corresponding to specified quantile
-    vtarget = np.quantile(proj, q)
-    logger.info(f'target intensity value based on {q * 1e2:.1f}-th percentile: {vtarget:.2f}')
-
-    # Select pixel with aggregate intensity closest to target value
-    xypix = np.unravel_index(np.argmin(np.abs(proj - vtarget)), proj.shape)
-    vpix = proj[xypix]
-    logger.info(f'pixel with aggregate intensity closest to target: P{xypix}={vpix:.2f}')
-
-    # Extract pixel time course
-    ypix = stack[:, xypix[0], xypix[1]].astype(float)
-
-    # Low-pass filter pixel time course, if cutoff frequency specified
-    ypix_filt = None
-    if fc is not None:
-        if fps is None:
-            raise ValueError('frame rate must be specified to filter pixel time course')
-        order = 2
-        nyq = 0.5 * fps
-        sos = butter(order, fc / nyq, btype='low', output='sos')
-        ypix_filt = sosfiltfilt(sos, ypix)
-
     # Define figure layout
     width_ratios = [1, 2]
-
-    # Compute power spectrum, if specified
-    spectrum = None
     if add_spectrum:
         if fps is None:
             raise ValueError('frame rate must be specified to compute power spectrum')
-        spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
         width_ratios.append(1)
-
+    
     # Create figure backbone
     naxes = len(width_ratios)
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 3), width_ratios=width_ratios)
-    
-    # Plot projection image, and mark selected pixel
-    ax = axes[0]
-    ax.imshow(proj, cmap=cmap)
-    ax.scatter(*xypix[::-1], s=50, ec='r', fc='none', lw=2)
-
-    # Plot pixel time course
     ax = axes[1]
     sns.despine(ax=ax)
-    xvec = np.arange(ypix.size)
     if fps is not None:
-        xvec = xvec / fps
         ax.set_xlabel('time (s)')
     else:
         ax.set_xlabel('frame index')
     ax.set_ylabel('pixel intensity')
-    ax.plot(xvec, ypix, label='raw')
-    if ypix_filt is not None:
-        ax.plot(xvec, ypix_filt, label=f'low-pass filtered (fc={fc} Hz)')
-        ax.legend(frameon=False)
-    
-    # Plot power spectrum (positive frequencies only), if specified
-    if spectrum is not None:
+    if add_spectrum:
         ax = axes[2]
         sns.despine(ax=ax)
-        sns.lineplot(data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, ax=ax)
         ax.set_xscale('log')
+    
+    # Plot projection image
+    axes[0].imshow(proj, cmap=cmap)
 
-    # Return
+    colors = get_colors('tab10')[1:]
+
+    # Cast quantile(s) to iterable
+    qs = as_iterable(q)
+
+    # Loop through quantiles
+    for q, c in zip(qs, colors):
+        # Compute target value of aggregate pixel intensity corresponding to specified quantile
+        vtarget = np.quantile(proj, q)
+        logger.info(f'target intensity value based on {q * 1e2:.1f}-th percentile: {vtarget:.2f}')
+
+        # Select pixel with aggregate intensity closest to target value
+        xypix = np.unravel_index(np.argmin(np.abs(proj - vtarget)), proj.shape)
+        vpix = proj[xypix]
+        logger.info(f'pixel with aggregate intensity closest to target: P{xypix}={vpix:.2f}')
+
+        # Mark selected pixel on projection image
+        axes[0].scatter(*xypix[::-1], s=50, ec=c, fc='none', lw=2)
+
+        # Extract pixel time course
+        ypix = stack[:, xypix[0], xypix[1]].astype(float)
+
+        # Plot pixel time course
+        xvec = np.arange(ypix.size)
+        if fps is not None:
+            xvec = xvec / fps
+        axes[1].plot(
+            xvec, ypix, c=c, alpha=0.5 if fc is not None else 1, label=f'q={q:.2f}, raw')
+
+        # Low-pass filter pixel time course, if cutoff frequency specified
+        if fc is not None:
+            if fps is None:
+                raise ValueError('frame rate must be specified to filter pixel time course')
+            order = 2
+            nyq = 0.5 * fps
+            sos = butter(order, fc / nyq, btype='low', output='sos')
+            ypix_filt = sosfiltfilt(sos, ypix)
+            axes[1].plot(xvec, ypix_filt, c=c, alpha=1)
+
+        # Compute and plot power spectrum, if specified
+        if add_spectrum:
+            spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
+            sns.lineplot(
+                data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, 
+                ax=axes[2], color=c)
+
+    # Add legend on time course plot if multiple quantiles are specified
+    if len(qs) > 1:
+        axes[1].legend(frameon=False)
+
+    # Return figure
     return fig
 
 
