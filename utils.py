@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 12:00:55
+# @Last Modified time: 2023-09-18 17:29:23
 
 ''' Collection of generic utilities. '''
 
@@ -369,7 +369,7 @@ def rectilinearize(s, iruns=None):
     shape = [len(x) for x in dims]
     if np.prod(shape) == len(s):
         logger.info(
-            f'{s.name}: original {len(s)}-rows series is alreay rectilinear -> ignoring')
+            f'{s.name}: original {len(s)}-rows series is already rectilinear -> ignoring')
         return s
     
     # Create "expanded" (rectilinear) index from input index levels

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 13:43:09
+# @Last Modified time: 2023-09-18 17:30:20
 
 ''' Collection of plotting utilities. '''
 
@@ -2246,25 +2246,35 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
 
-    # if row_order is not None:
-    #     irow = list(data.index.names).index(row)
-    #     rowmap = dict(zip(np.sort(row_order), row_order))
-    #     def mapper(x):
-    #         l = list(x)
-    #         l[irow] = rowmap[l[irow]]
-    #         return tuple(l)
-    #     logger.info(f'sorting data {row}...')
-    #     data.index.map(mapper)
+    # Raise error if row is specified without col
+    if row is not None and col is None:
+        raise ValueError('row cannot be specified without col')
 
-    # Determine pivot index keys, number of rows per map, and resulting aspect ratio
+    if row_order is not None:
+        irow = list(data.index.names).index(row)
+        rowmap = dict(zip(np.sort(row_order), row_order))
+        def mapper(x):
+            l = list(x)
+            l[irow] = rowmap[l[irow]]
+            return tuple(l)
+        logger.info(f'sorting data {row}...')
+        data.index = data.index.map(mapper)
+
+    # Initialize empty list of extra pivot index keys
     extra_pivot_index_keys = []
+
+    # If multi-dataset input, add "dataset" to pivot keys and compute
+    # number of ROIs per pivot (i.e. per dataset)
     if Label.DATASET in data.index.names:
-        extra_pivot_index_keys.append(Label.DATASET)    
-        nROIs_per_pivot = {}
+        extra_pivot_index_keys.append(Label.DATASET)
         nROIs_per_pivot = pd.Series({
-            k: len(tmp.index.unique(Label.ROI))
-            for k, tmp in data.groupby(Label.DATASET)
+            k: len(group.index.unique(Label.ROI))
+            for k, group in data.groupby(Label.DATASET)
         }).rename('ROI count')
+
+    # If row variable is specified, add it to pivot keys, compute
+    # number of necessary columns, and compute constant number of ROIs
+    # per pivot (i.e. per axis row)
     if row is not None:
         extra_pivot_index_keys.append(row)
         colwrap = data.groupby(col).ngroups
@@ -2272,17 +2282,24 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         nROIs_per_pivot = pd.Series({
             k: nROIs for k, _ in data.groupby(row)
         }).rename('ROI count')
+    
+    # If extra pivot keys are specified, add them to pivot keys,
+    # compute vertical separation lines
     if len(extra_pivot_index_keys) > 0:
         nROIs_per_pivot.index.names = extra_pivot_index_keys
+        if row_order is not None:
+            nROIs_per_pivot.index = nROIs_per_pivot.index.map(rowmap)
         ysep_ends = nROIs_per_pivot.cumsum()
         ysep_starts = ysep_ends.shift(periods=1, fill_value=0.)
         ysep_mids = (ysep_starts + ysep_ends) / 2
         if row is not None:
             ysep_mids = ysep_mids.rename(f'{row} {{}}'.format) 
-        pivot_index_keys = [Label.ROI] + extra_pivot_index_keys
+        pivot_index_keys = extra_pivot_index_keys + [Label.ROI]
     else:
         pivot_index_keys = Label.ROI
         ysep_ends = None
+
+    # Determine number of rows per map, and resulting aspect ratio
     nrowspermap = len(data.groupby(pivot_index_keys).first())
     aspect_ratio = nrowspermap / 100
 
@@ -2316,7 +2333,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     else:
         groups = [('all', data)]
 
-    # Initialize figure
+    # Determine figure dimensions
     if col_order is not None:
         naxes = len(col_order)
     else:
@@ -2326,50 +2343,57 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     height = nrows * 2.5  # inches
     if nrows == 1:
         height *= aspect_ratio
+
     # Constrain figure height to fit letter aspect ratio
     height = min(height, width * 11 / 8.5)
-    fig, axes = plt.subplots(
-        nrows, ncols, 
-        figsize=(width, height))
+
+    # Initialize figure
+    fig, axes = plt.subplots(nrows, ncols, figsize=(width, height))
     if naxes == 1:
         axes = np.array([axes])
     fig.tight_layout()
+
+    # Adjust layout and add colorbar
     top = 0.9 if title is None else 0.8
     fig.subplots_adjust(bottom=0.1, right=0.8, top=top, hspace=.5)
     cbar_ax = fig.add_axes([0.85, 0.1, 0.05, top - 0.1])
     cbar_ax.set_title(key)
 
-    # For each axis and data group
-    logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
+    # Determine column order
     if col_order is None:
         col_order = np.arange(len(groups))
     else:
         col_order = np.asarray(col_order)
+
+    # Log
+    logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
+
+    # Initialize colorbar flag to True
     add_cbar = True
+    
+    # Initialize progress bar in context manager
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
+        # For data group
         for i, (glabel, gdata) in enumerate(groups):
-            # Find axis position
+            # If group is in specified columns 
             if i in col_order:
+                # Find axis index and axis object
                 iax = np.where(col_order == i)[0][0]
                 ax = axes.ravel()[iax]
-                # Generate 2D table of average traces per ROI
+                
+                # Generate 2D table of average traces over time per ROI
                 table = gdata.pivot_table(
-                    index=pivot_index_keys, columns=Label.TIME, values=key, aggfunc=np.mean)
-                # Get row order
-                if row_order is None:
-                    row_order_exp = gdata.groupby(pivot_index_keys).first().index
-                else:
-                    row_order_exp = pd.MultiIndex.from_product([
-                        gdata.index.unique(Label.ROI), row_order])
-                table = table.reindex(row_order_exp, axis=0)
-
+                    index=pivot_index_keys, 
+                    columns=Label.TIME, 
+                    values=key, 
+                    aggfunc=np.mean
+                )
+                
+                # If ROI-sorting criterion is specified
                 if sort_ROIs:
-                    # Compute metrics average in pre-stimulus and response windows for each ROI
-                    ypre = apply_in_window(
-                        gdata, key, FrameIndex.PRESTIM, verbose=False)
-                    ypost = apply_in_window(
-                        gdata, key, FrameIndex.RESPONSE, verbose=False)
-                    ydiff = (ypost - ypre).rename('val')
+                    # Compute stim-evoked change in metrics for each ROI
+                    ydiff = compute_evoked_change(
+                        gdata, key, verbose=False).rename('val')
                     # Remove column sorter from index, if present
                     if col is not None and col in ydiff.index.names:
                         ydiff = ydiff.droplevel(col)
@@ -2378,7 +2402,7 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
                     if len(extra_pivot_index_keys) > 0:
                         sortby += extra_pivot_index_keys
                     # Average across remaining dimensions
-                    ydiff = ydiff.groupby([Label.ROI] + sortby).mean()
+                    ydiff = ydiff.groupby(sortby + [Label.ROI]).mean()
                     # Sort by ascending differential metrics
                     sortby.append('val')
                     ydiff = ydiff.to_frame().sort_values(sortby)['val']
@@ -2387,19 +2411,23 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
 
                 # Plot associated trial heatmap
                 sns.heatmap(
-                    data=table, ax=ax, vmin=vmin, vmax=vmax, 
+                    data=table, 
+                    ax=ax, vmin=vmin, vmax=vmax, 
                     cbar=add_cbar, cbar_ax=cbar_ax, center=center, cmap=cmap,
                     xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
                     yticklabels=False, 
-                    rasterized=rasterized)
+                    rasterized=rasterized
+                )
                 
+                # Remove colorbar flag after first heatmap is drawn
                 add_cbar = False
                 
                 # Set axis background color
                 ax.set_facecolor('silver')
 
                 # Correct x-axis label display
-                ax.set_xticklabels([f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
+                ax.set_xticklabels([
+                    f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
                 ax.set_xlabel(ax.get_xlabel(), labelpad=-10)
 
                 # Add column title (only if informative)
