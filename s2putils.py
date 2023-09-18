@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-26 12:37:32
+# @Last Modified time: 2023-09-18 19:06:02
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -262,6 +262,34 @@ def filter_s2p_data(data, ivalids):
 def open_binary_file(ops):
     ''' Open binary file linked to options dictionary '''
     return BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file'])
+
+
+def extract_s2p_background(ops, stat):
+    ''' 
+    Extract background mask and associated mean time course from suite2p output data
+    
+    :param ops: suite2p options dictionary
+    :param stat: suite2p stat output
+    :return: background mask, background time course
+    '''
+    # Extract background pixels mask
+    logger.info('extracting background pixels mask')
+    mask = np.ones((ops['Lx'], ops['Ly']))
+    for roi in stat:
+        for x, y in zip(roi['xpix'], roi['ypix']):
+            mask[x, y] = 0
+    npx = np.sum(mask).astype(int)
+    logger.info(f'found {npx} background pixels (i.e. {npx / mask.size * 100:.2f}% of FOV)')
+    
+    # Extract background time course 
+    logger.info(f'extracting background time course from {npx} pixels mask')
+    v = []
+    with open_binary_file(ops) as fo:
+        for _, out in fo.iter_frames():
+            frame = out[0]
+            v.append(np.nanmean(frame[mask == 1]))
+    
+    return mask, np.array(v)
 
 
 def get_s2p_stack(ops, bounds=None, factor=S2P_UINT16_NORM_FACTOR):
