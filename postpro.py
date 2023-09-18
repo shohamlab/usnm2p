@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-14 16:08:39
+# @Last Modified time: 2023-09-18 13:36:06
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2570,9 +2570,11 @@ def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
         extra_mux_levels = list(filter(lambda x: x not in as_iterable(by), s.index.names))
         if len(extra_mux_levels) > 0:
             yoffsets = free_expand(yoffsets, s)
-    # If by is not in index, remove it from offsets index
-    if by not in s.index.names:
-        yoffsets = yoffsets.droplevel(by)
+    # For each grouping variable
+    for b in by:
+        # If variable not in index, remove it from offsets index
+        if b not in s.index.names:
+            yoffsets = yoffsets.droplevel(by)
     # Return
     return yoffsets
 

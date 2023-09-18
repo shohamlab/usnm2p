@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-13 10:13:13
+# @Last Modified time: 2023-09-18 12:00:55
 
 ''' Collection of generic utilities. '''
 
@@ -956,3 +956,25 @@ def get_exclude_list(df, criteria=None):
 def complex_exponential(x):
     ''' Compute complex exponential of x '''
     return np.exp(1j * x)
+
+
+def idx_format(idxs):
+    ''' 
+    Format a list of indexes as a range string (if possible)
+
+    :param idxs: list of indexes
+    :return: range string, or original list if not possible
+    '''
+    # If input is scalar, return corresponding string
+    if isinstance(idxs, (int, np.int64)):
+        return str(idxs)
+    
+    # Cast input as numpy array
+    lidxs = np.asarray(idxs)
+
+    # If input is contiguous, return corresponding range string
+    if idxs.data.contiguous:
+        return f'{idxs[0]} - {idxs[-1]}'
+    
+    # Otherwise, return original list
+    return str(idxs)

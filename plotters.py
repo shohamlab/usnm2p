@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 18:41:41
+# @Last Modified time: 2023-09-18 13:43:09
 
 ''' Collection of plotting utilities. '''
 
@@ -299,7 +299,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
         fig, axes = plt.subplots(
             len(itrial), len(iframes), figsize=(len(iframes) * height, len(itrial) * height),
             facecolor='white')
-        logger.info(f'plotting frames {iframes} from trials {itrial}...')
+        logger.info(f'plotting frames {idx_format(iframes)} from trials {idx_format(itrial)}...')
 
         loglvl = logger.getEffectiveLevel()
         logger.setLevel(logging.WARNING)
@@ -321,16 +321,14 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     
     # Extract frames stack
     frames = extract_registered_frames(
-        ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, aggtrials=aggtrials, **kwargs)
+        ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, 
+        aggtrials=aggtrials, **kwargs)
 
     # Assess whether trial-aggregation is specified and adapt title
-    if isinstance(itrial, (int, np.int64)):
+    if not is_iterable(itrial):
         trial_str = f'trial {itrial}'
     else:
-        if itrial.data.contiguous:
-            trial_str = f'trials {itrial[0]} - {itrial[-1]}'
-        else:
-            trial_str = f'trials {itrial}'
+        trial_str = f'trials {idx_format(itrial)}'
         if aggtrials:
             trial_str = f'aggregate across {trial_str}'
 
@@ -558,13 +556,14 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
+def plot_pixel_timecourse(fpath, irun=None, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
                           add_spectrum=False, cmap='viridis', yout='F', delimiters=None):
     '''
     Select pixel based on specific quantile in aggregate intensity,
     and plot its location and time course (and power spectrum, if specified)
 
     :param fpath: path to TIF file
+    :param irun: run index (default: None)
     :param projfunc: projection function (default: np.mean)
     :param q: quantile(s) of aggregate pixel intensity from which to select pixel (default: 0.5)
     :param nperq: number of pixels to select per quantile (default: 1)
@@ -576,8 +575,15 @@ def plot_pixel_timecourse(fpath, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=
     :param delimiters: list of frame indexes to delimitate (default: None)
     :return: figure handle
     '''
-    # Load stack
-    stack = loadtif(fpath)
+    # If dictionary is provided, attempt to extract suite2p output stack from it
+    if isinstance(fpath, dict):
+        # If run index is not specified, raise error
+        if irun is None:
+            raise ValueError('run index must be specified to load stack from suite2p output options dictionary')
+        stack = extract_registered_frames(fpath, irun)
+    # Otherwise, load stack directly from TIF file path
+    else:
+        stack = loadtif(fpath)
 
     # Compute projection image
     proj = projfunc(stack, axis=0)
