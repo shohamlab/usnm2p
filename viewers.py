@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 12:02:26
+# @Last Modified time: 2023-09-19 17:49:37
 
 ''' Notebook image viewing utilities. '''
 
@@ -253,7 +253,7 @@ class StackViewer:
         # Get current frame index from slider value
         iframe = self.frame_slider.value
         # Update slider readout
-        self.frame_slider_label.value = self.slider_format(iframe)
+        self.frame_slider_label.value = self.slider_format(iframe - self.frange.start)
         # Update view(s) with current frame
         for i in range(len(self.fpaths)):
             arr = self.get_frame(self.fobjs[i], iframe)
