@@ -2,18 +2,19 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-19 17:23:19
+# @Last Modified time: 2023-09-19 18:36:21
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
 from collections import Counter
+from itertools import combinations
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
-from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert, periodogram, stft
+from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hilbert, periodogram, stft, correlate, correlation_lags
 from scipy.stats import skew, norm, ttest_ind, linregress, chi2
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
@@ -3195,3 +3196,59 @@ def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, r
         corrs.values[np.triu_indices(len(corrs))] = np.nan
     # Return correlation matrix
     return corrs
+
+
+def cross_correlate(s1, s2):
+    '''
+    Extract the cross-correlation between two 1-dimensional signals
+    
+    :param s1: first input signal (pandas Series or 1D array)
+    :param s2: second input signal (pandas Series or 1D array)
+    :return:
+        - 1D array containing discrete linear cross-correlation of s1 with s2
+        - 1D array of the corresponding index lags between s1 and s2 
+        - optimal index lag yielding the highest correlation between s1 and s2
+    '''
+    # Compute cross-correlation
+    corr = correlate(s1, s2) / s1.size
+    # Compute associated lags
+    lags = correlation_lags(len(s1), len(s2))
+    # Compute optimal lag
+    opt_lag = lags[np.argmax(corr)]
+    # Return
+    return corr, lags, opt_lag
+
+
+def optimal_cross_correlation_lag(*args):
+    return cross_correlate(*args)[2]
+
+
+def compute_pairwise_metric(data, by, evalfunc, include_self=True):
+    ''' 
+    Compute pairwise metric between each "by" pair in multi-indexed data.
+
+    :param data: multi-indexed pandas Series with data to correlate
+    :param by: index dimension along which to measure pairwise correlations
+    :param evalfunc: function to apply to each pairwise combination of data
+    :param include_self: whether to include self-pairs in pairwise metric evaluation
+    :return: 2D pandas dataframe with pairwise metric evaluations
+    '''
+    # Unstack series along evaluation dimension
+    table = data.unstack(by)
+    # Compute pairs of indices to evaluate
+    idxs = table.columns
+    pairs = list(combinations(idxs, 2))
+    # Add self-pairs, if specified
+    if include_self:
+        pairs += [(i, i) for i in idxs]
+    # Initialize square output dataframe
+    out_table = pd.DataFrame(columns=idxs, index=idxs)
+    # Compute metric for each pair of indices, and fill output dataframe
+    logger.info(f'evaluating pairwise {evalfunc.__name__} across {len(idxs)} {by}...')
+    for i1, i2 in tqdm(pairs):
+        out = evalfunc(table[i1], table[i2])
+        out_table.loc[i1, i2] = out
+        if i1 != i2:
+            out_table.loc[i2, i1] = out
+    # Return
+    return out_table
