@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 17:29:01
+# @Last Modified time: 2023-09-19 17:23:19
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2535,47 +2535,56 @@ def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
     :param match_idx: whether to expand offsets to match original index size
     :return: Series of offsets per category
     '''
+    # Save original index names
+    org_idx_names = s.index.names
+
+    # Cast offset variable as iterable
     by = as_iterable(by)
+
+    # Append grouping variable(s) to index (if not already there)
     for b in by:
-        # If grouping variable not in index
         if b not in s.index.names:
-            # If input is dataframe and grouping variable is a column
             if isinstance(s, pd.DataFrame) and b in s.columns:
-                # Add grouping variable to index
                 s = s.set_index(b, append=True)
-            # Otherwise, raise error
             else:
                 raise ValueError(f'grouping variable "{b}" not found in index')
-
+    
     # If input is dataframe, restrict to column(s) of interest and add axis to operations
     kwargs = {}
     if isinstance(s, pd.DataFrame) and y is not None:
         s = s[as_iterable(y)]
         kwargs['axis'] = 0
 
+    # Log process
     logger.info(f'computing offsets by {", ".join(by)}')
+
     # Compute data variation range for each category
     yranges = s.groupby(by).apply(np.ptp, **kwargs)
-    # Compute associated gap from mean variation range
+
+    # Compute associated gap from mean variation range, and add to ranges
     ygap = rel_gap * yranges.mean(**kwargs)
-    # Add gap to ranges
     yranges += ygap
+    
     # Compute offset as cumulative sum of ranges + gap
     yoffsets = yranges.cumsum(**kwargs)
+    
     # If descending offset, adjust sign
     if not ascending:
         yoffsets = -yoffsets
+    
     # If specified, expand offsets series to match original index size
     if match_idx:
         extra_mux_levels = list(filter(lambda x: x not in as_iterable(by), s.index.names))
         if len(extra_mux_levels) > 0:
             yoffsets = free_expand(yoffsets, s)
-    # For each grouping variable
+    
+    # Remove grouping variable that are not in original index from offsets index
     for b in by:
         # If variable not in index, remove it from offsets index
-        if b not in s.index.names:
+        if b not in org_idx_names:
             yoffsets = yoffsets.droplevel(by)
-    # Return
+
+    # Return offsets
     return yoffsets
 
 
@@ -3151,7 +3160,7 @@ def phase_clustering(phi, aggby):
     )
 
 
-def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=True, remove_utri=True):
+def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, remove_utri=False):
     '''
     Compute correlation matrix of data grouped by `by` dimension.
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 17:30:20
+# @Last Modified time: 2023-09-19 17:23:26
 
 ''' Collection of plotting utilities. '''
 
@@ -2214,14 +2214,13 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     return fig
 
 
-def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
-                       colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
-                       quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=False,
-                       col_order=None, col_labels=None, row_order=None, row_labels=None,
-                       rect_markers=None, rasterized=False):
+def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
+                          colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
+                          quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
+                          col_order=None, col_labels=None, row_order=None,
+                          rect_markers=None, rasterized=False):
     '''
-    Plot trial heatmap (average response over time of each cell within trial interval,
-    culstered by similarity).
+    Plot heatmap of population activity over over time.
     
     :param data: multi-indexed timeseries dataframe.
     :param key: name of column containing variable of interest
@@ -2231,11 +2230,20 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     :param title (optional): figure title
     :param col (optional): parameter/index dimension used to split the data on different axes.
         If none is given, the whole dataset is aggregated on to a single heatmap.
-    :param colwrap: maximum of heatmaps per row 
-    :param cmap: colormap used to render heatmap
+    :param colwrap: maximum of heatmaps per row when only col is specified
+    :param row (optional): parameter/index dimension used to sort the data vertically within each axis.
+    :param cmap (optional): colormap used to render heatmap
+    :param center (optional): center value of colormap
+    :param vmin (optional): lower bound of colormap
+    :param vmax (optional): upper bound of colormap
     :param quantile_bounds (optional): distirbution quantiles used to set the colorbar limits.
         If none, the data bounds are taken.
     :param mark_stim: whether to mark the stimulus onset with a vertical line (default = True)
+    :param col_order (optional): order of columns
+    :param col_labels (optional): dictionary of column values to labels
+    :param row_order (optional): order of rows within each column
+    :param rect_markers (optional): list of (x, y) coordinates of rectangle markers to add to the heatmap
+    :param rasterized (optional): whether to rasterize the heatmap
     :return: figure handle
     '''
     # Filter data according to selected run(s) & trial(s)
@@ -2246,10 +2254,11 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
 
-    # Raise error if row is specified without col
-    if row is not None and col is None:
-        raise ValueError('row cannot be specified without col')
+    # # Raise error if row is specified without col
+    # if row is not None and col is None:
+    #     raise ValueError('row cannot be specified without col')
 
+    # If row order is specified, sort data accordingly
     if row_order is not None:
         irow = list(data.index.names).index(row)
         rowmap = dict(zip(np.sort(row_order), row_order))
@@ -2303,8 +2312,11 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     nrowspermap = len(data.groupby(pivot_index_keys).first())
     aspect_ratio = nrowspermap / 100
 
-    # Rectilinearize dataframe
+    # Rectilinearize dataframe to make sure all ROIs are present in each group
     data = rectilinearize(data[key]).to_frame()
+
+    # Determine if data contains multiple trials
+    is_multi_trial = Label.TRIAL in data.index.names and len(data.index.unique(Label.TRIAL)) > 1
 
     # Determine colormap if required
     if cmap is None:
@@ -2371,102 +2383,128 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     # Initialize colorbar flag to True
     add_cbar = True
     
+    # Initialize column index list
+    colidxs = []
+
     # Initialize progress bar in context manager
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
         # For data group
         for i, (glabel, gdata) in enumerate(groups):
-            # If group is in specified columns 
-            if i in col_order:
-                # Find axis index and axis object
-                iax = np.where(col_order == i)[0][0]
-                ax = axes.ravel()[iax]
-                
-                # Generate 2D table of average traces over time per ROI
-                table = gdata.pivot_table(
-                    index=pivot_index_keys, 
-                    columns=Label.TIME, 
-                    values=key, 
-                    aggfunc=np.mean
-                )
-                
-                # If ROI-sorting criterion is specified
-                if sort_ROIs:
-                    # Compute stim-evoked change in metrics for each ROI
-                    ydiff = compute_evoked_change(
-                        gdata, key, verbose=False).rename('val')
-                    # Remove column sorter from index, if present
-                    if col is not None and col in ydiff.index.names:
-                        ydiff = ydiff.droplevel(col)
-                    # If additional pivot keys, group by them before sorting
-                    sortby = []
-                    if len(extra_pivot_index_keys) > 0:
-                        sortby += extra_pivot_index_keys
-                    # Average across remaining dimensions
-                    ydiff = ydiff.groupby(sortby + [Label.ROI]).mean()
-                    # Sort by ascending differential metrics
-                    sortby.append('val')
-                    ydiff = ydiff.to_frame().sort_values(sortby)['val']
-                    # Re-index table according to row order 
-                    table = table.reindex(ydiff.index.values, axis=0)
+            # If group is not in specified columns, move to next group 
+            if i not in col_order:
+                logger.warning(f'skipping {col} {glabel}')
+                continue
+            
+            # Find axis index and axis object
+            iax = np.where(col_order == i)[0][0]
+            ax = axes.ravel()[iax]
 
-                # Plot associated trial heatmap
-                sns.heatmap(
-                    data=table, 
-                    ax=ax, vmin=vmin, vmax=vmax, 
-                    cbar=add_cbar, cbar_ax=cbar_ax, center=center, cmap=cmap,
-                    xticklabels=table.shape[1] - 1, # only render 2 labels at extremities
-                    yticklabels=False, 
-                    rasterized=rasterized
-                )
-                
-                # Remove colorbar flag after first heatmap is drawn
-                add_cbar = False
-                
-                # Set axis background color
-                ax.set_facecolor('silver')
+            # Generate 2D table of average traces over time per ROI
+            table = gdata.pivot_table(
+                index=pivot_index_keys, 
+                columns=Label.TIME, 
+                values=key, 
+                aggfunc=np.mean,
+                dropna=False,
+            )
+            
+            # If ROI-sorting criterion is specified
+            if sort_ROIs:
+                # Compute stim-evoked change in metrics for each ROI
+                ydiff = compute_evoked_change(
+                    gdata, key, verbose=False).rename('val')
+                # Remove column sorter from index, if present
+                if col is not None and col in ydiff.index.names:
+                    ydiff = ydiff.droplevel(col)
+                # If additional pivot keys, group by them before sorting
+                sortby = []
+                if len(extra_pivot_index_keys) > 0:
+                    sortby += extra_pivot_index_keys
+                # Average across remaining dimensions
+                ydiff = ydiff.groupby(sortby + [Label.ROI]).mean()
+                # Sort by ascending differential metrics
+                sortby.append('val')
+                ydiff = ydiff.to_frame().sort_values(sortby)['val']
+                # Re-index table according to row order
+                table = table.reindex(ydiff.index.values, axis=0)
 
-                # Correct x-axis label display
-                ax.set_xticklabels([
-                    f'{float(x.get_text()):.1f}' for x in ax.get_xticklabels()])
+            # Determine x-ticking frequency
+            nframes = table.shape[1]
+            if col == Label.TRIAL:
+                xtick_every = nframes
+            else:
+                xtick_every = nframes - 1
+                
+            # Plot associated trial heatmap
+            sns.heatmap(
+                data=table, 
+                ax=ax, vmin=vmin, vmax=vmax, 
+                cbar=add_cbar, cbar_ax=cbar_ax, center=center, cmap=cmap,
+                xticklabels=xtick_every,
+                yticklabels=False, 
+                rasterized=rasterized
+            )
+
+            colidxs.append(glabel)
+            
+            # Remove colorbar flag after first heatmap is drawn
+            add_cbar = False
+            
+            # Set axis background color
+            ax.set_facecolor('silver')
+
+            # Correct x-axis label display
+            xticks = np.array([float(x.get_text()) for x in ax.get_xticklabels()])
+            if col == Label.TRIAL:
+                xticks = (xticks * fps + FrameIndex.STIM + glabel * NFRAMES_PER_TRIAL) / fps
+            ax.set_xticklabels([f'{x:.1f}' for x in xticks])
+            if col == Label.TRIAL and is_multi_trial:
+                ax.set_xlabel(None)
+            else:
                 ax.set_xlabel(ax.get_xlabel(), labelpad=-10)
 
-                # Add column title (only if informative)
-                if glabel != 'all':
-                    coltitle = f'{col} {glabel}'
-                    if col_labels is not None:
-                        coltitle = f'{coltitle} ({col_labels[iax]})'
-                    ax.set_title(coltitle)
-                
-                # Add stimulus onset line, if specified
-                if mark_stim:
-                    istim = np.where(table.columns.values == 0.)[0][0]
-                    ax.axvline(istim, c='w', ls='--', lw=1.)
-                
-                # Add dataset separators if available
-                if ysep_ends is not None:
-                    for y in ysep_ends:
-                        ax.axhline(y, c='w', ls='--', lw=2.)
-                    if i == 0:
-                        ax.set_yticks(ysep_mids)
-                        ax.set_yticklabels(
-                            ysep_mids.index, rotation='vertical', va='center')
-                        ax.tick_params(axis='y', left=False)
+            # Add column title (only if informative)
+            if glabel != 'all':
+                coltitle = f'{col} {glabel}'
+                if col_labels is not None:
+                    coltitle = f'{coltitle} ({col_labels[iax]})'
+                ax.set_title(coltitle)
+            
+            # Add stimulus onset line, if specified
+            if mark_stim:
+                istim = np.where(table.columns.values == 0.)[0][0]
+                ax.axvline(istim, c='w', ls='--', lw=1.)
+            
+            # Add dataset separators if available
+            if ysep_ends is not None:
+                for y in ysep_ends:
+                    ax.axhline(y, c='w', ls='--', lw=2.)
+                if i == 0:
+                    ax.set_yticks(ysep_mids)
+                    ax.set_yticklabels(
+                        ysep_mids.index, rotation='vertical', va='center')
+                    ax.tick_params(axis='y', left=False)
 
-                # Add rectangular markers, if any 
-                if rect_markers is not None:
-                    if col in rect_markers.index.names:
-                        refidx = get_mux_slice(rect_markers.index)
-                        if glabel in rect_markers.index.unique(col):
-                            refidx[rect_markers.index.names.index(col)] = glabel
-                            submarks = rect_markers.loc[tuple(refidx)]
-                            for dataset, color in submarks.iteritems():
-                                yb, yt = ysep_starts.loc[dataset], ysep_ends.loc[dataset]
-                                ax.add_patch(Rectangle(
-                                    (ax.get_xlim()[0], yb), 
-                                    ax.get_xlim()[1] - ax.get_xlim()[0], yt - yb,
-                                    fc='none', ec=color, lw=10))
+            # Add rectangular markers, if any 
+            if rect_markers is not None:
+                if col in rect_markers.index.names:
+                    refidx = get_mux_slice(rect_markers.index)
+                    if glabel in rect_markers.index.unique(col):
+                        refidx[rect_markers.index.names.index(col)] = glabel
+                        submarks = rect_markers.loc[tuple(refidx)]
+                        for dataset, color in submarks.iteritems():
+                            yb, yt = ysep_starts.loc[dataset], ysep_ends.loc[dataset]
+                            ax.add_patch(Rectangle(
+                                (ax.get_xlim()[0], yb), 
+                                ax.get_xlim()[1] - ax.get_xlim()[0], yt - yb,
+                                fc='none', ec=color, lw=10))
 
             pbar.update()
+
+    # Hide vertical labels for all but left column
+    for ax in np.atleast_2d(axes)[:, 1:].ravel():
+        ax.set_ylabel('')
+        ax.set_yticklabels([])
     
     # Hide remaining axes
     for ax in axes.ravel()[i + 1:]:
@@ -2475,6 +2513,13 @@ def plot_trial_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=N
     # Add main figure title if specified
     if title is not None:
         fig.suptitle(title)
+    
+    # Adjust layout if column is TRIAL
+    if col == Label.TRIAL:
+        if np.all(np.diff(colidxs) == 1) and not sort_ROIs:
+            fig.subplots_adjust(wspace=0)
+        if is_multi_trial:
+            fig.supxlabel('time (s)')
 
     # Return figure handle
     return fig
