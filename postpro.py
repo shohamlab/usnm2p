@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-19 18:36:21
+# @Last Modified time: 2023-09-19 19:04:13
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3249,6 +3249,6 @@ def compute_pairwise_metric(data, by, evalfunc, include_self=True):
         out = evalfunc(table[i1], table[i2])
         out_table.loc[i1, i2] = out
         if i1 != i2:
-            out_table.loc[i2, i1] = out
+            out_table.loc[i2, i1] = -out
     # Return
     return out_table
