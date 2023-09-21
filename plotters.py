@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-19 17:23:26
+# @Last Modified time: 2023-09-21 14:56:06
 
 ''' Collection of plotting utilities. '''
 
@@ -2254,6 +2254,15 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
         idx[data.index.names.index(Label.TRIAL)] = itrial
     data = data.loc[tuple(idx), :]
 
+    # If rect_markers is provided
+    if rect_markers is not None:
+        # Check that it is a pandas Series
+        if not isinstance(rect_markers, pd.Series):
+            raise ValueError('rect_markers must be provided as a pandas Series')
+        # Unstack it if column-level is in index
+        if isinstance(rect_markers.index, pd.MultiIndex) and col in rect_markers.index.names:
+            rect_markers = rect_markers.unstack(level=col)
+
     # # Raise error if row is specified without col
     # if row is not None and col is None:
     #     raise ValueError('row cannot be specified without col')
@@ -2485,22 +2494,21 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
                         ysep_mids.index, rotation='vertical', va='center')
                     ax.tick_params(axis='y', left=False)
 
-            # Add rectangular markers, if any 
-            if rect_markers is not None:
-                if col in rect_markers.index.names:
-                    refidx = get_mux_slice(rect_markers.index)
-                    if glabel in rect_markers.index.unique(col):
-                        refidx[rect_markers.index.names.index(col)] = glabel
-                        submarks = rect_markers.loc[tuple(refidx)]
-                        for dataset, color in submarks.iteritems():
-                            yb, yt = ysep_starts.loc[dataset], ysep_ends.loc[dataset]
-                            ax.add_patch(Rectangle(
-                                (ax.get_xlim()[0], yb), 
-                                ax.get_xlim()[1] - ax.get_xlim()[0], yt - yb,
-                                fc='none', ec=color, lw=10))
+            # If axis-specific rectangular markers (i.e. provided as dataframe)
+            if rect_markers is not None and isinstance(rect_markers, pd.DataFrame): 
+                try:
+                    row_markers = rect_markers.loc[:, glabel].dropna()
+                    for rowkey, color in row_markers.items():
+                        yb, yt = ysep_starts.loc[rowkey], ysep_ends.loc[rowkey]
+                        ax.add_patch(Rectangle(
+                            (ax.get_xlim()[0], yb), 
+                            ax.get_xlim()[1] - ax.get_xlim()[0], yt - yb,
+                            fc='none', ec=color, lw=10))
+                except KeyError:
+                    pass
 
             pbar.update()
-
+    
     # Hide vertical labels for all but left column
     for ax in np.atleast_2d(axes)[:, 1:].ravel():
         ax.set_ylabel('')
@@ -2520,6 +2528,14 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
             fig.subplots_adjust(wspace=0)
         if is_multi_trial:
             fig.supxlabel('time (s)')
+
+    # If axis-specific rectangular markers (i.e. provided as dataframe)
+    if rect_markers is not None and isinstance(rect_markers, pd.Series): 
+        for rowkey, color in rect_markers.items():
+            bl = axes[0].transData.transform((axes[0].get_xlim()[0], ysep_starts.loc[rowkey]))
+            tr = axes[-1].transData.transform((axes[-1].get_xlim()[1], ysep_ends.loc[rowkey]))
+            fig.patches.append(
+                Rectangle(bl, tr[0] - bl[0], tr[1] - bl[1], fc='none', ec=color, lw=10))
 
     # Return figure handle
     return fig
