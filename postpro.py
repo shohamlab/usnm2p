@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-19 19:04:13
+# @Last Modified time: 2023-09-26 14:01:47
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3252,3 +3252,130 @@ def compute_pairwise_metric(data, by, evalfunc, include_self=True):
             out_table.loc[i2, i1] = -out
     # Return
     return out_table
+
+
+def compute_fit(xdata, ydata, fit, r2_crit=0.5):
+    '''
+    Fit a function to an X-Y profile
+
+    :param xdata: x data range
+    :param ydata: y data range
+    :param fit: string key or tuple of (objfunc, initfunc) to fit data
+    :param r2_crit: fit R2 threshold to consider fit reliable (default = 0.5)
+    :return: 4-tuple with
+        - optimal fit parameters
+        - covariance matrix of fit parameters
+        - fit goodness (reported as r-squared coefficient)
+        - fit function
+    '''
+    # If "poly" mode specified, perform polynomial fit
+    if isinstance(fit, str) and fit.startswith('poly'):
+        # Get polynomial order
+        order = int(fit[4])
+        # Extract fit name 
+        fitname = fit
+        # Perform polynomial fit
+        logger.info(f'fitting order {order} polynomial to data')
+        popt, pcov = np.polyfit(xdata, ydata, order, full=False, cov=True)
+        # Generate function to return polynomial value for a given x
+        objfunc = lambda x, *y: np.poly1d(y)(x)
+
+    # Otherwise, perform classic fit
+    else:
+        # If fit is a string, get fit functions from dictionary
+        if isinstance(fit, str):
+            objfunc, initfunc = get_fit_functions(fit)
+        # Otherwise, extract fit functions from tuple
+        else:
+            objfunc, initfunc = fit
+        # Extract fit name
+        fitname = objfunc.__name__
+        # Call fit initialization function, if provided
+        if initfunc is not None:
+            logger.debug(f'estimating initial fit parameters for {fitname} function')
+            p0 = initfunc(xdata, ydata)
+            p0str = '[' + ', '.join([f'{p:.2g}' for p in p0]) + ']'
+        else:
+            p0, p0str = None, None
+        # Perform fit
+        logger.info(f'computing fit with {fitname} function: p0 = {p0str}')
+        popt, pcov = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+        
+    # If fitting did not converge, log warning and return 
+    if np.any(np.isinf(pcov)):
+        raise ValueError('convergence error during fitting')
+    
+    # Compute output value with fit predictor
+    yfit = objfunc(xdata, *popt)
+
+    # Compute error between fit prediction and data
+    r2 = rsquared(ydata, yfit)
+    popt_str = '[' + ', '.join([f'{p:.2g}' for p in popt]) + ']'
+    logger.info(f'fitting results: popt = {popt_str}, R2 = {r2:.2f}')
+
+    # If fit is not good enough, log warning and return
+    if r2 < r2_crit:
+        raise ValueError(f'unreliable fit (R2 = {r2:.2f} > {r2_crit:.2f})')
+
+    # Return
+    return popt, pcov, r2, objfunc
+
+
+def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000): 
+    '''
+    Compute uncertainty of fit parameters over an input range
+
+    :param xvec: input range vector
+    :param popt: optimal fit parameters
+    :param pcov: covariance matrix of fit parameters
+    :param objfunc: fit function
+    :param ci: fit confidence interval (default = 0.95)
+    :param nsims: number of Monte-Carlo simulations to perform to estimate
+        fit confidence interval (default = 1000)
+    :return: 2-tuple with lower and upper bounds of fit confidence interval
+    '''
+    # Compute standard error of fit parameters from covariance matrix
+    perr = np.sqrt(np.diag(pcov))
+    perr_str = '[' + ', '.join([f'{p:.2g}' for p in perr]) + ']'
+    logger.info(f'fit parameter standard errors: {perr_str}')
+    
+    # Compute relative parameter errors w.r.t. optimal values
+    rel_perr = np.abs(perr / popt)
+
+    # If max relative error is too large, raise error
+    max_rel_perr = np.max(rel_perr)
+    if max_rel_perr > 5:
+        raise ValueError(
+            f'maximal fit parameter uncertainity ({max_rel_perr:.2g}) too large to estimate fit uncertainty')
+        
+    # Perform Monte Carlo simulation to estimate fit output distribution
+    logger.info(f'computing fit uncertainty with {nsims} Monte Carlo simulations')
+    yfits = np.full((nsims, xvec.size), np.nan)
+    for isim in range(nsims):
+        # Sample parameters from their respective confidence intervals
+        sampled_params = np.random.normal(popt, perr)
+        # Calculate the model output for the sampled parameters
+        yfits[isim, :] = objfunc(xvec, *sampled_params)
+
+    # If any invalid values in output samples, log warning and return 
+    if np.any(np.isnan(yfits)) or np.any(np.isinf(yfits)):
+        raise ValueError('invalid values in fit predictions from sampled parameters')
+
+    # Calculate the confidence interval for the output
+    alpha = 1 - ci
+    yfit_lb = np.quantile(yfits, alpha / 2, axis=0)
+    yfit_ub = np.quantile(yfits, 1 - alpha / 2, axis=0)
+    
+    # Otherwise, set confidence interval to None
+    return yfit_lb, yfit_ub
+
+
+# Fit functions per input metrics
+fit_dict = {
+    Label.P: 'poly2',
+    Label.DC: 'sigmoid',
+    Label.PSPTA: 'sigmoid',
+    Label.PSPTRMS: 'sigmoid',
+    Label.ISPTA: 'sigmoid',
+    Label.ISPTRMS: 'sigmoid',
+}

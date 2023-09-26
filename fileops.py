@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-15 12:50:30
+# @Last Modified time: 2023-09-26 12:58:29
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -18,7 +18,6 @@ from tifffile import imsave, TiffFile
 import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
-import warnings
 
 from parsers import parse_experiment_parameters, P_TIFFILE, parse_date_mouse_region
 from logger import logger
@@ -647,8 +646,6 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
         store['ROI_masks'] = ROI_masks
         # Save map_ops in the same object
         logger.info('saving mapping options...')
-        # with warnings.catch_warnings():
-        #     warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
         store['map_ops'] = pd.Series(map_ops)
     logger.info(f'all data fields saved to "{fpath}"')
 
@@ -830,30 +827,50 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     }
 
 
-def load_lineagg_stats(dirpath, errprop='intra'):
+def load_lineagg_data(dirpath, errprop='intra'):
     '''
-    Load multiple responder-type-averaged mouse line statistics
+    Load line-aggregated data for multiple mouse lines
     
     :param dirpath: path to input directory
+    :param errprop: error propagation method (intra/inter)
+    :return: 2-tuple with:
+        - multi-indexed (line, responder type, run, trial) stats dataframe
+        - multi-indexed (line, dataset) cell count series
     '''
-    logger.info(f'loading line-average data (with {errprop}-propagated SE) from {dirpath}:')
+    logger.info(f'input folder: {dirpath}')
+    logger.info(f'loading line-average data (with {errprop}-propagated SE)')
 
-    # List stats data filepaths
-    fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.csv')))
+    # Define file name patterns for stats (with appropriate propagation method) and cell counts
+    fpatterns = {
+        'stats': f'*_{errprop}.csv',
+        'counts': '*_counts.csv',
+    }
 
-    # Restrict to stats files with appropriate error propagation method
-    fpaths = list(filter(lambda x: errprop in os.path.basename(x), fpaths))
-    if len(fpaths) == 0:
-        raise ValueError(f'no valid stats datasets found in "{dirpath}"')
+    # Load and concatenate data for each file type
+    data = {}
+    for k, pattern in fpatterns.items():
+        fpaths = natsorted(glob.glob(os.path.join(dirpath, pattern)))
+        if len(fpaths) == 0:
+            raise ValueError(f'no {k} data (pattern = {pattern}) found in "{dirpath}"')
+        data[k] = pd.concat([pd.read_csv(fpath) for fpath in fpaths])
 
-    # Load and concatenate datasets
-    stats = pd.concat([pd.read_csv(fpath) for fpath in fpaths])
+    # Unpack data
+    stats, counts = data['stats'], data['counts']
 
     # Create stats multi-index
     muxcols = [Label.LINE, Label.ROI_RESP_TYPE, Label.RUN]
     stats.index = pd.MultiIndex.from_arrays([stats.pop(k) for k in muxcols])
 
-    # Return stats and timeseries as a dictionary
-    lines = ', '.join(stats.index.unique(level=Label.LINE).values)
-    logger.info(f'repsonder-type-averaged stats successfully loaded for lines {lines}')
-    return stats
+    # Create counts multi-index
+    muxcols = [Label.LINE, Label.DATASET]
+    counts.index = pd.MultiIndex.from_arrays([counts.pop(k) for k in muxcols])
+    counts = counts[Label.ROI_COUNT]
+
+    # Check that all datasets have the same number of runs
+    lines = stats.index.unique(level=Label.LINE)
+    if not lines.equals(counts.index.unique(level=Label.LINE)):
+        raise ValueError('inconsistent mouse lines between stats and counts data')
+
+    # Return stats and counts
+    logger.info(f'line-aggregated data successfully loaded for lines {lines.values}')
+    return stats, counts

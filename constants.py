@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-14 11:58:24
+# @Last Modified time: 2023-09-26 12:52:32
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -41,6 +41,7 @@ class Label:
     FRAME = 'frame'
     CH = 'channel'
     DATASET = 'dataset'
+    LAYER = 'layer'
     OFFSET = 'offset (mm)'
 
     # Frequency analysis
@@ -109,6 +110,7 @@ class Label:
     POS_COND = 'positive condition?'
 
     # ROI classification 
+    ROI_COUNT = '# ROIs'
     NPOS_CONDS = f'# {POS_COND[:-1]}s'
     IS_RESP_ROI = 'responsive ROI?'
     ROI_RESP_TYPE = 'responder type'
@@ -347,6 +349,8 @@ class Palette:
     DC = 'crest'  # duty cycle (continuous)
     OFFSET = sns.cubehelix_palette(  # spatial offset distance (continous)
         start=.5, rot=-.5, reverse=True, as_cmap=True)
+    GREEN = sns.dark_palette(  # For green-scale images
+        'green', as_cmap=True)
 
 # Sweep markers
 sweep_markers = {

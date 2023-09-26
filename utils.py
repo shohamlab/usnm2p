@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-18 17:29:23
+# @Last Modified time: 2023-09-25 16:19:50
 
 ''' Collection of generic utilities. '''
 
@@ -847,8 +847,43 @@ def mysqrt(x, A=1, x0=0, y0=0):
     return A * np.sqrt(x - x0) + y0
 
 
-def parabolic(x, x1, x2, A=1, y0=0):
+def quadratic(x, x1, x2, A=1, y0=0):
+    ''' 
+    Quadratic function
+    
+    :param x: independent variable
+    :param x1, x2: horizontal offsets (i.e. polynomial roots)
+    :param A: scaling factor
+    :param y0: vertical offset
+    '''
     return A * (x - x1) * (x - x2) + y0
+
+
+def get_quadratic_params(x, y):
+    ''' Initial guess for quadratic fit parameters '''
+    return [
+        np.quantile(x, .1),  # first root: 10th percentile of x range
+        np.quantile(x, .9),  # second root: 90th percentile of x range
+        y.max() * 10  # amplitude: 10 times max of y range
+    ]
+
+
+fit_functions_dict = {
+    'sigmoid': (sigmoid, get_sigmoid_params),
+    'quadratic': (quadratic, get_quadratic_params),
+}
+
+
+def get_fit_functions(kind):
+    ''' 
+    Get (objective function, parameter estimation function) tuple for a given fit type
+    '''
+    try:
+        return fit_functions_dict[kind]
+    except KeyError:
+        if kind.startswith('poly'):
+            return kind, None
+        raise ValueError(f'invalid fit type: {kind}')
 
 
 def bounds(x):
