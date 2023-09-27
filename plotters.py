@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 15:32:53
+# @Last Modified time: 2023-09-27 17:20:20
 
 ''' Collection of plotting utilities. '''
 
@@ -3339,7 +3339,7 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
     :param ax: axis object
     :param xdata: x data range
     :param ydata: y data range
-    :param fit: string key or tuple of (objfunc, initfunc) to fit data
+    :param fit: fit object(s) to fit data
     :param add_text (optional): whether to add fit results as text on the graph
     :param npts (optional): number of points to use to plot the fit profile
     :param ci (optional): fit confidence interval (obtained from Monte-Carlo simulations)
@@ -5654,7 +5654,7 @@ def plot_enriched_parameter_dependency(df, xkey=Label.ISPTA, ykey=None, yref=0.,
     return fig
 
 
-def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_color=False, fs=12):
+def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, add_net_color=False, fs=12):
     '''
     Plot circuit effect on response curve
 
@@ -5662,6 +5662,7 @@ def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_col
     :param stats: dataframe containing general statistics per cell type
     :param xkey: input variable
     :param ykey: output variable
+    :param fit (optional): fit object(s). If not provided, fit type is inferred from xkey
     :param ci (optional): confidence interval for fit predictions
     :param xmax (optional): maximum x-axis value over which to extend the predictions
     :param add_net_color (optional): whether to add net effect color code
@@ -5674,6 +5675,10 @@ def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_col
     # If input variable is not already present, try to compute it
     if xkey not in data.columns:
         data[xkey] = get_dose_metric(data[Label.P], data[Label.DC], xkey)
+    
+    # Extract fit type from input variable if not provided
+    if fit is None:
+        fit = fit_dict[xkey]
         
     # Prepare figure
     fig, axes = plt.subplots(1, 3, figsize=(9, 3), sharex=True)
@@ -5710,7 +5715,7 @@ def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_col
 
         # Attempt to fit sigmoid to predict response strength
         try:
-            popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit_dict[xkey])
+            popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit)
             label = f'{line} (R2 = {r2:.2f})'
         except ValueError as e:
             logger.warning(f'Failed to fit {line} data: {e}')

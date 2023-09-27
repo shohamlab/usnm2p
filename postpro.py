@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-26 14:01:47
+# @Last Modified time: 2023-09-27 17:36:48
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1501,7 +1501,7 @@ def get_xdep_data(data, xkey, add_DC0=False):
     
     # If unknown sweep, do nothing
     else:
-        logger.warning(f'{xkey} not part of ({Label.P}, {Label.DC}) -> no filtering')
+        logger.info(f'{xkey} not part of ({Label.P}, {Label.DC}) -> no filtering')
         return data
 
 
@@ -3254,13 +3254,13 @@ def compute_pairwise_metric(data, by, evalfunc, include_self=True):
     return out_table
 
 
-def compute_fit(xdata, ydata, fit, r2_crit=0.5):
+def compute_fit(xdata, ydata, kind, r2_crit=0.5):
     '''
     Fit a function to an X-Y profile
 
     :param xdata: x data range
     :param ydata: y data range
-    :param fit: string key or tuple of (objfunc, initfunc) to fit data
+    :param kind: string identifying the type of fit to perform
     :param r2_crit: fit R2 threshold to consider fit reliable (default = 0.5)
     :return: 4-tuple with
         - optimal fit parameters
@@ -3268,26 +3268,40 @@ def compute_fit(xdata, ydata, fit, r2_crit=0.5):
         - fit goodness (reported as r-squared coefficient)
         - fit function
     '''
+    # If fit == "best", choose from every possible fit
+    if kind == 'best':
+        kind = list(fit_functions_dict.keys()) + ['poly1', 'poly2', 'poly3']
+
+    # If multiple fit types specified, perform fit for each and return best one
+    if is_iterable(kind):
+        best_popt, best_pcov, best_r2, best_objfunc = None, None, 0, None 
+        for k in kind:
+            try:
+                popt, pcov, r2, objfunc = compute_fit(xdata, ydata, k, r2_crit=r2_crit)
+                if r2 > best_r2:
+                    best_popt, best_pcov, best_r2, best_objfunc = popt, pcov, r2, objfunc
+            except ValueError as e:
+                logger.warning(f'cannot fit {k} function: {e}')
+        if best_objfunc is None:
+            raise ValueError('failed to fit any of the specified functions')
+        logger.info(f'best fit type: {best_objfunc.__name__} (R2 = {best_r2:.2f})')
+        return best_popt, best_pcov, best_r2, best_objfunc
+
     # If "poly" mode specified, perform polynomial fit
-    if isinstance(fit, str) and fit.startswith('poly'):
+    if kind.startswith('poly'):
         # Get polynomial order
-        order = int(fit[4])
+        order = int(kind[4])
         # Extract fit name 
-        fitname = fit
+        fitname = kind
         # Perform polynomial fit
         logger.info(f'fitting order {order} polynomial to data')
         popt, pcov = np.polyfit(xdata, ydata, order, full=False, cov=True)
         # Generate function to return polynomial value for a given x
         objfunc = lambda x, *y: np.poly1d(y)(x)
 
-    # Otherwise, perform classic fit
+    # Otherwise, get fit functions from dictionary and perform classic fit
     else:
-        # If fit is a string, get fit functions from dictionary
-        if isinstance(fit, str):
-            objfunc, initfunc = get_fit_functions(fit)
-        # Otherwise, extract fit functions from tuple
-        else:
-            objfunc, initfunc = fit
+        objfunc, initfunc = get_fit_functions(kind)
         # Extract fit name
         fitname = objfunc.__name__
         # Call fit initialization function, if provided
@@ -3299,7 +3313,10 @@ def compute_fit(xdata, ydata, fit, r2_crit=0.5):
             p0, p0str = None, None
         # Perform fit
         logger.info(f'computing fit with {fitname} function: p0 = {p0str}')
-        popt, pcov = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+        try:
+            popt, pcov = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+        except RuntimeError as e:
+            raise ValueError(e)
         
     # If fitting did not converge, log warning and return 
     if np.any(np.isinf(pcov)):

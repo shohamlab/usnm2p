@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 15:34:30
+# @Last Modified time: 2023-09-27 17:11:27
 
 ''' Collection of generic utilities. '''
 
@@ -827,9 +827,45 @@ def get_sigmoid_params(x, y):
     ]
 
 
-def custom_sigmoid(x, x0=0, sigma=1, p=1, A=1, y0=0):
-    y = 1 + np.exp(x - x0) / sigma
-    return A * (1 - np.power(y, -p))
+def sigmoid_decay(x, x0=0, k=1, r=.2, A=1, y0=0):
+    '''
+    Sigmoidal increase followed by an exponential decay
+
+    :param x: x values
+    :param x0: horizontal offset
+    :param k: sigmoidal increase rate
+    :param r: exponential decay rate
+    :param A: amplitude
+    :param y0: vertical offset
+    '''
+    return A / (1 + np.exp(-k * (x - x0))) * np.exp(-r * (x - x0)) + y0
+
+
+def get_sigmoid_decay_params(x, y):
+    '''
+    Function estimating the initial parameters of a sigmoidal function to fit
+
+    :param x: input vector
+    :param y: output vector
+    :return: initial fit parameters
+    '''
+    # Estimate characteristic y values
+    ymin, ymax = y.min(), y.max()
+    ythr = ymin + 0.1 * (ymax - ymin)
+    ymid = ymin + 0.5 * (ymax - ymin)
+
+    # Derive corresponding characteristic x values
+    xthr = x[np.where(y > ythr)[0][0]]
+    xmid = x[np.where(y > ymid)[0][0]]
+    xpeak = x[np.argmax(y)]
+    xsigrange = xpeak - xthr
+
+    return [
+        xmid,  # inflection point: first x value where y > 50% of max
+        1 / xsigrange,  # sigmoidal increase rate: inverse of x sigmoidal increase range
+        .1 / xsigrange,  # exponential decay rate: 10% of sigmoidal increase rate
+        y.max()  # maximum: max of y range
+    ]
 
 
 def bilinear(x, x0=0, y0=0, A=1, B=-1):
@@ -883,6 +919,7 @@ def get_quadratic_params(x, y):
 fit_functions_dict = {
     'sigmoid': (sigmoid, get_sigmoid_params),
     'quadratic': (quadratic, get_quadratic_params),
+    'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
 }
 
 
