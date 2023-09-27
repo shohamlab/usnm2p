@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 15:24:29
+# @Last Modified time: 2023-09-27 15:34:30
 
 ''' Collection of generic utilities. '''
 
@@ -1033,9 +1033,7 @@ def find_sign_intervals(y, x=None):
     
     :param y: input vector
     :param x (optional): x vector (used to return x values instead of indices)
-    :return: 2-tuple with:
-        - start and end indices (or x values) of positive intervals
-        - start and end indices (or x values) of negative intervals
+    :return: 3-column dataframe with start, end and sign of each interval
     '''
     # Cast input as numpy array
     y = np.asarray(y)
