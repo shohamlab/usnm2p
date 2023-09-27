@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 11:34:09
+# @Last Modified time: 2023-09-27 15:24:29
 
 ''' Collection of generic utilities. '''
 
@@ -1017,7 +1017,7 @@ def idx_format(idxs):
         return str(idxs)
     
     # Cast input as numpy array
-    lidxs = np.asarray(idxs)
+    idxs = np.asarray(idxs)
 
     # If input is contiguous, return corresponding range string
     if idxs.data.contiguous:
@@ -1037,32 +1037,31 @@ def find_sign_intervals(y, x=None):
         - start and end indices (or x values) of positive intervals
         - start and end indices (or x values) of negative intervals
     '''
-    # Find indices where y is positive or negative
-    ipos = np.where(y > 0)[0]
-    ineg = np.where(y < 0)[0]
+    # Cast input as numpy array
+    y = np.asarray(y)
 
-    # Find boundaries between intervals
-    pos_boundaries = np.where(np.diff(ipos) > 1)[0] + 1
-    neg_boundaries = np.where(np.diff(ineg) > 1)[0] + 1
+    # Get sign of input vector
+    signs = np.sign(y)
 
-    # Identify start and end indices of intervals
-    pos_starts = np.insert(ipos[pos_boundaries], 0, ipos[0])
-    pos_ends = np.append(ipos[pos_boundaries - 1], ipos[-1])
-    neg_starts = np.insert(ineg[neg_boundaries], 0, ineg[0])
-    neg_ends = np.append(ineg[neg_boundaries - 1], ineg[-1])
+    # Split sign vector into contigous vectors of constant sign
+    isigns = np.split(np.arange(y.size), np.where(np.diff(signs) != 0)[0] + 1)
 
-    # Zip positive and negative intervals
-    pos_intervals = np.array(list(zip(pos_starts, pos_ends)))
-    neg_intervals = np.array(list(zip(neg_starts, neg_ends)))
+    # Remove vectors with less than 2 elements
+    isigns = [v for v in isigns if v.size > 1]
 
-    # Remove intervals with zero length
-    pos_intervals = pos_intervals[np.diff(pos_intervals, axis=1).ravel() > 0]
-    neg_intervals = neg_intervals[np.diff(neg_intervals, axis=1).ravel() > 0]
+    # Identify intervals from vectors
+    intervals = pd.DataFrame(
+        columns=['start', 'end'],
+        data=np.array([[v[0], v[-1]] for v in isigns])
+    )
 
-    # If x vector is provided, convert indices to x values
+    # Identify sign of intervals
+    intervals['sign'] = signs[intervals['start']]
+
+    # If x vector is provided, convert intervals indices to input values
     if x is not None:
-        pos_intervals = x[pos_intervals]
-        neg_intervals = x[neg_intervals]
+        for k in ['start', 'end']:
+            intervals[k] = x[intervals[k]]
 
     # Return
-    return pos_intervals, neg_intervals
+    return intervals

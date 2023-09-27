@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 14:21:03
+# @Last Modified time: 2023-09-27 15:32:53
 
 ''' Collection of plotting utilities. '''
 
@@ -5415,33 +5415,39 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     # Extract x and mean y data
     xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
 
-    # Perform fit between input and output variables
-    popt, _, r2, objfunc = compute_fit(xdata, ydata, fit)
-    
-    # Plot dense fitted profile
-    xdense = np.linspace(xdata.min(), xdata.max(), 1000)
-    yfitdense = objfunc(xdense, *popt)
-    ax.plot(
-        xdense, yfitdense,
-        ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=color)
+    # Perform fit between input and output variables, log warning if fit fails
+    try:
+        popt, _, r2, objfunc = compute_fit(xdata, ydata, fit)
+    except ValueError as e:
+        logger.warning(e)
+        popt = None
 
-    # Get data from other sweep
-    other_data = get_xdep_data(data, otherkey, add_DC0=True)
-    xother, yother = other_data[xkey], other_data[mu_ykey]
+    # If fit succeeded
+    if popt is not None:    
+        # Plot dense fitted profile
+        xdense = np.linspace(xdata.min(), xdata.max(), 1000)
+        yfitdense = objfunc(xdense, *popt)
+        ax.plot(
+            xdense, yfitdense,
+            ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=color)
 
-    # Apply fit on input range from other sweep
-    yotherfit = objfunc(xother, *popt)
+        # Get data from other sweep
+        other_data = get_xdep_data(data, otherkey, add_DC0=True)
+        xother, yother = other_data[xkey], other_data[mu_ykey]
 
-    # Compute prediction accuracy
-    ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+        # Apply fit on input range from other sweep
+        yotherfit = objfunc(xother, *popt)
 
-    # Plot divergence between fit and data points from other sweep
-    iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
-    ax.fill(
-        np.hstack((xdense[iswithin], xother[::-1])), 
-        np.hstack((yfitdense[iswithin], yother[::-1])),
-        fc='silver', label=f'ζ = {ζ:.2f}'
-    )
+        # Compute prediction accuracy
+        ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+
+        # Plot divergence between fit and data points from other sweep
+        iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
+        ax.fill(
+            np.hstack((xdense[iswithin], xother[::-1])), 
+            np.hstack((yfitdense[iswithin], yother[::-1])),
+            fc='silver', label=f'ζ = {ζ:.2f}'
+        )
         
     # Adjust x-scale if specified
     adjust_xscale(ax, xscale=xscale)
@@ -5763,30 +5769,34 @@ def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_col
         axes[1].legend(frameon=False, fontsize=fs)
 
         # Add descriptive text
-        ynet_desc = [stats.loc[line, 'prefix'] + ' ' + line for line in ynet.columns]
-        ynet_desc = ' '.join(ynet_desc)
+        ynet_desc = ' '.join([
+            stats.loc[line, 'prefix'] + ' ' + line for line in ynet.columns])
         if ynet_desc.startswith('+'):
             ynet_desc = ynet_desc[2:]
-        ynet_desc = f'net = {ynet_desc}'
-        axes[2].set_title(ynet_desc, fontsize=fs)
+        axes[2].set_title(f'net = {ynet_desc}', fontsize=fs)
 
-        # Compute and plot net effect
+        # Compute and plot net effect, normalized to its maximum absolute value
         ynet = ynet.sum(axis=1)
+        ynet_scale = ynet.abs().max()
         for idx, ls in zip([irange, iext], ['-', '--']):
-            axes[2].plot(xdense[idx], ynet[idx], color='k', ls=ls)
+            axes[2].plot(xdense[idx], ynet[idx] / ynet_scale, color='k', ls=ls)
 
         # If specified, compute and plot net effect error
         if ci is not None:
             ynet_err = ynet_err.pow(2).sum(axis=1).pow(.5)
             axes[2].fill_between(
-                xdense, ynet - ynet_err, ynet + ynet_err, color='k', alpha=.2)
+                xdense, (ynet - ynet_err) / ynet_scale, (ynet + ynet_err) / ynet_scale, 
+                color='k', alpha=.2)
+        
+        # Adjust y-axis limits to be symmetrical
+        ymax = max(np.abs(axes[2].get_ylim()))
+        axes[2].set_ylim(-ymax, ymax)
         
         # If requested, identify intervals where net effect is positive or negative
         if add_net_color:
-            xpos, xneg = find_sign_intervals(ynet, x=xdense)
-            for xints, color in zip([xpos, xneg], ['g', 'r']):
-                for xstart, xend in xints:
-                    axes[2].axvspan(xstart, xend, fc=color, alpha=.2)
+            intervals = find_sign_intervals(ynet, x=xdense)
+            for _, (start, end, sign) in intervals.iterrows():
+                axes[2].axvspan(start, end, color={1: 'g', -1: 'r'}[sign], alpha=.2)
 
     # Adjust tick label font sizes
     for ax in axes:
