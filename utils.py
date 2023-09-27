@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-25 16:19:50
+# @Last Modified time: 2023-09-27 11:34:09
 
 ''' Collection of generic utilities. '''
 
@@ -799,6 +799,18 @@ def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     return A * norm_sig + y0
 
 
+def get_sigmoid_root(y, x0, sigma):
+    ''' 
+    Find x value at which sigmoid relative output is equal to y
+
+    :param y: target sigmoid output value
+    :param x0: sigmoid center (i.e. inflection point)
+    :param sigma: sigmoid width
+    :return: x value at which sigmoid is equal to y
+    '''
+    return np.log(y / (1 - y)) * sigma + x0
+
+
 def get_sigmoid_params(x, y):
     '''
     Function estimating the initial parameters of a sigmoidal function to fit
@@ -1013,3 +1025,44 @@ def idx_format(idxs):
     
     # Otherwise, return original list
     return str(idxs)
+
+
+def find_sign_intervals(y, x=None):
+    ''' 
+    Find intervals where a vector is positive or negative
+    
+    :param y: input vector
+    :param x (optional): x vector (used to return x values instead of indices)
+    :return: 2-tuple with:
+        - start and end indices (or x values) of positive intervals
+        - start and end indices (or x values) of negative intervals
+    '''
+    # Find indices where y is positive or negative
+    ipos = np.where(y > 0)[0]
+    ineg = np.where(y < 0)[0]
+
+    # Find boundaries between intervals
+    pos_boundaries = np.where(np.diff(ipos) > 1)[0] + 1
+    neg_boundaries = np.where(np.diff(ineg) > 1)[0] + 1
+
+    # Identify start and end indices of intervals
+    pos_starts = np.insert(ipos[pos_boundaries], 0, ipos[0])
+    pos_ends = np.append(ipos[pos_boundaries - 1], ipos[-1])
+    neg_starts = np.insert(ineg[neg_boundaries], 0, ineg[0])
+    neg_ends = np.append(ineg[neg_boundaries - 1], ineg[-1])
+
+    # Zip positive and negative intervals
+    pos_intervals = np.array(list(zip(pos_starts, pos_ends)))
+    neg_intervals = np.array(list(zip(neg_starts, neg_ends)))
+
+    # Remove intervals with zero length
+    pos_intervals = pos_intervals[np.diff(pos_intervals, axis=1).ravel() > 0]
+    neg_intervals = neg_intervals[np.diff(neg_intervals, axis=1).ravel() > 0]
+
+    # If x vector is provided, convert indices to x values
+    if x is not None:
+        pos_intervals = x[pos_intervals]
+        neg_intervals = x[neg_intervals]
+
+    # Return
+    return pos_intervals, neg_intervals

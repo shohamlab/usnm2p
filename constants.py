@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-26 12:52:32
+# @Last Modified time: 2023-09-26 16:24:48
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -111,6 +111,7 @@ class Label:
 
     # ROI classification 
     ROI_COUNT = '# ROIs'
+    ROI_DENSITY = 'cells / mm2'
     NPOS_CONDS = f'# {POS_COND[:-1]}s'
     IS_RESP_ROI = 'responsive ROI?'
     ROI_RESP_TYPE = 'responder type'

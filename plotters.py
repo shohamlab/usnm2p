@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-26 14:12:14
+# @Last Modified time: 2023-09-27 14:21:03
 
 ''' Collection of plotting utilities. '''
 
@@ -5643,6 +5643,161 @@ def plot_enriched_parameter_dependency(df, xkey=Label.ISPTA, ykey=None, yref=0.,
             .05, ytext, f'linreg: p = {regout.pval:.3g}', transform=ax.transAxes, 
             ha='left', va='center', fontsize=textfs)
         ytext -= .07
+
+    # Return figure handle
+    return fig
+
+
+def plot_circuit_effect(data, stats, xkey, ykey, ci=None, xmax=None, add_net_color=False, fs=12):
+    '''
+    Plot circuit effect on response curve
+
+    :param data: line-aggregated data across multiple lines (i.e. neuron types)
+    :param stats: dataframe containing general statistics per cell type
+    :param xkey: input variable
+    :param ykey: output variable
+    :param ci (optional): confidence interval for fit predictions
+    :param xmax (optional): maximum x-axis value over which to extend the predictions
+    :param add_net_color (optional): whether to add net effect color code
+    :param fs: font size
+    :return: figure handle
+    '''
+    # Copy data to avoid modifying input
+    data = data.copy()
+
+    # If input variable is not already present, try to compute it
+    if xkey not in data.columns:
+        data[xkey] = get_dose_metric(data[Label.P], data[Label.DC], xkey)
+        
+    # Prepare figure
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3), sharex=True)
+    sns.despine(fig=fig)
+    for ax in axes:
+        ax.set_xlabel(xkey, fontsize=fs)
+        ax.axhline(0, color='k', ls='--', lw=1)
+    axes[0].set_ylabel(ykey, fontsize=fs)
+    axes[1].set_ylabel(f'scaled responses (a.u.)', fontsize=fs)
+    axes[2].set_ylabel('net effect (a.u.)', fontsize=fs)
+
+    # Initialize empty net effect mean (and error if requested) dataframes
+    ynet = pd.DataFrame()
+    if ci is not None:
+        ynet_err = pd.DataFrame()
+
+    # For each line
+    for line, gdata in data.groupby(Label.LINE):
+        logger.info(f'extracting, computing, and scaling {line} responses')
+        # Get line color and label
+        label, color = line, Palette.LINE[line]
+        
+        # Restrict data range if P or DC is given as input
+        gdata = get_xdep_data(gdata, xkey, add_DC0=True)
+        
+        # Extract and plot X and Y data vectors
+        xdata, ydata, yerr = gdata[xkey], gdata[f'{ykey} - mean'], gdata[f'{ykey} - sem']
+        if xmax is None:
+            xmax = xdata.max()
+
+        # Generate dense x-range for fit prediction, potentially including extrapolation
+        xdense = np.linspace(xdata.min(), max(xdata.max(), xmax), 100)
+        irange, iext = np.where(xdense <= xdata.max())[0], np.where(xdense > xdata.max())[0]
+
+        # Attempt to fit sigmoid to predict response strength
+        try:
+            popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit_dict[xkey])
+            label = f'{line} (R2 = {r2:.2f})'
+        except ValueError as e:
+            logger.warning(f'Failed to fit {line} data: {e}')
+            r2 = None
+
+        # Plot response curve data
+        axes[0].errorbar(
+            xdata, ydata, yerr=yerr, color=color, 
+            marker='.', markersize=10, lw=0, elinewidth=2,label=label)
+
+        # If fit was successful 
+        if r2 is not None:
+            # Compute and plot fit prediction over x-range
+            yfit = pd.DataFrame({'mean': objfunc(xdense, *popt)})
+            for idx, ls in zip([irange, iext], ['-', '--']):
+                axes[0].plot(xdense[idx], yfit['mean'][idx], color=color, ls=ls)
+
+            # If specified, compute and plot confidence interval over x-range
+            if ci is not None:
+                yfit['lb'], yfit['ub'] = compute_fit_uncertainty(
+                    xdense, popt, pcov, objfunc, ci=ci)
+                yfit['err'] = (yfit['ub'] - yfit['lb']) / 2
+                axes[0].fill_between(
+                    xdense, yfit['lb'], yfit['ub'], color=color, alpha=.2)
+            
+            # Compute and plot scaled fit predictions
+            scaled_yfit = (yfit - yfit['mean'].min()) * stats.loc[line, 'factor']
+            for idx, ls in zip([irange, iext], ['-', '--']):
+                axes[1].plot(
+                    xdense[idx], scaled_yfit['mean'][idx], color=color, ls=ls, 
+                    label=line if ls =='-' else None)
+            
+            # If specified, compute and plot scaled confidence interval
+            if ci is not None:
+                scaled_yfit['err'] = yfit['err'] * stats.loc[line, 'factor']
+                axes[1].fill_between(
+                    xdense, scaled_yfit['lb'], scaled_yfit['ub'], color=color, alpha=.2)
+            
+            # Compute net effect contribution, with appropriate sign
+            ynet[line] = scaled_yfit['mean'] * stats.loc[line, 'sign']
+
+            # If specified, compute contribution error
+            if ci is not None:
+                ynet_err[line] = scaled_yfit['err']
+
+    # Add legend to responses plot
+    axes[0].legend(frameon=False, fontsize=fs)
+    
+    # If net effect container is empty, log warning
+    if ynet.empty:
+        logger.warning('no fit was successful, net effect is zero')
+    
+    # Otherwise
+    else:
+        # Add legend to scaled responses plot
+        axes[1].legend(frameon=False, fontsize=fs)
+
+        # Add descriptive text
+        ynet_desc = [stats.loc[line, 'prefix'] + ' ' + line for line in ynet.columns]
+        ynet_desc = ' '.join(ynet_desc)
+        if ynet_desc.startswith('+'):
+            ynet_desc = ynet_desc[2:]
+        ynet_desc = f'net = {ynet_desc}'
+        axes[2].set_title(ynet_desc, fontsize=fs)
+
+        # Compute and plot net effect
+        ynet = ynet.sum(axis=1)
+        for idx, ls in zip([irange, iext], ['-', '--']):
+            axes[2].plot(xdense[idx], ynet[idx], color='k', ls=ls)
+
+        # If specified, compute and plot net effect error
+        if ci is not None:
+            ynet_err = ynet_err.pow(2).sum(axis=1).pow(.5)
+            axes[2].fill_between(
+                xdense, ynet - ynet_err, ynet + ynet_err, color='k', alpha=.2)
+        
+        # If requested, identify intervals where net effect is positive or negative
+        if add_net_color:
+            xpos, xneg = find_sign_intervals(ynet, x=xdense)
+            for xints, color in zip([xpos, xneg], ['g', 'r']):
+                for xstart, xend in xints:
+                    axes[2].axvspan(xstart, xend, fc=color, alpha=.2)
+
+    # Adjust tick label font sizes
+    for ax in axes:
+        for item in ax.get_xticklabels() + ax.get_yticklabels():
+            item.set_fontsize(fs)
+
+    # Adjust layout
+    fig.tight_layout()
+
+    # Add title
+    fig.suptitle(f'net circuit effet vs. {xkey}', fontsize=fs + 2, y=1.05)
 
     # Return figure handle
     return fig
