@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 17:20:20
+# @Last Modified time: 2023-09-27 21:31:49
 
 ''' Collection of plotting utilities. '''
 
@@ -3130,7 +3130,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     :param avg_color (optional): color to use for global average trend (default: "k")
     :param legend (optional): whether to plot a legend for each hue level (default: "full")
     :param add_leg_numbers: whether to add sample counts for each legend entry (default = False)
-    :pramhue_alpha (optional): opacity level of indidvidual hue traces (default = 1)
+    :param hue_alpha (optional): opacity level of indidvidual hue traces (default = 1)
     :param errorbar: errorbar method to plot shaded areas around traces (default = 'se' == SEM)
     :param stacked (optional): whether to offset each hue trend vertically (default: False)
     :param fit (optional): (fit objective function, fit initialization function) tuple
@@ -3313,9 +3313,9 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
 
         # If fit objects/key provided, compute and add to axis
         if fit:
+            pltkwargs = dict(ls='--', lw=avglw, **avg_kwargs)
             compute_and_add_fit(
                 ax, mean.index.values, mean.values, fit, ci=fit_ci, **pltkwargs)
-            pltkwargs = dict(ls='--', lw=avglw, **avg_kwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
