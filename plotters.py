@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 21:31:49
+# @Last Modified time: 2023-09-28 19:03:54
 
 ''' Collection of plotting utilities. '''
 
@@ -5816,3 +5816,87 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
 
     # Return figure handle
     return fig
+
+
+def plot_prepost_correlation(data, ykey, splitby=None, avgby=None, params_table=None):
+    '''
+    Plot correlation of specific variable average between pre- and post-stimulus windows
+
+    :param data: multi-indexed experiment dataframe
+    :param ykey: variable of interest
+    :param splitby (optional): variable to split data by
+    :param avgby (optional): variable to average data by before computing correlation & plotting
+    :param params_table (optional): table of stimulus parameters
+    :return: figure handle
+    '''
+    # Pre- and post-stimulus windows
+    windows = {
+        'pre-stim': FrameIndex.PRESTIM,
+        'post-stim': FrameIndex.RESPONSE
+    }
+
+    # Compute metrics average in pre-stimulus and response windows for each ROI & run
+    stats = pd.concat([
+        apply_in_window(data, ykey, window).rename(f'{prefix} {ykey}')
+        for prefix, window in windows.items()
+    ], axis=1)
+
+    # Compute change in metrics between pre-stimulus and response windows
+    logger.info(f'computing {get_change_key(ykey)}...')
+    stats[get_change_key(ykey)] = stats[f'post-stim {ykey}'] - stats[f'pre-stim {ykey}']
+
+    # If split variable provided, make sure it is available and add it to stats
+    if splitby is not None and splitby not in stats.index.names:
+        if params_table is None:
+            raise ValueError(f'splitby variable "{splitby}" not found in stats index')
+        elif splitby not in params_table.columns:
+            raise ValueError(f'splitby variable "{splitby}" not found in params table')
+        free_expand_and_add(params_table[[splitby]], stats)
+        if splitby == Label.ISPTA:
+            stats[Label.ISPTA] = stats[Label.ISPTA].round(2)
+
+    # If average variable provided, average data by it
+    if avgby is not None:
+        logger.info(f'averaging data across {avgby}...')
+        stats = stats.groupby([k for k in stats.index.names if k != avgby]).mean()
+
+    # Plot change in metrics between pre-stimulus and response windows
+    xykeys = dict(
+        x=f'pre-stim {ykey}', 
+        y=get_change_key(ykey),
+    )
+    fg = sns.relplot(
+        data=stats, 
+        kind='scatter',
+        s=10,
+        col=splitby,
+        col_wrap=4 if splitby is not None else None,
+        height=2 if splitby is not None else 3,
+        **xykeys
+    )
+    axdict = fg.axes_dict if splitby is not None else {'all': fg.ax}
+
+    # Set axes scales to symlog to better visualize data
+    for ax in axdict.values():
+        ax.set_xscale('symlog')
+        ax.set_yscale('symlog')
+
+    # Compute correlation coefficients
+    groups = stats.copy()
+    if splitby is not None:
+        groups = groups.groupby(splitby)
+    corrcoeffs = groups[[*xykeys.values()]].corr().iloc[::2, 1]
+    if splitby is not None:
+        corrcoeffs = corrcoeffs.droplevel(-1)
+    else:
+        corrcoeffs.index = ['all']
+    corrcoeffs.rename('r', inplace=True)
+    
+    # Add correlation coefficients to each subplot
+    for key, ax in axdict.items():
+        ax.text(
+            .05, .05, f'r = {corrcoeffs.loc[key]:.2f}', 
+            transform=ax.transAxes, va='bottom', ha='left')
+    
+    # Return figure handle
+    return fg.fig

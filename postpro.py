@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 17:36:48
+# @Last Modified time: 2023-09-28 17:17:53
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1437,7 +1437,7 @@ def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.
     # Compute metrics average in pre-stimulus and response windows for each ROI & run
     ypre = apply_in_window(data, ykey, wpre, verbose=verbose)
     ypost = apply_in_window(data, ykey, wpost, verbose=verbose)
-    # Compute eovked change as their difference
+    # Compute evoked change as their difference
     return (ypost - ypre).rename(get_change_key(ykey))
 
 
