@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-28 19:03:54
+# @Last Modified time: 2023-10-06 10:44:25
 
 ''' Collection of plotting utilities. '''
 
@@ -2218,7 +2218,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
                           colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                           quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
                           col_order=None, col_labels=None, row_order=None,
-                          rect_markers=None, rasterized=False):
+                          rect_markers=None, rasterized=False, axes=None):
     '''
     Plot heatmap of population activity over over time.
     
@@ -2319,7 +2319,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
 
     # Determine number of rows per map, and resulting aspect ratio
     nrowspermap = len(data.groupby(pivot_index_keys).first())
-    aspect_ratio = nrowspermap / 100
+    aspect_ratio = nrowspermap / 200
 
     # Rectilinearize dataframe to make sure all ROIs are present in each group
     data = rectilinearize(data[key]).to_frame()
@@ -2368,10 +2368,16 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
     # Constrain figure height to fit letter aspect ratio
     height = min(height, width * 11 / 8.5)
 
-    # Initialize figure
-    fig, axes = plt.subplots(nrows, ncols, figsize=(width, height))
-    if naxes == 1:
-        axes = np.array([axes])
+    # Initialize figure, or use provided axes
+    if axes is not None:
+        axes = np.asarray(axes)
+        if len(axes) != naxes:
+            raise ValueError(f'axes must be of length {naxes}')
+        fig = axes[0].get_figure()
+    else:
+        fig, axes = plt.subplots(nrows, ncols, figsize=(width, height))
+        if naxes == 1:
+            axes = np.array([axes])
     fig.tight_layout()
 
     # Adjust layout and add colorbar
@@ -2958,7 +2964,7 @@ def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_analysis_window=True,
-                   mark_peaks=False, yref=None, **kwargs):
+                   mark_peaks=False, yref=None, ax=None, **kwargs):
     '''
     Plot trial responses of specific sub-datasets.
     
@@ -2992,10 +2998,11 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
 
     # Plot with time on x-axis
     fig = plot_from_data(
-        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc, **kwargs)
+        data, Label.TIME, ykey, xbounds=tbounds, markerfunc=markerfunc, ax=ax, **kwargs)
         
     # Add markers for each axis
-    for ax in fig.axes:
+    axes = [ax] if ax is not None else fig.axes
+    for ax in axes:
         # Plot stimulus mark if specified
         if mark_stim:
             ax.axvspan(0, get_singleton(data, Label.DUR), ec=None, fc='C5', alpha=0.5)
@@ -3003,7 +3010,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
         if yref is not None:
             ax.axhline(yref, ls='--', c='k', lw=1.)
         # Plot response interval if specified
-        if tresponse is not None:
+        if mark_analysis_window:
             for tr in tresponse:
                 ax.axvline(tr, ls='--', c='k', lw=1.)
 
@@ -5818,55 +5825,43 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     return fig
 
 
-def plot_prepost_correlation(data, ykey, splitby=None, avgby=None, params_table=None):
+def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, params_table=None):
     '''
-    Plot correlation of specific variable average between pre- and post-stimulus windows
+    Plot correlation of pre-stimulus average and stimulus-evoked change for 
+    specific variable
 
-    :param data: multi-indexed experiment dataframe
+    :param ystats: multi-indexed stats for variable
     :param ykey: variable of interest
     :param splitby (optional): variable to split data by
     :param avgby (optional): variable to average data by before computing correlation & plotting
     :param params_table (optional): table of stimulus parameters
     :return: figure handle
     '''
-    # Pre- and post-stimulus windows
-    windows = {
-        'pre-stim': FrameIndex.PRESTIM,
-        'post-stim': FrameIndex.RESPONSE
-    }
-
-    # Compute metrics average in pre-stimulus and response windows for each ROI & run
-    stats = pd.concat([
-        apply_in_window(data, ykey, window).rename(f'{prefix} {ykey}')
-        for prefix, window in windows.items()
-    ], axis=1)
-
-    # Compute change in metrics between pre-stimulus and response windows
-    logger.info(f'computing {get_change_key(ykey)}...')
-    stats[get_change_key(ykey)] = stats[f'post-stim {ykey}'] - stats[f'pre-stim {ykey}']
+    # Extract keys for pre-stimulus average and change
+    y_prestim_avg, _, y_change = get_change_key(ykey, full_output=True)
 
     # If split variable provided, make sure it is available and add it to stats
-    if splitby is not None and splitby not in stats.index.names:
+    if splitby is not None and splitby not in ystats.index.names:
         if params_table is None:
             raise ValueError(f'splitby variable "{splitby}" not found in stats index')
         elif splitby not in params_table.columns:
             raise ValueError(f'splitby variable "{splitby}" not found in params table')
-        free_expand_and_add(params_table[[splitby]], stats)
+        free_expand_and_add(params_table[[splitby]], ystats)
         if splitby == Label.ISPTA:
-            stats[Label.ISPTA] = stats[Label.ISPTA].round(2)
+            ystats[Label.ISPTA] = ystats[Label.ISPTA].round(2)
 
     # If average variable provided, average data by it
     if avgby is not None:
         logger.info(f'averaging data across {avgby}...')
-        stats = stats.groupby([k for k in stats.index.names if k != avgby]).mean()
+        ystats = ystats.groupby([k for k in ystats.index.names if k != avgby]).mean()
 
     # Plot change in metrics between pre-stimulus and response windows
     xykeys = dict(
-        x=f'pre-stim {ykey}', 
-        y=get_change_key(ykey),
+        x=y_prestim_avg, 
+        y=y_change,
     )
     fg = sns.relplot(
-        data=stats, 
+        data=ystats, 
         kind='scatter',
         s=10,
         col=splitby,
@@ -5882,7 +5877,7 @@ def plot_prepost_correlation(data, ykey, splitby=None, avgby=None, params_table=
         ax.set_yscale('symlog')
 
     # Compute correlation coefficients
-    groups = stats.copy()
+    groups = ystats.copy()
     if splitby is not None:
         groups = groups.groupby(splitby)
     corrcoeffs = groups[[*xykeys.values()]].corr().iloc[::2, 1]

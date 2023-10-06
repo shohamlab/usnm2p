@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-28 17:17:53
+# @Last Modified time: 2023-10-04 20:38:25
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1426,19 +1426,41 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
-def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, verbose=True):
+def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, verbose=True, full_output=False):
     ''' 
     Compute stimulus-evoked change in specific variable
     
     :param data: timeseries dataframe
     :param ykey: evaluation variable name
-    :return: evoked change series
+    :param wpre: pre-stimulus window slice
+    :param wpost: post-stimulus window slice
+    :param verbose: whether to print out results
+    :param full_output: whether to return pre and post metrics as well
+    :return: evoked change series, or stats dataframe if full_output is True
     '''
-    # Compute metrics average in pre-stimulus and response windows for each ROI & run
-    ypre = apply_in_window(data, ykey, wpre, verbose=verbose)
-    ypost = apply_in_window(data, ykey, wpost, verbose=verbose)
+    # Extract keys for pre- and post-stimulus averages and change
+    y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)
+    
+    # Define prefix:window dictionary
+    wdict = {
+        y_prestim_avg: wpre,
+        y_poststim_avg: wpost
+    }
+
+    # Compute metrics average in pre- and post-stimulus windows for each ROI & run
+    ystats = pd.DataFrame(
+        {k: apply_in_window(data, ykey, w, verbose=verbose) for k, w in wdict.items()})
+
     # Compute evoked change as their difference
-    return (ypost - ypre).rename(get_change_key(ykey))
+    if verbose:
+        logger.info(f'computing {y_change}...')
+    ystats[y_change] = ystats[y_poststim_avg] - ystats[y_prestim_avg]
+
+    # Return
+    if full_output:
+        return ystats
+    else:
+        return ystats[y_change]
 
 
 def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
