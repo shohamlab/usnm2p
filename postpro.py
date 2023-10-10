@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-04 20:38:25
+# @Last Modified time: 2023-10-10 12:12:49
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1805,7 +1805,9 @@ def get_plot_data(timeseries, stats):
     :param stats: stats dataframe
     :return: merged dataframe 
     '''
-    logger.info('merging timeseries and stats information...')
+    nstats = len(stats.columns.values)
+    statstr = f'{nstats}-column stats' if nstats > 5 else stats.columns.values
+    logger.info(f'adding {statstr} information to timeseries...')
     plt_data = timeseries.copy()
     expand_and_add(stats, plt_data)
     add_time_to_table(plt_data)
@@ -2546,7 +2548,7 @@ def get_power_spectrum(y, fs, method='welch', scaling='spectrum', remove_dc=True
     return df
 
 
-def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
+def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False, verbose=True):
     ''' 
     Compute offsets to enable data separation between categories
     
@@ -2579,7 +2581,8 @@ def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
         kwargs['axis'] = 0
 
     # Log process
-    logger.info(f'computing offsets by {", ".join(by)}')
+    if verbose:
+        logger.info(f'computing offsets by {", ".join(by)}')
 
     # Compute data variation range for each category
     yranges = s.groupby(by).apply(np.ptp, **kwargs)
@@ -2599,7 +2602,7 @@ def get_offsets_by(s, by, y=None, rel_gap=.2, ascending=True, match_idx=False):
     if match_idx:
         extra_mux_levels = list(filter(lambda x: x not in as_iterable(by), s.index.names))
         if len(extra_mux_levels) > 0:
-            yoffsets = free_expand(yoffsets, s)
+            yoffsets = free_expand(yoffsets, s, verbose=verbose)
     
     # Remove grouping variable that are not in original index from offsets index
     for b in by:
@@ -2720,26 +2723,16 @@ def get_rtype_fractions_per_ROI(data):
     return roistats
 
 
-def apply_linregress(df, xkey=Label.TRIAL, ykey=None):
+def apply_linregress(df, xkey=Label.TRIAL, ykey=None, robust=False):
     ''' 
     Apply linear regression between two column series
 
     :param df: input pandas Dataframe / Series object
     :param xkey: name of column / index dimension to use as input vector
     :param ykey: name of column to use as output vector (optional for series)
+    :param robust: whether to use robust regression
     :return: pandas Series with regression output metrics 
     '''
-    # x = s.index.get_level_values(xkey)
-    # x = sm.add_constant(x)
-    # norm = sm.robust.norms.HuberT()
-    # model = sm.RLM(s.values, x, M=norm)
-    # fit = model.fit()
-    # return pd.Series({
-    #     'slope': fit.params[1],
-    #     'intercept': fit.params[0],
-    #     'pval': fit.pvalues[1],
-    # })
-
     # Extract input vector
     if xkey in df.index.names:
         x = df.index.get_level_values(xkey)
@@ -2755,16 +2748,33 @@ def apply_linregress(df, xkey=Label.TRIAL, ykey=None):
         if ykey is None:
             raise ValueError('ykey must be specified for DataFrame inputs')
         y = df[ykey].values
-
-    res = linregress(x, y=y)
-    return pd.Series({
-            'slope': res.slope,
-            'intercept': res.intercept,
-            'rval': res.rvalue,
-            'pval': res.pvalue,
-            'stderr': res.stderr,
-            'intercept_stderr': res.intercept_stderr,
-    })
+    
+    # Perform robust linear regression if requested
+    if robust:
+        x = sm.add_constant(x)
+        norm = sm.robust.norms.HuberT()
+        model = sm.RLM(y, x, M=norm)
+        fit = model.fit()
+        fitparams = pd.Series({
+            'slope': fit.params[1],
+            'intercept': fit.params[0],
+            'pval': fit.pvalues[1],
+        })
+    
+    # Otherwise, perform standard linear regression
+    else:    
+        res = linregress(x, y=y)
+        fitparams = pd.Series({
+                'slope': res.slope,
+                'intercept': res.intercept,
+                'rval': res.rvalue,
+                'pval': res.pvalue,
+                'stderr': res.stderr,
+                'intercept_stderr': res.intercept_stderr,
+        })
+    
+    # Return fit parameters
+    return fitparams
 
 
 def assess_significance(data, pthr, pval_key='pval', sign_key=None):

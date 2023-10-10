@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-05 17:56:34
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-19 17:49:37
+# @Last Modified time: 2023-10-10 11:12:27
 
 ''' Notebook image viewing utilities. '''
 
@@ -425,7 +425,8 @@ def view_interactive_plot(*args, **kwargs):
     return InteractivePlotViewer(*args, **kwargs)
 
 
-def extract_registered_frames(ops, irun, itrial=None, iframes=None, ntrials_per_run=None, aggtrials=False, aggfunc=np.median):
+def extract_registered_frames(ops, irun, itrial=None, iframes=None, ntrials_per_run=None, 
+                              aggtrials=False, aggfunc=np.median, verbose=True):
     '''
     Extract a sequence of frames from registered movie for a given run and trial
 
@@ -466,7 +467,9 @@ def extract_registered_frames(ops, irun, itrial=None, iframes=None, ntrials_per_
 
     # Initialize stack viewer and extract frames
     viewer = get_stack_viewer(ops)
-    logger.info(f'extracting frames {idx_format(iframes)} from run {irun}, trial(s) {idx_format(itrial)} (indexes = {idx_format(iframes_ext)})')
+    if verbose:
+        logger.info(
+            f'extracting frames {idx_format(iframes)} from run {irun}, trial(s) {idx_format(itrial)} (indexes = {idx_format(iframes_ext)})')
     frames = []
     for i in iframes_ext:
         frames.append(viewer.get_frame(viewer.fobjs[0], int(i)))
@@ -475,7 +478,9 @@ def extract_registered_frames(ops, irun, itrial=None, iframes=None, ntrials_per_
 
     # If specified, aggregate frames across trials
     if aggtrials:
-        logger.info(f'aggregating frames across trials {itrial} with {aggfunc.__name__} function...')
+        if verbose:
+            logger.info(
+                f'aggregating frames across trials {itrial} with {aggfunc.__name__} function...')
         frames = np.reshape(frames, (len(itrial), len(iframes), *frames.shape[1:]))
         frames = aggfunc(frames, axis=0)
 

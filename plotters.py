@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-06 10:44:25
+# @Last Modified time: 2023-10-10 11:12:03
 
 ''' Collection of plotting utilities. '''
 
@@ -253,7 +253,7 @@ def set_normalizer(cmap, bounds, scale='lin'):
 
 def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=True,
                            cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, 
-                           colwrap=5, add_cbar=False, qmin=None, qmax=None, **kwargs):
+                           colwrap=5, add_cbar=False, qmin=None, qmax=None, verbose=True, **kwargs):
     '''
     Plot a series of frames from registered movie for a given run and trial
 
@@ -301,15 +301,12 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
             facecolor='white')
         logger.info(f'plotting frames {idx_format(iframes)} from trials {idx_format(itrial)}...')
 
-        loglvl = logger.getEffectiveLevel()
-        logger.setLevel(logging.WARNING)
         for i, it in enumerate(tqdm(itrial)):
             plot_registered_frames(
                 ops, irun, it, iframes, ntrials_per_run=ntrials_per_run, fps=fps, norm=norm,
                 cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label, 
-                qmin=qmin, qmax=qmax)
+                qmin=qmin, qmax=qmax, verbose=False, **kwargs)
             axes[i, 0].set_ylabel(f'trial {it}')
-        logger.setLevel(loglvl)
 
         fig.subplots_adjust(top=0.97)
         fig.suptitle(f'run {irun}', fontsize=fs, y=.98)
@@ -322,7 +319,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     # Extract frames stack
     frames = extract_registered_frames(
         ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, 
-        aggtrials=aggtrials, **kwargs)
+        aggtrials=aggtrials, verbose=verbose, **kwargs)
 
     # Assess whether trial-aggregation is specified and adapt title
     if not is_iterable(itrial):
@@ -340,7 +337,8 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
         if qmin is not None:
             vmin = np.quantile(frames, qmin)
         sig_bounds = (vmin, vmax)
-        logger.info(f'normalizing frames to common {sig_bounds} interval')
+        if verbose:
+            logger.info(f'normalizing frames to common {sig_bounds} interval')
         norm, sm = set_normalizer(cmap, sig_bounds)
     else:
         norm, sm = None, None
@@ -4732,7 +4730,7 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
 
 
 def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, ax=None, 
-                           legend='full', title=None, offset=True, col_wrap=2):
+                           legend='full', title=None, offset=True, col_wrap=2, verbose=True):
     '''
     Plot population-aggregated timecourse across categories
     
@@ -4757,7 +4755,8 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
 
     # Normalize profiles across categories, if any
     if normalize_gby is not None:
-        logger.info(f'normalizing {ykeys} profiles across {" & ".join(as_iterable(normalize_gby))}...')
+        if verbose:
+            logger.info(f'normalizing {ykeys} profiles across {" & ".join(as_iterable(normalize_gby))}...')
         data[ykeys] = (data[ykeys]
             .groupby(normalize_gby)
             .apply(lambda s: s / s.max())
@@ -4769,7 +4768,7 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
     # Offset spectra by hue, if any
     if offset and hue is not None:
         yoffsets = get_offsets_by(
-            data, hue, y=ykeys[0], match_idx=True, ascending=False)
+            data, hue, y=ykeys[0], match_idx=True, ascending=False, verbose=verbose)
         yoffsets = yoffsets.iloc[:, 0]
         for k in ykeys:
             plt_data[k] += yoffsets
@@ -4879,7 +4878,7 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
 
 def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=None, ax=None, 
                                    fband=None, fband_color='silver', legend='full', title=None,
-                                   hue=Label.RUN, **kwargs):
+                                   hue=Label.RUN, verbose=True, **kwargs):
     '''
     Plot frequency spectrum profiles across categories
     
@@ -4899,7 +4898,8 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
             raise ValueError('cannot work on unique axis for muli-dataset input')
     else:
         gby = [Label.RUN]
-    logger.info(f'computing frequency spectra across {" & ".join(gby)}...')
+    if verbose:
+        logger.info(f'computing frequency spectra across {" & ".join(gby)}...')
     popagg_spectrums = (data[ykeys]
         .groupby(gby)
         .apply(lambda s: get_power_spectrum(s, fps, add_db=False, **kwargs))
@@ -4915,7 +4915,8 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
 
     # Normalize spectra across categories, if any
     if normalize_gby is not None:
-        logger.info(f'normalizing {ykeys} spectra across {" & ".join(as_iterable(normalize_gby))}...')
+        if verbose:
+            logger.info(f'normalizing {ykeys} spectra across {" & ".join(as_iterable(normalize_gby))}...')
         popagg_spectrums[ykeys_spectrum] = (popagg_spectrums
             .groupby(normalize_gby)
             [ykeys_spectrum]
@@ -4924,7 +4925,8 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
 
     # Restrict to low frequencies, if specified
     if fmax is not None:
-        logger.info(f'restricting output to frequencies below {fmax:.2f} Hz')
+        if verbose:
+            logger.info(f'restricting output to frequencies below {fmax:.2f} Hz')
         popagg_spectrums = popagg_spectrums[popagg_spectrums[Label.FREQ] < fmax]
 
     # Copy data into sperate dataframe for plotting
@@ -4933,7 +4935,8 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     # Offset spectra by hue, if any
     if hue is not None:
         yoffsets = get_offsets_by(
-            popagg_spectrums, hue, y=ykeys_spectrum[0], match_idx=True, ascending=False)        
+            popagg_spectrums, hue, y=ykeys_spectrum[0], match_idx=True, 
+            ascending=False, verbose=verbose)        
         yoffsets = yoffsets.iloc[:, 0]
         for k in ykeys_spectrum:
             plt_data[k] += yoffsets
@@ -4989,14 +4992,16 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     # Mark trial repetition frequency on graphs
     ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
     ftrial = 1 / ISI
-    logger.info(f'adding reference lines at trial-repetition frequency ({ftrial:.2f} Hz)') 
+    if verbose:
+        logger.info(f'adding reference lines at trial-repetition frequency ({ftrial:.2f} Hz)') 
     for ax in axes:
         ax.axvline(ftrial, c='k', ls='--', lw=1)
     
     # Materialize frequency band of interest, if specified
     if fband is not None:
         fband_str = ' - '.join([f'{x:.2f} Hz' for x in fband])
-        logger.info(f'marking {fband_str} frequency band') 
+        if verbose:
+            logger.info(f'marking {fband_str} frequency band') 
         for ax in axes:
             ax.axvspan(*fband, fc=fband_color, alpha=0.3)
 
@@ -5825,7 +5830,8 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     return fig
 
 
-def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, params_table=None):
+def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, scale='symlog',
+                             addreg=False):
     '''
     Plot correlation of pre-stimulus average and stimulus-evoked change for 
     specific variable
@@ -5834,49 +5840,99 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, params_tabl
     :param ykey: variable of interest
     :param splitby (optional): variable to split data by
     :param avgby (optional): variable to average data by before computing correlation & plotting
-    :param params_table (optional): table of stimulus parameters
+    :param kind (optional): plot kind (one of "scatter", "hist" or "kde"). If none provided,
+    the plot kind is inferred from the data
+    :param scale (optional): scale to use for axes (default: symlog)
+    :param addreg (optional): whether to add linear regression line
     :return: figure handle
     '''
     # Extract keys for pre-stimulus average and change
     y_prestim_avg, _, y_change = get_change_key(ykey, full_output=True)
+    yrelstr = f'{y_change} vs. {y_prestim_avg}'
 
-    # If split variable provided, make sure it is available and add it to stats
-    if splitby is not None and splitby not in ystats.index.names:
-        if params_table is None:
-            raise ValueError(f'splitby variable "{splitby}" not found in stats index')
-        elif splitby not in params_table.columns:
-            raise ValueError(f'splitby variable "{splitby}" not found in params table')
-        free_expand_and_add(params_table[[splitby]], ystats)
-        if splitby == Label.ISPTA:
-            ystats[Label.ISPTA] = ystats[Label.ISPTA].round(2)
+    # If split variable provided, make sure it is available in stats
+    if splitby is not None:
+        if splitby not in ystats.index.names and splitby not in ystats.columns:
+            raise ValueError(f'splitby variable "{splitby}" not found in input stats')
+        logger.info(f'splitting data by {splitby}...')
 
     # If average variable provided, average data by it
     if avgby is not None:
         logger.info(f'averaging data across {avgby}...')
-        ystats = ystats.groupby([k for k in ystats.index.names if k != avgby]).mean()
+        gby = [k for k in ystats.index.names if k != avgby]
+        ystats = ystats.select_dtypes(exclude=['object']).groupby(gby).mean()
+        if splitby == Label.ISPTA:
+            ystats[splitby] = ystats[splitby].round(2)
+
+    # Compute max number of potential points per graph 
+    if splitby is not None:
+        maxnptspergraph = ystats.groupby(splitby).size().max() 
+    else:
+        maxnptspergraph = len(ystats)
+
+    # If plot kind not specified, infer it from data size
+    if kind is None:
+        kind = 'scatter' if maxnptspergraph < 500 else 'hist'
+
+    # Select plotting function based on kind
+    try:
+        pltfunc = {
+            'hist': sns.displot,
+            'scatter': sns.relplot,
+        }[kind]
+    except KeyError:
+        raise ValueError(f'unknown plot kind: {kind}')
+    
+    # Define plotting kwargs based on kind
+    pltkwargs = {}
+    if kind == 'scatter':
+        pltkwargs['s'] = 10
+    elif kind == 'hist':
+        pltkwargs['bins'] = 'sqrt' if maxnptspergraph > 2000 else 'auto'
+        pltkwargs['rasterized'] = True
+
+    # If not splitby variable provided, switch to joint plot
+    if splitby is None:
+        pltfunc = sns.jointplot
+        pltkwargs.update(dict(
+            ratio=2,
+            height=4
+        ))
+    else:
+        pltkwargs.update(dict(
+            col=splitby,
+            col_wrap=4,
+            height=2
+        ))
 
     # Plot change in metrics between pre-stimulus and response windows
+    logger.info(f'rendering {kind}-plot of {yrelstr}...')
     xykeys = dict(
         x=y_prestim_avg, 
         y=y_change,
     )
-    fg = sns.relplot(
+    g = pltfunc(
         data=ystats, 
-        kind='scatter',
-        s=10,
-        col=splitby,
-        col_wrap=4 if splitby is not None else None,
-        height=2 if splitby is not None else 3,
-        **xykeys
+        kind=kind,
+        **xykeys,
+        **pltkwargs
     )
-    axdict = fg.axes_dict if splitby is not None else {'all': fg.ax}
 
-    # Set axes scales to symlog to better visualize data
-    for ax in axdict.values():
-        ax.set_xscale('symlog')
-        ax.set_yscale('symlog')
+    # Adapt plot titles if split by ISPTA
+    if splitby == Label.ISPTA:
+        g.set_titles(template='{col_var} = {col_name:.2f}')
+    
+    # Get axes dictionary
+    axdict = g.axes_dict if splitby is not None else {'all': g.ax_joint}
+
+    # Set axes scales to better visualize data
+    if not scale.startswith('lin'):
+        for ax in axdict.values():
+            ax.set_xscale(scale)
+            ax.set_yscale(scale)
 
     # Compute correlation coefficients
+    logger.info(f'computing correlation coefficients of {yrelstr}...')
     groups = ystats.copy()
     if splitby is not None:
         groups = groups.groupby(splitby)
@@ -5885,13 +5941,30 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, params_tabl
         corrcoeffs = corrcoeffs.droplevel(-1)
     else:
         corrcoeffs.index = ['all']
-    corrcoeffs.rename('r', inplace=True)
     
-    # Add correlation coefficients to each subplot
+    # Compute linear regression if requested
+    if addreg:
+        logger.info(f'computing linear regression of {yrelstr}...')
+        regkwargs = dict(xkey=y_prestim_avg, ykey=y_change, robust=True)
+        if splitby is None:
+            regres = apply_linregress(ystats, **regkwargs).to_frame().T
+            regres.index = ['all']
+        else:
+            regres = ystats.groupby(splitby).apply(
+                lambda df: apply_linregress(df, **regkwargs))
+    
+    # Add correlation coefficients (and potential regression info) to each subplot
     for key, ax in axdict.items():
+        textkwargs = dict(transform=ax.transAxes, va='bottom', ha='left')
         ax.text(
-            .05, .05, f'r = {corrcoeffs.loc[key]:.2f}', 
-            transform=ax.transAxes, va='bottom', ha='left')
+            .05, .05, f'r = {corrcoeffs.loc[key]:.2f}', **textkwargs)
+        if addreg:
+            m, b = regres.loc[key, ['slope', 'intercept']]
+            xdense = np.linspace(*bounds(ystats[y_prestim_avg]), 100)
+            ydense = m * xdense + b
+            ax.plot(xdense, ydense, c='k', lw=2)
+            ax.text(
+                .05, .15, f'y = {m:.2f} x + {b:.2f}', **textkwargs)
     
     # Return figure handle
-    return fg.fig
+    return g.fig
