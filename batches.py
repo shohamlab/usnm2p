@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-11-23 15:05:26
+# @Last Modified time: 2023-10-11 18:59:36
 
 ''' Batch processing utilities '''
 
@@ -12,6 +12,7 @@ from datetime import datetime
 import multiprocessing as mp
 import numpy as np
 import pandas as pd
+import time
 
 from logger import logger
 
@@ -94,6 +95,7 @@ class Batch:
         self.results = mp.Queue()
         self.consumers = [Consumer(self.tasks, self.results) for i in range(self.getNConsumers())]
         for c in self.consumers:
+            time.sleep(0.1)  # add delay to avoid ZMQError: Address already in use
             c.start()
 
     @staticmethod
