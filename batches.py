@@ -3,10 +3,11 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-11 19:29:08
+# @Last Modified time: 2023-10-11 19:37:03
 
 ''' Batch processing utilities '''
 
+import os
 import logging
 from datetime import datetime
 import multiprocessing as mp
@@ -82,10 +83,19 @@ class Batch:
     def __call__(self, *args, **kwargs):
         ''' Call the internal run method. '''
         return self.run(*args, **kwargs)
+    
+    def cpu_count(self):
+        ''' Return number of available CPUs. '''
+        # If running on a cluster, use the number of allocated CPUs per task
+        if 'SLURM_CPUS_PER_TASK' in os.environ:
+            return int(os.environ['SLURM_CPUS_PER_TASK'])
+        # Otherwise, use the number of available CPUs on the local machine
+        else:
+            return mp.cpu_count()
 
     def getNConsumers(self):
         ''' Determine number of consumers based on queue length and number of available CPUs. '''
-        return min(mp.cpu_count(), len(self.queue))
+        return min(self.cpu_count(), len(self.queue))
 
     def start(self):
         ''' Create tasks and results queues, and start consumers. '''
