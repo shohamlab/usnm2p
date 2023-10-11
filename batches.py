@@ -3,7 +3,7 @@
 # @Email: theo.lemaire@epfl.ch
 # @Date:   2017-08-22 14:33:04
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-11 18:59:36
+# @Last Modified time: 2023-10-11 19:18:19
 
 ''' Batch processing utilities '''
 
@@ -30,6 +30,9 @@ class Consumer(mp.Process):
 
     def run(self):
         while True:
+            # wait random delay between 0 and 1 s (to avoid ZMQ overload)
+            delay = np.random.uniform()
+            time.sleep(delay)
             nextTask = self.queue_in.get()
             if nextTask is None:
                 logger.debug(f'Exiting {self.name}')
@@ -95,7 +98,6 @@ class Batch:
         self.results = mp.Queue()
         self.consumers = [Consumer(self.tasks, self.results) for i in range(self.getNConsumers())]
         for c in self.consumers:
-            time.sleep(0.1)  # add delay to avoid ZMQError: Address already in use
             c.start()
 
     @staticmethod
