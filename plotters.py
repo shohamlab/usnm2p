@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-10 11:12:03
+# @Last Modified time: 2023-10-11 18:04:51
 
 ''' Collection of plotting utilities. '''
 
@@ -123,26 +123,29 @@ def harmonize_axes_limits(axes, axkey='y'):
     Harmonize x or y limits across a set of axes
     
     :param axes: list/array of axes
-    :param axkey: axis key ("x" or "y"
+    :param axkey: axis key ("x", "y", or "xy")
     '''
+    # Convert axes to array if needed
     axes = np.asarray(axes)
     
     # Flatten axes array if needed
     if axes.ndim > 1:
         axes = axes.ravel()
-    
-    # Determine limits getter and setter functions for appropriate axis
-    limgetter = lambda ax: getattr(ax, f'get_{axkey}lim')
-    limsetter = lambda ax: getattr(ax, f'set_{axkey}lim')
 
-    # Get limits, and extract min and max over axes
-    lims = [limgetter(ax)() for ax in axes]
-    mins, maxs = list(zip(*lims))
-    bounds = min(mins), max(maxs)
+    # For each axis key 
+    for k in axkey:
+        # Determine limits getter and setter functions for appropriate axis
+        limgetter = lambda ax: getattr(ax, f'get_{k}lim')
+        limsetter = lambda ax: getattr(ax, f'set_{k}lim')
 
-    # Set as bounds for all axes
-    for ax in axes.ravel():
-        limsetter(ax)(*bounds)
+        # Get limits, and extract min and max over axes
+        lims = [limgetter(ax)() for ax in axes]
+        mins, maxs = list(zip(*lims))
+        bounds = min(mins), max(maxs)
+
+        # Set as bounds for all axes
+        for ax in axes.ravel():
+            limsetter(ax)(*bounds)
 
 
 def adjust_xscale(ax, xscale=None):
@@ -5830,14 +5833,15 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     return fig
 
 
-def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, scale='symlog',
-                             addreg=False):
+def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=None, kind=None, 
+                             scale='symlog', color=None, addreg=False, prefix=None):
     '''
-    Plot correlation of pre-stimulus average and stimulus-evoked change for 
+    Plot correlation of pre-stimulus average and post-stimulus average for 
     specific variable
 
     :param ystats: multi-indexed stats for variable
     :param ykey: variable of interest
+    :param use_change (optional): whether to use change in variable instead of post-stimulus average
     :param splitby (optional): variable to split data by
     :param avgby (optional): variable to average data by before computing correlation & plotting
     :param kind (optional): plot kind (one of "scatter", "hist" or "kde"). If none provided,
@@ -5846,9 +5850,15 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
     :param addreg (optional): whether to add linear regression line
     :return: figure handle
     '''
-    # Extract keys for pre-stimulus average and change
-    y_prestim_avg, _, y_change = get_change_key(ykey, full_output=True)
-    yrelstr = f'{y_change} vs. {y_prestim_avg}'
+    # Extract x and y keys
+    y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)    
+    xykeys = dict(
+        x=y_prestim_avg, 
+        y=y_change if use_change else y_poststim_avg,
+    )
+    if prefix is not None:
+        xykeys = {k: f'{prefix}{v}' for k, v in xykeys.items()}
+    yrelstr = f'{xykeys["y"]} vs. {xykeys["x"]}'
 
     # If split variable provided, make sure it is available in stats
     if splitby is not None:
@@ -5884,7 +5894,7 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
         raise ValueError(f'unknown plot kind: {kind}')
     
     # Define plotting kwargs based on kind
-    pltkwargs = {}
+    pltkwargs = {'color': color}
     if kind == 'scatter':
         pltkwargs['s'] = 10
     elif kind == 'hist':
@@ -5905,12 +5915,8 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
             height=2
         ))
 
-    # Plot change in metrics between pre-stimulus and response windows
+    # Plot pre-post distribution
     logger.info(f'rendering {kind}-plot of {yrelstr}...')
-    xykeys = dict(
-        x=y_prestim_avg, 
-        y=y_change,
-    )
     g = pltfunc(
         data=ystats, 
         kind=kind,
@@ -5925,9 +5931,13 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
     # Get axes dictionary
     axdict = g.axes_dict if splitby is not None else {'all': g.ax_joint}
 
-    # Set axes scales to better visualize data
-    if not scale.startswith('lin'):
-        for ax in axdict.values():
+    # Loop through axes
+    for ax in axdict.values():
+        # Add reference lines for zero
+        ax.axhline(0, c='k', ls='--')
+        ax.axvline(0, c='k', ls='--')
+        # Adjust axis scale if specified to better visualize data
+        if not scale.startswith('lin'):
             ax.set_xscale(scale)
             ax.set_yscale(scale)
 
@@ -5945,7 +5955,7 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
     # Compute linear regression if requested
     if addreg:
         logger.info(f'computing linear regression of {yrelstr}...')
-        regkwargs = dict(xkey=y_prestim_avg, ykey=y_change, robust=True)
+        regkwargs = dict(robust=True, **{f'{k}key': v for k, v in xykeys.items()})
         if splitby is None:
             regres = apply_linregress(ystats, **regkwargs).to_frame().T
             regres.index = ['all']
@@ -5954,17 +5964,20 @@ def plot_prepost_correlation(ystats, ykey, splitby=None, avgby=None, kind=None, 
                 lambda df: apply_linregress(df, **regkwargs))
     
     # Add correlation coefficients (and potential regression info) to each subplot
+    dytext = -.1
     for key, ax in axdict.items():
-        textkwargs = dict(transform=ax.transAxes, va='bottom', ha='left')
+        xtext, ytext = .95, .95
+        textkwargs = dict(transform=ax.transAxes, va='top', ha='right')
         ax.text(
-            .05, .05, f'r = {corrcoeffs.loc[key]:.2f}', **textkwargs)
+            xtext, ytext, f'r = {corrcoeffs.loc[key]:.2f}', **textkwargs)
+        ytext += dytext
         if addreg:
             m, b = regres.loc[key, ['slope', 'intercept']]
             xdense = np.linspace(*bounds(ystats[y_prestim_avg]), 100)
             ydense = m * xdense + b
-            ax.plot(xdense, ydense, c='k', lw=2)
+            ax.plot(xdense, ydense, c=color, lw=2)
             ax.text(
-                .05, .15, f'y = {m:.2f} x + {b:.2f}', **textkwargs)
+                xtext, ytext, f'y = {m:.2f} x + {b:.2f}', **textkwargs)
     
     # Return figure handle
     return g.fig

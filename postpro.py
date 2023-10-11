@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-10 12:12:49
+# @Last Modified time: 2023-10-11 17:36:53
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3191,6 +3191,16 @@ def phase_clustering(phi, aggby):
         .abs()
         .rename(f'{phi.name} {suffix}')
     )
+
+
+def shuffle(s):
+    '''
+    Shuffle series values (but not its index)
+    
+    :param s: input pandas Series object
+    :return: series with shuffled values but identical index
+    '''
+    return pd.Series(data=s.sample(frac=1).to_numpy(), index=s.index)
 
 
 def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, remove_utri=False):
