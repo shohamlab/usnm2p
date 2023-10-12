@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-11 18:04:51
+# @Last Modified time: 2023-10-12 10:17:53
 
 ''' Collection of plotting utilities. '''
 
@@ -675,10 +675,13 @@ def plot_pixel_timecourse(fpath, irun=None, projfunc=np.mean, q=0.5, nperq=1, fp
 
         # Compute and plot power spectrum, if specified
         if add_spectrum:
-            spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
-            sns.lineplot(
-                data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, 
-                ax=axes[2], color=c)
+            if np.any(np.isnan(ypix)):
+                logger.warning('cannot compute spectrum: NaNs found in timeseries')
+            else:
+                spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
+                sns.lineplot(
+                    data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, 
+                    ax=axes[2], color=c)
 
     # Add legend on time course plot if multiple quantiles are specified
     if len(qs) > 1:
