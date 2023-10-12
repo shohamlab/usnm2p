@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-11 17:36:53
+# @Last Modified time: 2023-10-12 14:30:10
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3193,14 +3193,33 @@ def phase_clustering(phi, aggby):
     )
 
 
-def shuffle(s):
+def shuffle(y, keep_index=True):
     '''
-    Shuffle series values (but not its index)
+    Shuffle input
     
-    :param s: input pandas Series object
-    :return: series with shuffled values but identical index
+    :param y: input (pandas Series/DataFrame object or iterable)
+    :param keep_index: whether to keep original index (only for pandas inputs)
+    :return: input with shuffled values
     '''
-    return pd.Series(data=s.sample(frac=1).to_numpy(), index=s.index)
+    # Assess whether input is a pandas object (Series or DataFrame)
+    is_pandas_input = isinstance(y, (pd.Series, pd.DataFrame))
+    # In case it is not
+    if not is_pandas_input:
+        # If not an iterable, raise error
+        if not is_iterable(y):
+            raise ValueError('input must be a pandas Series/DataFrame object or an iterable')
+        # Otherwise, convert to Series
+        y = pd.Series(y)
+    # Shuffle data 
+    yout = y.sample(frac=1)
+    # If specified, keep original index
+    if keep_index:
+        yout.index = y.index
+    # If input was not pandas object, convert back to numpy array
+    if not is_pandas_input:
+        yout = yout.values
+    # Return
+    return yout
 
 
 def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, remove_utri=False):

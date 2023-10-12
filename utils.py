@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-27 17:11:27
+# @Last Modified time: 2023-10-12 18:02:58
 
 ''' Collection of generic utilities. '''
 
@@ -1100,3 +1100,31 @@ def find_sign_intervals(y, x=None):
 
     # Return
     return intervals
+
+
+def extract_from_dataframe(df, key):
+    ''' 
+    Extract column or index level from dataframe as a numpy array
+
+    :param df: input dataframe
+    :param key: column or index level name
+    :return: numpy array
+    '''
+    if key in df:
+        return df[key].values
+    elif key in df.index.names:
+        return df.index.get_level_values(key).values
+    else:
+        raise ValueError(f'invalid key: {key}')
+
+
+def get_unique_combinations(df, keys):
+    ''' 
+    Get unique combinations of values for a given set of keys in a dataframe
+    
+    :param df: input dataframe
+    :param keys: keys to consider
+    :return: list of tuples representing unique combinations
+    '''
+    subdf = pd.DataFrame({k: extract_from_dataframe(df, k) for k in keys})
+    return subdf.drop_duplicates().to_records(index=False).tolist()
