@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-09-26 16:24:48
+# @Last Modified time: 2023-10-13 09:33:28
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -139,6 +139,7 @@ class DataRoot:
     RAW = 'raw'
     STACKED = 'stacked'
     SUBSTITUTED = 'substituted'
+    NORMALIZED = 'normalized'
     FILTERED = 'filtered'
     SEGMENTED = 'segmented'
     CONDITIONED = 'conditioned'
