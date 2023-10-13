@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-12 18:02:58
+# @Last Modified time: 2023-10-13 14:09:24
 
 ''' Collection of generic utilities. '''
 

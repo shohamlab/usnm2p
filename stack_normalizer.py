@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-13 10:16:41
+# @Last Modified time: 2023-10-13 11:12:16
 
 ''' Collection of filtering utilities. '''
 
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from logger import logger
 from fileops import StackProcessor, NoProcessor
@@ -173,3 +174,93 @@ class GlobalStackNormalizer(StackProcessor):
 
         # Return
         return normalized_stack
+
+    def plot_projection_image(self, stack, cmap='viridis', ax=None):
+        ''' 
+        Compute and plot stack projection image.
+        
+        :param stack: 3D image stack
+        :param cmap: colormap (default: viridis)
+        :param ax: axis object (default: None)
+        :return: figure object
+        '''
+        # Create/retrieve figure and axis
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.figure
+
+        # Compute projection image
+        proj_img = self.projfunc(stack, axis=0)
+
+        # Select quantile pixels
+        xypixs = self.select_quantile_pixels(stack, self.q, self.npix, self.projfunc)
+
+        # Plot projection image
+        ax.imshow(proj_img, cmap=cmap)
+
+        # Return figure
+        return fig
+    
+    def plot_select_pixels(self, ax, xypix, color='w'):
+        '''
+        Plot selected pixels on projection image.
+        
+        :param ax: axis object
+        :param xypix: array of pixel coordinates
+        :param color: pixel color (default: white)
+        '''
+        # Mark selected pixel on projection image
+        ax.scatter(*xypix, s=30, ec=color, fc='none', lw=1)
+    
+
+        #     # Extract pixel(s) time course
+        #     ypixs = np.array([stack[:, xp, yp] for xp, yp in zip(xpix, ypix)])
+
+        #     # Rescale pixel(s) time course to show relative variation, if requested
+        #     if yout in ('dFF', 'Z'):
+        #         ybaselines = np.quantile(ypixs, 0.5, axis=1)[:, np.newaxis]
+        #         ypixs = (ypixs - ybaselines) / ybaselines
+
+        #     # Normalize pixel(s) time course by their noise level, if requested
+        #     if yout == 'Z':
+        #         munoise = np.mean(ypixs, axis=1)[:, np.newaxis]
+        #         sigmanoise = np.mean(ypixs, axis=1)[:, np.newaxis]
+        #         ypixs = (ypixs - munoise) / sigmanoise
+            
+        #     # Average time course across pixels
+        #     ypix = ypixs.mean(axis=0).astype(float)
+
+        #     # Plot pixel time course
+        #     xvec = np.arange(ypix.size)
+        #     if fps is not None:
+        #         xvec = xvec / fps
+        #     axes[1].plot(
+        #         xvec, ypix, c=c, alpha=0.5 if fc is not None else 1, label=f'q={q:.2f}, raw')
+
+        #     # Low-pass filter pixel time course, if cutoff frequency specified
+        #     if fc is not None:
+        #         if fps is None:
+        #             raise ValueError('frame rate must be specified to filter pixel time course')
+        #         order = 2
+        #         nyq = 0.5 * fps
+        #         sos = butter(order, fc / nyq, btype='low', output='sos')
+        #         ypix_filt = sosfiltfilt(sos, ypix)
+        #         axes[1].plot(xvec, ypix_filt, c=c, alpha=1)
+
+        #     # Compute and plot power spectrum, if specified
+        #     if add_spectrum:
+        #         if np.any(np.isnan(ypix)):
+        #             logger.warning('cannot compute spectrum: NaNs found in timeseries')
+        #         else:
+        #             spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
+        #             sns.lineplot(
+        #                 data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, 
+        #                 ax=axes[2], color=c)
+
+        # # Add legend on time course plot if multiple quantiles are specified
+        # if len(qs) > 1:
+        #     axes[1].legend(frameon=False)
+
+        # # Return figure
+        # return fig

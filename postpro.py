@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-12 14:30:10
+# @Last Modified time: 2023-10-13 14:12:50
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2723,32 +2723,15 @@ def get_rtype_fractions_per_ROI(data):
     return roistats
 
 
-def apply_linregress(df, xkey=Label.TRIAL, ykey=None, robust=False):
-    ''' 
-    Apply linear regression between two column series
-
-    :param df: input pandas Dataframe / Series object
-    :param xkey: name of column / index dimension to use as input vector
-    :param ykey: name of column to use as output vector (optional for series)
-    :param robust: whether to use robust regression
-    :return: pandas Series with regression output metrics 
+def mylinregress(x, y, robust=False):
     '''
-    # Extract input vector
-    if xkey in df.index.names:
-        x = df.index.get_level_values(xkey)
-    else:
-        if isinstance(df, pd.Series):
-            raise ValueError('xkey must be an index dimension for Series inputs')
-        x = df[xkey].values
-    
-    # Extract output vector
-    if isinstance(df, pd.Series):
-        y = df.values
-    else:
-        if ykey is None:
-            raise ValueError('ykey must be specified for DataFrame inputs')
-        y = df[ykey].values
-    
+    Perform robust or standard linear regression between 2 1D arrays
+
+    :param x: independent variable
+    :param y: dependent variable
+    :param robust: whether to perform robust linear regression
+    :return: fit parameters as a pandas Series
+    '''
     # Perform robust linear regression if requested
     if robust:
         x = sm.add_constant(x)
@@ -2775,6 +2758,35 @@ def apply_linregress(df, xkey=Label.TRIAL, ykey=None, robust=False):
     
     # Return fit parameters
     return fitparams
+
+
+def apply_linregress(df, xkey=Label.TRIAL, ykey=None, **kwargs):
+    ''' 
+    Apply linear regression between two column series
+
+    :param df: input pandas Dataframe / Series object
+    :param xkey: name of column / index dimension to use as input vector
+    :param ykey: name of column to use as output vector (optional for series)
+    :param robust: whether to use robust regression
+    :return: pandas Series with regression output metrics 
+    '''
+    # Extract input vector
+    if xkey in df.index.names:
+        x = df.index.get_level_values(xkey)
+    else:
+        if isinstance(df, pd.Series):
+            raise ValueError('xkey must be an index dimension for Series inputs')
+        x = df[xkey].values
+    
+    # Extract output vector
+    if isinstance(df, pd.Series):
+        y = df.values
+    else:
+        if ykey is None:
+            raise ValueError('ykey must be specified for DataFrame inputs')
+        y = df[ykey].values
+    
+    return mylinregress(x, y, **kwargs)
 
 
 def assess_significance(data, pthr, pval_key='pval', sign_key=None):

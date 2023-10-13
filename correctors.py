@@ -2,20 +2,21 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2022-08-23 15:19:32
+# @Last Modified time: 2023-10-13 16:03:24
 
 ''' Collection of image stacking utilities. '''
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import curve_fit
+import pandas as pd
+import seaborn as sns
+# from scipy.optimize import curve_fit
 
 from constants import *
 from logger import logger
-from utils import expdecay, biexpdecay
+# from utils import expdecay, biexpdecay
+from postpro import mylinregress
 from fileops import StackProcessor, NoProcessor, process_and_save
-from scipy.stats import linregress
-import statsmodels.api as sm
 from tqdm import tqdm
 
 
@@ -73,244 +74,474 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, iref, *args, **kwargs):
+    def __init__(self, iref=None, robust=False, *args, **kwargs):
         self.iref = iref
+        self.robust = robust
         super().__init__(*args, **kwargs)
         
     def __str__(self) -> str:        
-        return f'{self.__class__.__name__}(iref={self.iref})'
+        return f'{self.__class__.__name__}(iref={self.iref}, robust={self.robust})'
         
     @property
     def code(self):
-        return f'linreg_iref_{self.iref.start}_{self.iref.stop}'
+        s = f'linreg'
+        if self.iref is not None:
+            s = f'{s}_iref_{self.iref.start}_{self.iref.stop - 1}'
+        if self.robust:
+            s = f'{s}_robust'
+        return s
+    
+    def get_reference_frame(self, stack):
+        ''' Get reference frame from stack '''
+        if self.iref is not None:
+            ibounds = (self.iref.start, self.iref.stop - 1)
+        else:
+            ibounds = (0, stack.shape[0] - 1)
+        logger.info(
+            f'computing ref. image as temporal average from frames {ibounds[0]} - {ibounds[1]}')
+        if self.iref is None:
+            return stack.mean(axis=0)
+        else:
+            return stack[self.iref].mean(axis=0)
+        
+    def plot_frame(self, frame, ax=None, mode='img', **kwargs):
+        ''' 
+        Plot frame image / distribution
+        
+        :param img: image 2D array
+        :param ax: axis to use for plotting (optional)
+        :param mode: type of plot to use:
+            - "img" for the frame image
+            - "dist" for its distribution
+            - "all" for both
+        :return: figure handle
+        '''
+        # If mode is "all", create figure with two axes, and 
+        # plot both image and its distribution
+        if mode == 'all':
+            fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+            for mode, ax in zip(['img', 'dist'], axes):
+                self.plot_frame(frame, ax=ax, mode=mode, **kwargs)
+            fig.tight_layout()
+            return fig
+        
+        # Create/retrieve figure and axis 
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.figure
+        sns.despine(ax=ax)
 
-    def linreg(self, frame, ref_frame):
+        # Plot image or distribution
+        if mode == 'dist':
+            sns.histplot(frame.ravel(), ax=ax, **kwargs)
+        elif mode == 'img':
+            ax.imshow(frame, **kwargs)
+        else:
+            raise ValueError(f'unknown plotting mode: {mode}')
+
+        # Return figure handle
+        return fig
+    
+    @staticmethod
+    def plot_codist(refimg, img, ax=None, kind='hist', marginals=False, regres=None, 
+                    height=4):
+        ''' 
+        Plot co-distribution of pixel intensity in reference and current image
+        
+        :param refimg: reference image 2D array
+        :param img: current image 2D array
+        :param ax: axis to use for plotting (optional)
+        :param kind: type of plot to use ("hist" or "scatter")
+        :param marginals: whether to plot marginal distributions (optional)
+        :param regres: linear regression parameters (optional)
+        :param height: height of figure (optional). Only used if ax is None.
+        :return: figure handle
+        '''
+        # If single axis provided and marginals are required, raise error
+        if marginals and ax is not None:
+            raise ValueError('cannot plot marginals on provided axis')
+        
+        # Create dataframe from flattened images
+        df = pd.DataFrame({'reference frame': refimg.ravel(), 'current frame': img.ravel()})
+
+        # Log
+        logger.info(f'plotting {kind} intensity co-distribution of {len(df)} pixels')
+
+        # Create/retrieve figure and ax(es)
+        if ax is None:
+            # If marginals, create joint grid and extract axes
+            if marginals:
+                g = sns.JointGrid(height=height)
+                ax = g.ax_joint
+                axmargx = g.ax_marg_x
+                axmargy = g.ax_marg_y
+            # Otherwise, create facet grid and extract single axis
+            else:
+                g = sns.FacetGrid(data=df, height=height)
+                ax = g.ax
+            # Retrieve figure handle
+            fig = g.fig
+        else:
+            fig = ax.get_figure()
+        
+        # Determine plotting function
+        if kind == 'hist':
+            pltfunc = sns.histplot
+            pltkwargs = dict()
+        elif kind == 'scatter':
+            pltfunc = sns.scatterplot
+            pltkwargs = dict(s=1, alpha=0.1)
+        else:
+            raise ValueError(f'unknown plotting kind: {kind}')
+        
+        # Plot co-distribution
+        pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, **pltkwargs)
+
+        # Plot marginals, if required
+        if marginals:
+            sns.histplot(x=df['reference frame'], ax=axmargx)
+            sns.histplot(y=df['current frame'], ax=axmargy)
+
+        # Plot linear regression, if provided
+        if regres is not None:
+            ax.axline((0, regres['intercept']), slope=regres['slope'], color='red')
+            ax.axhline(0, color='k', ls='--')
+            ax.axvline(0, color='k', ls='--')
+            if marginals:
+                axmargx.axvline(0, color='k', ls='--')
+                axmargy.axhline(0, color='k', ls='--')
+        
+        # Return figure handle
+        return fig
+    
+    def plot_codists(self, stack, iframes, regres=None, height=3, col_wrap=4, **kwargs):
+        ''' 
+        Plot co-distributions of pixel intensity of several stack frames
+        with the stack reference image
+
+        :param stack: input image stack
+        :param iframes: indices of frames for which to plot co-distributions
+        :param regres: linear regression parameters dataframe (optional)
+        :return: figure handle
+        '''
+        # Get reference frame from stack
+        refimg = self.get_reference_frame(stack)
+
+        # If framee index provied as range object, convert to list
+        if isinstance(iframes, range):
+            iframes = list(iframes)
+
+        # Create figure
+        fig = sns.FacetGrid(
+            pd.DataFrame({'frame': iframes}), 
+            height=height, col='frame', col_wrap=col_wrap
+        ).fig
+
+        # Plot co-distributions for each frame of interest
+        for i, ax in enumerate(fig.axes):
+            img = stack[iframes[i]]
+            self.plot_codist(
+                refimg, img, ax=ax, 
+                regres=None if regres is None else regres.loc[iframes[i]],
+                **kwargs)
+
+        # Add global title 
+        fig.suptitle('intensity co-distributions', y=1.05)
+        
+        # Return figure handle
+        return fig
+
+    def regress_frame(self, frame, ref_frame, idxs=None):
         '''
         Perform robust linear regression between a frame and a reference frame
         
         :param frame: frame 2D array
         :param ref_frame: reference frame 2D array
-        :return: linear fit parameters (offset and slope, such that frame = slope * ref_frame + intercept) 
+        :param idxs: serialized indices of pixels to use for regression (optional)
+        :return: linear fit parameters as pandas Series
         '''
-        res = linregress(ref_frame.ravel(), frame.ravel())
-        slope, intercept = res.slope, res.intercept
-        # x, y = ref_frame.ravel(), frame.ravel()
-        # x = sm.add_constant(x)
-        # model = sm.RLM(y, x, M=sm.robust.norms.HuberT())
-        # fit = model.fit()
-        # intercept, slope = fit.params
-        return slope, intercept
+        x, y = ref_frame.ravel(), frame.ravel()
+        if idxs is not None:
+            x, y = x[idxs], y[idxs]
+        return mylinregress(x, y, robust=self.robust)
     
-    def plot_linreg_params(self, linreg_params):
-        ''' Plot linear regression parameters over time '''
-        fig, ax = plt.subplots()
-        slopes, intercepts = list(zip(*linreg_params))
-        iframes = np.arange(len(slopes))
-        ax.plot(iframes, intercepts, label='intercept')
-        ax.plot(iframes, slopes, label='slope')
-        ax.legend()
+    def regress_frames(self, stack, npix=None):
+        ''' 
+        Correct image stack with linear regresion to reference frame
+        
+        :param stack: input image stack
+        :param npix: number of pixels to use for regression (optional). 
+            If None, all pixels are used.
+        :return: dataframe of linear regression parameters
+        '''
+        # Get reference frame from stack
+        ref_frame = self.get_reference_frame(stack)
+        logger.info(f'performing {"robust " if self.robust else ""}linear regression on {stack.shape[0]} frames')
+        # If required, select random subset of pixels to use for regression 
+        if npix is not None:
+            logger.info(f'selecting random {npix} pixels for regression')
+            idxs = np.random.choice(ref_frame.size, npix, replace=False)
+        else:
+            idxs = None
+        regouts = []
+        # For each frame
+        for frame in tqdm(stack):
+            regouts.append(self.regress_frame(frame, ref_frame, idxs=idxs))
+        # Return dataframe of linear regression parameters
+        return pd.concat(regouts, axis=1).T
+    
+    def plot_linreg_params(self, params, axes=None, fps=None, delimiters=None):
+        ''' 
+        Plot linear regression parameters over time
+        
+        :param params: dataframe of linear regression parameters
+        :param axes: list of axes to use for plotting (optional)
+        :param fps: frame rate (optional)
+        :param delimiters: list indices to highlight (optional)
+        '''
+        keys = params.columns
+        if axes is None:
+            fig, axes = plt.subplots(len(keys), 1, figsize=(8, len(keys)))
+            sns.despine(fig=fig)
+        else:
+            if len(axes) != len(keys):
+                raise ValueError(f'number of axes must match number of parameters {len(keys)}')
+            fig = axes[0].get_figure()
+        x = np.arange(len(params))
+        if fps is not None:
+            x  = x / fps
+            xlabel = 'time (s)'
+        else:
+            xlabel = 'frame index'
+        for k, ax in zip(params, axes):
+            ax.plot(x, params[k])
+            ax.set_ylabel(k)
+        axes[-1].set_xlabel(xlabel)
+
+        # Highlight delimiters, if provided
+        if delimiters is not None:
+            for ax in axes:
+                for d in delimiters:
+                    ax.axvline(d, color='k', ls='--')
+
+        # Adjust layout
+        fig.tight_layout()
+
+        # Add global title
+        fig.suptitle('linear regression parameters', y=1.05)
+
+        # Return figure handle
         return fig
     
-    def correct(self, stack):
+    def correct(self, stack, regparams=None):
         ''' Correct image stack with linear regresion to reference frame '''
-        # Compute average reference frame within predefined frame range
-        ref_frame = stack[self.iref].mean(axis=0)
-        corrected_frames = []
-        linreg_params = []
-        # For each frame
-        for frame in stack:
-            # Compute linear regression to reference frame
-            slope, intercept = self.linreg(frame, ref_frame)
-            linreg_params.append([slope, intercept])
-            # Correct frame accordingly: corrected_frame = (frame - intercept) / slope             
-            corrected_frames.append((frame - intercept) / slope)
-        # fig = self.plot_linreg_params(linreg_params)
-        # plt.show()
-        # Return corrected stack
-        return np.stack(corrected_frames)
+        # Save input data type and cast as float64 for increased precision
+        ref_dtype = stack.dtype
+        stack = stack.astype(np.float64)
 
-
-class MedianCorrector(Corrector):
-        
-    def __str__(self) -> str:        
-        return self.__class__.__name__
-        
-    @property
-    def code(self):
-        return 'median'
-        
-    def correct(self, stack):
-        '''
-        Correct image stack for with median-subtraction.
-
-        :param stack: input image stack
-        :return: processed image stack
-        '''
-        logger.info(f'applying median correction to {stack.shape[0]}-frames stack...')
-        # Compute frame median over time
-        ymed = np.median(stack, axis=(1, 2))
-        # Subtract median-corrected fit from each pixel to detrend stack
-        return self.subtract_vector(stack, ymed)
-    
-
-class MeanCorrector(Corrector):
-        
-    def __str__(self) -> str:        
-        return self.__class__.__name__
-        
-    @property
-    def code(self):
-        return 'mean'
-        
-    def correct(self, stack):
-        '''
-        Correct image stack for with mean-subtraction.
-
-        :param stack: input image stack
-        :return: processed image stack
-        '''
-        logger.info(f'applying mean correction to {stack.shape[0]}-frames stack...')
-        # Compute frame mean over time
-        ymean = np.mean(stack, axis=(1, 2))
-        # Subtract mean-corrected fit from each pixel to detrend stack
-        return self.subtract_vector(stack, ymean)
-
-
-class ExponentialCorrector(Corrector):
-    ''' Generic interface to an stack exponential decay corrector. '''
-
-    def __init__(self, nexps=1, nfit=None, ncorrupted=0):
-        '''
-        Constructor
-        
-        :param nexps: number of exponentials in the decay function
-        :param nfit: number of initial frames on which to perform exponential fit  
-        :param ncorrupted: number of initial corrupted frames to substitute after detrending 
-        '''
-        self.nexps = nexps
-        self.nfit = nfit
-        self.ncorrupted = ncorrupted
-    
-    def __str__(self) -> str:        
-        return f'{self.__class__.__name__}(nexps={self.nexps}, nfit={self.nfit}, ncorrupted={self.ncorrupted})'
-
-    @property
-    def code(self):
-        nexps_str = {1: 'mono',2: 'bi'}[self.nexps]
-        s = f'{nexps_str}expdecay'
-        if self.nfit is not None:
-            s = f'{s}_{self.nfit}fit'            
-        if self.ncorrupted > 0:
-            s = f'{s}_{self.ncorrupted}corrupted'
-        return s
-
-    @property
-    def nexps(self):
-        return self._nexps
-
-    @nexps.setter
-    def nexps(self, value):
-        if value not in (1, 2):
-            raise ValueError('Number of exponentials must be one of (1, 2).')
-        # Adjust function fo number of exponentials 
-        if value == 1:
-            self.decayfunc = expdecay
-        elif value == 2:
-            self.decayfunc = biexpdecay
-        self._nexps = value
-    
-    @property
-    def nfit(self):
-        return self._nfit
-
-    @nfit.setter
-    def nfit(self, value):
-        if value is not None and value < 0:
-            raise ValueError('number of initial frames for fit must be positive')
-        self._nfit = value
-
-    @property
-    def ncorrupted(self):
-        return self._ncorrupted
-
-    @ncorrupted.setter
-    def ncorrupted(self, value):
-        if value < 0:
-            raise ValueError('number of initial corrupted frames must be positive')
-        self._ncorrupted = value
-    
-    def expdecayfit(self, y):
-        ''' 
-        Fit an exponential decay to a signal
-        
-        :param y: signal array
-        :return: fitted decay array
-        '''
-        # Get signal size
-        nsamples = y.size
-        # Determine number of samples on which to perform the fit
-        if self.nfit is not None:
-            nfit = self.nfit
+        # Compute linear regression parameters over time, if not provided
+        if regparams is None:
+            regparams = self.regress_frames(stack)
         else:
-            nfit = nsamples + 1
-        # Reduce input signal to nfit samples
-        y = y[:nfit]
-        # Compute signal statistics
-        ptp = np.ptp(y)
-        ymed = np.median(y)
-        ystd = y.std()
-        # Initial parameters guess
-        H0 = ymed  # vertical offset: signal median
-        A0 = 1  # amplitude: 1
-        tau0 = 1 # decay time constant: 1 sample
-        x0 = 0  # horizontal offset: 0 sample
-        # Parameters bounds
-        Hbounds = (ymed - 0.1 * ptp, ymed + 0.1 * ptp)  # vertical offset: within median +/-10% of variation range 
-        Abounds = (-1e3, 1e3)  # amplitude: within +/- 1000
-        taubounds = (1e-3, nfit / 2) # decay time constant: 0.001 - half-signal length 
-        x0bounds = (-nfit, nfit)  # horizontal offset: within +/- signal length
-        # Adapt inputs to number of exponentials
-        p0 = (H0,) + (A0,) * self.nexps + (tau0,) * self.nexps + (x0,) * self.nexps
-        pbounds = (Hbounds, *([Abounds] * self.nexps), *([taubounds] * self.nexps), *([x0bounds] * self.nexps))
-        pbounds = tuple(zip(*pbounds))
-        # Least-square fit over restricted signal
-        xfit = np.arange(nfit)
-        popt, _ = curve_fit(self.decayfunc, xfit, y, p0=p0, bounds=pbounds, max_nfev=20000)
-        logger.info(f'popt: {popt}')
-        # Compute fitted profile
-        yfit = self.decayfunc(xfit, *popt)
-        # Compute rmse of fit
-        rmse = np.sqrt(((y - yfit) ** 2).mean())
-        # Compute ratio of rmse to signal standard deviation
-        rel_rmse = rmse / ystd
-        s = f'RMSE = {rmse:.2f}, STD = {ystd:.2f}, RMSE / STD = {rmse / ystd:.2f}'
-        logger.info(s)
-        # Raise error if ratio is too high
-        if rel_rmse > DECAY_FIT_MAX_REL_RMSE:
-            self.plot(y, yfit)
-            raise ValueError(f'{self} fit quality too poor: {s}')
-        # Return fit over entire signal
-        xfull = np.arange(nsamples)
-        return self.decayfunc(xfull, *popt)
+            if len(regparams) != stack.shape[0]:
+                raise ValueError(
+                    f'number of provided regression parameters ({len(regparams)}) does not match stack size ({stack.shape[0]})')
+        # Extract slopes and intercepts, and reshape to 3D
+        slopes = regparams['slope'].values[:, np.newaxis, np.newaxis]
+        intercepts = regparams['intercept'].values[:, np.newaxis, np.newaxis]
+        # Correct stack
+        logger.info('correcting stack with linear regression parameters')
+        corrected_stack = (stack - intercepts) / slopes
 
-    def correct(self, stack):
-        '''
-        Correct image stack for initial exponential decay.
+        # Cast from floating point to input type (usually 16-bit integer)
+        corrected_stack = corrected_stack.astype(ref_dtype)
 
-        :param stack: input image stack
-        :return: processed image stack
-        '''
-        logger.info(f'applying exponential detrending to {stack.shape[0]}-frames stack...')
-        # Compute frame average over time
-        y = stack.mean(axis=(1, 2))
-        # Compute exponential decay fit on frame average profile beyond corrupted frames
-        yfit = self.expdecayfit(y[self.ncorrupted:].copy())
-        # Subtract fit from each pixel to detrend stack beyond corrupted frames
-        stack[self.ncorrupted:] = self.subtract_vector(stack[self.ncorrupted:], yfit)
-        # Substitute corrupted first n frames
-        stack[:self.ncorrupted] = stack[self.ncorrupted]
-        # Return stack
-        return stack
+        # Return
+        return corrected_stack
+
+
+# class MedianCorrector(Corrector):
+        
+#     def __str__(self) -> str:        
+#         return self.__class__.__name__
+        
+#     @property
+#     def code(self):
+#         return 'median'
+        
+#     def correct(self, stack):
+#         '''
+#         Correct image stack for with median-subtraction.
+
+#         :param stack: input image stack
+#         :return: processed image stack
+#         '''
+#         logger.info(f'applying median correction to {stack.shape[0]}-frames stack...')
+#         # Compute frame median over time
+#         ymed = np.median(stack, axis=(1, 2))
+#         # Subtract median-corrected fit from each pixel to detrend stack
+#         return self.subtract_vector(stack, ymed)
+    
+
+# class MeanCorrector(Corrector):
+        
+#     def __str__(self) -> str:        
+#         return self.__class__.__name__
+        
+#     @property
+#     def code(self):
+#         return 'mean'
+        
+#     def correct(self, stack):
+#         '''
+#         Correct image stack for with mean-subtraction.
+
+#         :param stack: input image stack
+#         :return: processed image stack
+#         '''
+#         logger.info(f'applying mean correction to {stack.shape[0]}-frames stack...')
+#         # Compute frame mean over time
+#         ymean = np.mean(stack, axis=(1, 2))
+#         # Subtract mean-corrected fit from each pixel to detrend stack
+#         return self.subtract_vector(stack, ymean)
+
+
+# class ExponentialCorrector(Corrector):
+#     ''' Generic interface to an stack exponential decay corrector. '''
+
+#     def __init__(self, nexps=1, nfit=None, ncorrupted=0):
+#         '''
+#         Constructor
+        
+#         :param nexps: number of exponentials in the decay function
+#         :param nfit: number of initial frames on which to perform exponential fit  
+#         :param ncorrupted: number of initial corrupted frames to substitute after detrending 
+#         '''
+#         self.nexps = nexps
+#         self.nfit = nfit
+#         self.ncorrupted = ncorrupted
+    
+#     def __str__(self) -> str:        
+#         return f'{self.__class__.__name__}(nexps={self.nexps}, nfit={self.nfit}, ncorrupted={self.ncorrupted})'
+
+#     @property
+#     def code(self):
+#         nexps_str = {1: 'mono',2: 'bi'}[self.nexps]
+#         s = f'{nexps_str}expdecay'
+#         if self.nfit is not None:
+#             s = f'{s}_{self.nfit}fit'            
+#         if self.ncorrupted > 0:
+#             s = f'{s}_{self.ncorrupted}corrupted'
+#         return s
+
+#     @property
+#     def nexps(self):
+#         return self._nexps
+
+#     @nexps.setter
+#     def nexps(self, value):
+#         if value not in (1, 2):
+#             raise ValueError('Number of exponentials must be one of (1, 2).')
+#         # Adjust function fo number of exponentials 
+#         if value == 1:
+#             self.decayfunc = expdecay
+#         elif value == 2:
+#             self.decayfunc = biexpdecay
+#         self._nexps = value
+    
+#     @property
+#     def nfit(self):
+#         return self._nfit
+
+#     @nfit.setter
+#     def nfit(self, value):
+#         if value is not None and value < 0:
+#             raise ValueError('number of initial frames for fit must be positive')
+#         self._nfit = value
+
+#     @property
+#     def ncorrupted(self):
+#         return self._ncorrupted
+
+#     @ncorrupted.setter
+#     def ncorrupted(self, value):
+#         if value < 0:
+#             raise ValueError('number of initial corrupted frames must be positive')
+#         self._ncorrupted = value
+    
+#     def expdecayfit(self, y):
+#         ''' 
+#         Fit an exponential decay to a signal
+        
+#         :param y: signal array
+#         :return: fitted decay array
+#         '''
+#         # Get signal size
+#         nsamples = y.size
+#         # Determine number of samples on which to perform the fit
+#         if self.nfit is not None:
+#             nfit = self.nfit
+#         else:
+#             nfit = nsamples + 1
+#         # Reduce input signal to nfit samples
+#         y = y[:nfit]
+#         # Compute signal statistics
+#         ptp = np.ptp(y)
+#         ymed = np.median(y)
+#         ystd = y.std()
+#         # Initial parameters guess
+#         H0 = ymed  # vertical offset: signal median
+#         A0 = 1  # amplitude: 1
+#         tau0 = 1 # decay time constant: 1 sample
+#         x0 = 0  # horizontal offset: 0 sample
+#         # Parameters bounds
+#         Hbounds = (ymed - 0.1 * ptp, ymed + 0.1 * ptp)  # vertical offset: within median +/-10% of variation range 
+#         Abounds = (-1e3, 1e3)  # amplitude: within +/- 1000
+#         taubounds = (1e-3, nfit / 2) # decay time constant: 0.001 - half-signal length 
+#         x0bounds = (-nfit, nfit)  # horizontal offset: within +/- signal length
+#         # Adapt inputs to number of exponentials
+#         p0 = (H0,) + (A0,) * self.nexps + (tau0,) * self.nexps + (x0,) * self.nexps
+#         pbounds = (Hbounds, *([Abounds] * self.nexps), *([taubounds] * self.nexps), *([x0bounds] * self.nexps))
+#         pbounds = tuple(zip(*pbounds))
+#         # Least-square fit over restricted signal
+#         xfit = np.arange(nfit)
+#         popt, _ = curve_fit(self.decayfunc, xfit, y, p0=p0, bounds=pbounds, max_nfev=20000)
+#         logger.info(f'popt: {popt}')
+#         # Compute fitted profile
+#         yfit = self.decayfunc(xfit, *popt)
+#         # Compute rmse of fit
+#         rmse = np.sqrt(((y - yfit) ** 2).mean())
+#         # Compute ratio of rmse to signal standard deviation
+#         rel_rmse = rmse / ystd
+#         s = f'RMSE = {rmse:.2f}, STD = {ystd:.2f}, RMSE / STD = {rmse / ystd:.2f}'
+#         logger.info(s)
+#         # Raise error if ratio is too high
+#         if rel_rmse > DECAY_FIT_MAX_REL_RMSE:
+#             self.plot(y, yfit)
+#             raise ValueError(f'{self} fit quality too poor: {s}')
+#         # Return fit over entire signal
+#         xfull = np.arange(nsamples)
+#         return self.decayfunc(xfull, *popt)
+
+#     def correct(self, stack):
+#         '''
+#         Correct image stack for initial exponential decay.
+
+#         :param stack: input image stack
+#         :return: processed image stack
+#         '''
+#         logger.info(f'applying exponential detrending to {stack.shape[0]}-frames stack...')
+#         # Compute frame average over time
+#         y = stack.mean(axis=(1, 2))
+#         # Compute exponential decay fit on frame average profile beyond corrupted frames
+#         yfit = self.expdecayfit(y[self.ncorrupted:].copy())
+#         # Subtract fit from each pixel to detrend stack beyond corrupted frames
+#         stack[self.ncorrupted:] = self.subtract_vector(stack[self.ncorrupted:], yfit)
+#         # Substitute corrupted first n frames
+#         stack[:self.ncorrupted] = stack[self.ncorrupted]
+#         # Return stack
+#         return stack
 
 
 def correct_tifs(input_fpaths, input_root='raw', **kwargs):
