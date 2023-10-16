@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-04-27 11:27:03
+# @Last Modified time: 2023-10-16 18:02:01
 
 ''' Notebook running utilities '''
 
@@ -14,7 +14,7 @@ from argparse import ArgumentParser
 
 from logger import logger
 from batches import Batch
-from constants import DEFAULT_ANALYSIS
+from constants import DEFAULT_ANALYSIS, NB_RETRY_ERRMSGS
 
 
 def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=False, region=False, layer=False):
@@ -71,17 +71,29 @@ def execute_notebook(pdict, input_nbpath, outdir):
     pstr = pstr.replace('/', '_')
     output_nbname = f'{nbname}_{pstr}{nbext}'
     output_nbpath = os.path.join(outdir, output_nbname)
-    # Execute notebook
-    logger.info(f'executing "{output_nbname}"...')
-    try:
-        pm.execute_notebook(input_nbpath, output_nbpath, parameters=pdict)
-    except (pm.exceptions.PapermillExecutionError, DeadKernelError) as err:
-        s = f'"{output_nbname}" execution error: {err}'
-        logger.error(s)
-        jupyter_slack.notify_self(s)
-        return None
-    logger.info(f'{output_nbpath} notebook successfully executed')
-    return output_nbpath
+
+    # Set up infinite loop for notebook execution
+    while True:
+        # Execute notebook, and return output notebook filepath if successful
+        try:
+            logger.info(f'executing "{output_nbname}"...')
+            pm.execute_notebook(input_nbpath, output_nbpath, parameters=pdict)
+            logger.info(f'{output_nbpath} notebook successfully executed')
+            return output_nbpath
+        
+        # If execution error, notify on slack and retry if necessary
+        except (pm.exceptions.PapermillExecutionError, DeadKernelError) as err:
+            s = f'"{output_nbname}" execution error: {err}'
+            logger.error(s)
+            jupyter_slack.notify_self(s)
+
+            # If error is due to resource sharing limitation, notify and retry execution
+            if any([x in str(err) for x in NB_RETRY_ERRMSGS]):
+                logger.info(f're-trying execution of "{output_nbname}"...')
+            
+            # Otherwise, abandon execution and return None
+            else:
+                return None
 
 
 def execute_notebooks(pdicts, input_nbpath, outdir, **kwargs):

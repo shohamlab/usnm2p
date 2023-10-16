@@ -2,12 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 15:43:25
+# @Last Modified time: 2023-10-16 11:44:30
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
 from substitutors import StackSubstitutor
 from filters import KalmanDenoiser, NoFilter
+from correctors import LinRegCorrector, NoCorrector
 from s2putils import *
 from logger import logger
 
@@ -27,13 +28,17 @@ def get_prepro_id(kalman_gain=KALMAN_GAIN):
     :param klaman_gain: Kalmain gain (0 - 1)
     :return ID string
     '''
-    submap = [
-        (1, 0, None),
-        (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
+    # List of applied stack processors, in forward order
+    processors = [
+        StackSubstitutor([
+            (1, 0, None),
+            (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
+        ]),
+        LinRegCorrector(robust=False),
+        KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter,
     ]
-    ss = StackSubstitutor(submap)
-    kd = KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter
-    return os.path.join(kd.code, ss.code)
+    # Return code string
+    return os.path.join(*[p.code for p in processors[::-1]])
 
 
 def get_s2p_id(tau=TAU_GCAMP6S_DECAY, fs=BRUKER_SR, do_registration=1,
@@ -110,6 +115,21 @@ def get_stats_id(ykey_classification):
 def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_scaling_coeff,
                        baseline_quantile, baseline_wquantile, baseline_wsmoothing, 
                        trial_aggfunc, ykey_classification, directional):
+    '''
+    Get batch analysis settings
+
+    :param analysis_type: type of analysis
+    :param mouseline: mouse line
+    :param layer: cortical layer
+    :param kalman_gain: Kalman gain
+    :param neuropil_scaling_coeff: neuropil scaling coefficient
+    :param baseline_quantile: baseline evaluation quantile
+    :param baseline_wquantile: quantile filter window size (s)
+    :param baseline_wsmoothing: gaussian filter window size (s)
+    :param trial_aggfunc: trial aggregation function
+    :param ykey_classification: name of variable used for response classification
+    :param directional: whether or not to perform directional analysis
+    '''
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
     if mouseline is None:

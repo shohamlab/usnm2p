@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-13 16:03:24
+# @Last Modified time: 2023-10-16 17:25:38
 
 ''' Collection of image stacking utilities. '''
 
@@ -14,7 +14,7 @@ import seaborn as sns
 
 from constants import *
 from logger import logger
-# from utils import expdecay, biexpdecay
+# from utils import expdecay, biexpdecay, is_within
 from postpro import mylinregress
 from fileops import StackProcessor, NoProcessor, process_and_save
 from tqdm import tqdm
@@ -45,7 +45,7 @@ class Corrector(StackProcessor):
                 logger.info(f'working on channel {i + 1}...')
                 outstack.append(self.run(stack[:, i]))
             outstack = np.stack(outstack)
-            return np.swapaxes(outstack, 0, 1)            
+            return np.swapaxes(outstack, 0, 1)
         # Save input data type
         ref_dtype = stack.dtype
         # Cast as float64 and apply correction function
@@ -74,35 +74,109 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, iref=None, robust=False, *args, **kwargs):
+    def __init__(self, robust=False, iref=None, qmin=0, qmax=1, **kwargs):
+        '''
+        Initialization
+
+        :param robust: whether or not to use robust linear regression
+        :param iref: frame index range to use to compute reference image (optional)
+        :param qmin: minimum quantile to use for pixel selection (optional)
+        :param qmax: maximum quantile to use for pixel selection (optional)
+        '''
+        # Assign input arguments as attributes
         self.iref = iref
         self.robust = robust
-        super().__init__(*args, **kwargs)
+        self.qmin = qmin
+        self.qmax = qmax
+        
+        # Call parent constructor
+        super().__init__(**kwargs)
+    
+    @property
+    def iref(self):
+        return self._iref
+    
+    @iref.setter
+    def iref(self, value):
+        if value is not None and not isinstance(value, range):
+            raise ValueError('iref must be a range object')
+        self._iref = value
+    
+    @property
+    def robust(self):
+        return self._robust
+    
+    @robust.setter
+    def robust(self, value):
+        if not isinstance(value, bool):
+            raise ValueError('robust must be a boolean')
+        self._robust = value
+    
+    @property
+    def qmin(self):
+        return self._qmin
+    
+    @qmin.setter
+    def qmin(self, value):
+        if not 0 <= value < 1:
+            raise ValueError('qmin must be between 0 and 1')
+        if hasattr(self, 'qmax') and value >= self.qmax:
+            raise ValueError(f'qmin must be smaller than qmax ({self.qmax})')    
+        self._qmin = value
+    
+    @property
+    def qmax(self):
+        return self._qmax
+    
+    @qmax.setter
+    def qmax(self, value):
+        if not 0 < value <= 1:
+            raise ValueError('qmax must be between 0 and 1')
+        if hasattr(self, 'qmin') and value <= self.qmin:
+            raise ValueError(f'qmax must be larger than qmin ({self.qmin})')
+        self._qmax = value
         
     def __str__(self) -> str:        
-        return f'{self.__class__.__name__}(iref={self.iref}, robust={self.robust})'
+        return f'{self.__class__.__name__}(robust={self.robust}, iref={self.iref}, qmin={self.qmin}, qmax={self.qmax})'
         
     @property
     def code(self):
         s = f'linreg'
-        if self.iref is not None:
-            s = f'{s}_iref_{self.iref.start}_{self.iref.stop - 1}'
         if self.robust:
             s = f'{s}_robust'
+        if self.iref is not None:
+            s = f'{s}_iref_{self.iref.start}_{self.iref.stop - 1}'
+        if self.qmin > 0 or self.qmax < 1:
+            s = f'{s}_qmin{self.qmin:.2f}_qmax{self.qmax:.2f}'
         return s
     
     def get_reference_frame(self, stack):
         ''' Get reference frame from stack '''
         if self.iref is not None:
             ibounds = (self.iref.start, self.iref.stop - 1)
+            stack = stack[self.iref]
         else:
             ibounds = (0, stack.shape[0] - 1)
         logger.info(
-            f'computing ref. image as temporal average from frames {ibounds[0]} - {ibounds[1]}')
-        if self.iref is None:
-            return stack.mean(axis=0)
-        else:
-            return stack[self.iref].mean(axis=0)
+            f'computing ref. image as median of frames {ibounds[0]} - {ibounds[1]}')
+        return np.median(stack, axis=0)
+
+    def get_pixel_mask(self, img):
+        ''' 
+        Get selection mask for pixels within quantile range of interest in input image
+        
+        :param img: image 2D array
+        :return: boolean mask of selected pixels that can be used to select pixels
+            from an image array by simply using img[mask]
+        '''
+        # Compute bounding values corresponding to input quantiles 
+        vbounds = np.quantile(img, [self.qmin, self.qmax])
+        # Create boolean mask of pixels within quantile range
+        mask = np.logical_and(img >= vbounds[0], img <= vbounds[1])
+        # Log
+        logger.info(f'selecting {mask.sum()}/{mask.size} pixels within quantile range {self.qmin} - {self.qmax}')
+        # Return mask
+        return mask
         
     def plot_frame(self, frame, ax=None, mode='img', **kwargs):
         ''' 
@@ -134,18 +208,40 @@ class LinRegCorrector(Corrector):
 
         # Plot image or distribution
         if mode == 'dist':
-            sns.histplot(frame.ravel(), ax=ax, **kwargs)
+            # Flatten image array and convert to pandas DataFrame
+            dist = pd.Series(frame.ravel(), name='intensity').to_frame()
+            dist['selected'] = True
+            hue, hue_order = None, None
+            # If quantiles are provided, materialize them on the histogram distribution
+            if self.qmin > 0:
+                vmin = np.quantile(frame, self.qmin)
+                dist['selected'] = np.logical_and(dist['selected'], dist['intensity'] >= vmin)
+                hue, hue_order = 'selected', [True, False]
+                ax.axvline(vmin, color='k', ls='--')
+            if self.qmax < 1:
+                vmax = np.quantile(frame, self.qmax)
+                dist['selected'] = np.logical_and(dist['selected'], dist['intensity'] <= vmax)
+                ax.axvline(vmax, color='k', ls='--')
+                hue, hue_order = 'selected', [True, False]
+            # Plot histogram
+            sns.histplot(data=dist, x='intensity', hue=hue, hue_order=hue_order, ax=ax, **kwargs)
         elif mode == 'img':
-            ax.imshow(frame, **kwargs)
+            # Plot image
+            ax.imshow(frame, cmap='viridis', **kwargs)
+            # If quantiles are provided, materialize corresponding selected pixels
+            # on the image by making the others slightly transparent
+            if self.qmin > 0 or self.qmax < 1:
+                mask = self.get_pixel_mask(frame)
+                masked = np.ma.masked_where(mask, mask)
+                ax.imshow(masked, alpha=.5, cmap='gray_r')
         else:
             raise ValueError(f'unknown plotting mode: {mode}')
 
         # Return figure handle
         return fig
     
-    @staticmethod
-    def plot_codist(refimg, img, ax=None, kind='hist', marginals=False, regres=None, 
-                    height=4):
+    def plot_codist(self, refimg, img, ax=None, kind='hist', marginals=False, regres=None,
+                    color=None, label=None, height=4, qmax=None):
         ''' 
         Plot co-distribution of pixel intensity in reference and current image
         
@@ -156,6 +252,7 @@ class LinRegCorrector(Corrector):
         :param marginals: whether to plot marginal distributions (optional)
         :param regres: linear regression parameters (optional)
         :param height: height of figure (optional). Only used if ax is None.
+        :param qmax: maximum quantile to use for plot limits (optional)
         :return: figure handle
         '''
         # If single axis provided and marginals are required, raise error
@@ -186,17 +283,17 @@ class LinRegCorrector(Corrector):
             fig = ax.get_figure()
         
         # Determine plotting function
+        pltkwargs = dict(color=color)
         if kind == 'hist':
             pltfunc = sns.histplot
-            pltkwargs = dict()
         elif kind == 'scatter':
             pltfunc = sns.scatterplot
-            pltkwargs = dict(s=1, alpha=0.1)
+            pltkwargs.update(dict(s=1, alpha=0.1))
         else:
             raise ValueError(f'unknown plotting kind: {kind}')
         
         # Plot co-distribution
-        pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, **pltkwargs)
+        pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, label=label, **pltkwargs)
 
         # Plot marginals, if required
         if marginals:
@@ -205,13 +302,24 @@ class LinRegCorrector(Corrector):
 
         # Plot linear regression, if provided
         if regres is not None:
-            ax.axline((0, regres['intercept']), slope=regres['slope'], color='red')
-            ax.axhline(0, color='k', ls='--')
-            ax.axvline(0, color='k', ls='--')
-            if marginals:
-                axmargx.axvline(0, color='k', ls='--')
-                axmargy.axhline(0, color='k', ls='--')
+            xref = df['reference frame'].mean()
+            yref = xref * regres['slope'] + regres['intercept']
+            ax.axline((xref, yref), slope=regres['slope'], color=color)
         
+        # # Make sure to include (0, 0) in plot limits
+        # ax.set_xlim(left=0)
+        # ax.set_ylim(bottom=0)
+
+        # If maximum quantile is provided, set plot limits accordingly
+        if qmax is not None:
+            xmax = np.quantile(df['reference frame'], qmax)
+            ymax = np.quantile(df['current frame'], qmax)
+            ax.set_xlim(right=xmax)
+            ax.set_ylim(top=ymax)
+        
+        # Add grid
+        ax.grid(True)
+                
         # Return figure handle
         return fig
     
@@ -228,23 +336,33 @@ class LinRegCorrector(Corrector):
         # Get reference frame from stack
         refimg = self.get_reference_frame(stack)
 
-        # If framee index provied as range object, convert to list
+        # Select subset of pixels to use for plotting as mask
+        mask = self.get_pixel_mask(refimg)
+
+        # Apply mask to reference image
+        refimg = refimg[mask]
+
+        # If frame index provied as range object, convert to list
         if isinstance(iframes, range):
             iframes = list(iframes)
-
+        
         # Create figure
         fig = sns.FacetGrid(
             pd.DataFrame({'frame': iframes}), 
-            height=height, col='frame', col_wrap=col_wrap
+            height=height, 
+            col='frame', 
+            col_wrap=col_wrap
         ).fig
 
         # Plot co-distributions for each frame of interest
-        for i, ax in enumerate(fig.axes):
-            img = stack[iframes[i]]
+        for i, (ax, iframe) in enumerate(zip(fig.axes, iframes)):
             self.plot_codist(
-                refimg, img, ax=ax, 
-                regres=None if regres is None else regres.loc[iframes[i]],
-                **kwargs)
+                refimg, 
+                stack[iframe][mask], 
+                ax=ax, 
+                regres=None if regres is None else regres.loc[iframe],
+                **kwargs
+            )
 
         # Add global title 
         fig.suptitle('intensity co-distributions', y=1.05)
@@ -277,6 +395,8 @@ class LinRegCorrector(Corrector):
         '''
         # Get reference frame from stack
         ref_frame = self.get_reference_frame(stack)
+        # Select subset of pixels to use for regression as mask
+        mask = self.get_pixel_mask(ref_frame)
         logger.info(f'performing {"robust " if self.robust else ""}linear regression on {stack.shape[0]} frames')
         # If required, select random subset of pixels to use for regression 
         if npix is not None:
@@ -287,36 +407,62 @@ class LinRegCorrector(Corrector):
         regouts = []
         # For each frame
         for frame in tqdm(stack):
-            regouts.append(self.regress_frame(frame, ref_frame, idxs=idxs))
+            regouts.append(self.regress_frame(
+                frame[mask], ref_frame[mask], idxs=idxs))
         # Return dataframe of linear regression parameters
         return pd.concat(regouts, axis=1).T
     
-    def plot_linreg_params(self, params, axes=None, fps=None, delimiters=None):
+    def plot_linreg_params(self, stack, params=None, axes=None, fps=None, delimiters=None):
         ''' 
-        Plot linear regression parameters over time
+        Plot linear regression parameters (along with median frame intensity) over time
         
-        :param params: dataframe of linear regression parameters
+        :param stack: input image stack
+        :param params: dataframe of linear regression parameters (optional)
         :param axes: list of axes to use for plotting (optional)
         :param fps: frame rate (optional)
         :param delimiters: list indices to highlight (optional)
         '''
+        # If regression parameters not provided, compute them
+        if params is None:
+            params = self.regress_frames(stack)
+        
+        # Create/retrieve figure and axes
         keys = params.columns
+        naxes = len(keys) + 1
         if axes is None:
-            fig, axes = plt.subplots(len(keys), 1, figsize=(8, len(keys)))
+            fig, axes = plt.subplots(naxes, 1, figsize=(8, naxes))
             sns.despine(fig=fig)
         else:
-            if len(axes) != len(keys):
-                raise ValueError(f'number of axes must match number of parameters {len(keys)}')
+            if len(axes) != naxes:
+                raise ValueError(f'number of axes must match number of parameters + 1 {naxes}')
             fig = axes[0].get_figure()
-        x = np.arange(len(params))
+
+        # Create time (or index) vector
+        t = np.arange(len(params))
         if fps is not None:
-            x  = x / fps
+            t  = t / fps
             xlabel = 'time (s)'
         else:
             xlabel = 'frame index'
-        for k, ax in zip(params, axes):
-            ax.plot(x, params[k])
+        
+        # Compute median frame (or frame subset) intensity over time 
+        if self.qmin > 0 or self.qmax < 1:
+            mask = self.get_pixel_mask(self.get_reference_frame(stack))
+            substack = np.array([frame[mask] for frame in stack])
+            ymed = np.median(substack, axis=1)
+        else:
+            ymed = np.median(stack, axis=(1, 2))
+
+        # Compute and plot median frame intensity (of selected pixels) over time 
+        axes[0].plot(t, ymed)
+        axes[0].set_ylabel('med. I')
+
+        # Plot linear regression parameters over time
+        for k, ax in zip(params, axes[1:]):
+            ax.plot(t, params[k])
             ax.set_ylabel(k)
+        
+        # Set x-axis label on last axis
         axes[-1].set_xlabel(xlabel)
 
         # Highlight delimiters, if provided

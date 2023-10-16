@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-13 09:33:28
+# @Last Modified time: 2023-10-16 17:56:17
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -368,3 +368,10 @@ MIN_CELL_DENSITY = {
     'sst': None,
     'pv': None,
 }
+
+
+###################################### EXECUTION ######################################
+
+NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try execution
+    'Resource temporarily unavailable',
+]
