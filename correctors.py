@@ -2,13 +2,15 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-18 11:36:56
+# @Last Modified time: 2023-10-18 17:15:11
 
 ''' Collection of image stacking utilities. '''
 
 import numpy as np
 from scipy.stats import skew
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 import pandas as pd
 import seaborn as sns
 # from scipy.optimize import curve_fit
@@ -228,7 +230,7 @@ class LinRegCorrector(Corrector):
             # Flatten image array and convert to pandas DataFrame
             dist = pd.Series(frame.ravel(), name='intensity').to_frame()
             dist['selected'] = True
-            hue, hue_order = None, None
+            hue, hue_order, palette = None, None, None
             # If quantiles are provided, materialize them on the histogram distribution
             if self.qmin > 0:
                 vmin = np.quantile(frame, self.qmin)
@@ -239,9 +241,18 @@ class LinRegCorrector(Corrector):
                 vmax = np.quantile(frame, self.qmax)
                 dist['selected'] = np.logical_and(dist['selected'], dist['intensity'] <= vmax)
                 ax.axvline(vmax, color='k', ls='--')
-                hue, hue_order = 'selected', [True, False]
+            if 'selected' in dist:
+                hue, hue_order, palette = 'selected', [True, False], {True: 'g', False: 'r'}
             # Plot histogram
-            sns.histplot(data=dist, x='intensity', hue=hue, hue_order=hue_order, ax=ax, **kwargs)
+            sns.histplot(
+                ax=ax, 
+                data=dist, 
+                x='intensity', 
+                hue=hue, 
+                hue_order=hue_order,
+                palette=palette, 
+                **kwargs
+            )
         elif mode == 'img':
             # Plot image
             ax.imshow(frame, cmap='viridis', **kwargs)
@@ -255,7 +266,23 @@ class LinRegCorrector(Corrector):
             raise ValueError(f'unknown plotting mode: {mode}')
 
         # Return figure handle
-        return fig
+        return fig    
+
+    def get_legend_handle(self, kind, color, label):
+        if kind == 'scatter':
+            return Line2D(
+                [0], [0], 
+                label=label, 
+                linestyle='',
+                marker='o', 
+                markersize=10, 
+                markerfacecolor=color, 
+                markeredgecolor='none',
+            )
+        elif kind == 'hist':
+            return mpatches.Patch(color=color, label=label)
+        else: 
+            raise ValueError(f'unknown plotting kind: {kind}')
     
     def plot_codist(self, refimg, img, ax=None, kind='hist', marginals=False, regres=None,
                     color=None, label=None, height=4, qmax=None, verbose=True):
@@ -312,12 +339,21 @@ class LinRegCorrector(Corrector):
             raise ValueError(f'unknown plotting kind: {kind}')
         
         # Plot co-distribution
-        pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, label=label, **pltkwargs)
+        pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, **pltkwargs)
+
+        # Create and append legend handle, if provided
+        if label is not None:
+            handle = self.get_legend_handle(kind, color, label)
+            if hasattr(ax, 'custom_legend_handles'):
+                ax.custom_legend_handles.append(handle)
+                ax.legend(handles=ax.custom_legend_handles)
+            else:
+                ax.custom_legend_handles = [handle]
 
         # Plot marginals, if required
         if marginals:
-            sns.histplot(x=df['reference frame'], ax=axmargx)
-            sns.histplot(y=df['current frame'], ax=axmargy)
+            sns.histplot(x=df['reference frame'], ax=axmargx, color=color)
+            sns.histplot(y=df['current frame'], ax=axmargy, color=color)
 
         # Plot linear regression, if provided
         if regres is not None:
@@ -341,8 +377,8 @@ class LinRegCorrector(Corrector):
                 
         # Return figure handle
         return fig
-    
-    def plot_codists(self, stack, iframes, regres=None, height=3, col_wrap=4, **kwargs):
+
+    def plot_codists(self, stack, iframes, regres=None, height=3, col_wrap=4, axes=None, **kwargs):
         ''' 
         Plot co-distributions of pixel intensity of several stack frames
         with the stack reference image
@@ -365,25 +401,37 @@ class LinRegCorrector(Corrector):
         if isinstance(iframes, range):
             iframes = list(iframes)
         
-        # Create figure
-        fig = sns.FacetGrid(
-            pd.DataFrame({'frame': iframes}), 
-            height=height, 
-            col='frame', 
-            col_wrap=col_wrap
-        ).fig
+        # Create/extract figure and axes
+        newfig = axes is None
+        if axes is None:
+            fig = sns.FacetGrid(
+                pd.DataFrame({'frame': iframes}), 
+                height=height, 
+                col='frame', 
+                col_wrap=col_wrap
+            ).fig
+            axes = fig.axes
+        else:
+            if len(axes) != len(iframes):
+                raise ValueError(f'number of provided axes ({len(axes)}) must match number of evaluated frames ({len(iframes)})')
+            fig = axes[0].get_figure()
 
         # Plot co-distributions for each frame of interest
         logger.info(f'plotting intensity co-distribution of {len(iframes)} frames')
-        for i, (ax, iframe) in enumerate(zip(fig.axes, tqdm(iframes))):
+        for i, (ax, iframe) in enumerate(zip(axes, tqdm(iframes))):
             self.plot_codist(
                 refimg, 
                 stack[iframe][mask], 
                 ax=ax, 
                 regres=None if regres is None else regres.loc[iframe],
                 verbose=False,
+                label=self.code if i == len(iframes) - 1 else None,
                 **kwargs
             )
+
+        # If not new figure, move legend
+        if not newfig:
+            sns.move_legend(axes[-1], bbox_to_anchor=(1.05, 1), loc='upper left')
 
         # Add global title 
         fig.suptitle('intensity co-distributions', y=1.05)
@@ -433,38 +481,28 @@ class LinRegCorrector(Corrector):
         # Return dataframe of linear regression parameters
         return pd.concat(regouts, axis=1).T
     
-    def plot_linreg_params(self, stack, params=None, axes=None, fps=None, delimiters=None):
+    def plot_linreg_params(self, stack, params=None, keys=None, axes=None, periodicity=None, 
+                           fps=None, delimiters=None, color=None, height=1, width=8):
         ''' 
         Plot linear regression parameters (along with median frame intensity) over time
         
         :param stack: input image stack
         :param params: dataframe of linear regression parameters (optional)
+        :param keys: list of parameters to plot (optional)
         :param axes: list of axes to use for plotting (optional)
+        :param periodicity: periodicity index used to aggregate data before plotting (optional)
         :param fps: frame rate (optional)
         :param delimiters: list indices to highlight (optional)
         '''
-        # If regression parameters not provided, compute them
+        # If regression parameters not provided, compute them. Otherwise, copy them
         if params is None:
-            params = self.regress_frames(stack)
+            df = self.regress_frames(stack)
+        else:
+            df = params.copy()
         
-        # Create/retrieve figure and axes
-        keys = params.columns
-        naxes = len(keys) + 1
-        if axes is None:
-            fig, axes = plt.subplots(naxes, 1, figsize=(8, naxes))
-            sns.despine(fig=fig)
-        else:
-            if len(axes) != naxes:
-                raise ValueError(f'number of axes must match number of parameters + 1 {naxes}')
-            fig = axes[0].get_figure()
-
-        # Create time (or index) vector
-        t = np.arange(len(params))
-        if fps is not None:
-            t  = t / fps
-            xlabel = 'time (s)'
-        else:
-            xlabel = 'frame index'
+        # If keys provided, select corresponding columns
+        if keys is not None:
+            df = df[keys]
         
         # Compute median frame (or frame subset) intensity over time 
         if self.qmin > 0 or self.qmax < 1:
@@ -473,15 +511,45 @@ class LinRegCorrector(Corrector):
             ymed = np.median(substack, axis=1)
         else:
             ymed = np.median(stack, axis=(1, 2))
+        
+        # Add median frame intensity to dataframe
+        df.insert(0, 'med. I', ymed)
+        
+        # Create/retrieve figure and axes
+        keys = df.columns
+        naxes = len(keys)
+        newfig = axes is None
+        if axes is None:
+            fig, axes = plt.subplots(naxes, 1, figsize=(width, naxes * height))
+            sns.despine(fig=fig)
+        else:
+            if len(axes) != naxes:
+                raise ValueError(f'number of axes must match number of parameters + 1 {naxes}')
+            fig = axes[0].get_figure()
 
-        # Compute and plot median frame intensity (of selected pixels) over time 
-        axes[0].plot(t, ymed)
-        axes[0].set_ylabel('med. I')
+        # Create index vector
+        df['frame'] = np.arange(len(params))
+        xlabel = 'frame'
 
-        # Plot linear regression parameters over time
-        for k, ax in zip(params, axes[1:]):
-            ax.plot(t, params[k])
-            ax.set_ylabel(k)
+        # Wrap index around periodicity, if provided
+        if periodicity is not None:
+            df['frame'] = df['frame'] % periodicity
+        
+        # If frame rate provided, convert index to time 
+        if fps is not None:
+            df['time (s)'] = df['frame'] / fps
+            xlabel = 'time (s)'
+
+        # Plot each timeseries over time 
+        for i, (k, ax) in enumerate(zip(keys, axes)):
+            sns.lineplot(
+                ax=ax, 
+                data=df, 
+                x=xlabel, 
+                y=k, 
+                color=color,
+                label=self.code if i==0 else None
+            )
         
         # Set x-axis label on last axis
         axes[-1].set_xlabel(xlabel)
@@ -491,6 +559,10 @@ class LinRegCorrector(Corrector):
             for ax in axes:
                 for d in delimiters:
                     ax.axvline(d, color='k', ls='--')
+        
+        # If not new figure, create legend on last axis
+        if not newfig:
+            axes[0].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 
         # Adjust layout
         fig.tight_layout()
