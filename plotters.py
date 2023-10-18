@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-12 10:17:53
+# @Last Modified time: 2023-10-18 11:03:58
 
 ''' Collection of plotting utilities. '''
 
@@ -498,10 +498,12 @@ def plot_stack_timecourse(*args, **kwargs):
     showing its standard deviation
 
     :param correct (optional): whether to mean-correct the signal before plotting it  
+    :param ci (optional): confidence interval for shaded area (default = 95%)
     '''
     # Extract args of interest 
     ax = kwargs.pop('ax', None)  # axis
     correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
+    ci = kwargs.pop('ci', .95)  # confidence interval for shaded area (default = 95%)
     title = kwargs.get('title', None)  # title
     
     # Extract viewer rendering args
@@ -533,6 +535,9 @@ def plot_stack_timecourse(*args, **kwargs):
                 ax.axvline(iframe, color='k', linestyle='--')
     else:
         fig = ax.get_figure()
+
+    # Determine critical z-score for specified confidence interval
+    zcrit = pvalue_to_zscore(1 - ci, directional=False)
     
     # For each stack file-object provided
     for i, header in enumerate(viewer.headers):
@@ -545,10 +550,19 @@ def plot_stack_timecourse(*args, **kwargs):
         if correct:
             mu -= mu.mean()
         
+        # Get number of pixels per frame
+        nx, ny = viewer.get_frame_shape(viewer.fobjs[i])
+        npix = nx * ny
+
+        # Determine standard error of the mean
+        sem = sigma / np.sqrt(npix)
+        
         # Plot the signal with the correct label
         inds = np.arange(mu.size)
         ax.plot(inds, mu, label=header)
-        ax.fill_between(inds, mu - sigma, mu + sigma, alpha=0.2)
+
+        # Plot shaded area corresponding to the defined confidence interval
+        ax.fill_between(inds, mu - zcrit * sem, mu + zcrit * sem, alpha=0.2)
     
     # Add/update legend
     ax.legend(frameon=False)

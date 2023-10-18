@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-16 17:25:38
+# @Last Modified time: 2023-10-18 11:36:56
 
 ''' Collection of image stacking utilities. '''
 
 import numpy as np
+from scipy.stats import skew
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -88,6 +89,9 @@ class LinRegCorrector(Corrector):
         self.robust = robust
         self.qmin = qmin
         self.qmax = qmax
+
+        # Initialize empty dictionary of cached reference images
+        self.refimg_cache = {}
         
         # Call parent constructor
         super().__init__(**kwargs)
@@ -146,12 +150,19 @@ class LinRegCorrector(Corrector):
             s = f'{s}_robust'
         if self.iref is not None:
             s = f'{s}_iref_{self.iref.start}_{self.iref.stop - 1}'
-        if self.qmin > 0 or self.qmax < 1:
-            s = f'{s}_qmin{self.qmin:.2f}_qmax{self.qmax:.2f}'
+        if self.qmin > 0:
+            s = f'{s}_qmin{self.qmin:.2f}'
+        if self.qmax < 1:
+            s = f'{s}_qmax{self.qmax:.2f}'
         return s
     
     def get_reference_frame(self, stack):
         ''' Get reference frame from stack '''
+        # If stack ID found in cache, return corresponding reference image
+        if id(stack) in self.refimg_cache:
+            return self.refimg_cache[id(stack)]
+        
+        # Otherwise, compute reference image and add it to cache
         if self.iref is not None:
             ibounds = (self.iref.start, self.iref.stop - 1)
             stack = stack[self.iref]
@@ -159,7 +170,13 @@ class LinRegCorrector(Corrector):
             ibounds = (0, stack.shape[0] - 1)
         logger.info(
             f'computing ref. image as median of frames {ibounds[0]} - {ibounds[1]}')
-        return np.median(stack, axis=0)
+        refimg = np.median(stack, axis=0)
+        s = skew(refimg.ravel())
+        logger.info(f'ref. image skewness: {s:.2f}')
+        self.refimg_cache[id(stack)] = refimg
+
+        # Return reference image
+        return refimg
 
     def get_pixel_mask(self, img):
         ''' 
@@ -241,7 +258,7 @@ class LinRegCorrector(Corrector):
         return fig
     
     def plot_codist(self, refimg, img, ax=None, kind='hist', marginals=False, regres=None,
-                    color=None, label=None, height=4, qmax=None):
+                    color=None, label=None, height=4, qmax=None, verbose=True):
         ''' 
         Plot co-distribution of pixel intensity in reference and current image
         
@@ -253,6 +270,7 @@ class LinRegCorrector(Corrector):
         :param regres: linear regression parameters (optional)
         :param height: height of figure (optional). Only used if ax is None.
         :param qmax: maximum quantile to use for plot limits (optional)
+        :param verbose: whether or not to log progress (optional)
         :return: figure handle
         '''
         # If single axis provided and marginals are required, raise error
@@ -262,8 +280,9 @@ class LinRegCorrector(Corrector):
         # Create dataframe from flattened images
         df = pd.DataFrame({'reference frame': refimg.ravel(), 'current frame': img.ravel()})
 
-        # Log
-        logger.info(f'plotting {kind} intensity co-distribution of {len(df)} pixels')
+        # Log, if required
+        if verbose:
+            logger.info(f'plotting {kind} intensity co-distribution of {len(df)} pixels')
 
         # Create/retrieve figure and ax(es)
         if ax is None:
@@ -355,12 +374,14 @@ class LinRegCorrector(Corrector):
         ).fig
 
         # Plot co-distributions for each frame of interest
-        for i, (ax, iframe) in enumerate(zip(fig.axes, iframes)):
+        logger.info(f'plotting intensity co-distribution of {len(iframes)} frames')
+        for i, (ax, iframe) in enumerate(zip(fig.axes, tqdm(iframes))):
             self.plot_codist(
                 refimg, 
                 stack[iframe][mask], 
                 ax=ax, 
                 regres=None if regres is None else regres.loc[iframe],
+                verbose=False,
                 **kwargs
             )
 
