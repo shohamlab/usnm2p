@@ -13,6 +13,7 @@ import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 import pandas as pd
 import seaborn as sns
+from tqdm import tqdm
 # from scipy.optimize import curve_fit
 
 from constants import *
@@ -77,18 +78,20 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, robust=False, iref=None, qmin=0, qmax=1, **kwargs):
+    def __init__(self, robust=False, intercept=True, iref=None, qmin=0, qmax=1, **kwargs):
         '''
         Initialization
 
         :param robust: whether or not to use robust linear regression
+        :param intercept: whether or not to compute intercept during linear regression fit
         :param iref: frame index range to use to compute reference image (optional)
         :param qmin: minimum quantile to use for pixel selection (optional)
         :param qmax: maximum quantile to use for pixel selection (optional)
         '''
         # Assign input arguments as attributes
-        self.iref = iref
         self.robust = robust
+        self.intercept = intercept
+        self.iref = iref
         self.qmin = qmin
         self.qmax = qmax
 
@@ -97,17 +100,7 @@ class LinRegCorrector(Corrector):
         
         # Call parent constructor
         super().__init__(**kwargs)
-    
-    @property
-    def iref(self):
-        return self._iref
-    
-    @iref.setter
-    def iref(self, value):
-        if value is not None and not isinstance(value, range):
-            raise ValueError('iref must be a range object')
-        self._iref = value
-    
+        
     @property
     def robust(self):
         return self._robust
@@ -117,6 +110,26 @@ class LinRegCorrector(Corrector):
         if not isinstance(value, bool):
             raise ValueError('robust must be a boolean')
         self._robust = value
+    
+    @property
+    def intercept(self):
+        return self._intercept
+    
+    @intercept.setter
+    def intercept(self, value):
+        if not isinstance(value, bool):
+            raise ValueError('intercept must be a boolean')
+        self._intercept = value
+
+    @property
+    def iref(self):
+        return self._iref
+    
+    @iref.setter
+    def iref(self, value):
+        if value is not None and not isinstance(value, range):
+            raise ValueError('iref must be a range object')
+        self._iref = value
     
     @property
     def qmin(self):
@@ -142,20 +155,36 @@ class LinRegCorrector(Corrector):
             raise ValueError(f'qmax must be larger than qmin ({self.qmin})')
         self._qmax = value
         
-    def __str__(self) -> str:        
-        return f'{self.__class__.__name__}(robust={self.robust}, iref={self.iref}, qmin={self.qmin}, qmax={self.qmax})'
+    def __repr__(self) -> str:
+        plist = [f'robust={self.robust}']
+        if not self.intercept:
+            plist.append('no intercept')
+        if self.iref is not None:
+            plist.append(f'iref={self.iref}')
+        if self.qmin > 0:
+            plist.append(f'qmin={self.qmin}')
+        if self.qmax < 1:
+            plist.append(f'qmax={self.qmax}')
+        pstr = ', '.join(plist)
+        return f'{self.__class__.__name__}({pstr})'
         
     @property
     def code(self):
-        s = f'linreg'
+        clist = []
         if self.robust:
-            s = f'{s}_robust'
+            clist.append('robust')
+        if not self.intercept:
+            clist.append('nointercept')
         if self.iref is not None:
-            s = f'{s}_iref_{self.iref.start}_{self.iref.stop - 1}'
+            clist.append(f'iref_{self.iref.start}_{self.iref.stop - 1}')
         if self.qmin > 0:
-            s = f'{s}_qmin{self.qmin:.2f}'
+            clist.append(f'qmin{self.qmin:.2f}')
         if self.qmax < 1:
-            s = f'{s}_qmax{self.qmax:.2f}'
+            clist.append(f'qmax{self.qmax:.2f}')
+        s = 'linreg'
+        if len(clist) > 0:
+            cstr = '_'.join(clist)
+            s = f'{s}_{cstr}'
         return s
     
     def get_reference_frame(self, stack):
@@ -251,6 +280,7 @@ class LinRegCorrector(Corrector):
                 hue=hue, 
                 hue_order=hue_order,
                 palette=palette, 
+                bins=100,
                 **kwargs
             )
         elif mode == 'img':
@@ -340,6 +370,10 @@ class LinRegCorrector(Corrector):
         
         # Plot co-distribution
         pltfunc(x=df['reference frame'], y=df['current frame'], ax=ax, **pltkwargs)
+        xref = df['reference frame'].mean()
+
+        # Add unit diagonal line
+        ax.axline((xref, xref), slope=1, color='k', ls='--')
 
         # Create and append legend handle, if provided
         if label is not None:
@@ -357,7 +391,6 @@ class LinRegCorrector(Corrector):
 
         # Plot linear regression, if provided
         if regres is not None:
-            xref = df['reference frame'].mean()
             yref = xref * regres['slope'] + regres['intercept']
             ax.axline((xref, yref), slope=regres['slope'], color=color)
         
@@ -439,7 +472,7 @@ class LinRegCorrector(Corrector):
         # Return figure handle
         return fig
 
-    def regress_frame(self, frame, ref_frame, idxs=None):
+    def fit_frame(self, frame, ref_frame, idxs=None):
         '''
         Perform robust linear regression between a frame and a reference frame
         
@@ -451,38 +484,44 @@ class LinRegCorrector(Corrector):
         x, y = ref_frame.ravel(), frame.ravel()
         if idxs is not None:
             x, y = x[idxs], y[idxs]
-        return mylinregress(x, y, robust=self.robust)
+        return mylinregress(x, y, robust=self.robust, intercept=self.intercept)
     
-    def regress_frames(self, stack, npix=None):
+    def fit(self, stack, ref_frame=None, npix=None):
         ''' 
-        Correct image stack with linear regresion to reference frame
+        Fit linear regression parameters w.r.t. reference frame for each frame in the stack
         
         :param stack: input image stack
+        :param ref_frame: reference frame to use for regression (optional).
         :param npix: number of pixels to use for regression (optional). 
             If None, all pixels are used.
-        :return: dataframe of linear regression parameters
+        :return: dataframe of fitted linear regression parameters
         '''
-        # Get reference frame from stack
-        ref_frame = self.get_reference_frame(stack)
+        # Get reference frame from stack, if not provided
+        if ref_frame is None:
+            ref_frame = self.get_reference_frame(stack)
+
         # Select subset of pixels to use for regression as mask
         mask = self.get_pixel_mask(ref_frame)
-        logger.info(f'performing {"robust " if self.robust else ""}linear regression on {stack.shape[0]} frames')
+
         # If required, select random subset of pixels to use for regression 
         if npix is not None:
             logger.info(f'selecting random {npix} pixels for regression')
             idxs = np.random.choice(ref_frame.size, npix, replace=False)
         else:
             idxs = None
-        regouts = []
-        # For each frame
+        logger.info(f'performing {"robust " if self.robust else ""}linear regression on {stack.shape[0]} frames')
+        
+        # Perform fit for each frame
+        res = []
         for frame in tqdm(stack):
-            regouts.append(self.regress_frame(
+            res.append(self.fit_frame(
                 frame[mask], ref_frame[mask], idxs=idxs))
-        # Return dataframe of linear regression parameters
-        return pd.concat(regouts, axis=1).T
+
+        # Concatenate results into dataframe, and return
+        return pd.concat(res, axis=1).T
     
-    def plot_linreg_params(self, stack, params=None, keys=None, axes=None, periodicity=None, 
-                           fps=None, delimiters=None, color=None, height=1, width=8):
+    def plot_fit(self, stack, params=None, keys=None, axes=None, periodicity=None, 
+                           fps=None, delimiters=None, color=None, height=None, width=None):
         ''' 
         Plot linear regression parameters (along with median frame intensity) over time
         
@@ -494,9 +533,15 @@ class LinRegCorrector(Corrector):
         :param fps: frame rate (optional)
         :param delimiters: list indices to highlight (optional)
         '''
+        # Adjust width and height based on periodicity flag
+        if width is None:
+            width = 8 if periodicity is None else 5
+        if height is None:
+            height = 2 if periodicity is None else 1
+        
         # If regression parameters not provided, compute them. Otherwise, copy them
         if params is None:
-            df = self.regress_frames(stack)
+            df = self.fit(stack)
         else:
             df = params.copy()
         
@@ -581,14 +626,16 @@ class LinRegCorrector(Corrector):
 
         # Compute linear regression parameters over time, if not provided
         if regparams is None:
-            regparams = self.regress_frames(stack)
+            regparams = self.fit(stack)
         else:
             if len(regparams) != stack.shape[0]:
                 raise ValueError(
                     f'number of provided regression parameters ({len(regparams)}) does not match stack size ({stack.shape[0]})')
+        
         # Extract slopes and intercepts, and reshape to 3D
         slopes = regparams['slope'].values[:, np.newaxis, np.newaxis]
         intercepts = regparams['intercept'].values[:, np.newaxis, np.newaxis]
+        
         # Correct stack
         logger.info('correcting stack with linear regression parameters')
         corrected_stack = (stack - intercepts) / slopes

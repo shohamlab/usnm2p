@@ -1825,12 +1825,12 @@ def compute_1way_anova(data, xkey, ykey, full_output=False):
     :param full_output: whether to return full ANOVA table or just the p-value
     :return: p-value for dependency of y on x, or full ANOVA table
     '''
-    # Rename columns of interest to ensure statsmodels compatibility
-    data = data.rename(columns={xkey: 'x', ykey: 'y'})
     # Construct OLS model with data
-    model = ols('y ~ x', data=data).fit()
+    model = sm.OLS(data[ykey], data[xkey])
+    # Fit model to data
+    fit = model.fit()
     # Extract results table for 1-way ANOVA 
-    anova_table = sm.stats.anova_lm(model, typ=2)
+    anova_table = sm.stats.anova_lm(fit, typ=2)
     # Return full table if requested
     if full_output:
         return anova_table
@@ -2723,41 +2723,71 @@ def get_rtype_fractions_per_ROI(data):
     return roistats
 
 
-def mylinregress(x, y, robust=False):
+def mylinregress(x, y, robust=False, intercept=True):
     '''
     Perform robust or standard linear regression between 2 1D arrays
 
     :param x: independent variable
     :param y: dependent variable
     :param robust: whether to perform robust linear regression
+    :param intercept: whether to fit with or without intercept
     :return: fit parameters as a pandas Series
     '''
-    # Perform robust linear regression if requested
-    if robust:
+    # If intercept requested, add constant to input vector
+    if intercept:
         x = sm.add_constant(x)
-        norm = sm.robust.norms.HuberT()
-        model = sm.RLM(y, x, M=norm)
-        fit = model.fit()
-        fitparams = pd.Series({
-            'slope': fit.params[1],
-            'intercept': fit.params[0],
-            'pval': fit.pvalues[1],
-        })
     
-    # Otherwise, perform standard linear regression
-    else:    
-        res = linregress(x, y=y)
-        fitparams = pd.Series({
-                'slope': res.slope,
-                'intercept': res.intercept,
-                'rval': res.rvalue,
-                'pval': res.pvalue,
-                'stderr': res.stderr,
-                'intercept_stderr': res.intercept_stderr,
-        })
-    
+    # Construct OLS or RLM linear regression model, depending on "robust" flag
+    if robust:
+        model = sm.RLM(y, x)
+    else:
+        model = sm.OLS(y, x)
+
+    # Fit model
+    fit = model.fit()
+
+    # Extract fit parameters (slope and intercept)
+    fitparams = pd.Series()
+    slopeidx = 0
+    if intercept:
+        fitparams['intercept'] = fit.params[0]
+        slopeidx = 1
+    else:
+        fitparams['intercept'] = 0.
+    fitparams['slope'] = fit.params[slopeidx]
+
+    # Extract associated p-value
+    fitparams['pval'] = fit.pvalues[slopeidx]
+
     # Return fit parameters
     return fitparams
+
+    # # Perform robust linear regression if requested
+    # if robust:
+    #     x = sm.add_constant(x)
+    #     norm = sm.robust.norms.HuberT()
+    #     model = sm.RLM(y, x, M=norm)
+    #     fit = model.fit()
+    #     fitparams = pd.Series({
+    #         'slope': fit.params[1],
+    #         'intercept': fit.params[0],
+    #         'pval': fit.pvalues[1],
+    #     })
+    
+    # # Otherwise, perform standard linear regression
+    # else:    
+    #     res = linregress(x, y=y)
+    #     fitparams = pd.Series({
+    #             'slope': res.slope,
+    #             'intercept': res.intercept,
+    #             'rval': res.rvalue,
+    #             'pval': res.pvalue,
+    #             'stderr': res.stderr,
+    #             'intercept_stderr': res.intercept_stderr,
+    #     })
+    
+    # # Return fit parameters
+    # return fitparams
 
 
 def apply_linregress(df, xkey=Label.TRIAL, ykey=None, **kwargs):
