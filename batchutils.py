@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-18 19:12:01
+# @Last Modified time: 2023-10-20 12:57:31
 
 from constants import *
 from fileops import get_data_root, get_output_equivalent
@@ -34,7 +34,7 @@ def get_prepro_id(kalman_gain=KALMAN_GAIN):
             (1, 0, None),
             (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
         ]),
-        LinRegCorrector(qmax=0.5),
+        LinRegCorrector(intercept=False),
         KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter,
     ]
     # Return code string
