@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-16 18:02:01
+# @Last Modified time: 2023-10-20 19:14:53
 
 ''' Notebook running utilities '''
 
@@ -81,18 +81,27 @@ def execute_notebook(pdict, input_nbpath, outdir):
             logger.info(f'{output_nbpath} notebook successfully executed')
             return output_nbpath
         
-        # If execution error, notify on slack and retry if necessary
-        except (pm.exceptions.PapermillExecutionError, DeadKernelError, RuntimeError) as err:
-            s = f'"{output_nbname}" execution error: {err}'
-            logger.error(s)
-            jupyter_slack.notify_self(s)
+        # Catch generated errors
+        except Exception as err:
+            # If execution error
+            if isinstance(err, (pm.exceptions.PapermillExecutionError, DeadKernelError, RuntimeError)):
+                # Log error and notify on slack
+                s = f'"{output_nbname}" execution error: {err}'
+                logger.error(s)
+                jupyter_slack.notify_self(s)
 
-            # If error is due to resource sharing limitation, notify and retry execution
-            if any([x in str(err) for x in NB_RETRY_ERRMSGS]):
-                logger.info(f're-trying execution of "{output_nbname}"...')
+                # If error is due resource sharing limitation, notify and retry execution
+                if any([x in str(err) for x in NB_RETRY_ERRMSGS]):
+                    logger.info(f're-trying execution of "{output_nbname}"...')            
+                # Otherwise, abandon execution and return None
+                else:
+                    return None
             
-            # Otherwise, abandon execution and return None
+            # If other error, log and notify on slack, and return None
             else:
+                s = f'"{output_nbname}" unknown error: {err}'
+                logger.error(s)
+                jupyter_slack.notify_self(s)
                 return None
 
 

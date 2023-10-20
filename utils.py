@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-13 14:09:24
+# @Last Modified time: 2023-10-20 18:48:53
 
 ''' Collection of generic utilities. '''
 
@@ -339,6 +339,15 @@ def shape_str(s):
     return '-by-'.join([f'{x:.0f}' for x in s])
 
 
+def is_rectilinear(s):
+    '''
+    Check that the index of the given pandas Series/DataFrame is rectilinear, i.e. that the
+    index is a Cartesian product of the indices of each level.
+    '''
+    dims = [len(s.index.unique(level=k)) for k in s.index.names]
+    return np.prod(dims) == len(s)
+
+
 def rectilinearize(s, iruns=None):
     ''' 
     Create expanded series following rectilinear multi-index 
@@ -386,6 +395,32 @@ def rectilinearize(s, iruns=None):
     snew = (s + s_exp).rename(s.name)
     
     return snew
+
+
+def mux_series_to_array(s):
+    ''' 
+    Convert a multi-indexed series to a multi-dimensional numpy array.
+    
+    :param s: multi-indexed series
+    :return: multi-dimensional numpy array in which the dimensions are ordered
+        according to the order of the index levels in the series
+    '''
+    # Check that input is a rectilinear multi-indexed series
+    if not isinstance(s, pd.Series):
+        raise ValueError('input is not a series')
+    if not isinstance(s.index, pd.MultiIndex):
+        raise ValueError(f'{s.name} is not a multi-indexed series')
+    if not is_rectilinear(s):
+        raise ValueError(f'{s.name} series index is not rectilinear')
+    
+    # Sort the series by the index levels
+    s = s.sort_index()
+    
+    # Get the size of each index dimension
+    shape = {k: len(s.index.unique(level=k)) for k in s.index.names}
+
+    # Extract the values and reshape
+    return s.values.reshape([shape[k] for k in s.index.names])
 
 
 def shiftslice(s, i):

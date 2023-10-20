@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-16 17:56:17
+# @Last Modified time: 2023-10-20 19:13:55
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -375,4 +375,6 @@ MIN_CELL_DENSITY = {
 NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try execution
     'Resource temporarily unavailable',  # caused by concurrent access to TIF I/O manager (e.g. during suite2p processing)
     'Kernel died before replying to kernel_info',  # kernel address already in use (caused by ZMQ manager)
+    "Kernel died",  # Caused by OOM error
+    "Kernel didn't respond in 60 seconds", # ???
 ]
