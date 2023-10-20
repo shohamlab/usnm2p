@@ -1825,8 +1825,10 @@ def compute_1way_anova(data, xkey, ykey, full_output=False):
     :param full_output: whether to return full ANOVA table or just the p-value
     :return: p-value for dependency of y on x, or full ANOVA table
     '''
+    # # Rename columns of interest to ensure statsmodels compatibility
+    data = data.rename(columns={xkey: 'x', ykey: 'y'})
     # Construct OLS model with data
-    model = sm.OLS(data[ykey], data[xkey])
+    model = ols('y ~ x', data=data)
     # Fit model to data
     fit = model.fit()
     # Extract results table for 1-way ANOVA 

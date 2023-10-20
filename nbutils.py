@@ -82,7 +82,7 @@ def execute_notebook(pdict, input_nbpath, outdir):
             return output_nbpath
         
         # If execution error, notify on slack and retry if necessary
-        except (pm.exceptions.PapermillExecutionError, DeadKernelError) as err:
+        except (pm.exceptions.PapermillExecutionError, DeadKernelError, RuntimeError) as err:
             s = f'"{output_nbname}" execution error: {err}'
             logger.error(s)
             jupyter_slack.notify_self(s)

@@ -373,5 +373,6 @@ MIN_CELL_DENSITY = {
 ###################################### EXECUTION ######################################
 
 NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try execution
-    'Resource temporarily unavailable',
+    'Resource temporarily unavailable',  # caused by concurrent access to TIF I/O manager (e.g. during suite2p processing)
+    'Kernel died before replying to kernel_info',  # kernel address already in use (caused by ZMQ manager)
 ]
