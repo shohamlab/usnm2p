@@ -13,14 +13,40 @@ from nbclient.exceptions import DeadKernelError
 from argparse import ArgumentParser
 
 from logger import logger
-from batches import Batch
-from constants import DEFAULT_ANALYSIS, NB_RETRY_ERRMSGS
+from batches import Batch, create_queue
+from constants import *
+from utils import as_iterable
+
+
+def none_or_float(value):
+    ''' Custom function to parse None or a float '''
+    if isinstance(value, str):
+        if value.lower() == 'none':
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            raise ArgumentTypeError(f'Could not parse "{value}" into None/float')
+    elif isinstance(value, (int, float)):
+        return value
+    else:
+        raise ArgumentTypeError(f'Could not parse {type(value)}-typed input into None/float')
+
+
+def none_or_str(value):
+    ''' Custom function to parse None or a string '''
+    if not isinstance(value, str):
+        raise ArgumentTypeError(f'Could not parse {type(value)}-typed input into string/float')
+    if value.lower() == 'none':
+        return None
+    return value
 
 
 def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=False, region=False, layer=False):
     ''' Create command line parser for notebook execution '''
     # Create command line parser
     parser = ArgumentParser()
+    
     # Add input / output / mpi / check arguments
     parser.add_argument(
         '-i', '--input', default=input_nb,
@@ -32,12 +58,14 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
         '--mpi', default=False, action='store_true', help='enable multiprocessing')
     parser.add_argument(
         '--go', default=False, action='store_true', help='start without user check')
+    
     # Add slack notification argument
     parser.add_argument(
         '--slack_notify', action='store_true', help='Notify on slack')
     parser.add_argument(
         '--no-slack_notify', dest='slack_notify', action='store_false')
     parser.set_defaults(slack_notify=True)
+
     # Add specfied dataset arguments
     if analysis:
         parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
@@ -51,8 +79,96 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
         parser.add_argument('-r', '--region', help='brain region')
     if layer:
        parser.add_argument('--layer', help='Cortical layer')
+
+    # Add arguments about other execution parameters
+    parser.add_argument(
+        '--inspect', default=False, action='store_true',
+        help='Inspect data from random run along processing')
+    parser.add_argument(
+        '-c', '--correction', type=none_or_str, default=GLOBAL_CORRECTION, nargs='+',
+        help='Global correction method')
+    parser.add_argument(
+        '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
+        help='Kalman filter gain (s)')
+    parser.add_argument(
+        '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
+        help='scaling coefficient for neuropil subtraction')    
+    parser.add_argument(
+        '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
+        help='Baseline evaluation quantile')
+    parser.add_argument(
+        '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
+        help='Baseline quantile filter window size (s)')
+    parser.add_argument(
+        '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
+        help='Baseline gaussian filter window size (s)')
+    parser.add_argument(
+        '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
+        help='Classification variable')
+    parser.add_argument(
+        '--directional', action='store_true', help='Directional classification')
+    parser.add_argument(
+        '--non-directional', dest='directional', action='store_false')
+    parser.set_defaults(directional=True)
+    
     # Return parser
     return parser
+
+
+def parse_notebook_exec_args(args):
+    ''' 
+    Parse notebook execution arguments
+    
+    :param args: command line arguments dictionary
+    :return: 5-tuple with:
+        - input notebook path
+        - output directory path
+        - MPI flag
+        - ask confirmation flag
+        - processing parameters queue
+    '''
+    # Extract execution arguments
+    input_nbpath = args.pop('input')
+    outdir = args.pop('outdir')
+    mpi = args.pop('mpi')
+    ask_confirm = not args.pop('go')
+    
+    # Extract notebook processing parameters
+    proc_args = [
+        'inspect',
+        'slack_notify',
+        'correction',
+        'kalman_gain',
+        'alpha',
+        'baseline_quantile',
+        'wq',
+        'ws',
+        'ykey_classification',
+        'directional'
+    ]
+    proc_args = {k: args.pop(k) for k in proc_args}
+
+    # Cast processing parameters as lists
+    proc_args = {k: as_iterable(v) for k, v in proc_args.items()}
+
+    # Rename some processing parameters for consistency with notebook definitions
+    proc_args['global_correction'] = proc_args.pop('correction')
+    proc_args['neuropil_scaling_coeff'] = proc_args.pop('alpha')
+    proc_args['baseline_wquantile'] = proc_args.pop('wq')
+    proc_args['baseline_wsmoothing'] = proc_args.pop('ws')
+    proc_args['ykey_classification'] = [
+        {
+            'evrate': Label.EVENT_RATE, 
+            'dff': Label.DFF,
+            'zscore': Label.ZSCORE
+        }[y]
+        for y in proc_args['ykey_classification']]
+    
+    # Create queue from processing parameters
+    proc_queue = create_queue(proc_args)
+
+    # Return outputs
+    return input_nbpath, outdir, mpi, ask_confirm, proc_queue
 
 
 def execute_notebook(pdict, input_nbpath, outdir):

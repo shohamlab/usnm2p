@@ -13,7 +13,7 @@ import numpy as np
 from constants import *
 
 from logger import logger
-from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser
+from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser, parse_notebook_exec_args
 from utils import as_iterable
 from batchutils import get_batch_settings
 from batches import create_queue
@@ -26,22 +26,12 @@ if __name__ == '__main__':
     parser = get_notebook_parser(
         'mouseline_analysis.ipynb',
         line=True)
-
-    # Extract command line arguments
+    
+    # Parse command line arguments
     args = vars(parser.parse_args())
 
-    # Process execution arguments
-    input_nbpath = args.pop('input')
-    outdir = args.pop('outdir')
-    mpi = args.pop('mpi')
-    batch_mpi = mpi
-    ask_confirm = not args.pop('go')
-    exec_args = [
-        'slack_notify',
-    ]
-    exec_args = {k: args.pop(k) for k in exec_args}
-    exec_args = {k: as_iterable(v) for k, v in exec_args.items()}
-    exec_queue = create_queue(exec_args)
+    # Extract general execution parameters
+    input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
 
     # Get mouselines input directories
     mouselines = ['line3', 'sst', 'pv', 'sarah_line3']
@@ -58,13 +48,13 @@ if __name__ == '__main__':
     trialavg_dirs = {k: v for k, v in trialavg_dirs.items() if os.path.isdir(v)}
     
     # Compute number of jobs to run
-    njobs = len(trialavg_dirs) * len(exec_queue)
+    njobs = len(trialavg_dirs) * len(proc_queue)
     # Log warning message if no job was found
     if njobs == 0:
         logger.warning('found no individual job to run')
     # Otherwise, create execution parameters queue
     else:
-        params = list(product(trialavg_dirs.keys(), exec_queue))
+        params = list(product(trialavg_dirs.keys(), proc_queue))
         params = [{'mouseline': mouseline, **exec_args} for (mouseline, exec_args) in params]
         # Set multiprocessing to False in case of single job
         if njobs == 1:

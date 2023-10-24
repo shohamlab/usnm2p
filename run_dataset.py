@@ -13,10 +13,7 @@ from constants import *
 
 from fileops import get_data_root, get_dataset_params
 from logger import logger
-from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser
-from utils import as_iterable
-from parsers import none_or_float, none_or_str
-from batches import create_queue
+from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser, parse_notebook_exec_args
 
 logger.setLevel(logging.INFO)
 
@@ -28,70 +25,11 @@ if __name__ == '__main__':
         'dataset_analysis.ipynb',
         line=True, date=True, mouse=True, region=True, layer=True)
 
-    # Add arguments about other execution parameters
-    parser.add_argument(
-        '--inspect', default=False, action='store_true',
-        help='Inspect data from random run along processing')
-    parser.add_argument(
-        '-c', '--correction', type=none_or_str, default=GLOBAL_CORRECTION, nargs='+',
-        help='Global correction method')
-    parser.add_argument(
-        '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
-        help='Kalman filter gain (s)')
-    parser.add_argument(
-        '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
-        help='scaling coefficient for neuropil subtraction')    
-    parser.add_argument(
-        '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
-        help='Baseline evaluation quantile')
-    parser.add_argument(
-        '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
-        help='Baseline quantile filter window size (s)')
-    parser.add_argument(
-        '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
-        help='Baseline gaussian filter window size (s)')
-    parser.add_argument(
-        '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
-        help='Classification variable')
-    parser.add_argument(
-        '--directional', action='store_true', help='Directional classification')
-    parser.add_argument(
-        '--non-directional', dest='directional', action='store_false')
-    parser.set_defaults(directional=True)
-
-    # Extract command line arguments
+    # Parse command line arguments
     args = vars(parser.parse_args())
 
-    # Process execution arguments
-    input_nbpath = args.pop('input')
-    outdir = args.pop('outdir')
-    mpi = args.pop('mpi')
-    ask_confirm = not args.pop('go')
-    exec_args = [
-        'inspect',
-        'slack_notify',
-        'correction',
-        'kalman_gain',
-        'alpha',
-        'baseline_quantile',
-        'wq',
-        'ws',
-        'ykey_classification',
-        'directional'
-    ]
-    exec_args = {k: args.pop(k) for k in exec_args}
-    exec_args = {k: as_iterable(v) for k, v in exec_args.items()}
-    exec_args['neuropil_scaling_coeff'] = exec_args.pop('alpha')
-    exec_args['baseline_wquantile'] = exec_args.pop('wq')
-    exec_args['baseline_wsmoothing'] = exec_args.pop('ws')
-    exec_args['ykey_classification'] = [
-        {
-            'evrate': Label.EVENT_RATE, 
-            'dff': Label.DFF,
-            'zscore': Label.ZSCORE
-        }[y]
-        for y in exec_args['ykey_classification']]
-    exec_queue = create_queue(exec_args)
+    # Extract general execution parameters
+    input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
     
     # Extract candidate datasets combinations from folder structure
     datasets = get_dataset_params(root=get_data_root(), analysis_type=args['analysis_type'])
@@ -109,7 +47,7 @@ if __name__ == '__main__':
             datasets = list(filter(filtfunc, datasets))            
     
     # Compute number of jobs to run
-    njobs = len(datasets) * len(exec_queue)
+    njobs = len(datasets) * len(proc_queue)
     # Log warning message and quit if no job was found
     if njobs == 0:
         logger.warning('found no individual job to run')
@@ -119,7 +57,7 @@ if __name__ == '__main__':
         mpi = False
     
     # Create execution parameters queue
-    params = list(product(datasets, exec_queue))
+    params = list(product(datasets, proc_queue))
     params = [{**dataset, **exec_args} for (dataset, exec_args) in params]
 
     # Get absolute path to directory of current file (where code must be executed)

@@ -100,6 +100,16 @@ class LinRegCorrector(Corrector):
         
         # Call parent constructor
         super().__init__(**kwargs)
+    
+    @classmethod
+    def from_string(cls, s):
+        ''' Instantiate class from string code '''
+        robust='robust' in s
+        intercept='nointercept' not in s
+        return cls(
+            robust=robust,
+            intercept=intercept
+        )
         
     @property
     def robust(self):

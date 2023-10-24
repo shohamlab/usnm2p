@@ -7,8 +7,8 @@
 from constants import *
 from fileops import get_data_root, get_output_equivalent
 from substitutors import StackSubstitutor
-from filters import KalmanDenoiser, NoFilter
-from correctors import LinRegCorrector, NoCorrector
+from filters import KalmanDenoiser
+from correctors import LinRegCorrector
 from s2putils import *
 from logger import logger
 
@@ -33,10 +33,12 @@ def get_prepro_id(global_correction=GLOBAL_CORRECTION, kalman_gain=KALMAN_GAIN):
         StackSubstitutor([
             (1, 0, None),
             (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
-        ]),
-        LinRegCorrector(intercept='nointercept' not in global_correction) if global_correction is not None else NoCorrector,
-        KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter,
+        ])
     ]
+    if global_correction is not None:
+        processors.append(LinRegCorrector.from_string(global_correction))
+    if kalman_gain is not None and kalman_gain > 0:
+        processors.append(KalmanDenoiser(kalman_gain))
     # Return code string
     return os.path.join(*[p.code for p in processors[::-1]])
 
@@ -147,9 +149,12 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     if directional:
         processing_id = f'{processing_id}_directional'
     # Get figures PDF suffix
-    prepro_code = global_correction if global_correction is not None else ''
+    prepro_code = []
+    if global_correction is not None:
+        prepro_code.append(global_correction)
     if kalman_gain is not None:
-        prepro_code = f'{prepro_code}_k{kalman_gain}'
+        prepro_code.append(f'k{kalman_gain}')
+    prepro_code = '_'.join(prepro_code)
     figs_suffix = f'{analysis_type}_{dataset_group_id}_{prepro_code}_{conditioning_id}_{processing_id}'
     # Get stats input data directory
     dataroot = get_data_root()
