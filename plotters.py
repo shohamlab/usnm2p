@@ -3630,7 +3630,7 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, he
 
     # Extract fit function if provided
     fit = kwargs.pop('fit', None)
-    if isinstance(fit, dict):
+    if isinstance(fit, (dict, pd.Series)):
         for xkey in xkeys:
             if xkey not in fit.keys():
                 raise ValueError(f'"{xkey}" key not found in fit dictionary')
@@ -4371,12 +4371,20 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
 
     # Extract fit function if provided
     if isinstance(fit, dict):
+        fit = pd.Series(fit)
+    elif not isinstance(fit, (pd.Series, pd.DataFrame)):
+        fit = pd.Series({xkey: fit for xkey in xkeys})
+    lines = data.index.get_level_values(Label.LINE).unique()
+    if isinstance(fit, (pd.Series, pd.DataFrame)):
         for xkey in xkeys:
-            if xkey not in fit.keys():
-                raise ValueError(f'"{xkey}" key not found in fit dictionary')
-        fitdict = fit
-    else:
-        fitdict = {xkey: fit for xkey in xkeys}   
+            if xkey not in fit.index:
+                raise ValueError(f'"{xkey}" key not found in fits')
+        if isinstance(fit, pd.DataFrame):
+            for line in lines:
+                if line not in fit.columns:
+                    raise ValueError(f'"{line}" column not found in fits')
+        else:
+            fit = pd.DataFrame({k: fit for k in lines})
                        
     # For each input parameter x
     for i, (xkey, ax) in enumerate(zip(xkeys, axes)):
@@ -4418,9 +4426,9 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
                     ldata[xkey], ymu, yerr=ysem, c=color, fmt='.')
             
             # Compute and plot fit, if requested
-            if fitdict[xkey] is not None:
+            if fit.loc[xkey, line] is not None:
                 compute_and_add_fit(
-                    ax, ldata[xkey], ymu, fitdict[xkey], c=color, 
+                    ax, ldata[xkey], ymu, fit.loc[xkey, line], c=color, 
                     ls='--', ci=fit_ci, add_text=False)
 
         # Adjust y-labels
@@ -5341,7 +5349,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     if is_iterable(xkey):
         fig, axes = plt.subplots(1, len(xkey), figsize=(height * len(xkey), height))
         axes = np.atleast_1d(axes)
-        if isinstance(fit, dict):
+        if isinstance(fit, (dict, pd.Series)):
             for xk in xkey:
                 if xk not in fit.keys():
                     raise ValueError(f'"{xk}" key not found in fit dictionary')
@@ -5440,46 +5448,49 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             c=color, markersize=5, 
             label=f'{subxkey} data'
         )
-
-    # Extract reference y profile for fit 
-    fit_data = get_xdep_data(data, sweepkey, add_DC0=True)
     
-    # Extract x and mean y data
-    xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
+    # If fit provided
+    if fit is not None:
 
-    # Perform fit between input and output variables, log warning if fit fails
-    try:
-        popt, _, r2, objfunc = compute_fit(xdata, ydata, fit)
-    except ValueError as e:
-        logger.warning(e)
-        popt = None
+        # Extract reference y profile for fit 
+        fit_data = get_xdep_data(data, sweepkey, add_DC0=True)
+        
+        # Extract x and mean y data
+        xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
 
-    # If fit succeeded
-    if popt is not None:    
-        # Plot dense fitted profile
-        xdense = np.linspace(xdata.min(), xdata.max(), 1000)
-        yfitdense = objfunc(xdense, *popt)
-        ax.plot(
-            xdense, yfitdense,
-            ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=color)
+        # Perform fit between input and output variables, log warning if fit fails
+        try:
+            popt, _, r2, objfunc = compute_fit(xdata, ydata, fit)
+        except ValueError as e:
+            logger.warning(e)
+            popt = None
 
-        # Get data from other sweep
-        other_data = get_xdep_data(data, otherkey, add_DC0=True)
-        xother, yother = other_data[xkey], other_data[mu_ykey]
+        # If fit succeeded
+        if popt is not None:    
+            # Plot dense fitted profile
+            xdense = np.linspace(xdata.min(), xdata.max(), 1000)
+            yfitdense = objfunc(xdense, *popt)
+            ax.plot(
+                xdense, yfitdense,
+                ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=color)
 
-        # Apply fit on input range from other sweep
-        yotherfit = objfunc(xother, *popt)
+            # Get data from other sweep
+            other_data = get_xdep_data(data, otherkey, add_DC0=True)
+            xother, yother = other_data[xkey], other_data[mu_ykey]
 
-        # Compute prediction accuracy
-        ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            # Apply fit on input range from other sweep
+            yotherfit = objfunc(xother, *popt)
 
-        # Plot divergence between fit and data points from other sweep
-        iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
-        ax.fill(
-            np.hstack((xdense[iswithin], xother[::-1])), 
-            np.hstack((yfitdense[iswithin], yother[::-1])),
-            fc='silver', label=f'ζ = {ζ:.2f}'
-        )
+            # Compute prediction accuracy
+            ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+
+            # Plot divergence between fit and data points from other sweep
+            iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
+            ax.fill(
+                np.hstack((xdense[iswithin], xother[::-1])), 
+                np.hstack((yfitdense[iswithin], yother[::-1])),
+                fc='silver', label=f'ζ = {ζ:.2f}'
+            )
         
     # Adjust x-scale if specified
     adjust_xscale(ax, xscale=xscale)
@@ -5707,10 +5718,6 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     # If input variable is not already present, try to compute it
     if xkey not in data.columns:
         data[xkey] = get_dose_metric(data[Label.P], data[Label.DC], xkey)
-    
-    # Extract fit type from input variable if not provided
-    if fit is None:
-        fit = fit_dict[xkey]
         
     # Prepare figure
     fig, axes = plt.subplots(1, 3, figsize=(9, 3), sharex=True)
@@ -5732,6 +5739,10 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
         logger.info(f'extracting, computing, and scaling {line} responses')
         # Get line color and label
         label, color = line, Palette.LINE[line]
+
+        # Extract fit type from input variable and line if not provided
+        if fit is None:
+            fit = get_fit_table().loc[xkey, line]
         
         # Restrict data range if P or DC is given as input
         gdata = get_xdep_data(gdata, xkey, add_DC0=True)

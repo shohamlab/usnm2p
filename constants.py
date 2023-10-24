@@ -225,6 +225,7 @@ NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending o
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
 NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
+GLOBAL_CORRECTION = 'linreg_nointercept'  # global stack correction method
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################

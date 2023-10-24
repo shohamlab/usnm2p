@@ -121,7 +121,7 @@ def execute_notebooks(pdicts, input_nbpath, outdir, **kwargs):
     nbpaths = batch.run(loglevel=logger.getEffectiveLevel(), **kwargs)
     # Log completion message
     if nbpaths is None:
-        is_completed = [False for x in nbpaths]
+        is_completed = [False] * len(queue)
     else:
         is_completed = [x is not None for x in nbpaths]
     logger.info(f'{sum(is_completed)}/{len(is_completed)} jobs completed.')

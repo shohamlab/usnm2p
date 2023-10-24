@@ -884,6 +884,12 @@ def get_sigmoid_decay_params(x, y):
     :param y: output vector
     :return: initial fit parameters
     '''
+    # Convert to numpy arrays if needed
+    if isinstance(x, pd.Series):
+        x = x.values
+    if isinstance(y, pd.Series):
+        y = y.values
+    
     # Estimate characteristic y values
     ymin, ymax = y.min(), y.max()
     ythr = ymin + 0.1 * (ymax - ymin)

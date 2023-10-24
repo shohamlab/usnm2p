@@ -3492,12 +3492,42 @@ def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000):
     return yfit_lb, yfit_ub
 
 
-# Fit functions per input metrics
-fit_dict = {
-    Label.P: 'poly2',
-    Label.DC: 'sigmoid',
-    Label.PSPTA: 'sigmoid',
-    Label.PSPTRMS: 'sigmoid',
-    Label.ISPTA: 'sigmoid',
-    Label.ISPTRMS: 'sigmoid',
-}
+def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude='pv'):
+    ''' 
+    Generate 2D table of fit functions across cell lines and input parameters
+    
+    :param pfit: fit for pressure dependencies (default = 'poly2')
+    :param nonPfit: fit for all other parameters (default = 'sigmoid_decay')
+    :param exclude: lines to exclude from fit table (default = 'pv')
+    :return: pandas dataframe with fit functions
+    '''
+    # Create empty 2D dataFframe
+    fit_table = pd.DataFrame(
+        columns=pd.Index([
+            'line3',
+            'sst',
+            'pv'
+        ], name=Label.LINE),
+        index=pd.Index([
+            Label.P, 
+            Label.DC, 
+            Label.PSPTA, 
+            Label.PSPTRMS, 
+            Label.ISPTA, 
+            Label.ISPTRMS
+        ], name='parameter')
+    )
+
+    # Set fit for pressure dependency for all lines
+    fit_table.loc[Label.P, :] = Pfit
+
+    # Set common fit for all other parameters
+    fit_table.loc[fit_table.index.drop(Label.P), :] = nonPfit
+
+    # Set excluded lines to None
+    if exclude is not None:
+        for line in as_iterable(exclude):
+            fit_table.loc[:, line] = None
+
+    # Return dataframe
+    return fit_table

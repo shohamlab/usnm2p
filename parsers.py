@@ -12,6 +12,7 @@ import re
 import os
 import numpy as np
 import pandas as pd
+from argparse import ArgumentTypeError
 from constants import *
 from logger import logger
 from utils import itemize
@@ -453,3 +454,27 @@ def extract_FOV_area(map_ops):
     w = map_ops['micronsPerPixel'] * map_ops['Lx']  # um
     h = map_ops['micronsPerPixel'] * map_ops['Lx']  # um
     return w * h * UM2_TO_MM2  # mm2
+
+
+def none_or_float(value):
+    ''' Custom function to parse None or a float '''
+    if isinstance(value, str):
+        if value.lower() == 'none':
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            raise ArgumentTypeError(f'Could not parse "{value}" into None/float')
+    elif isinstance(value, (int, float)):
+        return value
+    else:
+        raise ArgumentTypeError(f'Could not parse {type(value)}-typed input into None/float')
+
+
+def none_or_str(value):
+    ''' Custom function to parse None or a string '''
+    if not isinstance(value, str):
+        raise ArgumentTypeError(f'Could not parse {type(value)}-typed input into string/float')
+    if value.lower() == 'none':
+        return None
+    return value

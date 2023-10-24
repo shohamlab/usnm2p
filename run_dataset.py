@@ -15,6 +15,7 @@ from fileops import get_data_root, get_dataset_params
 from logger import logger
 from nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser
 from utils import as_iterable
+from parsers import none_or_float, none_or_str
 from batches import create_queue
 
 logger.setLevel(logging.INFO)
@@ -32,19 +33,22 @@ if __name__ == '__main__':
         '--inspect', default=False, action='store_true',
         help='Inspect data from random run along processing')
     parser.add_argument(
-        '-k', '--kalman_gain', type=float, default=KALMAN_GAIN, nargs='+',
+        '-c', '--correction', type=none_or_str, default=GLOBAL_CORRECTION, nargs='+',
+        help='Global correction method')
+    parser.add_argument(
+        '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
         help='Kalman filter gain (s)')
     parser.add_argument(
         '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
         help='scaling coefficient for neuropil subtraction')    
     parser.add_argument(
-        '-q', '--baseline_quantile', type=float, default=BASELINE_QUANTILE, nargs='+',
+        '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
         help='Baseline evaluation quantile')
     parser.add_argument(
         '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
         help='Baseline quantile filter window size (s)')
     parser.add_argument(
-        '--ws', type=float, default=BASELINE_WSMOOTHING, nargs='+',
+        '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
         help='Baseline gaussian filter window size (s)')
     parser.add_argument(
         '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
@@ -66,6 +70,7 @@ if __name__ == '__main__':
     exec_args = [
         'inspect',
         'slack_notify',
+        'correction',
         'kalman_gain',
         'alpha',
         'baseline_quantile',

@@ -21,7 +21,7 @@ def get_dataset_group_id(mouseline, layer=None):
     return dataset_group_id
 
 
-def get_prepro_id(kalman_gain=KALMAN_GAIN):
+def get_prepro_id(global_correction=GLOBAL_CORRECTION, kalman_gain=KALMAN_GAIN):
     '''
     Get code string corresponding to specific pre-processing settings
     
@@ -34,7 +34,7 @@ def get_prepro_id(kalman_gain=KALMAN_GAIN):
             (1, 0, None),
             (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
         ]),
-        LinRegCorrector(intercept=False),
+        LinRegCorrector(intercept='nointercept' not in global_correction) if global_correction is not None else NoCorrector,
         KalmanDenoiser(kalman_gain) if kalman_gain > 0 else NoFilter,
     ]
     # Return code string
@@ -112,15 +112,16 @@ def get_stats_id(ykey_classification):
     return f'class{ykey_classification.replace("/", "")}'
 
 
-def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_scaling_coeff,
-                       baseline_quantile, baseline_wquantile, baseline_wsmoothing, 
-                       trial_aggfunc, ykey_classification, directional):
+def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalman_gain, 
+                       neuropil_scaling_coeff, baseline_quantile, baseline_wquantile, 
+                       baseline_wsmoothing, trial_aggfunc, ykey_classification, directional):
     '''
     Get batch analysis settings
 
     :param analysis_type: type of analysis
     :param mouseline: mouse line
     :param layer: cortical layer
+    :param global_correction: global correction method
     :param kalman_gain: Kalman gain
     :param neuropil_scaling_coeff: neuropil scaling coefficient
     :param baseline_quantile: baseline evaluation quantile
@@ -138,7 +139,7 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
         dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
 
     # Construct processing IDs
-    prepro_id = get_prepro_id(kalman_gain=kalman_gain)
+    prepro_id = get_prepro_id(global_correction=global_correction, kalman_gain=kalman_gain)
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
     conditioning_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
     ykey_classification_str = {Label.DFF: 'dff', Label.ZSCORE: 'zscore'}[ykey_classification]
@@ -146,7 +147,10 @@ def get_batch_settings(analysis_type, mouseline, layer, kalman_gain, neuropil_sc
     if directional:
         processing_id = f'{processing_id}_directional'
     # Get figures PDF suffix
-    figs_suffix = f'{analysis_type}_{dataset_group_id}_k{kalman_gain}_{conditioning_id}_{processing_id}'
+    prepro_code = global_correction if global_correction is not None else ''
+    if kalman_gain is not None:
+        prepro_code = f'{prepro_code}_k{kalman_gain}'
+    figs_suffix = f'{analysis_type}_{dataset_group_id}_{prepro_code}_{conditioning_id}_{processing_id}'
     # Get stats input data directory
     dataroot = get_data_root()
     if mouseline is not None:
