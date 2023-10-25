@@ -514,7 +514,7 @@ def plot_stack_timecourse(*args, **kwargs):
 
     # Initialize viewer and initialize its rendering
     viewer = get_stack_viewer(*args, **kwargs)
-    viewer.init_render(norm=norm, cmap=cmap, fbounds=fbounds, ilabels=ilabels)
+    viewer.init_render(norm=norm, cmap=cmap, fbounds=fbounds, ilabels=None)
 
     # Initialize figure if not provided
     if ax is None:

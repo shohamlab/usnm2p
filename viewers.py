@@ -14,6 +14,7 @@ from tqdm import tqdm
 import numpy_image_widget as niw
 from ipywidgets import Label, IntSlider, Play, VBox, HBox, HTML, Button, Output, jslink
 from IPython.display import display
+from imlabel import add_label_to_image
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
 import imageio as iio
@@ -217,12 +218,14 @@ class StackViewer:
 
     def transform(self, arr):
         ''' Transform a grayscale intensity image to a colored image using a specific colormap '''
-        return self.cmap(arr)[:, :, :-1]
+        # Transform array through colormap to get a (0, 1) float RGB image
+        img = self.cmap(arr)[:, :, :-1]
+        # Convert to uint8 and return
+        return float_to_uint8(img)
     
-    def label(self, arr):
-        ''' Label a frame by setting pixels on the upper-right corner to red. '''
-        arr[:self.npix_label, -self.npix_label:, :] = [arr.max(), 0, 0]
-        return arr
+    def label(self, img, label):
+        ''' Add label to top-right corner of a frame. '''
+        return add_label_to_image(img, label, color='red')
 
     def process_frame(self, arr, norm, i):
         '''
@@ -235,8 +238,8 @@ class StackViewer:
         if norm is not None:
             arr = norm(arr)
         arr = self.transform(arr)
-        if self.is_labeled[i]:
-            arr = self.label(arr)
+        if self.labels[i]:
+            arr = self.label(arr, self.labels[i])
         return arr
 
     def init_view(self):
@@ -266,16 +269,19 @@ class StackViewer:
         ub = x[0] + rel_vbounds[1] * vrange
         return (lb, ub)
 
-    def init_render(self, fps=None, norm=True, rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None, playback_speed=1.):
+    def init_render(self, fps=None, norm='stack', rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None, playback_speed=1.):
         '''
         Initialize stacks rendering.
         
         :param fps (optional): frame rate (in Hz) used to convert frame index to time (in s)
-        :param norm (default = True): whether to normalize the stack data to [0-1] range upon rendering
+        :param norm: method used to normalize frame intensity prior to rendering (default: 'stack'):
+            - 'frame': render each frame indepdendently using its full dynamic range
+            - 'stack': render each frame using the dynamic range of the entire stack 
+            - 'all': render each frame using the dynamic range of all stacks
         :param rel_vbounds (optional): relative value bounds used to normalize the stack data.
         :param cmap (optional): colormap used to display grayscale image. If none, a gray colormap is used by default.
         :param fbounds (optional): boundary frame indexes. If none, the entire stack is rendered.
-        :param ilabels (optional): array of frame indexes to label.
+        :param ilabels (optional): dictionary of (label:frame indexes) pairs.
         :param playback_speed (optional): playback speed factor (default = 1.)
         '''
         # Initialize fps and playback speed
@@ -284,20 +290,30 @@ class StackViewer:
         # Get frame range
         self.frange = self.get_frame_index_range(fbounds)
         # Initialize label arrray
-        is_labeled = np.zeros(self.nframes)
+        self.labels = [''] * self.nframes
         if ilabels is not None:
-            is_labeled[ilabels] = 1.
-        self.is_labeled = is_labeled.astype(bool)
+            for label, iframes in ilabels.items():
+                for iframe in iframes:
+                    self.labels[iframe] = label
+        self.labels = np.array(self.labels)
         # Initialize colormap
         if cmap is None:
             cmap = 'gray'
         self.cmap = plt.get_cmap(cmap)
         # Initialize normalizers
-        if norm:
+        if norm in ('stack', 'all'):
+            # Get limits for each stack
             lims = [self.get_dynamic_range(i, self.frange) for i in range(len(self.fobjs))]
+            # Adapt limits to relative value bounds if provided
             if rel_vbounds is not None:
                 lims = [self.get_vbounds(x, rel_vbounds) for x in lims]
-            self.norms = [plt.Normalize(vmin=x[0], vmax=x[1]) for x in lims]
+            # If norm is 'stack', use different limits for each stack
+            if norm == 'stack':
+                self.norms = [plt.Normalize(vmin=x[0], vmax=x[1]) for x in lims]
+            # If norm is 'all', use the same limits for all stacks 
+            else:
+                vmin, vmax = np.min([x[0] for x in lims]), np.max([x[1] for x in lims])
+                self.norms = [plt.Normalize(vmin=vmin, vmax=vmax)] * len(self.fobjs)
         else:
             self.norms = [None] * len(self.fobjs)
             
@@ -373,7 +389,7 @@ def view_stack(*args, **kwargs):
     if args[0] is None:
         return
     cmap = kwargs.pop('cmap', 'viridis')
-    norm = kwargs.pop('norm', True)
+    norm = kwargs.pop('norm', 'stack')
     rel_vbounds = kwargs.pop('rel_vbounds', None)
     fbounds = kwargs.pop('fbounds', None)
     fps = kwargs.pop('fps', None)
