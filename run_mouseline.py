@@ -71,5 +71,4 @@ if __name__ == '__main__':
             output_nbpaths = execute_notebooks(
                 params, input_nbpath, outdir, mpi=mpi, ask_confirm=ask_confirm)
 
-
-logger.info('all analyses completed')
+logger.info('done.')
