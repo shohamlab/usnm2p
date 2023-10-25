@@ -10,7 +10,7 @@ import jupyter_slack
 import os
 import papermill as pm
 from nbclient.exceptions import DeadKernelError
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentTypeError
 
 from logger import logger
 from batches import Batch, create_queue
