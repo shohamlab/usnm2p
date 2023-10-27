@@ -116,10 +116,26 @@ class Label:
     IS_RESP_ROI = 'responsive ROI?'
     ROI_RESP_TYPE = 'responder type'
 
-    # Labels that must be renamed upon averaging 
-    RENAME_ON_AVERAGING = {
+    # Labels that must be renamed upon aggregation 
+    RENAME_UPON_AGG = {
         PRESTIM_ACTIVITY: PRESTIM_RATE
     }
+
+    # Labels that must be "resolved" upon aggregation
+    RESOLVE_UPON_AGG = [
+        P,
+        DC,
+        ISPPA,
+        ISPTA,
+        PSPTA,
+        PSPPRMS,
+        PSPTRMS,
+        ISPPRMS,
+        ISPTRMS,
+        PRF,
+        DUR,
+        FPS
+    ]
 
     # Exclusion criteria
     POORSEG = 'poor segmentation'	
@@ -165,11 +181,11 @@ RTYPE = pd.api.types.CategoricalDtype(
 TRIAL_VALIDITY_KEYS = [
     Label.DISCARDED,
     Label.MOTION,
-    Label.OUTLIER,
+    # Label.OUTLIER,
     Label.PRESTIM_ACTIVITY,
     Label.PRESTIM_POP_ACTIVITY,
     Label.PRESTIM_INHIBITION,
-]
+] 
 
 ###################################### MISCELLANEOUS ######################################
 
@@ -260,7 +276,7 @@ BASELINE_WSMOOTHING = None  # gaussian filter window size (s) to smooth out fluo
 ###################################### STATISTICS ######################################
 
 # Trials discarding
-ITRIALS_DISCARD = []  # indexes of trials to be automatically discarded for each ROI & run 
+ITRIALS_DISCARD = [0]  # indexes of trials to be automatically discarded for each ROI & run
 
 # Activity events detection & quantification
 MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
@@ -272,7 +288,7 @@ VDISP_AVG_THR = 2.  # threshold average displacement velocity (um/s). Trials wit
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 NSTD_DEV_THR = 5  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 MIN_VALID_TRIALS = 5  # minimum of avaliable valid trials to average from for the ROI-condition to be valid 
-ZTHR_REJECTION = 3.  # threshold absolute z-score for signal rejection
+ZTHR_REJECTION = 3000.  # threshold absolute z-score for signal rejection
 PTHR_REJECTION = 0.01  # significance threshold probability for signal rejection
 
 # Trial aggregation

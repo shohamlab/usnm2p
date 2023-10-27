@@ -1467,7 +1467,7 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
             ax.axvline(iframe, color='k', linestyle='--')
     
     # Return figure
-    return fig    
+    return fig
 
 
 def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
@@ -3244,11 +3244,12 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     if hue_alpha == 0.:
         pltkwargs['errorbar'] = None
 
+    fig = plot_from_data(
+        data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
+        err_style=hueerr_style, legend=legend, lw=lw, **pltkwargs)
+    
     # If hueplt specified
     if hueplt:
-        fig = plot_from_data(
-            data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
-            err_style=hueerr_style, legend=legend, lw=lw, **pltkwargs)
         # Get legend
         if ax is None:
             ax = fig.axes[0]
@@ -3266,6 +3267,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
                 bb.x1 += xoff
                 leg.set_bbox_to_anchor(bb, transform=ax.transAxes)
             leg.set(frame_on=False)
+    else:
+        avgprop = None
 
     # If propagated global average must be plotted
     if avgprop is not None:
@@ -6009,3 +6012,120 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
     
     # Return figure handle
     return g.fig
+
+
+def plot_pct_excluded(stats, keys=None, gby=None, ax=None):
+    ''' 
+    Plot the percentage of samples labeled as "invalid" in a dataset, from a
+    list of exclusion keys.
+    
+    :param stats: experiment stats dataframe
+    :param keys: list of exclusion keys (optional)
+    :param gby: grouping variable (optional)
+    :param ax: axis handle (optional)
+    :return: figure handle
+    '''
+    # If no exclusion keys are specified, use default ones
+    if keys is None:
+        keys = TRIAL_VALIDITY_KEYS
+
+    # Remove keys not found in input dataframe
+    keys = [k for k in keys if k in stats.columns]
+
+    # If no grouping variable is specified, use first index level
+    if gby is None:
+        if isinstance(stats.index, pd.MultiIndex):
+            gby = stats.index.names[0]
+        else:
+            gby = stats.idnex.name
+    
+    # Extract exclusion stats
+    exc_stats = stats[keys].astype(int) * 1e2
+    if gby is not None:
+        exc_stats = exc_stats.groupby(gby).mean()
+
+    # Create/retrieve figure and axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(3, 3))
+    else:
+        fig = ax.get_figure()
+    sns.despine(ax=ax)
+    
+    # Plot % excluded per criterion (bar and strip plot)
+    logger.info(f'plotting % of excluded samples per {gby}, across criteria')
+    pltkwargs = dict(
+        data=exc_stats,
+        order=keys,
+        orient='h',
+        ax=ax
+    )
+    sns.barplot(**pltkwargs)
+    sns.stripplot(palette='dark:dimgray', **pltkwargs)
+    ax.set_xlabel('% excluded')
+    ax.set_title(f'% excluded, per {gby}')
+
+    # Return figure handle
+    return fig
+
+
+def plot_traces_vs_exclusion(timeseries, stats, ykey, keys=None, add_combs=False, ax=None):
+    ''' 
+    Plot average time traces vs. exclusion criteria
+    
+    :param timeseries: timeseries dataframe
+    :param stats: experiment stats dataframe
+    :param ykey: output variable
+    :param keys: list of exclusion keys (optional)
+    :param add_combs (optional): whether to add combination of exclusion keys
+    :param ax: axis handle (optional)
+    :return: figure handle
+    '''
+    # If no exclusion keys are specified, use default ones
+    if keys is None:
+        keys = TRIAL_VALIDITY_KEYS
+    
+    # Remove keys not found in input stats dataframe
+    keys = [k for k in keys if k in stats.columns]
+    
+    # Filter out keys that are not boolean-typed (meaning they have already undergone aggregation)
+    isbool = stats[keys].dtypes == bool
+    keys = isbool.loc[isbool].index.to_list()
+
+    # Add time column to timeseries, if not present
+    if Label.TIME not in timeseries.columns:
+        add_time_to_table(timeseries, fps=get_singleton(stats, Label.FPS))
+
+    # Compute combinations of any of these validity keys
+    combrange = range(1, len(keys) + 1) if add_combs else [1]
+    combs = [()]
+    for i in combrange:
+        combs += list(combinations(keys, i))
+
+    # Create /retrieve figure and axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 4))
+    else:
+        fig = ax.get_figure()
+    sns.despine(ax=ax)
+    
+    # For each combination of validity keys, extract and plot valid timeseries
+    for comb in combs:
+        lbl = ' & '.join(comb) if len(comb) > 0 else 'none'
+        dfout = valid_timeseries(timeseries, stats, keys=comb)
+        pctout = (1 - len(dfout) / len(timeseries)) * 1e2
+        lbl = f'{lbl} ({pctout:.1f}%)'
+        ax = sns.lineplot(
+            data=dfout,
+            x=Label.TIME,
+            y=ykey,
+            ax=ax,
+            label=lbl,
+            errorbar=None,
+            color='k' if len(comb) == 0 else None,
+        )
+    ax.legend(bbox_to_anchor=(1, 1), frameon=False, title='criterion (% excl.)')
+    ax.axvline(0, color='k', ls='--')
+    ax.set_title('traces vs. exclusion criteria')
+
+    # Return figure handle
+    return fig

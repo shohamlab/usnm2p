@@ -10,6 +10,7 @@ from collections import Counter
 from itertools import combinations
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.ndimage import maximum_filter1d, minimum_filter1d, gaussian_filter1d
@@ -750,7 +751,7 @@ def aggregate_along(data, level=Label.TRIAL, aggfunc=None, verbose=True):
     return data.groupby(gby).mean()
 
 
-def get_trial_aggregated(data, aggfunc=None, full_output=False, inner_call=False):
+def get_trial_aggregated(data, aggfunc=None, full_output=False):
     '''
     Compute trial-aggregated statistics
     
@@ -759,42 +760,72 @@ def get_trial_aggregated(data, aggfunc=None, full_output=False, inner_call=False
     '''
     # Default aggregating function to mean if not provided
     if aggfunc is None:
-        aggfunc = lambda s: s.mean()
-    # Group trials
-    dims = data.index.names
-    assert dims[-1] == Label.TRIAL, 'trial is not the last index dimension'
-    gby = dims[:-1]
-    if not inner_call:
-        logger.info(f'aggregating trial data over {", ".join(gby)}')
-    if Label.DATASET in gby:
-        return data.groupby(Label.DATASET).progress_apply(
-            lambda gdata: get_trial_aggregated(
-                gdata.droplevel(Label.DATASET), 
-                aggfunc=aggfunc, 
-                full_output=full_output, 
-                inner_call=True)
-        )
+        aggfunc = np.mean # lambda s: s.mean()
+    
+    # If data contains any non-numeric columns, make aggfunc string-proof
+    is_numeric = [is_numeric_dtype(dt) for dt in data.dtypes.values]
+    if not all(is_numeric):
+        logger.info('data contains non-numeric columns -> string-proofing aggfunc')
+        aggfunc = str_proof(aggfunc)
 
-    groups = data.groupby(gby)
-    # Compute average of stat across trials
-    agg_data = groups.agg(str_proof(aggfunc))
-    # DataFrame case
-    if isinstance(agg_data, pd.DataFrame):
-        # Remove time column if present
-        if Label.TIME in agg_data:
-            del agg_data[Label.TIME]
-        # Rename relevant input columns to their trial-averaged meaning
-        cols = {}
-        for k, v in Label.RENAME_ON_AVERAGING.items():
-            if k in agg_data:
-                cols[k] = v
-        if len(cols) > 0:
-            agg_data.rename(columns=cols, inplace=True)
-    # Series case
-    else:
-        # Rename input to its trial-average meaning if necessary
-        if agg_data.name in Label.RENAME_ON_AVERAGING.keys():
-            agg_data.name = Label.RENAME_ON_AVERAGING[agg_data.name]
+    # Extract non-trial index dimensions
+    gby_dims = [k for k in data.index.names if k != Label.TRIAL]
+    gby_str = ", ".join(gby_dims)
+
+    # Log process 
+    logger.info(f'computing trial-{aggfunc.__name__} of data over {gby_str}...')
+
+    # Cast to dataframe
+    is_series = isinstance(data, pd.Series)
+    if is_series:
+        data = data.to_frame()
+    
+    # Group data across grouping dimensions
+    groups = data.groupby(gby_dims)
+
+    # Compute aggregate of data across trials
+    agg_data = groups.agg(aggfunc)
+    
+    # Remove time column if present
+    if Label.TIME in agg_data:
+        del agg_data[Label.TIME]
+    
+    # Rename relevant input columns to their trial-aggregated meaning
+    # from constants import Label
+    cols = {}
+    for k, v in Label.RENAME_UPON_AGG.items():
+        if k in agg_data:
+            cols[k] = v
+    if len(cols) > 0:
+        agg_data.rename(columns=cols, inplace=True)
+
+    # Resolve close elements for relevant input columns  
+    for k in Label.RESOLVE_UPON_AGG:
+        if k in agg_data:
+            agg_data[k] = resolve_close_elements(agg_data[k])
+    
+    # Identify z-score (or z-score metrics) related columns in data
+    is_zscore_col = [Label.ZSCORE in col for col in data.columns]
+
+    # If z-score columns are present
+    if any(is_zscore_col):
+        # Compute number of valid trials per condition group
+        logger.info(f'computing number of valid trials per {gby_str}')
+        nvalid_trials_per_group = groups.count().iloc[:, 0]
+        # Compute corresponding z-score scaling factors
+        zfactors = np.sqrt(nvalid_trials_per_group)
+
+        # Rescale z-score columns by scaling factors
+        zscore_cols = list(data.columns[is_zscore_col])
+        logger.info(f'rescaling z-score columns {zscore_cols}')
+        for col in zscore_cols:
+            agg_data[col] = agg_data[col] * zfactors
+    
+    # Cast back to series if input was a series
+    if is_series:
+        agg_data = agg_data.squeeze()
+
+    # Return output
     if full_output:
         # Compute std of metrics across trials
         trialstd_data = groups.std()
@@ -1245,40 +1276,70 @@ def is_valid_cond(isv):
     return nvalid_trials >= MIN_VALID_TRIALS
 
 
-def is_valid(data):
+def is_valid(data, keys=None, full_output=False):
     ''' 
     Return a series with an identical index as that of the input dataframe, indicating
     which rows are valid and must be included for response analysis.
 
     :param data: multi-index pandas experiment dataframe
-    :return: multi-index validity column
+    :param keys: list of validity keys to consider
+    :param full_output (default: False): whether to return also a list of used validity keys
+    :return: multi-index validity column (and optional list of used validity keys)
     '''
-    # Identify samples without any invalidity criterion
-    cols = [k for k in TRIAL_VALIDITY_KEYS if k in data.columns]
-    if len(cols) > 0:
-        logger.info(f'identifying samples without [{", ".join(cols)}] tags')
-    isv = ~data[cols].any(axis=1).rename('valid?')
+    # If no validity keys are provided, use default ones
+    if keys is None:
+        keys = TRIAL_VALIDITY_KEYS
+    
+    # Filter out validity keys that are not present in the dataframe
+    cols = [k for k in keys if k in data.columns]
+    
+    # Check that validity columns are boolean
+    if (data[cols].dtypes != bool).any():
+        raise TypeError(f'invalidity columns must be boolean')
+    
+    # If no validity keys are present, simply label all samples as valid 
+    if len(cols) == 0:
+        isv = pd.Series(True, index=data.index).rename('valid?')
+        nv, ntot = len(isv), len(isv)
+    
+    # Otherwise, identify samples without any invalidity criterion
+    else:
+        colstr = '[' + ', '.join(cols) + '] tags' if len(cols) > 1 else f'"{cols[0]}" tag'
+        isv = ~data[cols].any(axis=1).rename('valid?')
+        nv, ntot = isv.sum(), len(isv)
+        ninv = ntot - nv
+        pctinv = ninv / ntot * 1e2
+        logger.info(f'identified {ninv}/{ntot} ({pctinv:.1f}%) samples with {colstr}')
+    
     # Identify samples with a minimum number of valid trials for averaging purposes
     isv_cond = is_valid_cond(isv)
     isv_cond_exp = expand_to_match(isv_cond, isv.index)
+    
     # Update validity index with that information
     isv = np.logical_and(isv, isv_cond_exp)
+    ndiff = nv - isv.sum()
+    if ndiff > 0:
+        logger.info(f'filtered out additional {ndiff} ({ndiff * 1e2:.1f}) samples')
+    
     # Return
-    return isv
+    if full_output:
+        return isv, cols
+    else:
+        return isv
 
 
-def valid(df):
+def valid(df, **kwargs):
     ''' Return a copy of the dataframe with only valid rows that must be included for response analysis. '''
-    out = df.loc[is_valid(df), :].copy()
-    cols = [k for k in TRIAL_VALIDITY_KEYS if k in df.columns]
+    isv, cols = is_valid(df, full_output=True, **kwargs)
+    out = df.loc[isv, :].copy()
     for k in cols:
         del out[k]
     return out
 
 
-def valid_timeseries(timeseries, stats):
+def valid_timeseries(timeseries, stats, **kwargs):
     ''' Return a copy of a timeseries dataframe with only valid rows that must be included for response analysis. '''
-    isv = is_valid(stats.copy())
+    isv = is_valid(stats.copy(), **kwargs)
     logger.info('adding expanded validity index to timeseries ...')
     isv_exp = expand_to_match(isv, timeseries.index)
     logger.info('filtering timeseries ...')
@@ -1561,6 +1622,44 @@ def exclude_datasets(*dfs, to_exclude=None):
     return dfs_out if len(dfs_out) > 1 else dfs_out[0]
 
 
+def get_reference_stats_per_run(dfs):
+    '''
+    Extract reference stats-per-run dataframe from a list of multi-indexed experiment dataframes
+
+    :param dfs: list (or dictionary) of multi-indexed experiment dataframes
+    :return: reference stats-per-run dataframe
+    '''
+    # If dictionary, extract values list
+    if isinstance(dfs, dict):
+        dfs = list(dfs.values())
+    
+    # Filter out non-pandas objects
+    dfs = [df for df in dfs if isinstance(df, (pd.Series, pd.DataFrame))]
+
+    # Extract length and index dimensions for each dataframe, 
+    # and identify those that are stats
+    lengths = np.array([len(df) for df in dfs])
+    dims = [df.index.names for df in dfs]
+    is_stats = ~np.array([Label.FRAME in dim for dim in dims])
+
+    # If no stats dataframe, raise error
+    if not is_stats.any():
+        raise ValueError('no stats dataframe found in input')
+
+    # Extract shortest stats dataframe
+    istats = np.where(is_stats)[0]
+    stats_lengths = lengths[istats]
+    irefstats = istats[np.argmin(lengths[istats])]
+    refstats = dfs[irefstats]
+    
+    # Remove unecessary dimensions (i.e. anything but dataset and run)
+    gby = [Label.DATASET, Label.RUN] if Label.DATASET in refstats.index.names else [Label.RUN]
+    refstats_per_run = refstats.groupby(gby).first()
+
+    # Return reference stats-per-run dataframe
+    return refstats_per_run
+
+
 def get_param_code(data):
     ''' Get a code string from stimulation parameters column '''
     # Parse P and DC columns to strings
@@ -1578,6 +1677,9 @@ def process_runids(s):
             return s.groupby(Label.DATASET).transform(process_runids)
     # Extract run ID for each run
     org_runids = s.groupby(Label.RUN).first()
+    unique_ids = s.unique()
+    if len(unique_ids) != len(org_runids):
+        raise ValueError(f'found more run IDs ({len(unique_ids)}) than runs ({len(org_runids)})')
     # Subtract minimum value to uncover run sequence
     new_runids = org_runids - org_runids.min()
     # Replace run IDs by run sequence
@@ -1612,13 +1714,13 @@ def get_duplicated_runs(data, condition='param'):
     Get potential duplicated runs in a dataset 
     '''
     # Extract condition per run
-    first_by_run = data.groupby([Label.RUN]).first()
+    stats_per_run = get_reference_stats_per_run(data)
     if condition == 'param':
-        cond_per_run = get_param_code(first_by_run)
+        cond_per_run = get_param_code(stats_per_run)
     elif condition == 'offset':
-        cond_per_run = get_offset_code(first_by_run)
+        cond_per_run = get_offset_code(stats_per_run)
     elif condition == 'buzzer':
-        cond_per_run = get_buzzer_code(first_by_run)
+        cond_per_run = get_buzzer_code(stats_per_run)
     else:
         raise ValueError(f'unknown condition: "{condition}"')
     # Check for duplicates
@@ -1629,42 +1731,6 @@ def get_duplicated_runs(data, condition='param'):
     else:
         # Otherwise, return duplicate table
         return cond_per_run[isdup]
-
-
-def check_run_order(data, condition='param'):
-    ''' Check run order consistency across datasets '''
-    logger.info('checking for run order consistency across datasets...')
-    # Extract condition per run for each dataset
-    first_by_dataset_and_run = data.groupby([Label.DATASET, Label.RUN]).first()
-    if condition == 'param':
-        cond_per_run = get_param_code(first_by_dataset_and_run).unstack()
-    elif condition == 'offset':
-        cond_per_run = get_offset_code(first_by_dataset_and_run).unstack()
-    else:
-        raise ValueError(f'unrecognized condition: "{condition}"')
-    # Drop duplicates to get unique sequences of parameters
-    unique_cond_sequences = cond_per_run.drop_duplicates()
-    nseqs = len(unique_cond_sequences) 
-    # If differing sequences
-    if nseqs > 1:
-        # Get matches per sequence
-        matches = {}
-        for i, (seqlabel, ref_seq) in enumerate(unique_cond_sequences.iterrows()):
-            key = f'seq {i}'
-            matches[key] = []
-            for iseq, seq in cond_per_run.iterrows():
-                if seq.equals(ref_seq):
-                    matches[key].append(iseq)
-            if len(matches[key]) == 1:
-                matches[seqlabel] = matches.pop(key)
-        nmatches = [k if len(v) == 1 else f'{k} ({len(v)} matches)'
-                    for k, v in matches.items()]
-        unique_cond_sequences = unique_cond_sequences.transpose()
-        unique_cond_sequences.columns = nmatches
-
-        # Raise error
-        raise ValueError(
-            f'different run orders across datasets:\n{unique_cond_sequences}')
 
 
 def get_run_mapper(pcodes):
@@ -1683,24 +1749,36 @@ def get_run_mapper(pcodes):
 
 def update_run_index(data, runidx):
     ''' Get new run indexes column and update appropriate data index level '''
+    # Extract current index as dataframe
     mux = data.index.to_frame()
+    # Transform to dictionary
     muxdict = {k: mux[k].values for k in mux.columns}
+    # Add entry for run index
     muxdict[Label.RUN] = runidx
+    # Re-construct multi-index from dictionary entries
     new_mux = pd.MultiIndex.from_arrays(list(muxdict.values()), names=muxdict.keys())
+    # Update data index
     data.index = new_mux
+    # Return data
     return data
 
 
-def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, condition='param'):
+def harmonize_run_index(dfs, condition='param'):
     '''
     Generate a new harmonized run index in multi-region dataset, based on a specific condition
     (e.g. P-DC combination)
     
-    :param trialagg_timeseries: multi-indexed timeseries dataframe containing multiple datasets
-    :param stats: multi-indexed stats dataframe containing multiple datasets
-    :return: dataframes tuple with harmonized run indexes
+    :param dfs: dictionary of multi-indexed, multi-dataset dataframes
+    :return: dictionary of dataframes with harmonized run indexes
     '''
-    logger.info(f'harmonizing run index by {condition} across datasets...')    
+    # Cast input as dictionary if necessary
+    if not isinstance(dfs, dict):
+        if isinstance(dfs, pd.DataFrame):
+            dfs = {'_': dfs}
+        else:
+            raise TypeError(f'invalid input type: {type(dfs)}')
+
+    logger.info(f'harmonizing run index by {condition} across datasets')    
     # Determine condition generating function
     try:
         condfunc = {
@@ -1709,34 +1787,64 @@ def harmonize_run_index(trialagg_timeseries, popagg_timeseries, stats, trialagg_
         }[condition]
     except KeyError:
         raise ValueError(f'unknown condition key: "{condition}"')
-    
+
+    # Initialize empty conditions dictionary 
+    conds = {}
+    logger.info(f'generating expanded conditions...')
+
     # Get conditions from extended and trial-aggregated stats
-    trialagg_stats_conds = condfunc(trialagg_stats).rename('condition')
-    stats_conds = condfunc(stats).rename('condition')
-    
+    conds['trialagg_stats'] = condfunc(dfs['trialagg_stats']).rename('condition')
+    conds['stats'] = condfunc(dfs['stats']).rename('condition')
+
     # Expand trialagg conditions on frames to get conditions compatible with trialagg timeseries
-    trialagg_timeseries_conds = expand_to_match(trialagg_stats_conds, trialagg_timeseries.index)
+    conds['trialagg_timeseries'] = expand_to_match(
+        conds['trialagg_stats'], dfs['trialagg_timeseries'].index)
     
     # Remove ROI dimension from trial-aggregated conditions
-    nonROI_groupby = list(filter(lambda x: x != Label.ROI, trialagg_stats_conds.index.names))
-    popagg_trialagg_stats_conds = trialagg_stats_conds.groupby(nonROI_groupby).first()
+    nonROI_groupby = list(filter(lambda x: x != Label.ROI, conds['trialagg_stats'].index.names))
+    conds['popagg_trialagg_stats'] = conds['trialagg_stats'].groupby(nonROI_groupby).first()
     # Expand on trials to get conditions compatible with popagg timeseries
-    popagg_timeseries_conds = expand_to_match(popagg_trialagg_stats_conds, popagg_timeseries.index)
+    conds['popagg_timeseries'] = expand_to_match(
+        conds['popagg_trialagg_stats'], dfs['popagg_timeseries'].index)
     
     # Get stimparams: run-index mapper
-    mapper = get_run_mapper(trialagg_stats_conds)
+    mapper = get_run_mapper(conds['trialagg_stats'])
     logger.debug(f'run map:\n{pd.Series(mapper)}')
     
-    # Get new run indexes column and update appropriate data index level
-    stats = update_run_index(stats, stats_conds.map(mapper))
-    trialagg_stats = update_run_index(trialagg_stats, trialagg_stats_conds.map(mapper))
-    trialagg_timeseries = update_run_index(
-        trialagg_timeseries, trialagg_timeseries_conds.map(mapper))
-    popagg_timeseries = update_run_index(
-        popagg_timeseries, popagg_timeseries_conds.map(mapper))
+    # # Get reference stats-per-run dataframe
+    # refstats = get_reference_stats_per_run(dfs)
+    
+    # # Get conditions from references stats and construct condition - run mapper
+    # conds = condfunc(refstats).rename('condition')
+    # mapper = get_run_mapper(conds)
+    # logger.debug(f'run map:\n{pd.Series(mapper)}')
 
-    # Return harmonized dataframes
-    return trialagg_timeseries, popagg_timeseries, stats, trialagg_stats
+    # # Generete expanded conditions for each data structure
+    # conds = {}
+    # for k, df in dfs.items():
+    #     try:
+    #         conds[k] = expand_to_match(conds, df.index)
+    #     except ValueError:
+    #         conds[k] = free_expand(conds, df)
+    
+    # Get new run indexes column and update appropriate data index level
+    dfs_out = {}
+    for k, df in dfs.items():
+        logger.info(f'updating {k} run index')
+        dfs_out[k] = update_run_index(df, conds[k].map(mapper))
+        
+        # SANITY CHECK: Check that RUNID column has a unique value for each dataset and run
+        if Label.RUNID in df.columns:
+            for (d, r), runid in df[Label.RUNID].groupby([Label.DATASET, Label.RUN]):
+                if runid.nunique() > 1:
+                    raise ValueError(f'found non-unique run ID for dataset {d} and run {r}: {runid.unique()}')
+    
+    # If only one harmonized dataframe, return it
+    if len(dfs_out) == 1 and '_' in dfs_out:
+        return dfs_out['_']
+
+    # Otherwise, return harmonized dataframes dictionary
+    return dfs_out
 
 
 def highlight_incomplete(x, xref=None):
@@ -2918,7 +3026,7 @@ def free_expand(s, ref_df, verbose=True):
 
     # If dataframe input, expand each constituent column
     if isinstance(s, pd.DataFrame):
-        return pd.concat([free_expand(s[ss], ref_df, verbose=False) for ss in s], axis=1)
+        return pd.concat([free_expand(s[k], ref_df, verbose=False) for k in s], axis=1)
 
     # Extract index dimensions of series to expand
     gby = list(s.index.names)

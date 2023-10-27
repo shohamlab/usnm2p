@@ -670,12 +670,20 @@ def load_processed_dataset(fpath):
         trialagg_stats = store['triagg_stats']
         ROI_masks = store['ROI_masks']
         map_ops = store['map_ops'].to_dict()
-    return trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, ROI_masks, map_ops
+    # Return as dictionary
+    return {
+        'trialagg_timeseries': trialagg_timeseries,
+        'popagg_timeseries': popagg_timeseries,
+        'stats': stats,
+        'trialagg_stats': trialagg_stats,
+        'ROI_masks': ROI_masks,
+        'map_ops': map_ops
+    }
 
 
 def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
                             on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
-                            compute_evoked=False, **kwargs):
+                            **kwargs):
     '''
     Load multiple mouse-region datasets
     
@@ -716,16 +724,6 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
         logger.warning(f'excluding datasets with the following patterns:\n{itemize(exclude_patterns)}')
         fpaths = list(filter(lambda x: not any(e in x for e in exclude_patterns), fpaths))
     
-    # Load timeseries and stats datasets
-    datasets = [load_processed_dataset(fpath) for fpath in fpaths]
-    if len(datasets) == 0:
-        raise ValueError(f'no valid datasets found in "{dirpath}"')
-    trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, ROI_masks, map_ops = list(zip(*datasets))
-    trialagg_timeseries = list(trialagg_timeseries)
-    popagg_timeseries = list(popagg_timeseries)
-    stats = list(stats)
-    trialagg_stats = list(trialagg_stats)
-
     # Get dataset IDs
     logger.info('gathering dataset IDs...')
     dataset_ids = []
@@ -736,10 +734,16 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
             dataset_id = dataset_id[1:]
         dataset_ids.append(dataset_id)
     
+    # Load timeseries and stats datasets
+    datasets = [load_processed_dataset(fpath) for fpath in fpaths]
+    if len(datasets) == 0:
+        raise ValueError(f'no valid datasets found in "{dirpath}"')
+        
     # For each dataset
     for i, dataset_id in enumerate(dataset_ids):
         # Check for potential run duplicates in trial aggregated stats
-        dup_table = get_duplicated_runs(trialagg_stats[i], **kwargs)
+        dup_table = get_duplicated_runs(datasets[i], **kwargs)
+        # dup_table = get_duplicated_runs(trialagg_stats[i], **kwargs)
         # If dupliactes are found
         if dup_table is not None:
             dupstr = f'duplicated runs in {dataset_id}:\n{dup_table}'
@@ -752,79 +756,46 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
                 # If specified, drop a run
                 if on_duplicate_runs == 'drop':
                     idrop = dup_table.index[0]
-                    logger.warning(f'dropping run {idrop} from stats and timeseries...')
-                    trialagg_stats[i] = trialagg_stats[i].drop(idrop, level=Label.RUN)
-                    stats[i] = stats[i].drop(idrop, level=Label.RUN)
-                    trialagg_timeseries[i] = trialagg_timeseries[i].drop(idrop, level=Label.RUN)
-                    popagg_timeseries[i] = popagg_timeseries[i].drop(idrop, level=Label.RUN)
-
+                    logger.warning(f'dropping run {idrop} from dataset...')
+                    for k, v in datasets[i].items():
+                        if isinstance(v, (pd.DataFrame, pd.Series)) and Label.RUN in v.index.names:
+                            datasets[i][k] = v.drop(idrop, level=Label.RUN)
+                    
     # Concatenate datasets while adding their respective IDs
-    trialagg_timeseries = pd.concat(trialagg_timeseries, keys=dataset_ids, names=[Label.DATASET])
-    popagg_timeseries = pd.concat(popagg_timeseries, keys=dataset_ids, names=[Label.DATASET])
-    trialagg_stats = pd.concat(trialagg_stats, keys=dataset_ids, names=[Label.DATASET])
-    stats = pd.concat(stats, keys=dataset_ids, names=[Label.DATASET])
-    ROI_masks = pd.concat(ROI_masks, keys=dataset_ids, names=[Label.DATASET])
-    map_ops = dict(zip(dataset_ids, map_ops))
+    logger.info('assembling data structures...')
+    keys = list(datasets[0].keys())
+    data_structures = {}
+    for k in keys:
+        ds = [d[k] for d in datasets]
+        if isinstance(ds[0], (pd.DataFrame, pd.Series)):
+            data_structures[k] = pd.concat(ds, keys=dataset_ids, names=[Label.DATASET])
+        else:
+            data_structures[k] = dict(zip(dataset_ids, ds))
 
-    # Sort index for each dataset
-    logger.info('sorting dataset indexes...')
-    trialagg_timeseries.sort_index(
-        level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True)
-    popagg_timeseries.sort_index(
-        level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
-    stats.sort_index(
-        level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
-    trialagg_stats.sort_index(
-        level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
-    ROI_masks.sort_index(
-        level=[Label.DATASET, Label.ROI], inplace=True)
-
+    # If specified, harmonize run index of all run-indexed pandas objects 
+    # across datasets according to some condition
     if harmonize_runs:
-        # try:
-        #     # Check run order consistency across datasets
-        #     check_run_order(trialagg_stats, **kwargs)
-        # except ValueError as err:
-        #     # If needed, harmonize run indexes in stats & timeseries
-        #     logger.warning(err)
-        
-        trialagg_timeseries, popagg_timeseries, stats, trialagg_stats = harmonize_run_index(
-            trialagg_timeseries, popagg_timeseries, stats, trialagg_stats, **kwargs) 
+        dfs = {k: v for k, v in data_structures.items() if 
+               isinstance(v, (pd.DataFrame, pd.Series)) and Label.RUN in v.index.names} 
+        dfs = harmonize_run_index(dfs, **kwargs)
+        for k, v in dfs.items():
+            data_structures[k] = v
 
-        # Sort index for each dataset AGAIN
-        logger.info('sorting dataset indexes...')
-        trialagg_timeseries.sort_index(
-            level=[Label.DATASET, Label.ROI, Label.RUN, Label.FRAME], inplace=True) 
-        popagg_timeseries.sort_index(
-            level=[Label.DATASET, Label.RUN, Label.TRIAL, Label.FRAME], inplace=True) 
-        stats.sort_index(
-            level=[Label.DATASET, Label.ROI, Label.RUN, Label.TRIAL], inplace=True)
-        trialagg_stats.sort_index(
-            level=[Label.DATASET, Label.ROI, Label.RUN], inplace=True)
-        ROI_masks.sort_index(
-            level=[Label.DATASET, Label.ROI], inplace=True)
+    # Sort index for each data structure
+    logger.info('sorting data structures index...')
+    for k in data_structures.keys():
+        if isinstance(data_structures[k], (pd.DataFrame, pd.Series)):
+            data_structures[k].sort_index(
+                level=list(data_structures[k].index.names), inplace=True)
     
     # Process run IDs to uncover run sequences
     logger.info('processing run IDs to uncover run sequences...')
-    trialagg_stats[Label.RUNID] = process_runids(trialagg_stats[Label.RUNID])
-    stats[Label.RUNID] = process_runids(stats[Label.RUNID])
+    for k, v in data_structures.items():
+        if isinstance(v, pd.DataFrame) and Label.RUNID in v.columns:
+            data_structures[k][Label.RUNID] = process_runids(v[Label.RUNID])
 
-    # Add missing change metrics, if any
-    if compute_evoked:
-        for ykey in [Label.ZSCORE, Label.DFF]:
-            ykey_diff = get_change_key(ykey)
-            if ykey_diff not in stats:
-                trialagg_stats = add_change_metrics(trialagg_timeseries, trialagg_stats, ykey)
-    
-    # Return stats and timeseries as a dictionary
-    logger.info('datasets successfully loaded')
-    return {
-        'trialagg_timeseries': trialagg_timeseries,
-        'popagg_timeseries': popagg_timeseries,
-        'stats': stats,
-        'trialagg_stats': trialagg_stats,
-        'ROI_masks': ROI_masks,
-        'map_ops': map_ops
-    }
+    # Return data_structures
+    return data_structures
 
 
 def load_lineagg_data(dirpath, errprop='intra'):
