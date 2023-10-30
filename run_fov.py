@@ -2,6 +2,7 @@
 from argparse import ArgumentParser
 import numpy as np
 from nbutils import execute_notebook
+from logger import logger
 
 # Parse projection function from command line
 parser = ArgumentParser()

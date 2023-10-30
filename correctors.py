@@ -104,12 +104,36 @@ class LinRegCorrector(Corrector):
     @classmethod
     def from_string(cls, s):
         ''' Instantiate class from string code '''
-        robust='robust' in s
-        intercept='nointercept' not in s
-        return cls(
-            robust=robust,
-            intercept=intercept
-        )
+
+        POS_FLOAT = '(?:[1-9]\d*|0)?(?:\.\d+)?'
+
+        # Check if string code is compatible with class
+        if not s.startswith('linreg'):
+            raise ValueError(f'code {s} is not compatible with {cls.__name__}')
+        
+        # Split code by underscores
+        s = s.split('_')[1:]
+
+        # Define parameters dictionary
+        params = {}
+
+        # Extract parameters from code
+        for item in s:
+            if item == 'robust':
+                params['robust'] = True
+            elif item == 'nointercept':
+                params['intercept'] = False
+            elif item.startswith('iref'):
+                params['iref'] = range(*[int(i) for i in item[4:].split('-')])
+            elif item.startswith('qmin'):
+                params['qmin'] = float(item[4:])
+            elif item.startswith('qmax'):
+                params['qmax'] = float(item[4:])
+            else:
+                raise ValueError(f'unknown parameter: "{item}"')
+        
+        # Instantiate class with extracted parameters
+        return cls(**params)
         
     @property
     def robust(self):

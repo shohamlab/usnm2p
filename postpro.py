@@ -1792,40 +1792,52 @@ def harmonize_run_index(dfs, condition='param'):
     conds = {}
     logger.info(f'generating expanded conditions...')
 
-    # Get conditions from extended and trial-aggregated stats
-    conds['trialagg_stats'] = condfunc(dfs['trialagg_stats']).rename('condition')
-    conds['stats'] = condfunc(dfs['stats']).rename('condition')
+    # Get conditions from each stat dataframe
+    min_ndims, ref_minkey = np.inf, None 
+    for k, df in dfs.items():
+        if Label.FRAME not in df.index.names:
+            conds[k] = condfunc(df).rename('condition')
+            if conds[k].index.nlevels < min_ndims:
+                min_ndims = conds[k].index.nlevels
+                ref_minkey = k
+    statkeys = list(conds.keys())
+    
+    # Loop through timeseries dataframes
+    for k, df in dfs.items():
+        if Label.FRAME in df.index.names:
+            # Get condition series that contains all non-frame dimensions in
+            # the timeseries with the fewest extra dimensions
+            refdims = list(set(df.index.names) - {Label.FRAME})
+            ref_sk, ref_extrakeys = None, None
+            for sk in statkeys:
+                if all(kk in conds[sk].index.names for kk in refdims):
+                    extrakeys = list(set(conds[sk].index.names) - set(refdims))
+                    if ref_extrakeys is None or len(extrakeys) < len(ref_extrakeys):
+                        ref_sk, ref_extrakeys = sk, extrakeys
 
-    # Expand trialagg conditions on frames to get conditions compatible with trialagg timeseries
-    conds['trialagg_timeseries'] = expand_to_match(
-        conds['trialagg_stats'], dfs['trialagg_timeseries'].index)
-    
-    # Remove ROI dimension from trial-aggregated conditions
-    nonROI_groupby = list(filter(lambda x: x != Label.ROI, conds['trialagg_stats'].index.names))
-    conds['popagg_trialagg_stats'] = conds['trialagg_stats'].groupby(nonROI_groupby).first()
-    # Expand on trials to get conditions compatible with popagg timeseries
-    conds['popagg_timeseries'] = expand_to_match(
-        conds['popagg_trialagg_stats'], dfs['popagg_timeseries'].index)
-    
-    # Get stimparams: run-index mapper
-    mapper = get_run_mapper(conds['trialagg_stats'])
-    logger.debug(f'run map:\n{pd.Series(mapper)}')
-    
-    # # Get reference stats-per-run dataframe
-    # refstats = get_reference_stats_per_run(dfs)
-    
-    # # Get conditions from references stats and construct condition - run mapper
-    # conds = condfunc(refstats).rename('condition')
-    # mapper = get_run_mapper(conds)
-    # logger.debug(f'run map:\n{pd.Series(mapper)}')
+            # If no reference condition is found, raise error 
+            if ref_sk is None:
+                raise ValueError(f'could not find reference condition stats for {k} timeseries')
 
-    # # Generete expanded conditions for each data structure
-    # conds = {}
-    # for k, df in dfs.items():
-    #     try:
-    #         conds[k] = expand_to_match(conds, df.index)
-    #     except ValueError:
-    #         conds[k] = free_expand(conds, df)
+            # Otherwise, get reference condition
+            refcond = conds[ref_sk]
+
+            # If extra dimensions are present, reduce dimensionality of 
+            # reference condition by sampling first value for each extra dimension 
+            s = f'expanding "{ref_sk}" condition'
+            if len(ref_extrakeys) > 0:
+                gby = list(filter(lambda x: x not in ref_extrakeys, refcond.index.names))
+                s = f'{s} w/o. {ref_extrakeys} dimensions'
+                refcond = refcond.groupby(gby).first()
+            
+            # Create expanded condition compatible with timeseries
+            s = f'{s} to match "{k}" timeseries'
+            logger.info(s)
+            conds[k] = expand_to_match(refcond, dfs[k].index)
+    
+    # Get condition: run-index mapper
+    mapper = get_run_mapper(conds[ref_minkey])
+    logger.debug(f'run map:\n{pd.Series(mapper)}')    
     
     # Get new run indexes column and update appropriate data index level
     dfs_out = {}
