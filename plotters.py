@@ -14,6 +14,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
 from matplotlib.ticker import FormatStrFormatter
@@ -146,6 +147,140 @@ def harmonize_axes_limits(axes, axkey='y'):
         # Set as bounds for all axes
         for ax in axes.ravel():
             limsetter(ax)(*bounds)
+
+
+def parser_axis_label(label):
+    '''
+    Extract name and unit from axis label, or raise error if not possible
+
+    :param label: axis label
+    :return: name and unit
+    '''
+    # Regular expression for "<name> (<unit>)" label
+    lbl_pattern = r'^(.*)\s*\s\((.*)\)$' 
+
+    # Attempt to match pattern to label
+    mo = re.match(lbl_pattern, label)
+
+    # If no match found, raise Error
+    if mo is None:
+        raise ValueError(f'could not extract unit from "{label}" label')
+    
+    # If label matches pattern, extract name and unit, and return
+    name, unit = mo.groups()
+    return name, unit
+
+
+def add_minimal_xy_scale(ax, pos='bottom-left', hide_original=True, xunit='auto', yunit='auto', 
+                         anchor_margin=0, lw=2, fs=12, adjust_background=True):
+    ''' 
+    Add a minimal xy scale for a given axis
+    
+    :param ax: the axis to create the minimal xy scale for
+    :param pos: the position of the minimal xy scale. Can be one of 
+        'bottom-left', 'bottom-right', 'top-left', 'top-right'
+    :param hide_original: whether to hide the original axis or not
+    :param xunit: the unit to use for the x axis. If None, no unit is displayed. If 'auto', the unit
+        is inferred from the original axis label. 
+    :param yunit: the unit to use for the y axis. If None, no unit is displayed. If 'auto', the unit
+        is inferred from the original axis label.
+    :param anchor_margin: the margin to use for the anchor of the minimal xy scale
+    :param lw: the linewidth of the spines of the minimal xy scale
+    :param fs: the fontsize of the xy labels of the minimal xy scale
+    :param adjust_background: whether to adjust the background of the underlying figure
+    :return: the axis containing the minimal xy scale 
+    '''
+    # If pos is not one of the allowed values, raise an exception
+    if pos not in ['bottom-left', 'bottom-right', 'top-left', 'top-right']:
+        raise Exception('pos must be one of \'bottom-left\', \'bottom-right\', \'top-left\', \'top-right\'')
+    
+    # Get axis X and Y limits
+    xybounds = np.array([ax.get_xlim(), ax.get_ylim()])
+    
+    # Compute the range of the axis in data units
+    xyrange_data = np.diff(xybounds, axis=1).T[0]
+
+    # Get the nearest power of ten less than the range in each direction
+    xyscale_data = np.power(10, np.floor(np.log10(.75 * xyrange_data))).tolist()
+    if xyscale_data[0] >= 1.:
+        xyscale_data[0] = int(xyscale_data[0])
+    if xyscale_data[1] >= 1.:
+        xyscale_data[1] = int(xyscale_data[1])
+
+    # Convert to axis units 
+    xyscale = data_to_axis(ax, xyscale_data) - data_to_axis(ax, (0, 0))
+
+    # Get XY scale anchor based on specified position
+    xyanchor = np.array([anchor_margin, anchor_margin])
+    posy, posx = pos.split('-')
+    if posx == 'right':
+        xyanchor[0] = 1 - xyanchor[0] - xyscale[0]
+    if posy == 'top':
+        xyanchor[1] = 1 - xyanchor[1] - xyscale[1]
+
+    # Create inset axis for XY scale
+    ax_minimal = ax.inset_axes([*xyanchor, *xyscale])
+
+    # Set axis content to transparent and adjust spines thickness
+    ax_minimal.patch.set_alpha(0)
+    for sk in ['top', 'right', 'bottom', 'left']:
+        ax_minimal.spines[sk].set_linewidth(lw)
+
+    # Remove ticks and tick labels from the inset axis
+    ax_minimal.set_xticks([])
+    ax_minimal.set_yticks([])
+    ax_minimal.set_xticklabels([])
+    ax_minimal.set_yticklabels([])
+
+    # Determine which inset spines to hide and where to put XY labels, 
+    # based on the specified position
+    spines_hide = {'x': 'right', 'y': 'top'}
+    if posy == 'top':
+        ax_minimal.xaxis.set_label_position('top')
+        spines_hide['y'] = 'bottom'
+    if posx == 'right':
+        ax_minimal.yaxis.set_label_position('right')
+        spines_hide['x'] = 'left'
+    
+    # Hide spines from the inset axis
+    for sk in spines_hide.values():
+        ax_minimal.spines[sk].set_visible(False)
+
+    # If specified, parse unit from original axis labels
+    units = {'x': xunit, 'y': yunit}
+    for k, unit in units.items():
+        if unit == 'auto':
+            lbl = getattr(ax, f'get_{k}label')()
+            try:
+                _, unit = parser_axis_label(lbl)
+            except ValueError:
+                logger.warning(f'could not parse name and unit from {k} label "{lbl}" -> using entire label as unit')
+                unit = lbl
+            units[k] = unit
+
+    # Add labels to the inset axis, with potential units
+    labels = dict(zip(['x', 'y'], xyscale_data))
+    for k, unit in units.items():
+        if unit is not None:
+            labels[k] = f'{labels[k]} {unit}'
+    for k, label in labels.items():
+        getattr(ax_minimal, f'set_{k}label')(label, labelpad=10, fontsize=fs)
+
+    # If specified, hide the original axis
+    if hide_original:
+        for sk in ['top', 'right', 'bottom', 'left']:
+            ax.spines[sk].set_visible(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+    
+    # If specified, adjust the background of the underlying figure
+    if adjust_background:
+        ax.get_figure().patch.set_facecolor('w')
+    
+    # Return the axis containing the minimal xy scale
+    return ax_minimal
 
 
 def adjust_xscale(ax, xscale=None):
@@ -2981,8 +3116,9 @@ def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
         ax.scatter(trace.index[ipeak], ypeak, color=color, alpha=alpha)
 
 
-def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_analysis_window=True,
-                   mark_peaks=False, yref=None, ax=None, **kwargs):
+def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, 
+                   wresp=FrameIndex.RESPONSE, mark_peaks=False, 
+                   yref=None, ax=None, **kwargs):
     '''
     Plot trial responses of specific sub-datasets.
     
@@ -2990,9 +3126,10 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     :param tbounds (optional): time limits for plot
     :param ykey (optional): key indicating the specific signals to plot on the y-axis
     :param mark_stim (optional): whether to add a stimulus mark on the plot
-    :param mark_analysis_window (optional): whether to add mark indicating the response analysis interval on the plot
+    :param wresp (optional): index slice of the response window to materialize
     :param mark_peaks: whether to mark the peaks of each identified response
     :param yref (optional): vertical value at which to plot a horizontal reference line
+    :param ax (optional): axis object
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
@@ -3000,12 +3137,12 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
     markerfunc = None
 
     # Extract response interval (from unfiltered data) if requested 
-    if mark_analysis_window:
-        tresponse = [data[Label.TIME].values[i] for i in [FrameIndex.RESPONSE.start, FrameIndex.RESPONSE.stop]]
+    if wresp is not None:
+        tresp = data[Label.TIME].values[bounds(wresp)]
         # Define marker function if mark_peaks is set to True
         if mark_peaks:
             markerfunc = lambda *args, **kwargs: mark_response_peak(
-                *args, tbounds=tresponse, **kwargs)
+                *args, tbounds=tresp, **kwargs)
 
     # Add tbounds to filtering criteria
     kwargs['tbounds'] = tbounds
@@ -3028,9 +3165,9 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, mark_anal
         if yref is not None:
             ax.axhline(yref, ls='--', c='k', lw=1.)
         # Plot response interval if specified
-        if mark_analysis_window:
-            for tr in tresponse:
-                ax.axvline(tr, ls='--', c='k', lw=1.)
+        if wresp is not None:
+            xresp = data_to_axis(ax, np.vstack((tresp, np.zeros(2))).T)[:, 0]
+            ax.plot(xresp, [1.] * 2, lw=3, c='k', transform=ax.transAxes)
 
     # Return figure
     return fig
@@ -3566,10 +3703,16 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, he
         # Cast xkeys as iterables
         xkeys = as_iterable(xkeys)
 
+        # Extract legend parameter
+        legend = kwargs.get('legend', 'full')
+
         # Create figure backbone
         ncols, nrows = len(xkeys), len(ykey)
+        width = height * ncols
+        if legend == 'full' and kwargs.get('hue', None) is not None:
+            width += 3
         fig, axes = plt.subplots(
-            nrows, ncols, figsize=(height * ncols, height * nrows))
+            nrows, ncols, figsize=(width, height * nrows))
         axes = np.atleast_2d(axes)
         if axes.shape != (nrows, ncols):
             axes = axes.T
@@ -3583,13 +3726,15 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, he
                 ykey=yk, 
                 xkeys=xkeys,
                 axes=axrow,
+                legend=legend,
                 **kwargs
             )
+            legend = False
     
         # Process legend
         has_legend = axrow[-1].get_legend() is not None
         if has_legend:
-            sns.move_legend(ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+            sns.move_legend(axrow[-1], 'upper left', bbox_to_anchor=(1, 1), frameon=False)
             fig.set_size_inches(height * ncols, height * nrows)
             fig.tight_layout()
     
@@ -3616,10 +3761,11 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, he
     # Initialize or retrieve figure
     if axes is None:
         parent = True
-        factor = height
+        ncols = len(xkeys)
+        width = height * ncols
         if kwargs.get('stacked', False):
             height = max(height, len(data.index.unique(Label.DATASET)))
-        fig, axes = plt.subplots(1, len(xkeys), figsize=(len(xkeys) * factor, height))
+        fig, axes = plt.subplots(1, ncols, figsize=(width, height))
     else:
         parent = False
         if len(axes) != len(xkeys):
@@ -4838,11 +4984,20 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
         fg = None
         fig = ax.get_figure()
         sns.lineplot(ax=ax, **pltkwargs)
-        axes = [ax]    
+        axes = [ax]
+
     # Despine and remove axes y ticks
     for ax in axes:
         sns.despine(ax=ax)
         ax.set_yticks([])
+    
+    # Round off legend labels, if hue is ISPTA
+    if legend and hue == Label.ISPTA:
+        for ax in axes:
+            handles, labels = ax.get_legend_handles_labels()
+            labels = [f'{float(l):.2f}' for l in labels]
+            ax.legend(handles, labels, title=hue, bbox_to_anchor=(1, 1), frameon=False)
+
     # Add yscale bar
     dy = np.diff(ax.get_ylim())[0]
     yscale = round_to_base(dy * .2, precision=1, base=.1)
@@ -4979,14 +5134,16 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
         y=ykeys_spectrum[0],
         hue=hue,
         errorbar=None,
-        legend=legend
+        legend=legend,
     )
+    
     # If data is indexed by dataset, add arguments to create 1 axis per dataset
     if Label.DATASET in data.index.names:
         pltkwargs.update(dict(
             col=Label.DATASET,
             col_wrap=5,
         ))
+    
     # If no axis provided, use figure-level plot function, extract figure & axes
     if ax is None:
         fg = sns.relplot(
@@ -4998,6 +5155,7 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
         fig = fg.figure
         fig.subplots_adjust(hspace=0.2)
         axes = fig.axes
+
     # If axis provided, use it, and assemble 1-axis list
     else:
         fg = None
@@ -5009,6 +5167,14 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
     for ax in axes:
         sns.despine(ax=ax)
         ax.set_yticks([])
+
+    
+    # Round off legend labels, if hue is ISPTA
+    if hue == Label.ISPTA:
+        for ax in axes:
+            handles, labels = ax.get_legend_handles_labels()
+            labels = [f'{float(l):.2f}' for l in labels]
+            ax.legend(handles, labels, title=hue)
     
     # Plot additional variables
     pltkwargs['legend'] = False

@@ -116,6 +116,16 @@ class Label:
     IS_RESP_ROI = 'responsive ROI?'
     ROI_RESP_TYPE = 'responder type'
 
+    # Stats columns that should be merged to timeseries before plotting 
+    # response traces
+    MERGE_UPON_PLT = [
+        FPS, 
+        DUR,
+        P, 
+        DC, 
+        ISPTA
+    ]
+
     # Labels that must be renamed upon aggregation 
     RENAME_UPON_AGG = {
         PRESTIM_ACTIVITY: PRESTIM_RATE
@@ -241,7 +251,7 @@ NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending o
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
 NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
-GLOBAL_CORRECTION = 'linreg_nointercept'  # global stack correction method
+GLOBAL_CORRECTION = 'linreg_nointercept_qmaxadaptive'  # global stack correction method
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
@@ -299,7 +309,7 @@ class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
     PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
     RESPONSE = slice(STIM + 1, STIM + 12)  # indexes used for post-stimulus response computation per trial.
-    RESPSHORT = slice(STIM + 1, STIM + 6)  # indexes used for short post-stimulus response computation per trial.
+    RESPSHORT = slice(STIM + 1, STIM + 4)  # indexes used for short post-stimulus response computation per trial.
     RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
     BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 
@@ -307,7 +317,6 @@ class FrameIndex:
 YKEY_CLASSIFICATION = Label.ZSCORE  # Reference variable for response classification
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals
 DIRECTIONAL_DETECTION = True  # whether to look for directional (i.e. positive only) effect for response detection
-N_NEIGHBORS_PEAK = 1  # number of neighboring elements to consider to compute "averaged" peak value
 
 # Responder type classification
 ISPTA_THR = 2.0  # ISPTA lower bound restricting the conditions on which to compute fraction of response occurence (W/cm2)
@@ -316,7 +325,7 @@ OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best"
 
 # Baseline fluorescence
 MAX_F0_REL_DEV = .2  # max relative deviation of baseline fluorescence from its mean allowed during experiment
-PTHR_STATIONARITY = .1  # Significance threshold for response non-stationarity across trials
+PTHR_STATIONARITY = .05  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
 

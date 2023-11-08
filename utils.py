@@ -957,10 +957,51 @@ def get_quadratic_params(x, y):
     ]
 
 
+
+def biexponential(t, A, tau_rise, tau_decay, C):
+    '''
+    Bi-exponential function portraying a rise and decay in fluorescence signal
+
+    :param t: time
+    :param A: amplitude
+    :param tau_rise: rsising time constant
+    :param tau_decay: decay time constant
+    :param C: offset
+    '''
+    if tau_rise < 0 or tau_decay < 0:
+        raise ValueError('Time constants must be positive.')
+    if tau_rise >= tau_decay:
+        raise ValueError('Rise time constant must be smaller than decay time constant.')
+    if A <= 0:
+        raise ValueError('Amplitude must be positive.')
+    return -A * (np.exp(-t / tau_rise) - np.exp(-t / tau_decay)) + C
+
+
+def get_biexponential_params(t, y):
+    ''' 
+    Fit bi-exponential function to data
+
+    :param y: data
+    :return params: fitted parameters and prediction
+    '''
+    # Estimate initial parameters
+    imax = np.argmax(y)  # index of maximum value
+    A0 = np.max(y) - np.min(y)  # amplitude = data vertical range
+    tau_rise0 = t[imax] - t[0]  # rise time constant = time to peak
+    tau_decay0 = 2 * tau_rise0  # decay time constant = double of rise time constant
+    C0 = np.min(y)  # offset = minimum value of data
+    p0 = [A0, tau_rise0, tau_decay0, C0]
+
+    pbounds = ([0, 0, 0, -np.inf], [np.inf, np.inf, np.inf, np.inf])
+
+    return p0, pbounds
+
+
 fit_functions_dict = {
     'sigmoid': (sigmoid, get_sigmoid_params),
     'quadratic': (quadratic, get_quadratic_params),
     'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
+    'biexponential': (biexponential, get_biexponential_params),
 }
 
 

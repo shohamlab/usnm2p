@@ -8,6 +8,7 @@
 
 import numpy as np
 from scipy.stats import skew
+from scipy.signal import butter, sosfiltfilt
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
@@ -18,7 +19,7 @@ from tqdm import tqdm
 
 from constants import *
 from logger import logger
-# from utils import expdecay, biexpdecay, is_within
+from utils import sigmoid #, expdecay, biexpdecay, is_within
 from postpro import mylinregress
 from fileops import StackProcessor, NoProcessor, process_and_save
 from tqdm import tqdm
@@ -78,15 +79,16 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, robust=False, intercept=True, iref=None, qmin=0, qmax=1, **kwargs):
+    def __init__(self, robust=False, intercept=False, iref=None, qmin=0, qmax=1, wc=None, **kwargs):
         '''
         Initialization
 
         :param robust: whether or not to use robust linear regression
         :param intercept: whether or not to compute intercept during linear regression fit
-        :param iref: frame index range to use to compute reference image (optional)
-        :param qmin: minimum quantile to use for pixel selection (optional)
-        :param qmax: maximum quantile to use for pixel selection (optional)
+        :param iref (optional): frame index range to use to compute reference image
+        :param qmin (optional): minimum quantile to use for pixel selection (0-1 float, default: 0)
+        :param qmax (optional): maximum quantile to use for pixel selection (0-1 float or "adaptive", default: 1)
+        :param wc (optional): normalized cutoff frequency for temporal low-pass filtering of regression parameters
         '''
         # Assign input arguments as attributes
         self.robust = robust
@@ -94,6 +96,7 @@ class LinRegCorrector(Corrector):
         self.iref = iref
         self.qmin = qmin
         self.qmax = qmax
+        self.wc = wc
 
         # Initialize empty dictionary of cached reference images
         self.refimg_cache = {}
@@ -105,11 +108,9 @@ class LinRegCorrector(Corrector):
     def from_string(cls, s):
         ''' Instantiate class from string code '''
 
-        POS_FLOAT = '(?:[1-9]\d*|0)?(?:\.\d+)?'
-
         # Check if string code is compatible with class
         if not s.startswith('linreg'):
-            raise ValueError(f'code {s} is not compatible with {cls.__name__}')
+            raise ValueError(f'invalid {cls.__name__} code: "{s}" does not start with "linreg"')
         
         # Split code by underscores
         s = s.split('_')[1:]
@@ -128,7 +129,11 @@ class LinRegCorrector(Corrector):
             elif item.startswith('qmin'):
                 params['qmin'] = float(item[4:])
             elif item.startswith('qmax'):
-                params['qmax'] = float(item[4:])
+                params['qmax'] = item[4:]
+                if params['qmax'] != 'adaptive':
+                    params['qmax'] = float(params['qmax'])
+            elif item.startswith('wc'):
+                params['wc'] = float(item[2:])
             else:
                 raise ValueError(f'unknown parameter: "{item}"')
         
@@ -173,7 +178,7 @@ class LinRegCorrector(Corrector):
     def qmin(self, value):
         if not 0 <= value < 1:
             raise ValueError('qmin must be between 0 and 1')
-        if hasattr(self, 'qmax') and value >= self.qmax:
+        if hasattr(self, 'qmax') and isinstance(self.qmax, float) and value >= self.qmax:
             raise ValueError(f'qmin must be smaller than qmax ({self.qmax})')    
         self._qmin = value
     
@@ -183,11 +188,25 @@ class LinRegCorrector(Corrector):
     
     @qmax.setter
     def qmax(self, value):
-        if not 0 < value <= 1:
-            raise ValueError('qmax must be between 0 and 1')
-        if hasattr(self, 'qmin') and value <= self.qmin:
-            raise ValueError(f'qmax must be larger than qmin ({self.qmin})')
+        if isinstance(value, str):
+            if value != 'adaptive':
+                raise ValueError(f'invalid qmax string code: "{value}"')
+        else:
+            if not 0 < value <= 1:
+                raise ValueError('qmax must be between 0 and 1')
+            if hasattr(self, 'qmin') and value <= self.qmin:
+                raise ValueError(f'qmax must be larger than qmin ({self.qmin})')
         self._qmax = value
+    
+    @property
+    def wc(self):
+        return self._wc
+
+    @wc.setter
+    def wc(self, value):
+        if value is not None and (value <= 0 or value >= 1):
+            raise ValueError('normalized cutoff frequency must be between 0 and 1')
+        self._wc = value
         
     def __repr__(self) -> str:
         plist = [f'robust={self.robust}']
@@ -197,8 +216,10 @@ class LinRegCorrector(Corrector):
             plist.append(f'iref={self.iref}')
         if self.qmin > 0:
             plist.append(f'qmin={self.qmin}')
-        if self.qmax < 1:
+        if self.qmax == 'adaptive' or self.qmax < 1:
             plist.append(f'qmax={self.qmax}')
+        if self.wc is not None:
+            plist.append(f'wc={self.wc}')
         pstr = ', '.join(plist)
         return f'{self.__class__.__name__}({pstr})'
         
@@ -213,8 +234,12 @@ class LinRegCorrector(Corrector):
             clist.append(f'iref_{self.iref.start}_{self.iref.stop - 1}')
         if self.qmin > 0:
             clist.append(f'qmin{self.qmin:.2f}')
-        if self.qmax < 1:
+        if self.qmax == 'adaptive':
+            clist.append('qmaxadaptive')
+        elif self.qmax < 1:
             clist.append(f'qmax{self.qmax:.2f}')
+        if self.wc is not None:
+            clist.append(f'wc{self.wc:.2f}')
         s = 'linreg'
         if len(clist) > 0:
             cstr = '_'.join(clist)
@@ -243,6 +268,32 @@ class LinRegCorrector(Corrector):
         # Return reference image
         return refimg
 
+    @staticmethod
+    def skew_to_qmax(s, zcrit=5, q0=.1, qinf=.9, sigma=2):
+        '''
+        Function mapping a distribution skewness value to a maximum selection quantile
+        
+        :param s: distribution skewness value.
+        :param zcrit: critical skewness value (i.e. inflexion point of sigmoid)
+        :param q0: selection quantile for zero skewness.
+        :param qinf: selection quantile for infinite skewness.
+        :param sigma: sigmoid steepness parameter.
+        :return: maximum selection quantile.
+        '''
+        return sigmoid(s, x0=zcrit, sigma=sigma, A=qinf - q0, y0=q0)
+
+    def get_qmax(self, frame):
+        '''
+        Parse qmax value to determine maximum quantile to use for pixel selection
+
+        :param frame: image 2D array
+        :return: maximum quantile to use for pixel selection
+        '''
+        if self.qmax == 'adaptive':
+            return self.skew_to_qmax(skew(frame.ravel()))
+        else:
+            return self.qmax
+
     def get_pixel_mask(self, img):
         ''' 
         Get selection mask for pixels within quantile range of interest in input image
@@ -252,11 +303,15 @@ class LinRegCorrector(Corrector):
             from an image array by simply using img[mask]
         '''
         # Compute bounding values corresponding to input quantiles 
-        vbounds = np.quantile(img, [self.qmin, self.qmax])
+        qmax = self.get_qmax(img)
+        vbounds = np.quantile(img, [self.qmin, qmax])
+        
         # Create boolean mask of pixels within quantile range
         mask = np.logical_and(img >= vbounds[0], img <= vbounds[1])
+        
         # Log
-        logger.info(f'selecting {mask.sum()}/{mask.size} pixels within quantile range {self.qmin} - {self.qmax}')
+        logger.info(f'selecting {mask.sum()}/{mask.size} pixels within quantile range {self.qmin:.3f} - {qmax:.3f}')
+        
         # Return mask
         return mask
         
@@ -300,8 +355,9 @@ class LinRegCorrector(Corrector):
                 dist['selected'] = np.logical_and(dist['selected'], dist['intensity'] >= vmin)
                 hue, hue_order = 'selected', [True, False]
                 ax.axvline(vmin, color='k', ls='--')
-            if self.qmax < 1:
-                vmax = np.quantile(frame, self.qmax)
+            qmax = self.get_qmax(frame)
+            if qmax < 1:
+                vmax = np.quantile(frame, qmax)
                 dist['selected'] = np.logical_and(dist['selected'], dist['intensity'] <= vmax)
                 ax.axvline(vmax, color='k', ls='--')
             if 'selected' in dist:
@@ -322,7 +378,7 @@ class LinRegCorrector(Corrector):
             ax.imshow(frame, cmap='viridis', **kwargs)
             # If quantiles are provided, materialize corresponding selected pixels
             # on the image by making the others slightly transparent
-            if self.qmin > 0 or self.qmax < 1:
+            if self.qmin > 0 or self.get_qmax(frame) < 1:
                 mask = self.get_pixel_mask(frame)
                 masked = np.ma.masked_where(mask, mask)
                 ax.imshow(masked, alpha=.5, cmap='gray_r')
@@ -550,9 +606,18 @@ class LinRegCorrector(Corrector):
         for frame in tqdm(stack):
             res.append(self.fit_frame(
                 frame[mask], ref_frame[mask], idxs=idxs))
-
-        # Concatenate results into dataframe, and return
-        return pd.concat(res, axis=1).T
+        
+        # Concatenate results into dataframe
+        df = pd.concat(res, axis=1).T
+        
+        # If required, apply temporal low-pass filtering to fit parameters
+        if self.wc is not None:
+            sos = butter(2, self.wc, btype='low', output='sos')
+            for k in df:
+                df[k] = sosfiltfilt(sos, df[k], axis=0)
+        
+        # Return dataframe
+        return df
     
     def plot_fit(self, stack, params=None, keys=None, axes=None, periodicity=None, 
                            fps=None, delimiters=None, color=None, height=None, width=None):
@@ -584,7 +649,7 @@ class LinRegCorrector(Corrector):
             df = df[keys]
         
         # Compute median frame (or frame subset) intensity over time 
-        if self.qmin > 0 or self.qmax < 1:
+        if self.qmin > 0 or self.qmax == 'adaptive' or self.qmax < 1:
             mask = self.get_pixel_mask(self.get_reference_frame(stack))
             substack = np.array([frame[mask] for frame in stack])
             ymed = np.median(substack, axis=1)

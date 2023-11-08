@@ -743,7 +743,6 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     for i, dataset_id in enumerate(dataset_ids):
         # Check for potential run duplicates in trial aggregated stats
         dup_table = get_duplicated_runs(datasets[i], **kwargs)
-        # dup_table = get_duplicated_runs(trialagg_stats[i], **kwargs)
         # If dupliactes are found
         if dup_table is not None:
             dupstr = f'duplicated runs in {dataset_id}:\n{dup_table}'
@@ -753,7 +752,8 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
             # Otherwise, issue warning
             else:
                 logger.warning(dupstr)
-                # If specified, drop a run
+                # If specified, drop first of these runs (assuming that if run was duplicated, 
+                # it is because something went wrong with the first acquisition)
                 if on_duplicate_runs == 'drop':
                     idrop = dup_table.index[0]
                     logger.warning(f'dropping run {idrop} from dataset...')

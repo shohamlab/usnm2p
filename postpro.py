@@ -313,7 +313,7 @@ def get_maximin_baseline_func(fs, wmaximin, wsmooth=None):
     return pandas_proof(bfunc)
 
 
-def get_butter_filter_func(fs, fc, order=2, kind='pass', verbose=True):
+def get_butter_filter_func(fs, fc, order=2, kind='pass', verbose=True, pdproof=True):
     '''
     Construct zero-phase filter func
     
@@ -321,9 +321,11 @@ def get_butter_filter_func(fs, fc, order=2, kind='pass', verbose=True):
     :param fc: tuple of cutoff frequencies (Hz)
     :param order: filter order
     :param kind: filter type ("pass" or "stop")
+    :param verbose: whether to log process
+    :param pdproof: whether to make filter function pandas-proof
     :return: 
         - Second-order sections representation of the IIR filter.
-        - pandas-proof filter function
+        - (pandas-proof or regular) filter function
     '''
     # Check validity of inputs
     all_kinds = ('pass', 'stop')
@@ -358,10 +360,13 @@ def get_butter_filter_func(fs, fc, order=2, kind='pass', verbose=True):
     # Calculate Butterworth filter second-order sections
     sos = butter(order, np.asarray(fc) / nyq, btype=btype, output='sos')
     # Define filter function
-    def myfilter(y):
+    def myfiltfunc(y):
         return sosfiltfilt(sos, y)
-    # Make pandas proof and return filter function
-    return sos, pandas_proof(myfilter)
+    # If requested, make pandas proof
+    if pdproof:
+        myfiltfunc = pandas_proof(myfiltfunc)
+    # Return butter output and filter function
+    return sos, myfiltfunc
 
 
 def compute_baseline(data, bfunc):
@@ -406,34 +411,81 @@ def detrend_trial(s, **kwargs):
     return s - compute_trial_trend(s, **kwargs)
 
 
-def find_response_peak(s, n_neighbors=N_NEIGHBORS_PEAK, return_index=False):
+def find_response_peak(s, n_neighbors=0, full_output=False, **kwargs):
     '''
     Find the response peak (if any) of a signal
     
-    :param s: pandas Series containing the signal
+    :param s: pandas Series (or numpy array) containing the signal
     :param n_neighbors: number of neighboring elements to include on each side
         to compute average value around the peak
-    :param return_index: whether to also return the index of the peak
+    :param full_output: whether to return a full dictionary of peak properties
     '''
-    x = s.values
-    ipeaks, _ = find_peaks(x)
-    if ipeaks.size == 0: # if no peak detected -> return NaN
+    # If series input, convert to array and extract index
+    idx = None
+    if isinstance(s, pd.Series):
+        idx = s.index
+        s = s.values
+    
+    # Find peaks
+    ipeaks, props = find_peaks(s, **kwargs)
+
+    # If no peak detected, set both peak value and index to NaN
+    if ipeaks.size == 0: 
         ipeak, ypeak = np.nan, np.nan
+    
+    # Otherwise
     else:
         # Get index of max amplitude peak within the array
-        ipeak = ipeaks[np.argmax(x[ipeaks])]
+        imax = np.argmax(s[ipeaks])
+        ipeak = ipeaks[imax]
         # Make sure it's not at the signal boundary
-        if ipeak == 0 or ipeak == x.size - 1:
+        if ipeak == 0 or ipeak == s.size - 1:
             raise ValueError(f'max peak found at signal boundary (index {ipeak})')
         # Compute average value of peak and its neighbors
-        ypeak = np.mean(x[ipeak - n_neighbors:ipeak + n_neighbors + 1])
-    if return_index:
-        return ipeak, ypeak
+        ypeak = np.mean(s[ipeak - n_neighbors:ipeak + n_neighbors + 1])
+        # Select properties for that peak
+        props = {k: v[imax] for k, v in props.items()}
+        # If input was series, convert index to series index
+        if idx is not None:
+            ipeak = idx[ipeak]
+            for k, v in props.items():
+                if k.startswith('left') or k.startswith('right'):
+                    if isinstance(v, int):
+                        props[k] = idx[v]
+                    else:
+                        props[k] = np.interp(v, np.arange(len(idx)), idx)
+
+    props['index'] = ipeak
+    props['value'] = ypeak
+
+    # If requested, return full output
+    if full_output:
+        return props
+    
+    # Otherwise, return only peak value
     else:
         return ypeak
 
 
-def find_max(s, n_neighbors=N_NEIGHBORS_PEAK):
+def convert_peak_props(props, fs, ioffset=0):
+    '''
+    Convert peak properties from frames to seconds
+    
+    :param props: dictionary of peak properties
+    :param fs: sampling frequency (Hz)
+    :param ioffset (optional): index offset to apply to peak index metrics
+    :return: dictionary of peak properties with time units
+    '''
+    props = props.copy()
+    for k, v in props.items():
+        if k.startswith(('left', 'right', 'index', 'widths')):
+            if k != 'widths':
+                v -= ioffset
+            props[k] = v / fs
+    return props
+
+
+def find_max(s, n_neighbors=0):
     x = s.values
     if n_neighbors > 0:
         w = 2 * n_neighbors + 1
@@ -512,10 +564,12 @@ def apply_in_window(data, ykey, wslice, aggfunc='mean', verbose=True, log_comple
     
     :param data: multi-indexed fluorescence timeseries dataframe
     :param ykey: name of the column containing the signal of interest
-    :param wslice: slice object representing the indexes of the window
+    :param wslice: slice object (or index) representing the indexes of the window
     :param aggfunc: aggregation function (name or callable)
     '''
     idxlevels = [k for k in data.index.names if k != Label.FRAME]
+    if isinstance(wslice, (int, np.int64)):
+        wslice = slice(wslice, wslice + 1)
     if verbose:
         wstr = wslice.start
         if wslice.stop > wslice.start + 1:
@@ -1479,15 +1533,22 @@ def get_change_key(y, full_output=False):
     :param full_output: whether to return pre and post metrics key as well
     return: change metrics name
     '''
+    # If input is iterable, apply function recursively to each list element
+    if is_iterable(y):
+        return [get_change_key(yy, full_output=full_output) for yy in y]
+
+    # Generate keys for pre, post, and diff
     y_prestim_avg = f'pre-stim avg {y}'
     y_poststim_avg = f'post-stim avg {y}'
     y_change = f'evoked {y} change'
+
+    # Return either all keys of only diff
     if full_output:
         return (y_prestim_avg, y_poststim_avg, y_change)
     return y_change
 
 
-def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, verbose=True, full_output=False):
+def compute_evoked_change(data, ykey, wpre=None, wpost=None, npre=None, npost=None, iref=FrameIndex.STIM, verbose=True, full_output=False):
     ''' 
     Compute stimulus-evoked change in specific variable
     
@@ -1495,10 +1556,37 @@ def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.
     :param ykey: evaluation variable name
     :param wpre: pre-stimulus window slice
     :param wpost: post-stimulus window slice
+    :param npre: number of pre-stimulus samples (if wpre is not specified)
+    :param npost: number of post-stimulus samples (if wpost is not specified)
+    :param iref: reference frame index (default: stimulus frame)
     :param verbose: whether to print out results
     :param full_output: whether to return pre and post metrics as well
     :return: evoked change series, or stats dataframe if full_output is True
     '''
+    # Check that only one of window slice and window size is specified
+    # for pre- and post-stimulus windows
+    if wpre is not None and npre is not None:
+        raise ValueError('cannot specify both pre-stimulus window slice and size')
+    if wpost is not None and npost is not None:
+        raise ValueError('cannot specify both post-stimulus window slice and size')
+
+    # If window slice is not specified, compute it from window size (if specified)
+    # or use default pre- and post-stimulus windows 
+    if wpre is None:
+        if npre is None:
+            wpre = FrameIndex.PRESTIM
+        else:
+            if npre < 1:
+                raise ValueError('pre-stimulus window size must be >= 1')
+            wpre = slice(iref - npre + 1, iref + 1)
+    if wpost is None:
+        if npost is None:
+            wpost = FrameIndex.RESPONSE
+        else:
+            if npost < 1:
+                raise ValueError('post-stimulus window size must be >= 1')
+            wpost = slice(iref + 1, iref + 1 + npost)
+
     # Extract keys for pre- and post-stimulus averages and change
     y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)
     
@@ -1522,34 +1610,6 @@ def compute_evoked_change(data, ykey, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.
         return ystats
     else:
         return ystats[y_change]
-
-
-def add_change_metrics(timeseries, stats, ykey, npre=None, npost=None):
-    '''
-    Compute change in a given variable between pre and post-stimulation windows
-    
-    :param timeseries: timeseries dataframe
-    :param stats: stats dataframe
-    :param ykey: evaluation variable
-    :param npre: number of pre-stimulus samples
-    :param npost: number of post-stimulus samples
-    :return: updated stats dataframe
-    '''
-    # Define windows sizes if not provided
-    if npre is None:
-        npre = FrameIndex.PRESTIM.stop - FrameIndex.PRESTIM.start - 1
-    if npost is None:
-        npost = FrameIndex.RESPONSE.stop - FrameIndex.RESPONSE.start - 1
-
-    # Compute pre-and post-stimulus windows
-    wpre = slice(FrameIndex.STIM - npre, FrameIndex.STIM + 1)
-    wpost = slice(FrameIndex.STIM + 1, FrameIndex.STIM + 2 + npost)
-    
-    # Compute evoked change
-    stats[get_change_key(ykey)] = compute_evoked_change(timeseries, ykey, wpre=wpre, wpost=wpost)
-    
-    # Return
-    return stats
 
 
 def get_xdep_data(data, xkey, add_DC0=False):
@@ -1588,30 +1648,55 @@ def get_xdep_data(data, xkey, add_DC0=False):
         return data
 
 
-def exclude_datasets(*dfs, to_exclude=None):
+def filter_datasets(*dfs, exclude=None):
     '''
-    Exclude specific datasets from analysis
+    Filter data by excluding specific datasets from analysis
     
     :param data: list of multi-dataset dataframes
-    :param to_exclude: date-mouse-region combinations to be discarded
+    :param exclude: exclusion criterion. This can be a list of specific datasets 
+        (i.e. "date-mouse-region") to be discarded, or simply a common exclusion pattern.
     :return: filtered experiment dataframes
     '''
+    # Cast exclude to list (if not None)
+    exclude = as_iterable(exclude) if exclude is not None else None
+
     # If no exclusion -> return as is
-    if to_exclude is None or len(to_exclude) == 0:
-        logger.warning('empty exclude list -> ignoring')
+    if exclude is None or len(exclude) == 0:
+        logger.warning('no exclusion criterion -> ignoring')
         return dfs if len(dfs) > 1 else dfs[0]
+    
     # Identify candidate datasets from first dataframe
     candidate_datasets = dfs[0].index.unique(level=Label.DATASET).values
-    # Raise warning if exclusion candidates not found in data 
-    notthere = list(set(to_exclude) - set(candidate_datasets))
+
+    # Identify all datasets that have a partial match with any exclusion candidate  
+    to_exclude = []
+    matched_criteria = []
+    # For each exclusion criterion
+    for e in exclude:
+        # Loop through datasets
+        for cd in candidate_datasets:
+            # If partial match detected
+            if e in cd:
+                # Add dataset to exclusion list, if not already there
+                if cd not in to_exclude:
+                    to_exclude.append(cd)
+                # Add exclusion criterion to matched criteria list, if not already there
+                if e not in matched_criteria:
+                    matched_criteria.append(e) 
+    
+    # Raise warning if exclusion criteria have no match 
+    notthere = list(set(exclude) - set(matched_criteria))
     if len(notthere) > 0:
-        logger.warning(f'{notthere} datasets not found -> ignoring') 
-    # Intersect exclusion list with candidate datasets 
+        logger.warning(f'no match found for "{notthere}" exclusion criteria -> ignoring')
+
+    # Intersect exclusion list with candidate datasets
     to_exclude = list(set(candidate_datasets).intersection(set(to_exclude)))
+
     # If no exclusion candidate in data, return as is
     if len(to_exclude) == 0:
         logger.warning('did not find any datasets to exclude')
         return dfs if len(dfs) > 1 else dfs[0]
+    
     # Exclude and return
     logger.info(
         f'excluding the following datasets from analysis:\n{itemize(to_exclude)}')
@@ -1916,21 +2001,41 @@ def get_detailed_responder_counts(data, normalize=False):
     return counts
 
 
-def get_plot_data(timeseries, stats):
+def get_plot_data(timeseries, stats, keys=None):
     '''
     Get ready-to-plot dataframe by merging timeseries and stats dataframes
     and adding time information.
 
     :param timeseries: timeseries dataframe
     :param stats: stats dataframe
+    :param keys: list of stats keys to add to timeseries
     :return: merged dataframe 
     '''
+    # If no keys are specified, use default ones
+    if keys is None:
+        keys = Label.MERGE_UPON_PLT
+    # Otherwise, make sure that all keys are present in stats
+    else:
+        keys = as_iterable(keys)
+        for k in keys:
+            if k not in stats.columns:
+                raise ValueError(f'"{k}" not in stats dataframe')
+    # Reduce stats dataframe to relevant keys
+    stats = stats[keys]
+
+    # Log process
     nstats = len(stats.columns.values)
     statstr = f'{nstats}-column stats' if nstats > 5 else stats.columns.values
     logger.info(f'adding {statstr} information to timeseries...')
+
+    # Merge timeseries and stats dataframes
     plt_data = timeseries.copy()
     expand_and_add(stats, plt_data)
+
+    # Add time information
     add_time_to_table(plt_data)
+
+    # Return
     return plt_data
 
 
@@ -2159,7 +2264,7 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, err
     :param data: multi-dataset dataframe
     :param xkey: name(s) of input variable(s) whose values determine aggregation groups
     :param ykey (optional): name of output variable(s) to average. If not provided, all output variables will be considered.
-    :param hue: ???
+    :param hue: additional aggregation groups
     :param weighted: whether to compute a weighted-average based on the number of ROIs per dataset, or not
     :param errprop: whether to compute standard errors between datasets or to propagate it from each dataset
     :return: aggregated dataframe with mean and propagated sem columns for each considered output variable 
@@ -2258,25 +2363,31 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, err
             .rename('mean')
         )
 
-        # If global error must be propagated from SEs in each dataset
-        if errprop == 'intra':     
-            sem = np.sqrt(
-                (weightsperdataset * sems**2)  # Muliply squared standard errors by dataset weights
-                .groupby(gby).sum()  # Sum across datasets
-                .rename('sem')
-            )  # Take square root of sum (propagated SE = weighted RMS of SEs)
-        elif errprop == 'inter':
-            # Compute standard error between hues for each input
-            sem = (means
-                .groupby(gby).sem()  # Compute SE between means of each dataset 
-                .rename('sem')
-            )
-        else:
-            raise ValueError(f'unknown error propagation mode: "{errprop}"')
+        # If error propagation is required
+        if errprop is not None:
+            # If global error must be propagated from SEs in each dataset
+            if errprop == 'intra':     
+                sem = np.sqrt(
+                    (weightsperdataset * sems**2)  # Muliply squared standard errors by dataset weights
+                    .groupby(gby).sum()  # Sum across datasets
+                    .rename('sem')
+                )  # Take square root of sum (propagated SE = weighted RMS of SEs)
+            elif errprop == 'inter':
+                # Compute standard error between hues for each input
+                sem = (means
+                    .groupby(gby).sem()  # Compute SE between means of each dataset 
+                    .rename('sem')
+                )
+            else:
+                raise ValueError(f'unknown error propagation mode: "{errprop}"')
 
-        # Concatenate outputs, and add prefix
-        ykey_wdata = pd.concat([mean, sem], axis=1)
-        ykey_wdata = ykey_wdata.add_prefix(f'{yk} - ')
+            # Concatenate outputs, and add prefix
+            ykey_wdata = pd.concat([mean, sem], axis=1)
+            ykey_wdata = ykey_wdata.add_prefix(f'{yk} - ')
+        
+        # Otherwise, just add mean
+        else:
+            ykey_wdata = mean.rename(yk).to_frame()
 
         # Add outputs to weighted average dataframe
         wdata = pd.concat([wdata, ykey_wdata], axis=1)
@@ -3612,13 +3723,13 @@ def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000):
     return yfit_lb, yfit_ub
 
 
-def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude='pv'):
+def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude=None):
     ''' 
     Generate 2D table of fit functions across cell lines and input parameters
     
     :param pfit: fit for pressure dependencies (default = 'poly2')
     :param nonPfit: fit for all other parameters (default = 'sigmoid_decay')
-    :param exclude: lines to exclude from fit table (default = 'pv')
+    :param exclude: lines to exclude from fit table (default = None)
     :return: pandas dataframe with fit functions
     '''
     # Create empty 2D dataFframe
@@ -3651,3 +3762,50 @@ def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude='pv'):
 
     # Return dataframe
     return fit_table
+
+
+def classify_ternary(stats, key, rel_sigma_thr=2, plot=False):
+    '''
+    Classify a specific stat into "negative", "weak", and "positive" subsets 
+    based on stat distribution.
+    
+    :param stats: stats dataframe
+    :param key: key of stat column
+    :param rel_sigma_thr: threshold for stat distribution relative to its central value
+    :return: subsets Series with same index as in original stats dataframe 
+    '''
+    # Create copy of stats dataframe to avoid modifying it directly
+    stats = stats.copy()
+
+    # Fit gaussian to stat distribution
+    logger.info(f'fitting Gaussian to {key} distribution...')
+    *_, x0, sigma = gauss_histogram_fit(stats[key])[-1]
+
+    # Determine classification boundaries from Gaussian parameters
+    ybounds = [x0 - rel_sigma_thr * sigma, x0 + rel_sigma_thr * sigma]
+    ybounds_str = ', '.join([f'{y:.2f}' for y in ybounds])
+    logger.info(f'{key} bounds: ({ybounds_str}) (i.e. more than {rel_sigma_thr} sigma away from distribution center)')
+    
+    # Classify stat distribution into states
+    logger.info(f'classifying {key} values')
+    state_key = f'{key} state'
+    stats[state_key] = 'weak'
+    stats.loc[stats[key] < ybounds[0], state_key] = 'negative'
+    stats.loc[stats[key] > ybounds[1], state_key] = 'positive'
+
+    # If requested, plot histogram distribution of conditions, per state value
+    if plot:
+        fig, ax = plt.subplots()
+        sns.despine(ax=ax)
+        sns.histplot(
+            data=stats,
+            x=key, 
+            ax=ax, 
+            hue=state_key, 
+            palette=Palette.RTYPE
+        )
+        for y in ybounds:
+            ax.axvline(y, ls='--', c='k')
+    
+    # Return state series
+    return stats[state_key]
