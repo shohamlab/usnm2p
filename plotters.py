@@ -3803,7 +3803,7 @@ def plot_stimparams_dependency(data, ykey, title=None, axes=None, xkeys=None, he
             nentries = len(axleg.get_lines())
             sns.move_legend(
                 ax, 'upper left', bbox_to_anchor=(1, 1), frameon=False, 
-                ncol=int(np.ceil(nentries / 15))
+                ncol=int(np.ceil(nentries / 30))
             )
     
     # Harmonize axes limits

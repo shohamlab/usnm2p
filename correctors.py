@@ -79,7 +79,7 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, robust=False, intercept=False, iref=None, qmin=0, qmax=1, wc=None, **kwargs):
+    def __init__(self, robust=False, intercept=True, iref=None, qmin=0, qmax=1, wc=None, **kwargs):
         '''
         Initialization
 
@@ -96,6 +96,7 @@ class LinRegCorrector(Corrector):
         self.iref = iref
         self.qmin = qmin
         self.qmax = qmax
+        self.adaptive_qmax = None
         self.wc = wc
 
         # Initialize empty dictionary of cached reference images
@@ -269,7 +270,7 @@ class LinRegCorrector(Corrector):
         return refimg
 
     @staticmethod
-    def skew_to_qmax(s, zcrit=5, q0=.1, qinf=.9, sigma=2):
+    def skew_to_qmax(s, zcrit=2, q0=.01, qinf=.99, sigma=1):
         '''
         Function mapping a distribution skewness value to a maximum selection quantile
         
@@ -290,6 +291,10 @@ class LinRegCorrector(Corrector):
         :return: maximum quantile to use for pixel selection
         '''
         if self.qmax == 'adaptive':
+            # If adaptive qmax provided, use it 
+            if self.adaptive_qmax is not None:
+                return self.adaptive_qmax
+            # Otherwise, compute it from reference image skewness
             return self.skew_to_qmax(skew(frame.ravel()))
         else:
             return self.qmax

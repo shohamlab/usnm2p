@@ -558,7 +558,7 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, isubs=None, full_
         return df[Label.SPEED_UM_S]
 
 
-def apply_in_window(data, ykey, wslice, aggfunc='mean', verbose=True, log_completion_rate=False):
+def apply_in_window(data, ykey, wslice, aggfunc='mean', weights=None, verbose=True, log_completion_rate=False):
     '''
     Apply function to a given signal within a specific observation window
     
@@ -566,28 +566,68 @@ def apply_in_window(data, ykey, wslice, aggfunc='mean', verbose=True, log_comple
     :param ykey: name of the column containing the signal of interest
     :param wslice: slice object (or index) representing the indexes of the window
     :param aggfunc: aggregation function (name or callable)
+    :param weights (optional): weights to apply to the samples prior to aggregation
     '''
+    # Extract non-frame index levels in input dataframe
     idxlevels = [k for k in data.index.names if k != Label.FRAME]
+
+    # If window slice is an integer, convert to slice object
     if isinstance(wslice, (int, np.int64)):
         wslice = slice(wslice, wslice + 1)
+    
+    # Compute slice length
+    wlen = wslice.stop - wslice.start + 1
+    
+    # If weights vector provided
+    if weights is not None:
+        weights = np.asarray(weights)
+        # Make sure it is of the same length as the slice
+        if len(weights) != wlen:
+            raise ValueError(f'weights vector length ({len(weights)}) must match slice length ({wlen})')
+
+        # Make sure they sum up to slice length
+        if np.abs(weights.sum() - wlen) > 1e-6:
+            raise ValueError(f'weights must sum up to slice length ({wlen})')
+    
+    # If verbosity specified, log process
     if verbose:
         wstr = wslice.start
         if wslice.stop > wslice.start + 1:
-            wstr = f'[{wstr}-{wslice.stop - 1}] index window'
+            wstr = f'[{wstr}-{wslice.stop}] index window'
         else:
             wstr = f'{wstr} index'
         istr = ', '.join(idxlevels)
         funcstr = aggfunc.__name__ if callable(aggfunc) else aggfunc
-        logger.info(
-            f'applying {funcstr} function on {ykey} in {wstr} across {istr} ...')
-    idx_slice = slice_last_dim(data.index, wslice)
-    out = data.loc[idx_slice, ykey].groupby(idxlevels).agg(aggfunc)
+        logstr = f'applying {funcstr} function on {ykey} in {wstr} across {istr}'
+        if weights is not None:
+            logstr = f'{logstr} with weights {weights}'
+        logger.info(logstr)
+    mux_slice = slice_last_dim(data.index, wslice)
+
+    # Compute vector of slice indexes
+    idx_slice = pd.Index(
+        np.arange(wslice.start, wslice.stop + 1), name=Label.FRAME)
+    
+    # Extract slice data
+    sdata = data.loc[mux_slice, ykey]
+
+    # If weights are provided, multiply slice data
+    if weights is not None:
+        weights = pd.Series(weights, index=idx_slice, name='weights')
+        sdata = sdata * weights
+
+    # Group by non-frame index levels and apply aggregation function 
+    out = sdata.groupby(idxlevels).agg(aggfunc)
+
+    # If specified, log completion rate
     if log_completion_rate:
         outs_found = out.notna().sum()
         nwindows = len(data.groupby(idxlevels).first())
         out_pct = outs_found / nwindows * 100
         logger.info(
             f'identified outputs in {outs_found}/{nwindows} windows ({out_pct:.1f} %)')
+    
+    # Return aggregated output
     return out
 
 
@@ -1548,57 +1588,71 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
-def compute_evoked_change(data, ykey, wpre=None, wpost=None, npre=None, npost=None, iref=FrameIndex.STIM, verbose=True, full_output=False):
+def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=None, 
+                          iref=FrameIndex.STIM, wpre=None, wpost=None, 
+                          verbose=True, full_output=False):
     ''' 
     Compute stimulus-evoked change in specific variable
     
     :param data: timeseries dataframe
     :param ykey: evaluation variable name
-    :param wpre: pre-stimulus window slice
-    :param wpost: post-stimulus window slice
+    :param spre: pre-stimulus window slice
+    :param spost: post-stimulus window slice
     :param npre: number of pre-stimulus samples (if wpre is not specified)
     :param npost: number of post-stimulus samples (if wpost is not specified)
     :param iref: reference frame index (default: stimulus frame)
+    :param wpre: weights vector for pre-stimulus window
+    :param wpost: weights vector for post-stimulus window
     :param verbose: whether to print out results
     :param full_output: whether to return pre and post metrics as well
     :return: evoked change series, or stats dataframe if full_output is True
     '''
     # Check that only one of window slice and window size is specified
     # for pre- and post-stimulus windows
-    if wpre is not None and npre is not None:
+    if spre is not None and npre is not None:
         raise ValueError('cannot specify both pre-stimulus window slice and size')
-    if wpost is not None and npost is not None:
+    if spost is not None and npost is not None:
         raise ValueError('cannot specify both post-stimulus window slice and size')
 
     # If window slice is not specified, compute it from window size (if specified)
     # or use default pre- and post-stimulus windows 
-    if wpre is None:
+    if spre is None:
         if npre is None:
-            wpre = FrameIndex.PRESTIM
+            spre = FrameIndex.PRESTIM
         else:
             if npre < 1:
                 raise ValueError('pre-stimulus window size must be >= 1')
-            wpre = slice(iref - npre + 1, iref + 1)
-    if wpost is None:
+            spre = slice(iref - npre + 1, iref)
+    if spost is None:
         if npost is None:
-            wpost = FrameIndex.RESPONSE
+            spost = FrameIndex.RESPONSE
         else:
             if npost < 1:
                 raise ValueError('post-stimulus window size must be >= 1')
-            wpost = slice(iref + 1, iref + 1 + npost)
+            spost = slice(iref + 1, iref + npost)
+    
+    # Compute final pre and post windows size 
+    npre = spre.stop - spre.start + 1
+    npost = spost.stop - spost.start + 1
+
+    # If weights providedm make sure they are of the same size as the corresponding windows 
+    if wpre is not None and len(wpre) != npre:
+        raise ValueError(f'pre-stimulus window size ({npre}) does not match weights vector size ({len(wpre)})')
+    if wpost is not None and len(wpost) != npost:
+        raise ValueError(f'post-stimulus window size ({npost}) does not match weights vector size ({len(wpost)})')
 
     # Extract keys for pre- and post-stimulus averages and change
     y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)
     
     # Define prefix:window dictionary
     wdict = {
-        y_prestim_avg: wpre,
-        y_poststim_avg: wpost
+        y_prestim_avg: (spre, wpre),
+        y_poststim_avg: (spost, wpost)
     }
 
     # Compute metrics average in pre- and post-stimulus windows for each ROI & run
     ystats = pd.DataFrame(
-        {k: apply_in_window(data, ykey, w, verbose=verbose) for k, w in wdict.items()})
+        {k: apply_in_window(data, ykey, s, weights=w, verbose=verbose) for k, (s, w) in wdict.items()})
 
     # Compute evoked change as their difference
     if verbose:
@@ -3723,22 +3777,24 @@ def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000):
     return yfit_lb, yfit_ub
 
 
-def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude=None):
+def get_fit_table(Pfit='poly2', exclude=None):
     ''' 
     Generate 2D table of fit functions across cell lines and input parameters
     
     :param pfit: fit for pressure dependencies (default = 'poly2')
-    :param nonPfit: fit for all other parameters (default = 'sigmoid_decay')
     :param exclude: lines to exclude from fit table (default = None)
     :return: pandas dataframe with fit functions
     '''
+    # Determine non-pressure fit for each line
+    fits_per_line = {
+        'line3': 'sigmoid',
+        'sst': 'sigmoid_decay',
+        'pv': 'sigmoid_decay',
+    }
+
     # Create empty 2D dataFframe
     fit_table = pd.DataFrame(
-        columns=pd.Index([
-            'line3',
-            'sst',
-            'pv'
-        ], name=Label.LINE),
+        columns=pd.Index(list(fits_per_line.keys()), name=Label.LINE),
         index=pd.Index([
             Label.P, 
             Label.DC, 
@@ -3752,8 +3808,9 @@ def get_fit_table(Pfit='poly2', nonPfit='sigmoid_decay', exclude=None):
     # Set fit for pressure dependency for all lines
     fit_table.loc[Label.P, :] = Pfit
 
-    # Set common fit for all other parameters
-    fit_table.loc[fit_table.index.drop(Label.P), :] = nonPfit
+    # Set line-specific fit for all other parameters
+    for line, fit in fits_per_line.items():
+        fit_table.loc[fit_table.index.drop(Label.P), line] = fit
 
     # Set excluded lines to None
     if exclude is not None:

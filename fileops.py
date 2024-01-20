@@ -693,6 +693,9 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
     :param on_duplicate_runs (optional): what to do if duplicate runs are found
     :param harmonize_runs: whether run index should be harmonized across datasets according to some condition
     '''
+    if not os.path.isdir(dirpath):
+        raise ValueError(f'"{dirpath}" is not a directory')
+    
     # List data filepaths
     fpaths = natsorted(glob.glob(os.path.join(dirpath, f'*.h5')))
 
@@ -845,3 +848,57 @@ def load_lineagg_data(dirpath, errprop='intra'):
     # Return stats and counts
     logger.info(f'line-aggregated data successfully loaded for lines {lines.values}')
     return stats, counts
+
+
+def extract_reference_distribution(fpath, projfunc, verbose=True):
+    '''
+    Extract pixel intensity distribution from reference image of a TIF file.
+
+    :param fpath: Path to tif file.
+    :param projfunc: Projection function to get reference image from 3D stack.
+    :param verbose: Whether to print verbose output.
+    :return: Reference distribution as pandas Series.
+    '''
+    # Load tif stack
+    stack = loadtif(fpath, verbose=verbose)
+    # Compute reference image 
+    refimg = projfunc(stack, axis=0)
+    # Create series from serialized pixel distribution
+    refdist = pd.Series(refimg.ravel(), name='intensity')
+    refdist.index.name = 'pixel'
+    # Return reference distribution
+    return refdist
+
+
+def extract_reference_distributions(folder, projfunc, *args, **kwargs):
+    '''
+    Extract reference distributions from all TIF files in a folder
+
+    :param folder: Path to folder containing TIF files.
+    :param projfunc: Projection function to get reference image from 3D stack.
+    :return: Reference distributions as multi-indexed pandas Series.
+    '''
+    # Check if reference distributions have already been extracted
+    output_fpath = os.path.join(folder, f'{projfunc.__name__}_refdists.csv') 
+
+    # If so, load them
+    if os.path.exists(output_fpath):
+        logger.info(f'loading reference distributions from {os.path.basename(folder)} folder')
+        refdists = pd.read_csv(output_fpath, index_col=['file', 'pixel'])['intensity']
+
+    # Otherwise, extract and save them
+    else:
+        logger.info(f'extracting stack {projfunc.__name__} projection images from {os.path.basename(folder)} folder')
+        fpaths = glob.glob(os.path.join(folder, '*.tif'))
+        fnames = [os.path.basename(fpath) for fpath in fpaths]
+        refdists = []
+        for fpath in tqdm(fpaths):
+            refdists.append(
+                extract_reference_distribution(fpath, *args, verbose=False, **kwargs))
+        refdists = pd.concat(
+            refdists, axis=0, keys=fnames, names=['file'])
+        logger.info(f'saving reference distributions to {os.path.basename(folder)} folder')
+        refdists.to_csv(output_fpath)
+    
+    # Return reference distributions
+    return refdists
