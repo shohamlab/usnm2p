@@ -251,7 +251,7 @@ NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending o
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
 NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
-GLOBAL_CORRECTION = 'linreg_qmaxadaptive'  # global stack correction method
+GLOBAL_CORRECTION = 'linreg_robust'  # global stack correction method
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
@@ -324,7 +324,7 @@ PROP_CONDS_THR = 0.50  # minimum proportion of conditions with given response ty
 OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best" condition to include datasets in offset analysis 
 
 # Baseline fluorescence
-MAX_F0_REL_DEV = .2  # max relative deviation of baseline fluorescence from its mean allowed during experiment
+MAX_F0_REL_DEV = .5  # max relative deviation of baseline fluorescence from its mean allowed during experiment
 PTHR_STATIONARITY = .05  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################

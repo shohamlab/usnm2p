@@ -44,7 +44,6 @@ if __name__ == '__main__':
             NEUROPIL_SCALING_COEFF, BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, 
             TRIAL_AGGFUNC, YKEY_CLASSIFICATION, DIRECTIONAL_DETECTION
         )[1]
-
     trialavg_dirs = {k: v for k, v in trialavg_dirs.items() if os.path.isdir(v)}
     
     # Compute number of jobs to run
@@ -52,6 +51,7 @@ if __name__ == '__main__':
     # Log warning message if no job was found
     if njobs == 0:
         logger.warning('found no individual job to run')
+    
     # Otherwise, create execution parameters queue
     else:
         params = list(product(trialavg_dirs.keys(), proc_queue))

@@ -51,12 +51,9 @@ class Corrector(StackProcessor):
                 outstack.append(self.run(stack[:, i]))
             outstack = np.stack(outstack)
             return np.swapaxes(outstack, 0, 1)
-        # Save input data type
-        ref_dtype = stack.dtype
-        # Cast as float64 and apply correction function
-        res_stack = self.correct(stack.astype(np.float64))
-        # Round, cast as input integer type and return
-        return np.round(res_stack).astype(ref_dtype)
+        
+        # Apply correction function, and return
+        return self.correct(stack)
     
     def subtract_vector(self, stack, y):
         ''' Detrend stack using a frame-average subtraction vector '''
@@ -79,7 +76,7 @@ class Corrector(StackProcessor):
 
 class LinRegCorrector(Corrector):
 
-    def __init__(self, robust=False, intercept=True, iref=None, qmin=0, qmax=1, wc=None, **kwargs):
+    def __init__(self, robust=False, intercept=True, iref=None, qmin=0, qmax=1, custom=False, wc=None, **kwargs):
         '''
         Initialization
 
@@ -88,6 +85,7 @@ class LinRegCorrector(Corrector):
         :param iref (optional): frame index range to use to compute reference image
         :param qmin (optional): minimum quantile to use for pixel selection (0-1 float, default: 0)
         :param qmax (optional): maximum quantile to use for pixel selection (0-1 float or "adaptive", default: 1)
+        :param custom (optional): whether or not to use custom regressor
         :param wc (optional): normalized cutoff frequency for temporal low-pass filtering of regression parameters
         '''
         # Assign input arguments as attributes
@@ -96,6 +94,7 @@ class LinRegCorrector(Corrector):
         self.iref = iref
         self.qmin = qmin
         self.qmax = qmax
+        self.custom = custom
         self.adaptive_qmax = None
         self.wc = wc
 
@@ -133,6 +132,8 @@ class LinRegCorrector(Corrector):
                 params['qmax'] = item[4:]
                 if params['qmax'] != 'adaptive':
                     params['qmax'] = float(params['qmax'])
+            elif item == 'custom':
+                params['custom'] = True
             elif item.startswith('wc'):
                 params['wc'] = float(item[2:])
             else:
@@ -200,6 +201,16 @@ class LinRegCorrector(Corrector):
         self._qmax = value
     
     @property
+    def custom(self):
+        return self._custom
+    
+    @custom.setter
+    def custom(self, value):
+        if not isinstance(value, bool):
+            raise ValueError('custom must be a boolean')
+        self._custom = value
+    
+    @property
     def wc(self):
         return self._wc
 
@@ -219,6 +230,8 @@ class LinRegCorrector(Corrector):
             plist.append(f'qmin={self.qmin}')
         if self.qmax == 'adaptive' or self.qmax < 1:
             plist.append(f'qmax={self.qmax}')
+        if self.custom:
+            plist.append('custom')
         if self.wc is not None:
             plist.append(f'wc={self.wc}')
         pstr = ', '.join(plist)
@@ -239,6 +252,8 @@ class LinRegCorrector(Corrector):
             clist.append('qmaxadaptive')
         elif self.qmax < 1:
             clist.append(f'qmax{self.qmax:.2f}')
+        if self.custom:
+            clist.append('custom')
         if self.wc is not None:
             clist.append(f'wc{self.wc:.2f}')
         s = 'linreg'
@@ -566,10 +581,27 @@ class LinRegCorrector(Corrector):
         
         # Return figure handle
         return fig
+    
+    def custom_fit(self, x, y):
+        '''
+        Fit custom regression model between two vectors
+
+        :param x: reference vector
+        :param y: current vector
+        :return: regression fit parameters as pandas Series 
+        '''
+        # slope = ratio of standard deviations
+        alpha = y.std() / x.std()
+        # intercept = offset between means of rescaled reference frame and current frame 
+        beta = y.mean() - alpha * x.mean()
+        return pd.Series({
+            'slope': alpha, 
+            'intercept': beta
+        })
 
     def fit_frame(self, frame, ref_frame, idxs=None):
         '''
-        Perform robust linear regression between a frame and a reference frame
+        Fit linear regression model between a frame and a reference frame
         
         :param frame: frame 2D array
         :param ref_frame: reference frame 2D array
@@ -579,7 +611,10 @@ class LinRegCorrector(Corrector):
         x, y = ref_frame.ravel(), frame.ravel()
         if idxs is not None:
             x, y = x[idxs], y[idxs]
-        return mylinregress(x, y, robust=self.robust, intercept=self.intercept)
+        if self.custom:
+            return self.custom_fit(x, y)
+        else:
+            return mylinregress(x, y, robust=self.robust, intercept=self.intercept)
     
     def fit(self, stack, ref_frame=None, npix=None):
         ''' 
@@ -744,7 +779,23 @@ class LinRegCorrector(Corrector):
         logger.info('correcting stack with linear regression parameters')
         corrected_stack = (stack - intercepts) / slopes
 
-        # Cast from floating point to input type (usually 16-bit integer)
+        # If negative values are found, offset stack to obtain only positive values
+        if corrected_stack.min() < 0:
+            logger.warning('negative values found in corrected stack -> offseting to 1')
+            corrected_stack = corrected_stack - corrected_stack.min() + 1
+
+        # Adapt stack range to fit within input data type numerical bounds
+        corrected_stack = self.adapt_stack_range(corrected_stack, ref_dtype)
+
+        # Check that corrected stack is within input data type range
+        self.check_stack_range(corrected_stack, ref_dtype)
+
+        # If input was integer-typed, round corrected stack to nearest integers 
+        if not np.issubdtype(ref_dtype, np.floating):
+            logger.info(f'rounding corrected stack')
+            corrected_stack = np.round(corrected_stack)
+        
+        # Cast back to input data type
         corrected_stack = corrected_stack.astype(ref_dtype)
 
         # Return

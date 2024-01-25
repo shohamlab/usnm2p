@@ -420,6 +420,62 @@ class StackProcessor(metaclass=abc.ABCMeta):
         savetif(output_fpath, output_stack, overwrite=overwrite)
         # Return output filepath
         return output_fpath
+    
+    @staticmethod
+    def get_dtype_bounds(dtype):
+        '''
+        Get numerical bounds of data type
+        
+        :param dtype: data type
+        :return: minimum and maximum allowed numerical values for data type
+        '''
+        info_func = np.finfo if np.issubdtype(dtype, np.floating) else np.iinfo
+        dinfo = info_func(dtype)
+        return dinfo.min, dinfo.max
+    
+    @classmethod
+    def adapt_stack_range(cls, stack, dtype):
+        '''
+        Adapt stack data range to fit within numerical bounds of reference data type.
+
+        :param stack: image stack array
+        :param dtype: reference data type
+        :return: adapted stack
+        '''
+        # Get input data type bounds
+        dmin, dmax = cls.get_dtype_bounds(dtype)
+
+        # If values lower than lower bound are found, offset stack accordingly
+        if stack.min() < dmin:
+            logger.warning(f'values lower than {dmin} found in corrected stack -> offseting')
+            stack = stack - stack.min() + dmin + 1
+
+        # If values higher than input data type maximum are found, 
+        # rescale stack within bounds
+        if stack.max() > dmax:
+            logger.warning(f'values higher than {dmax} found in corrected stack -> rescaling')
+            ratio = 0.5 * dmax / stack.max()
+            stack = stack * ratio
+
+        # Return adapted stack        
+        return stack
+    
+    @classmethod
+    def check_stack_range(cls, stack, dtype):
+        '''
+        Check that stack data range fits within numerical bounds of reference data type.
+
+        :param stack: image stack array
+        :param dtype: reference data type
+        '''
+        # Get input data type numerical bounds
+        dmin, dmax = cls.get_dtype_bounds(dtype)
+        # Get stack value bounds
+        vbounds = stack.min(), stack.max()
+        # Check that value bounds fit within data type bounds, raise error otherwise
+        for v in vbounds:
+            if not dmin <= v <= dmax:
+                raise ValueError(f'stack data range {vbounds} is outside of {dtype} data type bounds: {dmin, dmax}') 
 
 
 class NoProcessor(StackProcessor):
@@ -894,7 +950,7 @@ def extract_reference_distributions(folder, projfunc, *args, **kwargs):
         refdists = []
         for fpath in tqdm(fpaths):
             refdists.append(
-                extract_reference_distribution(fpath, *args, verbose=False, **kwargs))
+                extract_reference_distribution(fpath, projfunc, *args, verbose=False, **kwargs))
         refdists = pd.concat(
             refdists, axis=0, keys=fnames, names=['file'])
         logger.info(f'saving reference distributions to {os.path.basename(folder)} folder')

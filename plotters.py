@@ -1607,7 +1607,7 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
 
 def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
                           itrial=None, tbounds=None, icorrect=None, cmap='viridis',
-                          groupbyROI=False, errorbar=None, ax=None, **kwargs):
+                          groupbyROI=False, errorbar=None, ax=None, legend='auto', **kwargs):
     '''
     Plot ROI-aggregated traces across runs/trials or all dataset
     
@@ -1752,7 +1752,7 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
                 data=plt_data, x=Label.TIME, y=(y, k), 
                 errorbar=errorbar,
                 hue=hue, palette=None if hue is None else cmap, 
-                legend='auto', ax=ax, **kwargs)
+                legend=legend, ax=ax, **kwargs)
             if hue is None:
                 custom_lines.append(
                     Line2D([0], [0], color=f'C{i}', lw=4))
