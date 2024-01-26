@@ -3644,7 +3644,7 @@ def compute_pairwise_metric(data, by, evalfunc, include_self=True):
     return out_table
 
 
-def compute_fit(xdata, ydata, kind, r2_crit=0.5):
+def compute_fit(xdata, ydata, kind, r2_crit=0.2):
     '''
     Fit a function to an X-Y profile
 
@@ -3691,7 +3691,12 @@ def compute_fit(xdata, ydata, kind, r2_crit=0.5):
 
     # Otherwise, get fit functions from dictionary and perform classic fit
     else:
-        objfunc, initfunc = get_fit_functions(kind)
+        fitobjs = get_fit_functions(kind)
+        if len(fitobjs) == 3:
+            objfunc, initfunc, boundsfunc = fitobjs
+        else:
+            objfunc, initfunc = fitobjs
+            boundsfunc = None
         # Extract fit name
         fitname = objfunc.__name__
         # Call fit initialization function, if provided
@@ -3701,10 +3706,17 @@ def compute_fit(xdata, ydata, kind, r2_crit=0.5):
             p0str = '[' + ', '.join([f'{p:.2g}' for p in p0]) + ']'
         else:
             p0, p0str = None, None
+        
+        # Call fit bounds function, if provided
+        if boundsfunc is not None:
+            logger.debug(f'estimating fit bounds for {fitname} function')
+            bounds = boundsfunc(xdata, ydata)
+        else:
+            bounds = (-np.inf, np.inf)
         # Perform fit
         logger.info(f'computing fit with {fitname} function: p0 = {p0str}')
         try:
-            popt, pcov = curve_fit(objfunc, xdata, ydata, p0, maxfev=10000)
+            popt, pcov = curve_fit(objfunc, xdata, ydata, p0, maxfev=100000, bounds=bounds)
         except RuntimeError as e:
             raise ValueError(e)
         
@@ -3722,7 +3734,7 @@ def compute_fit(xdata, ydata, kind, r2_crit=0.5):
 
     # If fit is not good enough, log warning and return
     if r2 < r2_crit:
-        raise ValueError(f'unreliable fit (R2 = {r2:.2f} > {r2_crit:.2f})')
+        raise ValueError(f'unreliable fit (R2 = {r2:.2f} < {r2_crit:.2f})')
 
     # Return
     return popt, pcov, r2, objfunc
@@ -3789,7 +3801,7 @@ def get_fit_table(Pfit='poly2', exclude=None):
     fits_per_line = {
         'line3': 'sigmoid',
         'sst': 'sigmoid_decay',
-        'pv': 'sigmoid_decay',
+        'pv': 'delayed_linear',  # 'sigmoid',
     }
 
     # Create empty 2D dataFframe

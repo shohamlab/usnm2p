@@ -21,11 +21,12 @@ def get_dataset_group_id(mouseline, layer=None):
     return dataset_group_id
 
 
-def get_prepro_id(global_correction=GLOBAL_CORRECTION, kalman_gain=KALMAN_GAIN):
+def get_prepro_id(global_correction=None, kalman_gain=KALMAN_GAIN):
     '''
     Get code string corresponding to specific pre-processing settings
     
-    :param klaman_gain: Kalmain gain (0 - 1)
+    :param global_correction: global correction method
+    :param kalman_gain: Kalmain gain (0 - 1)
     :return ID string
     '''
     # List of applied stack processors, in forward order

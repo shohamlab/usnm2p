@@ -85,7 +85,7 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
         '--inspect', default=False, action='store_true',
         help='Inspect data from random run along processing')
     parser.add_argument(
-        '-c', '--correction', type=none_or_str, default=GLOBAL_CORRECTION, nargs='+',
+        '-c', '--global_correction', type=none_or_str, default='line', nargs='+',
         help='Global correction method')
     parser.add_argument(
         '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
@@ -137,7 +137,7 @@ def parse_notebook_exec_args(args):
     proc_args = [
         'inspect',
         'slack_notify',
-        'correction',
+        'global_correction',
         'kalman_gain',
         'alpha',
         'baseline_quantile',
@@ -152,7 +152,6 @@ def parse_notebook_exec_args(args):
     proc_args = {k: as_iterable(v) for k, v in proc_args.items()}
 
     # Rename some processing parameters for consistency with notebook definitions
-    proc_args['global_correction'] = proc_args.pop('correction')
     proc_args['neuropil_scaling_coeff'] = proc_args.pop('alpha')
     proc_args['baseline_wquantile'] = proc_args.pop('wq')
     proc_args['baseline_wsmoothing'] = proc_args.pop('ws')
@@ -232,6 +231,13 @@ def execute_notebooks(pdicts, input_nbpath, outdir, **kwargs):
     '''
     # Establish batch queue with each parameter combination
     queue = [list(x) for x in zip(*[pdicts, [input_nbpath] * len(pdicts), [outdir] * len(pdicts)])]
+
+    # For each queue entry, if "global correction" field is present and set to "line", 
+    # change it to corresponding line-specific value
+    for entry in queue:
+        if 'global_correction' in entry[0] and entry[0]['global_correction'] == 'line':
+            entry[0]['global_correction'] = GLOBAL_CORRECTION[entry[0]['mouseline']]
+
     # Create and run job batch
     batch = Batch(execute_notebook, queue)
     nbpaths = batch.run(loglevel=logger.getEffectiveLevel(), **kwargs)

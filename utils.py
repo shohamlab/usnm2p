@@ -909,6 +909,69 @@ def get_sigmoid_decay_params(x, y):
     ]
 
 
+def delayed_linear(x, x0=1, A=1, sigma=0):
+    '''
+    Function that transitions between a constant and a linear regime
+    with a parametrized exponential transition
+
+    :param x: input value
+    :param x0: transition point x-coordinate
+    :param A: slope of linear segment
+    :param sigma: exponential transition width
+    '''
+    # If sigma is negative, raise error
+    if sigma < 0:
+        raise ValueError('sigma must be positive')
+    # If sigma is zero, set it to a very small value
+    if sigma == 0:
+        sigma = 1e-9
+
+    # If input is iterable, apply function to each element, and return array
+    if is_iterable(x):
+        return np.array([delayed_linear(xi, x0=x0, A=A, sigma=sigma) for xi in x])
+
+    # Compute inverted relative x coordinate to inflexion point
+    xrel = x0 - x
+
+    # If too close to inflexion point, return approximation
+    if np.abs(xrel) < 1e-5:
+        return A * sigma
+
+    # If exponential input is too large (i.e. constant regime), return 0
+    elif xrel / sigma > 1e2:
+        return 0
+    
+    # Otherwise, return real function
+    return A * xrel / (np.exp(xrel / sigma) - 1)
+
+
+def get_delayed_linear_params(x, y):
+    '''
+    Function estimating the initial parameters of a delayed linear function to fit
+
+    :param x: input vector
+    :param y: output vector
+    :return: initial fit parameters
+    '''
+    x0 = np.interp(.5 * y.max(), y, x)  # transition point: x value at which y is 30% of its maximum
+    return [
+        x0,
+        np.ptp(y) / (x.max() - x0),  # slope: y range / (x0 to xmax range)
+        0.001 * np.ptp(x)  # transition width: 10th of x range
+    ]
+
+
+def get_delayed_linear_bounds(x, y):
+    '''
+    Function estimating the bounds of a delayed linear function to fit
+
+    :param x: input vector
+    :param y: output vector
+    :return: fit bounds parameters
+    '''
+    return ([x.min(), 0, 0], [x.max(), np.inf, .01 * np.ptp(x)])
+
+
 def bilinear(x, x0=0, y0=0, A=1, B=-1):
     '''
     Bilinear function that transitions between two linear regimes.
@@ -924,8 +987,16 @@ def bilinear(x, x0=0, y0=0, A=1, B=-1):
         return np.array([bilinear(xx, x0=x0, y0=0, A=A, B=B) for xx in x])
     c = A if x < x0 else B
     return c * (x - x0) + y0
-    # xrel = x0 - x
-    # return A * xrel / (np.exp(xrel / iscale) - 1)
+
+
+def get_bilinear_params(x, y):
+    ''' Initial guess for bilinear fit parameters '''
+    return [
+        np.quantile(x, .5),  # transition x point: 50th percentile of x range
+        y[0],  # transition y point: initial y coordinate
+        0.,  # first slope: ymax/xmax ratio
+        y.max() / x.max()  # second slope: -ymax/xmax ratio
+    ]
 
 
 def mysqrt(x, A=1, x0=0, y0=0):
@@ -936,9 +1007,29 @@ def mysqrt(x, A=1, x0=0, y0=0):
     return A * np.sqrt(x - x0) + y0
 
 
-def quadratic(x, x1, x2, A=1, y0=0):
+def scaled_power(x, A=1, b=1):
+    '''
+    Power function with an amplitude scaling factor
+    
+    :param x: input value
+    :param A: scaling factor
+    :param b: exponent
+    :return: scaled power function output
+    '''
+    return A * np.power(x, b)
+
+
+def get_scaled_power_params(x, y):
+    ''' Initial guess for scaled power fit parameters '''
+    return [
+        y.max() / x.max(),  # scaling factor: ymax/xmax ratio
+        1  # exponent: 1
+    ]
+
+
+def parabolic(x, x1, x2, A=1, y0=0):
     ''' 
-    Quadratic function
+    Parabolic function
     
     :param x: independent variable
     :param x1, x2: horizontal offsets (i.e. polynomial roots)
@@ -948,14 +1039,13 @@ def quadratic(x, x1, x2, A=1, y0=0):
     return A * (x - x1) * (x - x2) + y0
 
 
-def get_quadratic_params(x, y):
-    ''' Initial guess for quadratic fit parameters '''
+def get_parabolic_params(x, y):
+    ''' Initial guess for parabolic fit parameters '''
     return [
         np.quantile(x, .1),  # first root: 10th percentile of x range
         np.quantile(x, .9),  # second root: 90th percentile of x range
         y.max() * 10  # amplitude: 10 times max of y range
     ]
-
 
 
 def biexponential(t, A, tau_rise, tau_decay, C):
@@ -991,18 +1081,21 @@ def get_biexponential_params(t, y):
     tau_decay0 = 2 * tau_rise0  # decay time constant = double of rise time constant
     C0 = np.min(y)  # offset = minimum value of data
     p0 = [A0, tau_rise0, tau_decay0, C0]
-
-    pbounds = ([0, 0, 0, -np.inf], [np.inf, np.inf, np.inf, np.inf])
-
-    return p0, pbounds
+    return p0
+    # pbounds = ([0, 0, 0, -np.inf], [np.inf, np.inf, np.inf, np.inf])
+    # return p0, pbounds
 
 
 fit_functions_dict = {
     'sigmoid': (sigmoid, get_sigmoid_params),
-    'quadratic': (quadratic, get_quadratic_params),
+    'scaled_power': (scaled_power, get_scaled_power_params),
+    'bilinear': (bilinear, get_bilinear_params),
+    'parabolic': (parabolic, get_parabolic_params),
     'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
     'biexponential': (biexponential, get_biexponential_params),
+    'delayed_linear': (delayed_linear, get_delayed_linear_params, get_delayed_linear_bounds),
 }
+
 
 
 def get_fit_functions(kind):

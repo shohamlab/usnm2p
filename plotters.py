@@ -3512,10 +3512,15 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
     :param nsims (optional): number of Monte-Carlo simulations to perform to estimate
         fit confidence interval, if requested
     :param pltkwargs: plotting keyword arguments
-    '''    
+    '''
+    # Extract fit kwargs from plotting kwargs
+    fit_kwargs = {}
+    if 'r2_crit' in pltkwargs:
+        fit_kwargs['r2_crit'] = pltkwargs.pop('r2_crit')
+    
     # Compute fit
     try:
-        popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit)
+        popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit, **fit_kwargs)
     except ValueError as e:
         logger.warning(f'{e} -> ignoring')
         return
@@ -5652,6 +5657,11 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
 
             # Compute prediction accuracy
             ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+
+            # If accuracy exceeds reasonable range, log warning and set to infinity for plotting
+            if ζ > 1e3:
+                logger.warning(f'accuracy exceeds reasonable range: {ζ:.2e}')
+                ζ = np.inf
 
             # Plot divergence between fit and data points from other sweep
             iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())

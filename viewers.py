@@ -33,7 +33,8 @@ class StackViewer:
 
     npix_label = 10 # number of pixels used for upper-right labeling
     
-    def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, scaling_factor=S2P_UINT16_NORM_FACTOR):
+    def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, 
+                 scaling_factor=S2P_UINT16_NORM_FACTOR, verbose=True):
         '''
         Initialization.
 
@@ -43,9 +44,10 @@ class StackViewer:
         :param continuous_update: update the image while dragging the mouse (default: True)
         :param display_size: size of the render (in pixels per axis)
         '''
+        logfunc = logger.info if verbose else logger.debug
         self.fpaths = fpaths
         self.scaling_factor = scaling_factor
-        logger.info('initializing stack viewer')
+        logfunc('initializing stack viewer')
         self.fobjs = [self.get_fileobj(fp) for fp in self.fpaths]
         self.headers = headers
         self.title = title
@@ -57,7 +59,7 @@ class StackViewer:
             raise ValueError(f'Inconsistent frame shapes: {shapes}')
         self.nframes = nframes[0]
         self.shape = shapes[0]
-        logger.info(f'stack size: {(self.nframes, *self.shape)}')
+        logfunc(f'stack size: {(self.nframes, *self.shape)}')
 
         # Initialize other attributes
         self.display_width = self.display_height = display_size
@@ -482,7 +484,7 @@ def extract_registered_frames(ops, irun, itrial=None, iframes=None, ntrials_per_
     itrial = np.ravel(itrial)
 
     # Initialize stack viewer and extract frames
-    viewer = get_stack_viewer(ops)
+    viewer = get_stack_viewer(ops, verbose=verbose)
     if verbose:
         logger.info(
             f'extracting frames {idx_format(iframes)} from run {irun}, trial(s) {idx_format(itrial)} (indexes = {idx_format(iframes_ext)})')
