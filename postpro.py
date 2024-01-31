@@ -386,31 +386,6 @@ def compute_baseline(data, bfunc):
     return baselines
 
 
-def compute_trial_trend(s, type='constant'):
-    ''' Compute trend on trial trace '''
-    # Extract values
-    y = s.values
-    # Generate index vector
-    x = np.arange(y.size)
-    # Generate validity vector
-    isvalid = np.ones(y.size, dtype=bool) 
-    isvalid[FrameIndex.RESP_EXT] = False
-    # Perform linear fit on valid indices only
-    if type == 'linear':
-        m, b, *_ = linregress(x[isvalid], y[isvalid])
-        yfit = m * x + b
-    elif type == 'constant':
-        yfit = y[isvalid].mean()
-    else:
-        raise ValueError(f'unknown detrending type: {type}')
-    return yfit
-
-
-def detrend_trial(s, **kwargs):
-    # Subtract fit to data and return
-    return s - compute_trial_trend(s, **kwargs)
-
-
 def find_response_peak(s, n_neighbors=0, full_output=False, **kwargs):
     '''
     Find the response peak (if any) of a signal
@@ -676,7 +651,7 @@ def slide_along_trial(func, data, ref_wslice, iseeds):
     iframes = data.index.unique(Label.FRAME)
     nframes_per_trial = iframes.size
     # Get window length
-    wlen = FrameIndex.RESPONSE.stop - FrameIndex.RESPONSE.start
+    wlen = FrameIndex.NPOST
     # If not provided, generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
         iseeds = np.round(np.linspace(0, nframes_per_trial - wlen, iseeds)).astype(int)
@@ -1307,15 +1282,21 @@ def get_zscore_maximum(pthr, w):
     return pvalue_to_zscore(get_pvalue_per_sample(pthr, w), directional=True)
 
 
-def pre_post_ttest(s, wpre=FrameIndex.PRESTIM, wpost=FrameIndex.RESPONSE, directional=False):
+def pre_post_ttest(s, wpre=None, wpost=None, directional=False):
     '''
     Select samples from pre- and post-stimulus windows and perform a t-test
     to test for their statistical significance
     
     :param s: input pandas Series
+    :param wpre: pre-stimulus window slice
+    :param wpost: post-stimulus window slice
     :param directional (default: False): whether to expect a directional effect
     :return tuple with t-statistics and associated p-value
     '''
+    if wpre is None:
+        wpre = get_window_slice(kind='pre')
+    if wpost is None:
+        wpost = get_window_slice(kind='post')
     xpre = s.loc[slice_last_dim(s.index, wpost)].values
     xpost = s.loc[slice_last_dim(s.index, wpre)].values
     tstat, pval = ttest_ind(
@@ -1588,9 +1569,52 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
+def get_window_slice(kind='pre', iref=None, n=None):
+    '''
+    Get a window slice centered around a reference index
+
+    :param kind: window kind ('pre' or 'post')
+    :param iref: reference index (if None, use default reference index)
+    :param n: window size (if None, use default window size for kind)
+    :return: window slice
+    '''
+    # Check that window kind is valid
+    if kind not in ['pre', 'post']:
+        raise ValueError(f'unknown window kind "{kind}"') 
+    
+    # If reference index is not specified, use default
+    if iref is None:
+        iref = FrameIndex.STIM
+    # Otherwise, check that reference index is valid 
+    else:
+        if not isinstance(iref, int):
+            raise TypeError(f'reference index must be an integer (got {type(iref)})')
+    
+    # If window size is not specified, use default window size for kind
+    if n is None:
+        if kind == 'pre':
+            n = FrameIndex.NPRE
+        else:
+            n = FrameIndex.NPOST
+    # Otherwise, check that window size is valid
+    else:    
+        if not isinstance(n, int):
+            raise TypeError(f'window size must be an integer (got {type(n)})')   
+        if n < 1:
+            raise ValueError(f'{kind} window size must be >= 1')
+
+    # Preceding window: n elements, finishing on (including) index
+    if kind == 'pre':
+        return slice(iref - n + 1, iref + 1)
+    
+    # Postceding window: n elements, starting at index + 1
+    else:
+        return slice(iref + 1, iref + n + 1)
+
+
+
 def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=None, 
-                          iref=FrameIndex.STIM, wpre=None, wpost=None, 
-                          verbose=True, full_output=False):
+                          iref=FrameIndex.STIM, verbose=True, full_output=False):
     ''' 
     Compute stimulus-evoked change in specific variable
     
@@ -1598,11 +1622,9 @@ def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=No
     :param ykey: evaluation variable name
     :param spre: pre-stimulus window slice
     :param spost: post-stimulus window slice
-    :param npre: number of pre-stimulus samples (if wpre is not specified)
-    :param npost: number of post-stimulus samples (if wpost is not specified)
+    :param npre: number of pre-stimulus samples (if spre is not specified)
+    :param npost: number of post-stimulus samples (if spost is not specified)
     :param iref: reference frame index (default: stimulus frame)
-    :param wpre: weights vector for pre-stimulus window
-    :param wpost: weights vector for post-stimulus window
     :param verbose: whether to print out results
     :param full_output: whether to return pre and post metrics as well
     :return: evoked change series, or stats dataframe if full_output is True
@@ -1614,45 +1636,34 @@ def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=No
     if spost is not None and npost is not None:
         raise ValueError('cannot specify both post-stimulus window slice and size')
 
-    # If window slice is not specified, compute it from window size (if specified)
-    # or use default pre- and post-stimulus windows 
+    # If pre-stimulus window slice is not specified
     if spre is None:
+        # If pre-stimulus window size is not specified, use default
         if npre is None:
-            spre = FrameIndex.PRESTIM
-        else:
-            if npre < 1:
-                raise ValueError('pre-stimulus window size must be >= 1')
-            spre = slice(iref - npre + 1, iref)
-    if spost is None:
-        if npost is None:
-            spost = FrameIndex.RESPONSE
-        else:
-            if npost < 1:
-                raise ValueError('post-stimulus window size must be >= 1')
-            spost = slice(iref + 1, iref + npost)
+            npre = FrameIndex.NPRE
+        # Compute pre-stimulus window slice from reference frame index
+        spre = get_window_slice(kind='pre', iref=iref, n=npre)
     
-    # Compute final pre and post windows size 
-    npre = spre.stop - spre.start + 1
-    npost = spost.stop - spost.start + 1
-
-    # If weights providedm make sure they are of the same size as the corresponding windows 
-    if wpre is not None and len(wpre) != npre:
-        raise ValueError(f'pre-stimulus window size ({npre}) does not match weights vector size ({len(wpre)})')
-    if wpost is not None and len(wpost) != npost:
-        raise ValueError(f'post-stimulus window size ({npost}) does not match weights vector size ({len(wpost)})')
-
+    # If post-stimulus window slice is not specified
+    if spost is None:
+        # If post-stimulus window size is not specified, use default
+        if npost is None:
+            npost = FrameIndex.NPOST
+        # Compute post-stimulus window slice from reference frame index
+        spost = get_window_slice(kind='post', iref=iref, n=npost)
+    
     # Extract keys for pre- and post-stimulus averages and change
     y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)
     
-    # Define prefix:window dictionary
-    wdict = {
-        y_prestim_avg: (spre, wpre),
-        y_poststim_avg: (spost, wpost)
+    # Define prefix:slice dictionary
+    sdict = {
+        y_prestim_avg: spre,
+        y_poststim_avg: spost
     }
 
     # Compute metrics average in pre- and post-stimulus windows for each ROI & run
     ystats = pd.DataFrame(
-        {k: apply_in_window(data, ykey, s, weights=w, verbose=verbose) for k, (s, w) in wdict.items()})
+        {k: apply_in_window(data, ykey, s, verbose=verbose) for k, s in sdict.items()})
 
     # Compute evoked change as their difference
     if verbose:
@@ -2123,18 +2134,25 @@ def sum_of_square_devs(x):
     return ((x - x.mean())**2).sum()
 
 
-def anova1d(data, xkey, ykey):
+def anova1d(data, xkey, ykey, verbose=False):
     '''
     Detailed 1-way ANOVA
     
     :param data: multi-indexed experiment dataframe
     :param xkey: name of column holding the values of the independent variable
     :param ykey: name of column holding the values of the dependent variable
+    :param verbose: whether to print out results
     :return: p-value computing from F-score
     '''
     # Compute problem dimensions
     k = data[xkey].nunique()  # number of conditions
-    npergroup = data.groupby(xkey)[ykey].agg(lambda s: s.notna().sum())  # number of valid (non-NaN) observations in each condition
+    npergroup = (  # number of valid (non-NaN) observations in each condition
+        data
+        .groupby(xkey)
+        [ykey]
+        .agg(lambda s: s.notna().sum())
+        .rename('# obs')
+    )  
     N = npergroup.sum()  # overall number of valid observations
     
     # Compute degrees of freedom
@@ -2144,28 +2162,45 @@ def anova1d(data, xkey, ykey):
 
     # Compute means
     Gm = data[ykey].mean()  # grand mean
-    M = data.groupby(xkey)[ykey].mean()  # means per group
+    M = data.groupby(xkey)[ykey].mean().rename('mean')  # means per group
 
     # Compute sums of squares
-    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).sum()
-    ss_between = (npergroup * (M - Gm)**2).sum()
-    ss_total = ss_between + ss_within
+    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).rename('SS-within')
+    ss_between = (npergroup * (M - Gm)**2).rename('SS-between')
+    ss_total = ss_between.sum() + ss_within.sum()
 
     # Compute F-score
-    ms_within = ss_within / df_within
-    ms_between = ss_between / df_between
+    ms_within = ss_within.sum() / df_within
+    ms_between = ss_between.sum() / df_between
     F = ms_between / ms_within
 
     # Compute resulting statistics
     p = fstats.sf(F, df_between, df_within)  # p-value
-    # eta_sqrd = ss_between / ss_total  # effect size
-    # om_sqrd = (ss_between - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
+    # eta_sqrd = ss_between.sum() / ss_total  # effect size
+    # om_sqrd = (ss_between.sum() - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
+
+    # If verbose selected, log details
+    if verbose:
+        df = pd.concat([npergroup, M.round(3), ss_within.round(3), ss_between.round(3)], axis=1)
+        df.loc['TOTAL/MEAN'] = df.sum(axis=0)
+        df.loc['TOTAL/MEAN', 'mean'] = Gm
+        df['# obs'] = df['# obs'].astype(int)
+        df['MS within'] = np.nan
+        df.loc['TOTAL/MEAN', 'MS within'] = ms_within.round(3)
+        df['MS between'] = np.nan
+        df.loc['TOTAL/MEAN', 'MS between'] = ms_between.round(3)
+        df['F-score'] = np.nan
+        df.loc['TOTAL/MEAN', 'F-score'] = F.round(3)
+        df['p-value'] = np.nan
+        df.loc['TOTAL/MEAN', 'p-value'] = p
+        logger.info(f'ANOVA details:\n{df}')
 
     # Return p-value
     return p
 
 
 def get_weighted_ss_across(data, ykey, groupby):
+
     ''' 
     Group data by factor value, compute squared deviations from grand mean 
     for each group, weigh them by group sizes and return sum.
@@ -2533,85 +2568,6 @@ def get_cumulative_frame_index(mux):
 
 def get_quantile_index(s, **kwargs):
     return np.abs(s - s.median(**kwargs)).idxmin()
-
-
-def get_trial_anchor_points(s):
-    ''' 
-    Get interpolation anchor points for a trial timeseries
-
-    :param s: trial timeseries
-    :return: anchor points indexes
-    '''
-    # Reduce index to frame only
-    s.index = s.index.get_level_values(Label.FRAME)
-    # Extract pre and post response windows
-    spre = s.loc[slice_last_dim(s.index, FrameIndex.PRESTIM)]
-    spost = s.loc[slice_last_dim(s.index, FrameIndex.BASELINE)]
-    # Extract anchor points from given quantiles in each window
-    ianchors = [get_quantile_index(spre), get_quantile_index(spost)]
-    return ianchors
-
-
-def spline_interp_run(s, ianchors=None):
-    ''' 
-    Interpolate run timeseries using a cubic spline
-
-    :param s: input multi-index series
-    :return: spline-interpolated series
-    '''
-    # Extract anchor points if not given
-    if ianchors is None:
-        ianchors = s.groupby([Label.ROI, Label.RUN, Label.TRIAL]).apply(
-            get_trial_anchor_points).explode().rename(Label.FRAME)
-        ianchors = ianchors.to_frame().set_index(Label.FRAME, append=True).index
-    # Otherwise, propagate them through every trial
-    else:
-        levels = {k: s.index.unique(level=k) for k in s.index.names[:-1]}
-        levels[Label.FRAME] = ianchors
-        ianchors = pd.MultiIndex.from_product(
-            list(levels.values()), names=list(levels.keys()))
-    # Compute cumulative index
-    df = s.rename('y').to_frame()
-    df['x'] = get_cumulative_frame_index(df.index)
-    # Select data at anchor points, plus end points if not there already
-    df_anchors = df.loc[ianchors, :]
-    if ianchors[0][-1] != 0:
-        df_anchors = pd.concat([df.head(1), df_anchors], axis=0)
-    if ianchors[-1][-1] != NFRAMES_PER_TRIAL - 1:
-        df_anchors = pd.concat([df_anchors, df.tail(1)], axis=0)
-    # Construct cubic slice interpolator
-    finterp = interp1d(
-        df_anchors['x'], df_anchors['y'], kind='cubic', fill_value='extrapolate',
-        assume_sorted=True)
-    # Apply interpolator to entire series and return
-    return pd.Series(data=finterp(df['x']), index=s.index, name=s.name)
-
-
-
-def spline_interp_trial(s):
-    ''' 
-    Interpolate trial timeseries using a cubic spline
-
-    :param s: trial timeseries
-    :param ianchor: frame index (relative to trial) of anchoring points
-    :return: spline-interpolated series
-    '''
-    mux = s.index
-    # Reduce index to frame only
-    s.index = s.index.get_level_values(Label.FRAME)
-    # Extract pre and post response windows
-    spre = s.loc[slice_last_dim(s.index, FrameIndex.PRESTIM)]
-    spost = s.loc[slice_last_dim(s.index, FrameIndex.BASELINE)]
-    # Extract anchor points from given quantiles in each window
-    ianchors = [get_quantile_index(spre), get_quantile_index(spost)]
-    yanchors = s.loc[ianchors].values
-    # Interpolate with cubic spline
-    finterp = interp1d(
-        ianchors, yanchors, kind='cubic', 
-        fill_value='extrapolate', assume_sorted=True)
-    yinterp = finterp(s.index.values)
-    # Return as series with original index
-    return pd.Series(data=yinterp, index=mux, name=s.name)
 
 
 def offset_per_dataset(s, rel_offset=.5):
@@ -3522,16 +3478,44 @@ def phase_clustering(phi, aggby):
     )
 
 
-def shuffle(y, keep_index=True):
+def shuffle(y, keep_index=True, key=None, gby=None):
     '''
     Shuffle input
     
     :param y: input (pandas Series/DataFrame object or iterable)
     :param keep_index: whether to keep original index (only for pandas inputs)
+    :param key: name of specific column for which to shuffle data (optional, only for DataFrame inputs)
+    :param gby: name of dimension along which to shuffle data (optional, only for pandas inputs)
     :return: input with shuffled values
     '''
+    # If column key specified
+    if key is not None:
+        # If not a DataFrame input, raise error
+        if not isinstance(y, pd.DataFrame):
+            raise ValueError('key can only be specified for DataFrame inputs')
+        # If key not found in columns, raise error
+        if key not in y.columns:
+            raise ValueError(f'"{key}" not found in input DataFrame columns')
+        # Copy dataframe, 
+        yout = y.copy()
+        # If gby specified, add gby columns to index to enable grouping
+        extraidx = []
+        if gby is not None:
+            for gb in as_iterable(gby):
+                if gb not in yout.index.names:
+                    yout = yout.set_index(gb, append=True)
+                    extraidx.append(gb)
+        # Shuffle specified column
+        yout[key] = shuffle(yout[key], keep_index=True, gby=gby)
+        # Reset added index dimensions as columns
+        for gb in extraidx:
+            yout = yout.reset_index(gb)
+        # Return
+        return yout
+    
     # Assess whether input is a pandas object (Series or DataFrame)
     is_pandas_input = isinstance(y, (pd.Series, pd.DataFrame))
+
     # In case it is not
     if not is_pandas_input:
         # If not an iterable, raise error
@@ -3539,14 +3523,22 @@ def shuffle(y, keep_index=True):
             raise ValueError('input must be a pandas Series/DataFrame object or an iterable')
         # Otherwise, convert to Series
         y = pd.Series(y)
-    # Shuffle data 
-    yout = y.sample(frac=1)
+    
+    # If specified, shuffle data along specified dimension
+    if gby is not None:
+        yout = y.groupby(gby).apply(lambda x: x.sample(frac=1))
+    # Otherwise, shuffle data along its entire length
+    else:
+        yout = y.sample(frac=1)
+
     # If specified, keep original index
     if keep_index:
         yout.index = y.index
+
     # If input was not pandas object, convert back to numpy array
     if not is_pandas_input:
         yout = yout.values
+
     # Return
     return yout
 
@@ -3789,11 +3781,11 @@ def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000):
     return yfit_lb, yfit_ub
 
 
-def get_fit_table(Pfit='poly2', exclude=None):
+def get_fit_table(Pfit='scaled_power', exclude=None):
     ''' 
     Generate 2D table of fit functions across cell lines and input parameters
     
-    :param pfit: fit for pressure dependencies (default = 'poly2')
+    :param pfit: fit for pressure dependencies (default = 'scaled_power')
     :param exclude: lines to exclude from fit table (default = None)
     :return: pandas dataframe with fit functions
     '''

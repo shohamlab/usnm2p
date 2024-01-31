@@ -285,7 +285,7 @@ NEUROPIL_SCALING_COEFF = 0.7
 
 # Baseline computation
 BASELINE_QUANTILE = None  #.08  # quantile used for the computation of the fluorescence baseline (if None, and adaptive quantile is used)
-BASELINE_WQUANTILE = 10.  # quantile filter window size (s) to compute fluorescence baseline
+BASELINE_WQUANTILE = 30.  # quantile filter window size (s) to compute fluorescence baseline
 BASELINE_WSMOOTHING = None  # gaussian filter window size (s) to smooth out fluorescence baseline
 
 ###################################### STATISTICS ######################################
@@ -312,10 +312,8 @@ TRIAL_AGGFUNC = np.median   # trial aggregation function
 # Frame indexes
 class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    PRESTIM = slice(STIM - 5, STIM + 1)  # indexes used for analysis of pres-stimulus activity per trial.
-    RESPONSE = slice(STIM + 1, STIM + 12)  # indexes used for post-stimulus response computation per trial.
-    RESPSHORT = slice(STIM + 1, STIM + 4)  # indexes used for short post-stimulus response computation per trial.
-    RESP_EXT = slice(STIM, STIM + 40)  # indexes excluded for DFF detrending
+    NPRE = 6  # number of frames in pre-stimulus window (including stimulus frame)
+    NPOST = 11  # number of frames in post-stimulus window (starting right after stimulus frame)
     BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 
 # Response classification

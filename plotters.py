@@ -3117,7 +3117,7 @@ def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, 
-                   wresp=FrameIndex.RESPONSE, mark_peaks=False, 
+                   wresp='post', mark_peaks=False, 
                    yref=None, ax=None, **kwargs):
     '''
     Plot trial responses of specific sub-datasets.
@@ -3138,6 +3138,8 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
 
     # Extract response interval (from unfiltered data) if requested 
     if wresp is not None:
+        if wresp == 'post':
+            wresp = get_window_slice(kind='post')
         tresp = data[Label.TIME].values[bounds(wresp)]
         # Define marker function if mark_peaks is set to True
         if mark_peaks:
@@ -3375,6 +3377,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         ax=ax, 
         errorbar=errorbar, 
         marker=marker,
+        markersize=8,
+        markeredgecolor='none',
         palette=palette, 
         **kwargs
     )
@@ -3384,6 +3388,21 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     fig = plot_from_data(
         data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
         err_style=hueerr_style, legend=legend, lw=lw, **pltkwargs)
+
+    # If fit specified and hue is dataset
+    if fit and hue == Label.DATASET:
+        # Aggregate data by input value and dataset
+        dataset_agg_data = data.groupby([xkey, Label.DATASET])[ykey].mean()
+        # Compute 1-way ANOVA on dataset-aggreated data
+        pval = compute_1way_anova(dataset_agg_data.reset_index(), xkey, ykey)
+        pstr = f'p = {pval:.3f}' if pval >= 0.001 else 'p < 0.001' 
+        ax.text(
+            0.05, 0.95, f'ANOVA: {pstr}', va='top', ha='left',
+            transform=ax.transAxes, fontsize=10, color='k'
+        )
+        if pval > 0.05:
+            logger.warning(f'no significant {xkey} dependency -> avoiding fit')
+            fit = None
     
     # If hueplt specified
     if hueplt:
@@ -3496,7 +3515,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
 
 
 def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True, 
-                        npts=100, ci=None, nsims=1000, **pltkwargs):
+                        npts=100, ci=None, nsims=1000, fs=10, **pltkwargs):
     '''
     Fit a function to and X-Y profile, compute the goodness of fit (R-squared)
     and plot the resulting function across the X-data range
@@ -3531,8 +3550,12 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
     # Display fit results on graph, if requested
     if add_text:
         ax.text(
-            .5, .9, f'{fitname} fit: R2 = {r2:.2f}', ha='center', va='top', 
-            transform=ax.transAxes, fontsize=12)
+            .05, .85, f'{fitname} fit: r2 = {r2:.2f}', ha='left', va='top', 
+            transform=ax.transAxes, fontsize=fs)
+        if fitname == 'scaled_power':
+            ax.text(
+                .05, .75, f'exp = {popt[1]:.1f}', ha='left', va='top', 
+                transform=ax.transAxes, fontsize=fs)
 
     # Define dense x vector to plot fit profile
     xdense = np.linspace(*bounds(xdata), npts)
@@ -5650,13 +5673,14 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
 
             # Get data from other sweep
             other_data = get_xdep_data(data, otherkey, add_DC0=True)
-            xother, yother = other_data[xkey], other_data[mu_ykey]
+            xother, yother, yother_err = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
 
             # Apply fit on input range from other sweep
             yotherfit = objfunc(xother, *popt)
 
             # Compute prediction accuracy
             ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            ζ = ((yother - yotherfit) / yother_err).abs().mean()
 
             # If accuracy exceeds reasonable range, log warning and set to infinity for plotting
             if ζ > 1e3:
@@ -6040,15 +6064,14 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     return fig
 
 
-def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=None, kind=None, 
-                             scale='symlog', color=None, addreg=False, prefix=None):
+def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None, 
+                     scale='symlog', color=None, addreg=False):
     '''
-    Plot correlation of pre-stimulus average and post-stimulus average for 
-    specific variable
+    Plot correlation of between two variables.
 
-    :param ystats: multi-indexed stats for variable
-    :param ykey: variable of interest
-    :param use_change (optional): whether to use change in variable instead of post-stimulus average
+    :param data: multi-indexed stats for variable
+    :param xkey: name of first variable (displayed on x-axis)
+    :param ykey: name of second variable (displayed on y-axis)
     :param splitby (optional): variable to split data by
     :param avgby (optional): variable to average data by before computing correlation & plotting
     :param kind (optional): plot kind (one of "scatter", "hist" or "kde"). If none provided,
@@ -6057,35 +6080,28 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
     :param addreg (optional): whether to add linear regression line
     :return: figure handle
     '''
-    # Extract x and y keys
-    y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)    
-    xykeys = dict(
-        x=y_prestim_avg, 
-        y=y_change if use_change else y_poststim_avg,
-    )
-    if prefix is not None:
-        xykeys = {k: f'{prefix}{v}' for k, v in xykeys.items()}
-    yrelstr = f'{xykeys["y"]} vs. {xykeys["x"]}'
+    # Construct descriptive strings
+    yrelstr = f'{ykey} vs. {xkey}'
 
     # If split variable provided, make sure it is available in stats
     if splitby is not None:
-        if splitby not in ystats.index.names and splitby not in ystats.columns:
-            raise ValueError(f'splitby variable "{splitby}" not found in input stats')
+        if splitby not in data.index.names and splitby not in data.columns:
+            raise ValueError(f'splitby variable "{splitby}" not found in input data')
         logger.info(f'splitting data by {splitby}...')
 
     # If average variable provided, average data by it
     if avgby is not None:
         logger.info(f'averaging data across {avgby}...')
-        gby = [k for k in ystats.index.names if k != avgby]
-        ystats = ystats.select_dtypes(exclude=['object']).groupby(gby).mean()
+        gby = [k for k in data.index.names if k != avgby]
+        data = data.select_dtypes(exclude=['object']).groupby(gby).mean()
         if splitby == Label.ISPTA:
-            ystats[splitby] = ystats[splitby].round(2)
+            data[splitby] = data[splitby].round(2)
 
     # Compute max number of potential points per graph 
     if splitby is not None:
-        maxnptspergraph = ystats.groupby(splitby).size().max() 
+        maxnptspergraph = data.groupby(splitby).size().max() 
     else:
-        maxnptspergraph = len(ystats)
+        maxnptspergraph = len(data)
 
     # If plot kind not specified, infer it from data size
     if kind is None:
@@ -6125,9 +6141,10 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
     # Plot pre-post distribution
     logger.info(f'rendering {kind}-plot of {yrelstr}...')
     g = pltfunc(
-        data=ystats, 
+        data=data, 
         kind=kind,
-        **xykeys,
+        x=xkey,
+        y=ykey,
         **pltkwargs
     )
 
@@ -6150,10 +6167,10 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
 
     # Compute correlation coefficients
     logger.info(f'computing correlation coefficients of {yrelstr}...')
-    groups = ystats.copy()
+    groups = data.copy()
     if splitby is not None:
         groups = groups.groupby(splitby)
-    corrcoeffs = groups[[*xykeys.values()]].corr().iloc[::2, 1]
+    corrcoeffs = groups[[xkey, ykey]].corr().iloc[::2, 1]
     if splitby is not None:
         corrcoeffs = corrcoeffs.droplevel(-1)
     else:
@@ -6162,12 +6179,12 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
     # Compute linear regression if requested
     if addreg:
         logger.info(f'computing linear regression of {yrelstr}...')
-        regkwargs = dict(robust=True, **{f'{k}key': v for k, v in xykeys.items()})
+        regkwargs = dict(robust=True, xkey=xkey, ykey=ykey)
         if splitby is None:
-            regres = apply_linregress(ystats, **regkwargs).to_frame().T
+            regres = apply_linregress(data, **regkwargs).to_frame().T
             regres.index = ['all']
         else:
-            regres = ystats.groupby(splitby).apply(
+            regres = data.groupby(splitby).apply(
                 lambda df: apply_linregress(df, **regkwargs))
     
     # Add correlation coefficients (and potential regression info) to each subplot
@@ -6180,7 +6197,7 @@ def plot_prepost_correlation(ystats, ykey, use_change=True, splitby=None, avgby=
         ytext += dytext
         if addreg:
             m, b = regres.loc[key, ['slope', 'intercept']]
-            xdense = np.linspace(*bounds(ystats[y_prestim_avg]), 100)
+            xdense = np.linspace(*bounds(data[y_prestim_avg]), 100)
             ydense = m * xdense + b
             ax.plot(xdense, ydense, c=color, lw=2)
             ax.text(

@@ -873,7 +873,8 @@ def sigmoid_decay(x, x0=0, k=1, r=.2, A=1, y0=0):
     :param A: amplitude
     :param y0: vertical offset
     '''
-    return A / (1 + np.exp(-k * (x - x0))) * np.exp(-r * (x - x0)) + y0
+    s = A / (1 + np.exp(-k * (x - x0))) * np.exp(-r * (x - x0)) + y0
+    return s - s.min()
 
 
 def get_sigmoid_decay_params(x, y):
@@ -905,7 +906,7 @@ def get_sigmoid_decay_params(x, y):
         xmid,  # inflection point: first x value where y > 50% of max
         1 / xsigrange,  # sigmoidal increase rate: inverse of x sigmoidal increase range
         .1 / xsigrange,  # exponential decay rate: 10% of sigmoidal increase rate
-        y.max()  # maximum: max of y range
+        y.max()  # amplitude: max of y range
     ]
 
 
@@ -1303,3 +1304,17 @@ def get_unique_combinations(df, keys):
     '''
     subdf = pd.DataFrame({k: extract_from_dataframe(df, k) for k in keys})
     return subdf.drop_duplicates().to_records(index=False).tolist()
+
+
+def get_idx_slice_size(s):
+    '''
+    Get the size of a slice object
+
+    :param s: slice object, with start and stop attributes, and unitary step
+    :return: size of slice
+    '''
+    if s.step is not None and s.step != 1:
+        raise ValueError('step must be None or 1')
+    if s.start is None or s.stop is None:
+        raise ValueError('start and stop must be defined')
+    return s.stop - s.start

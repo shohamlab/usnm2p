@@ -29,19 +29,35 @@ def get_prepro_id(global_correction=None, kalman_gain=KALMAN_GAIN):
     :param kalman_gain: Kalmain gain (0 - 1)
     :return ID string
     '''
-    # List of applied stack processors, in forward order
-    processors = [
-        StackSubstitutor([
-            (1, 0, None),
-            (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
-        ])
-    ]
+    # If global correction is a dictionary, recursively call this function for each entry
+    if isinstance(global_correction, dict):
+        return {
+            k: get_prepro_id(global_correction=v, kalman_gain=kalman_gain)
+            for k, v in global_correction.items()
+        }
+
+    # Create dictionary of applied stack processors
+    processors = {}
+
+    # Add stack substitor
+    processors['stack_substitutor'] = StackSubstitutor([
+        (1, 0, None),
+        (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
+    ])
+    
+    # Add global corrector, if any
     if global_correction is not None:
-        processors.append(LinRegCorrector.from_string(global_correction))
+        processors['lrc'] = LinRegCorrector.from_string(global_correction)
+    
+    # Add Kalman denoiser, if any
     if kalman_gain is not None and kalman_gain > 0:
-        processors.append(KalmanDenoiser(kalman_gain))
-    # Return code string
-    return os.path.join(*[p.code for p in processors[::-1]])
+        processors['kd'] = KalmanDenoiser(kalman_gain)
+    
+    # Generate codes list
+    codes = [p.code for p in processors.values()]
+
+    # Reverse codes list order and return code string
+    return os.path.join(*codes[::-1])
 
 
 def get_s2p_id(tau=TAU_GCAMP6S_DECAY, fs=BRUKER_SR, do_registration=1,
@@ -152,6 +168,8 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     # Get figures PDF suffix
     prepro_code = []
     if global_correction is not None:
+        if isinstance(global_correction, dict):
+            global_correction = 'line-specific'
         prepro_code.append(global_correction)
     if kalman_gain is not None:
         prepro_code.append(f'k{kalman_gain}')
@@ -165,8 +183,15 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
             input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
     else:    
         input_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.LINESTATS)
-        input_dir = os.path.join(
-            input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type)
+        if isinstance(prepro_id, dict):
+            input_dir = {
+                k: os.path.join(
+                    input_root, processing_id, conditioning_id, get_s2p_id(), v, analysis_type)
+                for k, v in prepro_id.items()
+            }
+        else:
+            input_dir = os.path.join(
+                input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type)
     # Get figures directory
     figsdir = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.FIG)
     return dataset_group_id, input_dir, figsdir, figs_suffix

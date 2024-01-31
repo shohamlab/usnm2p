@@ -861,31 +861,74 @@ def load_lineagg_data(dirpath, errprop='intra'):
     '''
     Load line-aggregated data for multiple mouse lines
     
-    :param dirpath: path to input directory
+    :param dirpath: path to input directory (or dictionary of paths to input directories)
     :param errprop: error propagation method (intra/inter)
     :return: 2-tuple with:
         - multi-indexed (line, responder type, run, trial) stats dataframe
         - multi-indexed (line, dataset) cell count series
     '''
-    logger.info(f'input folder: {dirpath}')
     logger.info(f'loading line-average data (with {errprop}-propagated SE)')
 
-    # Define file name patterns for stats (with appropriate propagation method) and cell counts
-    fpatterns = {
-        'stats': f'*_{errprop}.csv',
-        'counts': '*_counts.csv',
+    # Dictionary of files fuffixes (with appropriate propagation method)
+    suffixes = {
+        'stats': f'_{errprop}.csv',
+        'counts': '_counts.csv'
     }
 
-    # Load and concatenate data for each file type
+    # Initialize empty data dictionary
     data = {}
-    for k, pattern in fpatterns.items():
-        fpaths = natsorted(glob.glob(os.path.join(dirpath, pattern)))
-        if len(fpaths) == 0:
-            raise ValueError(f'no {k} data (pattern = {pattern}) found in "{dirpath}"')
-        data[k] = pd.concat([pd.read_csv(fpath) for fpath in fpaths])
 
-    # Unpack data
-    stats, counts = data['stats'], data['counts']
+    # If input is a dictionary of paths
+    if isinstance(dirpath, dict):
+        # Fill in data dictionary with empty stats and counts dictionaries
+        data['stats'] = {}
+        data['counts'] = {}
+
+        # Go through each line and associated directory
+        for line, dirp in dirpath.items():
+            logger.info(f'loading {line} data from {dirp} folder')
+            # Initialize empty line data dictionary
+            linedata = {}
+            # Attempt to load line data
+            try:
+                # For each file type
+                for ftype, suffix in suffixes.items():
+                    # Construct file path
+                    fpath = os.path.join(dirp, f'{line}{suffix}')
+                    # If file does not exist, raise error
+                    if not os.path.isfile(fpath):
+                        raise FileNotFoundError(f'"{fpath}" not found')
+                    # Load file content and add to data dictionary
+                    linedata[ftype] = pd.read_csv(fpath)
+
+                # Add line data fields to global data dictionary
+                for k, v in linedata.items():
+                    data[k][line] = v
+
+            # If line data could not be loaded, issue warning and continue
+            except FileNotFoundError as err:
+                logger.warning(err)
+                continue
+        
+        # Concatenate stats and counts as separates dataframes
+        stats = pd.concat(data['stats'], names=[Label.LINE])
+        counts = pd.concat(data['counts'], names=[Label.LINE])
+    
+    # Otherwise, if input is a single path
+    else:                      
+        # Define file name patterns for each file type
+        fpatterns = {k: f'*{v}' for k, v in suffixes.items()}
+
+        logger.info(f'input folder: {dirpath}')
+        # Load and concatenate data for each file type
+        for k, pattern in fpatterns.items():
+            fpaths = natsorted(glob.glob(os.path.join(dirpath, pattern)))
+            if len(fpaths) == 0:
+                raise ValueError(f'no {k} data (pattern = {pattern}) found in "{dirpath}"')
+            data[k] = pd.concat([pd.read_csv(fpath) for fpath in fpaths])
+
+        # Unpack data
+        stats, counts = data['stats'], data['counts']
 
     # Create stats multi-index
     muxcols = [Label.LINE, Label.ROI_RESP_TYPE, Label.RUN]
