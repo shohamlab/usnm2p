@@ -1001,3 +1001,52 @@ def extract_reference_distributions(folder, projfunc, *args, **kwargs):
     
     # Return reference distributions
     return refdists
+
+
+def save_post_window_size(dirpath, n):
+    '''
+    Save information about the size of a post-stimulus window in a file.
+
+    :param dirpath: path to directory where to save the file.
+    :param n: size of the post-stimulus window (in number of samples)
+    '''
+    # Check that directory exists
+    if not os.path.isdir(dirpath):
+        raise ValueError(f'"{dirpath}" is not a directory')
+    
+    # Assemble file path
+    fpath = os.path.join(dirpath, 'post_window_size.txt')
+    
+    # Log saving/overwiting process
+    if os.path.isfile(fpath):
+        logger.warning(f'overwriting post window size in "{fpath}"')
+    else:
+        logger.info(f'saving post window size in "{fpath}"')
+    
+    # Save window size
+    with open(fpath, 'w') as file:
+        file.write(str(n))
+
+
+def load_post_window_size(dirpath):
+    '''
+    Load information about the size of a post-stimulus window from a file.
+
+    :param dirpath: path to directory where to load the file.
+    :return: size of the post-stimulus window (in number of samples)
+    '''
+    # Check that directory exists
+    if not os.path.isdir(dirpath):
+        raise ValueError(f'"{dirpath}" is not a directory')
+    
+    # Assemble file path
+    fpath = os.path.join(dirpath, 'post_window_size.txt')
+    
+    # Check that file exists
+    if not os.path.isfile(fpath):
+        raise FileNotFoundError(f'"{fpath}" not found')
+    
+    # Load window size
+    with open(fpath, 'r') as file:
+        return int(file.read())
+

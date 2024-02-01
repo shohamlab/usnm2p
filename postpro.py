@@ -2104,99 +2104,239 @@ def get_plot_data(timeseries, stats, keys=None):
     return plt_data
 
 
-def compute_1way_anova(data, xkey, ykey, full_output=False):
+def anova1d(data, xkey, ykey, categorical=True, full_output=False):
     '''
-    Perform a 1-way ANOVA to assess whether a dependent variable is dependent
+    Wrapper around the statsmodels ANOVA functions to perform a 1-way
+    ANOVA to assess whether a dependent variable is dependent
     on a given independent variable (i.e. group, factor).
 
     :param data: pandas dataframe
-    :param xkey: name of column containing the independent variable
+    :param xkey: name of column (or index dimension) containing the independent variable
     :param ykey: name of column containing the dependent variable
+    :param categorical: whether the independent variable is categorical (default: True)
     :param full_output: whether to return full ANOVA table or just the p-value
     :return: p-value for dependency of y on x, or full ANOVA table
     '''
-    # # Rename columns of interest to ensure statsmodels compatibility
-    data = data.rename(columns={xkey: 'x', ykey: 'y'})
+    # Extract and rename columns of interest to ensure compatibility
+    # with statsmodels formula API
+    data = data.reset_index()[[xkey, ykey]].rename(columns={xkey: 'x', ykey: 'y'})
+    # Define formula and output xkeys
+    formula_xkey = 'C(x)' if categorical else 'x'
+    output_xkey = f'C({xkey})' if categorical else xkey
+    # Construct formula
+    formula = f'y ~ {formula_xkey}'
     # Construct OLS model with data
-    model = ols('y ~ x', data=data)
-    # Fit model to data
-    fit = model.fit()
-    # Extract results table for 1-way ANOVA 
-    anova_table = sm.stats.anova_lm(fit, typ=2)
+    model = ols(formula, data=data).fit()
+    # Extract results table for type II ANOVA
+    anova_table = sm.stats.anova_lm(model, typ=2)
+    # Rename some table entries
+    anova_table = anova_table.rename(
+        index={formula_xkey: output_xkey},  # formula xkey -> output xkey
+        columns={  # rename columns for clarity
+            'sum_sq': 'SS',
+            'PR(>F)': 'p-value'
+        })
     # Return full table if requested
     if full_output:
+        # Add effect size column
+        anova_table['eta^2'] = anova_table['SS'] / (anova_table['SS'] + anova_table.loc['Residual', 'SS'])
+        # anova_table['eta^2'] = anova_table['SS'] / anova_table['SS'].sum()
+        anova_table.loc['Residual', 'eta^2'] = np.nan
         return anova_table
     # Otherwise, return relevant p-value for dependency
-    return anova_table.loc['x', 'PR(>F)']
+    return anova_table.loc[xkey, 'p-value']
+
+
+def anova2d(data, xkey, ykey, zkey, categorical=True, interaction=False, full_output=False):
+    '''
+    Wrapper around the statsmodels ANOVA functions to perform a 2-way
+    ANOVA to assess whether a dependent variable is dependent
+    on two given independent variables (i.e. group, factor).
+
+    :param data: pandas dataframe
+    :param xkey: name of column (or index dimension) containing the first independent variable
+    :param ykey: name of column (or index dimension) containing the second independent variable
+    :param zkey: name of column containing the dependent variable
+    :param categorical: scalar or 2-tuple of booleans indicating whether the independent variables are categorical (default: True)
+    :param interaction: whether to include interaction term in the model
+    :param full_output: whether to return full ANOVA table or just the p-values
+    '''
+    # If categorical is a scalar, apply it to both x and y
+    if not is_iterable(categorical):
+        categorical = (categorical, categorical)
+    # Otherwise, make sure that it is a 2-tuple of booleans
+    else:
+        if len(categorical) != 2 or not all(isinstance(c, bool) for c in categorical):
+            raise ValueError('categorical must be a scalar or a 2-tuple of booleans')
+    
+    # Extract and rename columns of interest to ensure compatibility
+    # with statsmodels formula API
+    data = data.reset_index()[[xkey, ykey, zkey]].rename(columns={xkey: 'x', ykey: 'y', zkey: 'z'})
+    
+    # Define formula and output xkeys
+    formula_xkey = 'C(x)' if categorical[0] else 'x'
+    output_xkey = f'C({xkey})' if categorical[0] else xkey
+    formula_ykey = 'C(y)' if categorical[1] else 'y'
+    output_ykey = f'C({ykey})' if categorical[1] else ykey
+
+    # Construct formula
+    formula = f'z ~ {formula_xkey} * {formula_ykey}' if interaction else f'z ~ {formula_xkey} + {formula_ykey}'
+
+    # Construct OLS model with data
+    model = ols(formula, data=data).fit()
+
+    # Extract results table for type I ANOVA
+    anova_table = sm.stats.anova_lm(model, typ=1)
+
+    # Rename some table entries
+    anova_table = anova_table.rename(
+        index={formula_xkey: output_xkey, formula_ykey: output_ykey},  # formula dep. keys -> output dep. xkeys
+        columns={  # rename columns for clarity
+            'sum_sq': 'SS',
+            'PR(>F)': 'p-value'
+        })
+    if interaction:
+        anova_table = anova_table.rename(
+            index={f'{formula_xkey}:{formula_ykey}': f'{output_xkey}:{output_ykey}'})
+    
+    # Return full table if requested
+    if full_output:
+        # Add effect size column
+        anova_table['eta^2'] = anova_table['SS'] / (anova_table['SS'] + anova_table.loc['Residual', 'SS'])
+        anova_table.loc['Residual', 'eta^2'] = np.nan
+
+        # Return
+        return anova_table
+
+    # Otherwise, return relevant p-values for dependency
+    return anova_table.loc[[xkey, ykey, f'{xkey}:{ykey}'], 'p-value']
 
 
 def sum_of_square_devs(x):
     return ((x - x.mean())**2).sum()
 
 
-def anova1d(data, xkey, ykey, verbose=False):
+def count_observations(data, key, by):
+    '''
+    Count the number of valid observations per group in a dataframe
+
+    :param data: input dataframe
+    :param key: column of interest
+    :param by: column(s) to group by
+    :return: series of counts per group
+    '''
+    return (  # number of valid (non-NaN) observations in each condition
+        data
+        .groupby(by)
+        [key]
+        .agg(lambda s: s.notna().sum())
+        .rename('# obs')
+    )
+
+
+def myanova1d(data, xkey, ykey, output='pval', verbose=False):
     '''
     Detailed 1-way ANOVA
     
     :param data: multi-indexed experiment dataframe
     :param xkey: name of column holding the values of the independent variable
     :param ykey: name of column holding the values of the dependent variable
-    :param verbose: whether to print out results
-    :return: p-value computing from F-score
+    :param output: output type, one of:
+        - "full": full ANOVA table
+        - "summary": summary ANOVA statistics
+        - "pval" (default): resulting p-value for the dependency of y on x
+    :return: ANOVA results
     '''
+    if verbose:
+        logger.info(f'computing 1-way ANOVA for dependency of "{ykey}" on "{xkey}"')
+
     # Compute problem dimensions
-    k = data[xkey].nunique()  # number of conditions
-    npergroup = (  # number of valid (non-NaN) observations in each condition
-        data
-        .groupby(xkey)
-        [ykey]
-        .agg(lambda s: s.notna().sum())
-        .rename('# obs')
-    )  
-    N = npergroup.sum()  # overall number of valid observations
+    npergroup = count_observations(data, ykey, xkey)
+    N = npergroup.sum()
+    k = len(npergroup)
     
     # Compute degrees of freedom
     df_between = k - 1
     df_within = N - k
-    df_total = N - 1
-
+    
     # Compute means
     Gm = data[ykey].mean()  # grand mean
     M = data.groupby(xkey)[ykey].mean().rename('mean')  # means per group
 
-    # Compute sums of squares
-    ss_within = data.groupby(xkey)[ykey].apply(sum_of_square_devs).rename('SS-within')
-    ss_between = (npergroup * (M - Gm)**2).rename('SS-between')
-    ss_total = ss_between.sum() + ss_within.sum()
+    # Compute sums of square deviations
+    ss_within = (data  # sum of squared deviations within each group
+        .groupby(xkey)
+        [ykey]
+        .apply(sum_of_square_devs)
+        .rename('SS-within')
+    )
+    ss_between = (  # squared deviations between group means and grand mean
+        npergroup * (M - Gm)**2
+    ).rename('SS-between')
+    SS_within = ss_within.sum()
+    SS_between = ss_between.sum()
+    SS_total = SS_between + SS_within
 
-    # Compute F-score
-    ms_within = ss_within.sum() / df_within
-    ms_between = ss_between.sum() / df_between
-    F = ms_between / ms_within
+    # Compute mean squares
+    MS_within = SS_within / df_within
+    MS_between = SS_between / df_between
+
+    # Compute F-ratio
+    F = MS_between / MS_within
 
     # Compute resulting statistics
     p = fstats.sf(F, df_between, df_within)  # p-value
-    # eta_sqrd = ss_between.sum() / ss_total  # effect size
-    # om_sqrd = (ss_between.sum() - (df_between * ms_within)) / (ss_total + ms_within)  # corrected effect size
+    eta_sqrd = SS_between / SS_total  # effect size
+    om_sqrd = (SS_between - (df_between * MS_within)) / (SS_total + MS_within)  # corrected effect size
 
-    # If verbose selected, log details
-    if verbose:
-        df = pd.concat([npergroup, M.round(3), ss_within.round(3), ss_between.round(3)], axis=1)
-        df.loc['TOTAL/MEAN'] = df.sum(axis=0)
-        df.loc['TOTAL/MEAN', 'mean'] = Gm
-        df['# obs'] = df['# obs'].astype(int)
-        df['MS within'] = np.nan
-        df.loc['TOTAL/MEAN', 'MS within'] = ms_within.round(3)
-        df['MS between'] = np.nan
-        df.loc['TOTAL/MEAN', 'MS between'] = ms_between.round(3)
-        df['F-score'] = np.nan
-        df.loc['TOTAL/MEAN', 'F-score'] = F.round(3)
-        df['p-value'] = np.nan
-        df.loc['TOTAL/MEAN', 'p-value'] = p
-        logger.info(f'ANOVA details:\n{df}')
+    # If detailed output selected
+    if output in ['full', 'summary']:
+        # Define summary metrics dictionary
+        summary = {
+            'Gm': Gm,
+            'SS_within': SS_within,
+            'SS_between': SS_between,
+            'df_within': df_within,
+            'df_between': df_between,
+            'MS-within': MS_within,
+            'MS-between': MS_between,
+            'F-ratio': F,
+            'p-value': p,
+            'eta^2': eta_sqrd,
+            'omega^2': om_sqrd
+        }
 
-    # Return p-value
-    return p
+        # If summary output requested, return as series 
+        if output == 'summary':
+            return pd.Series(summary)
+        # Otherwise
+        else:
+            # Remove Gm and SS entries from summary
+            del summary['Gm']
+            del summary['SS_within']
+            del summary['SS_between']
+
+            # Construct detailed ANOVA table with number of observations, 
+            # means and deviatioms
+            table = pd.concat([npergroup, M, ss_within, ss_between], axis=1)
+            # Add total row
+            table.loc['TOTAL/MEAN'] = table.sum(axis=0)
+            # Replace means total with grand mean
+            table.loc['TOTAL/MEAN', 'mean'] = Gm
+            # Cast observations count column as integer-typed
+            table['# obs'] = table['# obs'].astype(int)
+
+            # Add summary metrics to last table row
+            for k, v in summary.items():
+                table[k] = np.nan
+                table.loc['TOTAL/MEAN', k] = v
+
+            # Return detailed ANOVA table
+            return table
+    
+    # Otherwise, return p-value
+    else:
+        return p
 
 
 def get_weighted_ss_across(data, ykey, groupby):
@@ -2242,7 +2382,7 @@ def get_weighted_ss_within(data, ykey, groupby):
     return (df * ss).sum()
 
 
-def anova2d(data, ykey, factors, alpha=None, interaction=True):
+def myanova2d(data, ykey, factors, alpha=None, interaction=True):
     ''' 
     Perform 2d ANOVA on dataset
     
@@ -2259,13 +2399,9 @@ def anova2d(data, ykey, factors, alpha=None, interaction=True):
     for k in [ykey, *factors]:
         if k not in data and k not in data.index.names:
             raise ValueError(f'{k} not found in input dataset') 
+    
     # Count number of observations per factor combinations
-    npergroup = (data
-        .groupby(factors)[ykey]
-        .count()
-        .reset_index()
-        .rename(columns={ykey: 'count'})
-    )
+    npergroup = count_observations(data, ykey, factors)
     # # If number varies across groups, raise error
     # if npergroup['count'].nunique() > 1:
     #     raise ValueError(
@@ -2615,37 +2751,6 @@ def exclude_outliers(data, ykey, k=10):
     logger.info(
         f'excluded {nexc}/{ntot} ({nexc/ntot * 1e2:.1f} %) samples falling outside [{bounds_str}] interval')
     return data[iswithin]
-
-
-def compute_ROI_vs_trial_anova(s, interaction=True):
-
-    # Set all index dims as columns
-    data = s.reset_index()
-
-    # Fix ROI indexes
-    iROIs_org = data[Label.ROI].unique() 
-    iROIs_fix = np.arange(len(iROIs_org))
-    ROI_mapper = dict(zip(iROIs_org, iROIs_fix))
-    data[Label.ROI] = data[Label.ROI].map(ROI_mapper)
-
-    # # Perform 2-way ANOVA with statsmodels
-    # data = data.rename(columns={s.name: 'y'})
-    # formula = f'y ~ C({Label.TRIAL}) + C({Label.ROI})'
-    # if interaction:
-    #     formula = f'{formula} + C({Label.TRIAL}):C({Label.ROI})'
-    # # logger.info(f'fitting model to "{formula}"...')
-    # model = ols(formula, data=data).fit()
-    # # logger.info('computing anova output')
-    # aov_table = sm.stats.anova_lm(model, typ=2)
-    # Ftrial, Froi = aov_table.loc[[f'C({Label.TRIAL})', f'C({Label.ROI})'], 'F'].values
-
-    # Perform 2-way ANOVA with custom function
-    aov_table = anova2d(data, s.name, [Label.TRIAL, Label.ROI], interaction=interaction)
-
-    Ftrial, Froi = aov_table.loc[[Label.TRIAL, Label.ROI], 'F'].values
-    
-    # Return F-scores
-    return Ftrial, Froi
 
 
 def tmean(x):
@@ -2999,23 +3104,15 @@ def mylinregress(x, y, robust=False, intercept=True):
         fitparams['intercept'] = 0.
     fitparams['slope'] = fit.params[slopeidx]
 
-    # Extract associated p-value
+    # Extract associated p-value for the slope
     fitparams['pval'] = fit.pvalues[slopeidx]
+
+    # If OLM, extract R-squared value
+    if not robust:
+        fitparams['r2'] = fit.rsquared
 
     # Return fit parameters
     return fitparams
-
-    # # Perform robust linear regression if requested
-    # if robust:
-    #     x = sm.add_constant(x)
-    #     norm = sm.robust.norms.HuberT()
-    #     model = sm.RLM(y, x, M=norm)
-    #     fit = model.fit()
-    #     fitparams = pd.Series({
-    #         'slope': fit.params[1],
-    #         'intercept': fit.params[0],
-    #         'pval': fit.pvalues[1],
-    #     })
     
     # # Otherwise, perform standard linear regression
     # else:    
@@ -3024,7 +3121,6 @@ def mylinregress(x, y, robust=False, intercept=True):
     #             'slope': res.slope,
     #             'intercept': res.intercept,
     #             'rval': res.rvalue,
-    #             'pval': res.pvalue,
     #             'stderr': res.stderr,
     #             'intercept_stderr': res.intercept_stderr,
     #     })
@@ -3870,3 +3966,123 @@ def classify_ternary(stats, key, rel_sigma_thr=2, plot=False):
     
     # Return state series
     return stats[state_key]
+
+
+def compute_vca(data, groupkey=None, **fit_kwargs):
+    '''
+    Perform a variance components analysis for a specific column
+
+    :param data: multi-indexed pandas Series
+    :param groupkey: key of grouping variable (optional). 
+        If not specified, the first index dimension is used.
+    :param fit_kwargs: additional keyword arguments to pass to fit function
+    :return: statsmodels.MixedLMResults 
+    '''
+    # Extract index dimensions
+    dimnames = list(data.index.names)
+    logger.info(f'performing variance component analysis of {data.name} across {dimnames}...')
+    
+    # Rename series and add index dimensions to dataframe
+    data = data.rename('y').reset_index()
+
+    # Set all index dimensions as categorical
+    for dim in dimnames:
+        data[dim] = data[dim].astype('category')
+
+    # Split index dimensions into grouping variable and categorical variables 
+    if groupkey is not None:
+        if groupkey not in dimnames:
+            raise ValueError(f'"{groupkey}" not found in index dimensions')
+        groupvar = groupkey
+        catvars = [k for k in dimnames if k != groupkey]
+    else:
+        groupvar, *catvars = dimnames
+
+    # Define main formula to fit "grand mean" model (to estimate 
+    # components without any predictors)
+    formula = 'y ~ 1'
+
+    # Define variance structure of the model (i.e. random effects) with
+    # random intercept at highest grouping level, to allow for variance
+    # in baseline values across groups
+    re_formula = '1'
+
+    # Define variance components formula
+    vc_formula = {k: f'0 + C({k})' for k in catvars}
+
+    # Log model details
+    logdetails = [
+        f'main formula: {formula}',
+        f'grouping variable: {groupvar}',
+        f'random effects formula: {re_formula}',
+        f'variance components formula: {vc_formula}',
+    ]
+    logdetails = [f'    - {d}' for d in logdetails]
+
+    # Set up model
+    logger.info('initializing mixed linear model with:\n' + '\n'.join(logdetails))
+    model = sm.MixedLM.from_formula(
+        formula, 
+        re_formula=re_formula,
+        vc_formula=vc_formula,
+        groups=groupvar,
+        data=data
+    )
+
+    # Compute VCA results
+    logger.info('fitting mixed linear model...')
+    res = model.fit(
+        **fit_kwargs
+    )
+
+    # Return
+    logger.info(f'VCA results:\n{res.summary().as_text()}')
+    return res
+
+def compute_crossROIs_correlations(data, key, remove_diag=True, remove_utri=True, 
+                                   serialize=False, by=None):
+    ''' 
+    Compute pairwise correlation across ROIs for a specific statistics.
+    
+    :param data: multi-indexed pandas Series with data to correlate
+    :param key: key of statistics to correlate
+    :param remove_diag: whether to remove diagonal elements from correlation matrix
+    :param remove_utri: whether to remove upper triangular elements from correlation matrix
+    :param serialize: whether to serialize correlation matrix to 1D array
+    :param by: dimension along which to measure pairwise correlations
+    :return: 2D pandas dataframe with pairwise correlation matrix
+    '''
+    # If grouping dimension specified, compute pairwise correlations within each group
+    if by is not None: 
+        return (data
+            .groupby(by)
+            .apply(lambda x: compute_crossROIs_correlations(
+                x, key, remove_diag=remove_diag, remove_utri=remove_utri,
+                serialize=True))
+    )
+
+    # Gather non-ROI index dimensions
+    extra_dims = [d for d in data.index.names if d != Label.ROI]
+    
+    # Unstack series and compute pairwise correlation matrix
+    C = (data[key]
+        .unstack(level=extra_dims)
+        .T
+        .corr()
+    )
+
+    # If specified, remove diagonal elements
+    if remove_diag:
+        np.fill_diagonal(C.values, np.nan)
+    
+    # If specified, remove upper triangular elements
+    if remove_utri:
+        C.values[np.triu_indices(len(C), k=1)] = np.nan
+    
+    # If specified, serialize correlation matrix to 1D array
+    if serialize:
+        C = C.stack().dropna().sort_index().rename('R')
+        C.index.names = ['ROI1', 'ROI2']
+
+    # Return 
+    return C

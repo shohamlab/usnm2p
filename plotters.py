@@ -2371,7 +2371,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
                           colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                           quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
                           col_order=None, col_labels=None, row_order=None,
-                          rect_markers=None, rasterized=False, axes=None):
+                          rect_markers=None, rasterized=False, axes=None, **kwargs):
     '''
     Plot heatmap of population activity over over time.
     
@@ -2580,7 +2580,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
             if sort_ROIs:
                 # Compute stim-evoked change in metrics for each ROI
                 ydiff = compute_evoked_change(
-                    gdata, key, verbose=False).rename('val')
+                    gdata, key, verbose=False, **kwargs).rename('val')
                 # Remove column sorter from index, if present
                 if col is not None and col in ydiff.index.names:
                     ydiff = ydiff.droplevel(col)
@@ -3393,8 +3393,11 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     if fit and hue == Label.DATASET:
         # Aggregate data by input value and dataset
         dataset_agg_data = data.groupby([xkey, Label.DATASET])[ykey].mean()
-        # Compute 1-way ANOVA on dataset-aggreated data
-        pval = compute_1way_anova(dataset_agg_data.reset_index(), xkey, ykey)
+        # Compute 1-way ANOVA on dataset-aggregated data
+        pval = anova1d(
+            dataset_agg_data.reset_index(), xkey, ykey,
+            categorical=False
+        )
         pstr = f'p = {pval:.3f}' if pval >= 0.001 else 'p < 0.001' 
         ax.text(
             0.05, 0.95, f'ANOVA: {pstr}', va='top', ha='left',
@@ -6197,7 +6200,7 @@ def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None,
         ytext += dytext
         if addreg:
             m, b = regres.loc[key, ['slope', 'intercept']]
-            xdense = np.linspace(*bounds(data[y_prestim_avg]), 100)
+            xdense = np.linspace(*bounds(data[xkey]), 100)
             ydense = m * xdense + b
             ax.plot(xdense, ydense, c=color, lw=2)
             ax.text(
