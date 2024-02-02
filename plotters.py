@@ -5682,7 +5682,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             yotherfit = objfunc(xother, *popt)
 
             # Compute prediction accuracy
-            ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            # ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
             ζ = ((yother - yotherfit) / yother_err).abs().mean()
 
             # If accuracy exceeds reasonable range, log warning and set to infinity for plotting
@@ -5939,6 +5939,8 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     ynet = pd.DataFrame()
     if ci is not None:
         ynet_err = pd.DataFrame()
+    
+    myfit = fit
 
     # For each line
     for line, gdata in data.groupby(Label.LINE):
@@ -5947,8 +5949,12 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
         label, color = line, Palette.LINE[line]
 
         # Extract fit type from input variable and line if not provided
-        if fit is None:
-            fit = get_fit_table().loc[xkey, line]
+        if myfit is None:
+            fit = get_fit_table()
+        else:
+            fit = myfit
+        if isinstance(fit, pd.DataFrame):
+            fit = fit.loc[xkey, line]
         
         # Restrict data range if P or DC is given as input
         gdata = get_xdep_data(gdata, xkey, add_DC0=True)

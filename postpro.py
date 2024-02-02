@@ -3887,9 +3887,9 @@ def get_fit_table(Pfit='scaled_power', exclude=None):
     '''
     # Determine non-pressure fit for each line
     fits_per_line = {
-        'line3': 'sigmoid',
-        'sst': 'sigmoid_decay',
-        'pv': 'delayed_linear',  # 'sigmoid',
+        'line3': 'corrected_sigmoid',
+        'sst': 'corrected_sigmoid_decay',
+        'pv':  'scaled_power',  # 'delayed_linear',  # 'sigmoid',
     }
 
     # Create empty 2D dataFframe

@@ -873,8 +873,7 @@ def sigmoid_decay(x, x0=0, k=1, r=.2, A=1, y0=0):
     :param A: amplitude
     :param y0: vertical offset
     '''
-    s = A / (1 + np.exp(-k * (x - x0))) * np.exp(-r * (x - x0)) + y0
-    return s - s.min()
+    return A / (1 + np.exp(-k * (x - x0))) * np.exp(-r * (x - x0)) + y0
 
 
 def get_sigmoid_decay_params(x, y):
@@ -1087,12 +1086,51 @@ def get_biexponential_params(t, y):
     # return p0, pbounds
 
 
+def corrected(func, ref='mean'):
+    '''
+    Decorator used to correct function output by centering it around some reference value
+    once it has been computed over a given input vector.
+
+    :param func: input function
+    :param ref: reference value for correction (default = mean of function across range)
+    :return: corrected function output
+    '''
+    # Extract correction function
+    try:
+        corrfunc = {
+            'min': np.min,
+            'mean': np.mean,
+            'median': np.median,
+            'max': np.max
+        }[ref]
+    except KeyError:
+        raise ValueError(f'invalid correction reference: {ref}')
+
+    # Define modified function 
+    @wraps(func)
+    def wrapper(x, *args, **kwargs):
+        # Check that input is iterable
+        if not is_iterable(x):
+            raise ValueError('input must be iterable')
+
+        # Apply function to get output range
+        y = func(x, *args, **kwargs)
+
+        # Correct output and return
+        return y - corrfunc(y)
+    
+    # Return modified function
+    return wrapper
+
+
 fit_functions_dict = {
     'sigmoid': (sigmoid, get_sigmoid_params),
+    'corrected_sigmoid': (corrected(sigmoid, ref='min'), get_sigmoid_params),
+    'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
+    'corrected_sigmoid_decay': (corrected(sigmoid_decay, ref='min'), get_sigmoid_decay_params),
     'scaled_power': (scaled_power, get_scaled_power_params),
     'bilinear': (bilinear, get_bilinear_params),
     'parabolic': (parabolic, get_parabolic_params),
-    'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
     'biexponential': (biexponential, get_biexponential_params),
     'delayed_linear': (delayed_linear, get_delayed_linear_params, get_delayed_linear_bounds),
 }
