@@ -131,7 +131,7 @@ def harmonize_axes_limits(axes, axkey='y'):
     
     # Flatten axes array if needed
     if axes.ndim > 1:
-        axes = axes.ravel()
+        axes = axes.flatten()
 
     # For each axis key 
     for k in axkey:
@@ -145,7 +145,7 @@ def harmonize_axes_limits(axes, axkey='y'):
         bounds = min(mins), max(maxs)
 
         # Set as bounds for all axes
-        for ax in axes.ravel():
+        for ax in axes.flat:
             limsetter(ax)(*bounds)
 
 
@@ -4483,7 +4483,8 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, order=None, 
 
 
 def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None, norm=False, 
-                                           err_style='band', fit=None, fit_ci=None, **kwargs):
+                                           err_style='band', fit=None, fit_ci=None, legend=True, 
+                                           **kwargs):
     '''
     Plot comparative parameter dependency curves (with error bars) across
     mouse lines, for each responder type
@@ -4508,6 +4509,8 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
         fig, axes = plt.subplots(
             len(ykeys), len(xkeys), figsize=(3 * len(xkeys) + 2, 3 * len(ykeys)))
         axes = np.atleast_2d(axes)
+        if len(xkeys) == 1:
+            axes = axes.T
         for ykey, axrow in zip(ykeys, axes):
             plot_parameter_dependency_across_lines(
                 data.copy(),
@@ -4519,15 +4522,24 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
                 err_style=err_style,
                 fit=fit,
                 fit_ci=fit_ci,
+                legend=legend,
                 **kwargs
             )
             harmonize_axes_limits(axrow)
             if ykey == Label.RESP_FRAC:
                 for ax in axrow:
                     ax.set_ylim(0, 1)
-        for ax in axes.ravel():
+        for ax in axes.flat:
             ax.set_box_aspect(1)
         return fig
+
+    # If size-1 ykey iterable provided, extract first element 
+    if is_iterable(ykey):
+        ykey = ykey[0]
+
+    # If responder fraction, set reference level to PTHR_DETECTION  
+    if ykey == Label.RESP_FRAC:
+        yref = PTHR_DETECTION
 
     # If specific, normalize metrics for each line
     if norm:
@@ -4543,7 +4555,9 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     # Create figure backbone, or retrieve figure from provided axes
     if axes is None:
         fig, axes = plt.subplots(1, len(xkeys), figsize=(3 * len(xkeys), 3))
+        axes = as_iterable(axes)
     else:
+        axes = as_iterable(axes)
         if len(axes) != len(xkeys):
             raise ValueError(
                 f'number of axes ({len(axes)}) does not match number of inputs ({len(xkeys)})')
@@ -4577,7 +4591,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
         # Plot mean profile, per mouse line
         sns.lineplot(
             data=depdata, 
-            legend=i == len(xkeys) - 1, 
+            legend=i == len(xkeys) - 1 if legend else False, 
             ax=ax,
             x=xkey, y=f'{ykey} - mean',
             hue=Label.LINE,
@@ -4620,8 +4634,10 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     
     # Clean up layout, and move legend outside of axes
     fig.tight_layout()
-    sns.move_legend(
-        axes[-1], 'upper left', bbox_to_anchor=(1, 1), frameon=False)
+
+    if legend:
+        sns.move_legend(
+            axes[-1], 'upper left', bbox_to_anchor=(1, 1), frameon=False)
     
     # Return figure
     return fig
