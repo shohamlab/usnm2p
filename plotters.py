@@ -5544,7 +5544,7 @@ def get_runid_palette(param_seqs, runid):
 
 def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None, 
                             ax=None, xscale=None, fs=12, title=None, height=4, 
-                            error_aggfunc='mean', color=None):
+                            error_aggfunc='mean', color=None, full_output=False):
     '''
     Project pressure and duty cycle response curves into common dose space, 
     evaluate alignment between them, and plot results
@@ -5555,7 +5555,16 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     :param fit (optional): (fit objective function, fit initialization function) tuple
         or key string to used to fit dependency profile
     :param sweepkey (optional): reference sweep key to use for fit (default: DC)
-    :return: figure handle, and best fit function applied with its optimal parameters
+    :param norm (optional): normalization method to apply to response curves
+    :param ax (optional): plotting axis
+    :param xscale (optional): x-axis scale
+    :param fs (optional): font size
+    :param title (optional): figure title
+    :param height (optional): figure height
+    :param error_aggfunc (optional): error aggregation function
+    :param color (optional): line color
+    :param full_output (optional): whether to return alignment error distirbution together with figure (default=False)
+    :return: figure handle, and optional alignment error distribution
     '''
     # If multi-dataset input, compute cross-dataset average for output variable
     if Label.DATASET in data.index.names:
@@ -5572,13 +5581,21 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             fitdict = fit
         else:
             fitdict = {xk: fit for xk in xkey}
+        if full_output:
+            errdict = {}
         for xk, ax in zip(xkey, axes):
-            plot_response_alignment(
+            out = plot_response_alignment(
                 data, xk, ykey, fitdict[xk], sweepkey=sweepkey, norm=norm,
-                ax=ax, xscale=xscale, fs=fs, error_aggfunc=error_aggfunc, color=color)
+                ax=ax, xscale=xscale, fs=fs, error_aggfunc=error_aggfunc, 
+                color=color, full_output=full_output)
+            if full_output:
+                errdict[xk] = out[1]
         harmonize_axes_limits(axes)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
+        if full_output:
+            errdict = pd.concat(errdict, axis=0, names=['projection'])
+            return fig, errdict
         return fig
 
     # Restrict data range if P or DC is given as input
@@ -5697,21 +5714,23 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             # Apply fit on input range from other sweep
             yotherfit = objfunc(xother, *popt)
 
-            # Compute prediction accuracy
-            # ζ = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
-            ζ = ((yother - yotherfit) / yother_err).abs().mean()
+            # Compute alignment error
+            # err = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
+            err = ((yother - yotherfit) / yother_err).abs()
+            mu_err, sigma_err = err.mean(), err.sem()
+            err_txt = f'err = {mu_err:.2f} ± {sigma_err:.2f}'
 
-            # If accuracy exceeds reasonable range, log warning and set to infinity for plotting
-            if ζ > 1e3:
-                logger.warning(f'accuracy exceeds reasonable range: {ζ:.2e}')
-                ζ = np.inf
+            # If error exceeds reasonable range, log warning and set to infinity for plotting
+            if mu_err > 1e3:
+                logger.warning(f'error exceeds reasonable range: {mu_err:.2e}')
+                mu_err = np.inf
 
             # Plot divergence between fit and data points from other sweep
             iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
             ax.fill(
                 np.hstack((xdense[iswithin], xother[::-1])), 
                 np.hstack((yfitdense[iswithin], yother[::-1])),
-                fc='silver', label=f'ζ = {ζ:.2f}'
+                fc='silver', label=err_txt
             )
         
     # Adjust x-scale if specified
@@ -5727,8 +5746,11 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     if title is not None:
         ax.set_title(title, fontsize=fs + 3)
 
-    # Return figure
-    return fig
+    # Return figure and optional alignment error
+    if full_output:
+        return fig, err
+    else:
+        return fig
 
 
 def plot_filter_frequency_response(sos, as_gain=False, fs=None, fc=None):
