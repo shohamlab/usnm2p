@@ -149,7 +149,7 @@ def harmonize_axes_limits(axes, axkey='y'):
             limsetter(ax)(*bounds)
 
 
-def parser_axis_label(label):
+def parse_axis_label(label):
     '''
     Extract name and unit from axis label, or raise error if not possible
 
@@ -252,7 +252,7 @@ def add_minimal_xy_scale(ax, pos='bottom-left', hide_original=True, xunit='auto'
         if unit == 'auto':
             lbl = getattr(ax, f'get_{k}label')()
             try:
-                _, unit = parser_axis_label(lbl)
+                _, unit = parse_axis_label(lbl)
             except ValueError:
                 logger.warning(f'could not parse name and unit from {k} label "{lbl}" -> using entire label as unit')
                 unit = lbl
@@ -3117,7 +3117,7 @@ def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, 
-                   wresp='post', mark_peaks=False, 
+                   wpre=None, wpost=None, wcolor='k', mark_peaks=False, 
                    yref=None, ax=None, **kwargs):
     '''
     Plot trial responses of specific sub-datasets.
@@ -3126,7 +3126,9 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
     :param tbounds (optional): time limits for plot
     :param ykey (optional): key indicating the specific signals to plot on the y-axis
     :param mark_stim (optional): whether to add a stimulus mark on the plot
-    :param wresp (optional): index slice of the response window to materialize
+    :param wpre (optional): index slice of the pre-stimulus window to materialize
+    :param wpost (optional): index slice of the post-stimulus window to materialize
+    :param wcolor (optional): color of the materialized windows
     :param mark_peaks: whether to mark the peaks of each identified response
     :param yref (optional): vertical value at which to plot a horizontal reference line
     :param ax (optional): axis object
@@ -3136,15 +3138,24 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
     # By default, no marker funtion is needed
     markerfunc = None
 
-    # Extract response interval (from unfiltered data) if requested 
-    if wresp is not None:
-        if wresp == 'post':
-            wresp = get_window_slice(kind='post')
-        tresp = data[Label.TIME].values[bounds(wresp)]
+    # If analysis windows are specified as integers, convert to windows
+    tpre, tpost = None, None
+    if wpre is not None:
+        if isinstance(wpre, int):
+            wpre = get_window_slice(kind='pre', n=wpre)
+        tpre = data[Label.TIME].values[bounds(wpre)]
+    if wpost is not None:
+        if isinstance(wpost, int):
+            wpost = get_window_slice(kind='post', n=wpost)
+        tpost = data[Label.TIME].values[bounds(wpost)]
+
+    # Extract post-stimulus response interval (from unfiltered data) if requested 
+    if wpost is not None:
+        tpost = data[Label.TIME].values[bounds(wpost)]
         # Define marker function if mark_peaks is set to True
         if mark_peaks:
             markerfunc = lambda *args, **kwargs: mark_response_peak(
-                *args, tbounds=tresp, **kwargs)
+                *args, tbounds=tpost, **kwargs)
 
     # Add tbounds to filtering criteria
     kwargs['tbounds'] = tbounds
@@ -3166,10 +3177,12 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
         # Plot noise threshold level if key is z-score
         if yref is not None:
             ax.axhline(yref, ls='--', c='k', lw=1.)
-        # Plot response interval if specified
-        if wresp is not None:
-            xresp = data_to_axis(ax, np.vstack((tresp, np.zeros(2))).T)[:, 0]
-            ax.plot(xresp, [1.] * 2, lw=3, c='k', transform=ax.transAxes)
+        # Plot intervals for each specificed window
+        for twindow, alpha in zip([tpre, tpost], [0.5, 1]):
+            if twindow is not None:
+                xwindow = data_to_axis(ax, np.vstack((twindow, np.zeros(2))).T)[:, 0]
+                ax.plot(xwindow, [1.] * 2, lw=3, c=wcolor, alpha=alpha, 
+                        transform=ax.transAxes)
 
     # Return figure
     return fig
@@ -3358,7 +3371,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         ykey = get_change_key(Label.DFF)
 
     # Restrict data based on xkey
-    data = get_xdep_data(data, xkey)
+    data = get_xdep_data(data, xkey, add_DC0=True)
 
     # Create uniform palette, if requested
     if palette == 'uniform':
@@ -3500,9 +3513,9 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
 
         # If fit objects/key provided, compute and add to axis
         if fit:
-            pltkwargs = dict(ls='--', lw=avglw, **avg_kwargs)
+            fitkwargs = dict(ls='--', lw=avglw, **avg_kwargs)
             compute_and_add_fit(
-                ax, mean.index.values, mean.values, fit, ci=fit_ci, **pltkwargs)
+                ax, mean.index.values, mean.values, fit, ci=fit_ci, **fitkwargs)
 
     # Add reference line(s) if specified
     if yref is not None:
@@ -3518,7 +3531,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
 
 
 def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True, 
-                        npts=100, ci=None, nsims=1000, fs=10, **pltkwargs):
+                        npts=100, ci=None, nsims=1000, fs=10, c='k', 
+                        xtxt=0.05, ytxt=0.9, **pltkwargs):
     '''
     Fit a function to and X-Y profile, compute the goodness of fit (R-squared)
     and plot the resulting function across the X-data range
@@ -3533,7 +3547,12 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
         to plot as a shaded area
     :param nsims (optional): number of Monte-Carlo simulations to perform to estimate
         fit confidence interval, if requested
+    :param fs (optional): font size of the text to add on the graph
+    :param c (optional): color of the fit profile
+    :param xtxt (optional): x position of the text to add on the graph
+    :param ytxt (optional): y position of the text to add on the graph
     :param pltkwargs: plotting keyword arguments
+    :return: dense x and y fit vectors
     '''
     # Extract fit kwargs from plotting kwargs
     fit_kwargs = {}
@@ -3552,20 +3571,21 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
     
     # Display fit results on graph, if requested
     if add_text:
+        txt = f'r2 = {r2:.2f}'
+        if add_text == 'full':
+            txt = f'{fitname} fit: {txt}'
+            if fitname == 'scaled_power':
+                txt = f'{txt}\nexp = {popt[1]:.1f}'
         ax.text(
-            .05, .85, f'{fitname} fit: r2 = {r2:.2f}', ha='left', va='top', 
+            xtxt, ytxt, txt, c=c, ha='left', va='top', 
             transform=ax.transAxes, fontsize=fs)
-        if fitname == 'scaled_power':
-            ax.text(
-                .05, .75, f'exp = {popt[1]:.1f}', ha='left', va='top', 
-                transform=ax.transAxes, fontsize=fs)
 
     # Define dense x vector to plot fit profile
     xdense = np.linspace(*bounds(xdata), npts)
 
     # Compute and plot fit profile
     yfitdense = objfunc(xdense, *popt)
-    lh, *_ = ax.plot(xdense, yfitdense, **pltkwargs)
+    lh, *_ = ax.plot(xdense, yfitdense, c=c, **pltkwargs)
     
     # Compute fit uncertainty, if requested
     if ci is not None:
@@ -3579,6 +3599,9 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
         # Plot confidence interval as a shaded area
         ax.fill_between(
             xdense, yfit_lb, yfit_ub, alpha=0.3, fc=lh.get_color(), ec=None)
+    
+    # Return dense x and y fit vectors
+    return xdense, yfitdense
 
 
 def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue=None, ax=None,
@@ -3615,7 +3638,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
         ykey = get_change_key(Label.DFF)
 
     # Reduce data to relevant input parameters
-    data = get_xdep_data(data, xkey=xkey)
+    data = get_xdep_data(data, xkey=xkey, add_DC0=True)
     
     # Initialize figure if needed
     if ax is None:
@@ -3636,7 +3659,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
     
     # If fit objects/key provided, compute and add to axis
     if fit is not None:
-        fitkwargs = dict(lw=3, ls='--', ci=fit_ci)
+        fitkwargs = dict(lw=3, ls='--', ci=fit_ci, add_text='full', ytxt=0.9)
     
     # If hue not specified
     if hue is None:
@@ -3697,6 +3720,7 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
             if fit is not None:
                 compute_and_add_fit(
                     ax, aggdata[xkey], aggdata[mu_key], fit, color=color, **fitkwargs)
+                fitkwargs['ytxt'] -= 0.1
 
         if legend:
             ax.legend(frameon=False)
@@ -4482,9 +4506,9 @@ def plot_comparative_metrics_across_conditions(data, ykey, condkey, order=None, 
     return fig
 
 
-def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None, norm=False, 
-                                           err_style='band', fit=None, fit_ci=None, legend=True, 
-                                           **kwargs):
+def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None, legend=True, 
+                                           err_style='band', norm=False, fit=None, fit_ci=None,
+                                           add_metrics=False, **kwargs):
     '''
     Plot comparative parameter dependency curves (with error bars) across
     mouse lines, for each responder type
@@ -4494,10 +4518,12 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     :param ykey: output parameter name
     :param yref: reference vertical level to indicate with dashed line (optional)
     :param axes: axes list (optional)
-    :param norm: whether to normalize dependency profiles
+    :param legend: whether to add legend to last axis
     :param err_style: error style ('band' or 'bars')
+    :param norm: whether to normalize dependency profiles
     :param fit (optional): fit object(s) used to fit dependency profiles
     :param fit_ci (optional): confidence interval for fit
+    :param add_metrics: whether to extract and add response metrics to plots
     :return: figure
     '''
     # Cast xkey and ykey as iterable
@@ -4518,11 +4544,12 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
                 ykey,
                 yref=PTHR_DETECTION if ykey == Label.RESP_FRAC else 0.,
                 axes=axrow,
-                norm=norm,
+                legend=legend,
                 err_style=err_style,
+                norm=norm,
                 fit=fit,
                 fit_ci=fit_ci,
-                legend=legend,
+                add_metrics=add_metrics,
                 **kwargs
             )
             harmonize_axes_limits(axrow)
@@ -4583,7 +4610,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     # For each input parameter x
     for i, (xkey, ax) in enumerate(zip(xkeys, axes)):
         # Get x-dependent data
-        depdata = get_xdep_data(data, xkey)
+        depdata = get_xdep_data(data, xkey, add_DC0=True)
 
         # Remove axis spines 
         sns.despine(ax=ax)
@@ -4600,6 +4627,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
         )
         
         # For each mouse line
+        fitkwargs = dict(ls='--', ci=fit_ci, add_text=True, ytxt=0.9)
         for line, ldata in depdata.groupby(Label.LINE):
             logger.info(f'plotting {ykey} vs. {xkey} dependency profile for {line} line')
             # Set color according to line
@@ -4621,9 +4649,19 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
             
             # Compute and plot fit, if requested
             if fit.loc[xkey, line] is not None:
-                compute_and_add_fit(
+                fitdense = compute_and_add_fit(
                     ax, ldata[xkey], ymu, fit.loc[xkey, line], c=color, 
-                    ls='--', ci=fit_ci, add_text=False)
+                    **fitkwargs)
+                if fitdense is not None:
+                    xdense, yfitdense = fitdense
+                    fitkwargs['ytxt'] -= 0.1
+
+                    if add_metrics:
+                        ythr = .1 * yfitdense.max()
+                        xthr = np.interp(ythr, yfitdense, xdense)
+                        _, xunit = parse_axis_label(xkey)
+                        logger.info(f'10% activation threshold for {line} line: {xthr:.2f} {xunit}')
+                        ax.axvline(xthr, c=color, ls='--', lw=1)
 
         # Adjust y-labels
         ax.set_ylabel(ykey)
@@ -5542,9 +5580,10 @@ def get_runid_palette(param_seqs, runid):
     return runid_params.map(mapper).to_dict()
 
 
-def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None, 
-                            ax=None, xscale=None, fs=12, title=None, height=4, 
-                            error_aggfunc='mean', color=None, full_output=False):
+def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, 
+                            ax=None, xscale=None, fs=10, title=None, height=3, 
+                            error_aggfunc='mean', color=None, add_thr=False, 
+                            full_output=False):
     '''
     Project pressure and duty cycle response curves into common dose space, 
     evaluate alignment between them, and plot results
@@ -5555,7 +5594,6 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     :param fit (optional): (fit objective function, fit initialization function) tuple
         or key string to used to fit dependency profile
     :param sweepkey (optional): reference sweep key to use for fit (default: DC)
-    :param norm (optional): normalization method to apply to response curves
     :param ax (optional): plotting axis
     :param xscale (optional): x-axis scale
     :param fs (optional): font size
@@ -5563,6 +5601,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     :param height (optional): figure height
     :param error_aggfunc (optional): error aggregation function
     :param color (optional): line color
+    :param add_thr (optional): whether to add threshold line (computed from fit)
     :param full_output (optional): whether to return alignment error distirbution together with figure (default=False)
     :return: figure handle, and optional alignment error distribution
     '''
@@ -5572,7 +5611,9 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
 
     # If multiple xkeys, generate multiple axes and call function recursively
     if is_iterable(xkey):
-        fig, axes = plt.subplots(1, len(xkey), figsize=(height * len(xkey), height))
+        fig, axes = plt.subplots(
+            1, len(xkey), figsize=(height * len(xkey), height),
+            sharey=True)
         axes = np.atleast_1d(axes)
         if isinstance(fit, (dict, pd.Series)):
             for xk in xkey:
@@ -5585,12 +5626,14 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             errdict = {}
         for xk, ax in zip(xkey, axes):
             out = plot_response_alignment(
-                data, xk, ykey, fitdict[xk], sweepkey=sweepkey, norm=norm,
-                ax=ax, xscale=xscale, fs=fs, error_aggfunc=error_aggfunc, 
-                color=color, full_output=full_output)
+                data, xk, ykey, fitdict[xk], sweepkey=sweepkey, ax=ax, xscale=xscale,
+                fs=fs, error_aggfunc=error_aggfunc, color=color, add_thr=add_thr, 
+                full_output=full_output)
             if full_output:
                 errdict[xk] = out[1]
-        harmonize_axes_limits(axes)
+        # harmonize_axes_limits(axes)
+        for ax in axes[1:]:
+            ax.set_ylabel(None)
         if title is not None:
             fig.suptitle(title, fontsize=fs + 3)
         if full_output:
@@ -5614,35 +5657,6 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
     # Get mean and sem keys
     mu_ykey = f'{ykey} - mean'
     se_ykey = f'{ykey} - sem'
-
-    # If normalization specified
-    if norm is not None:
-        # If normalization by fit specified
-        if norm == 'fit':
-            # Extract x and mean y data
-            xdata, ydata = data[xkey], data[mu_ykey]
-            # Perform fit between input and output variables
-            popt, *_, objfunc = compute_fit(xdata, ydata, fit)
-            # Compute min and max values of fit predictor across determined input range
-            xbounds = np.array([xdata.min(), xdata.max()])
-            xdense = np.linspace(*xbounds, 1000)
-            yfitdense = objfunc(xdense, *popt)
-            ymin, ymax = yfitdense.min(), yfitdense.max()
-
-        # If standard data normalization is specified
-        elif norm == 'data':
-            # Extract minimum and maximum values of ykey across input data range
-            ymin, ymax = data[mu_ykey].min(), data[mu_ykey].max()
-        
-        # Unknown normalization method -> raise error
-        else:
-            raise ValueError(f'unknown normalization method: {norm}')
-
-        # Normalize mean and sem columns
-        logger.info(f'normalizing {ykey} to range [{ymin:.3g}, {ymax:.3g}]')
-        yptp = ymax - ymin
-        data[mu_ykey] = (data[mu_ykey] - ymin) / yptp
-        data[se_ykey] /= yptp
 
     # Fetch axis, or create figure
     if ax is None:
@@ -5682,56 +5696,68 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, norm=None,
             label=f'{subxkey} data'
         )
     
+    # Extract data of reference profile 
+    ref_data = get_xdep_data(data, sweepkey, add_DC0=True)
+    xdata, ydata = ref_data[xkey], ref_data[mu_ykey]
+
+    # Initialize empty predictor function
+    predfunc = None
+
     # If fit provided
     if fit is not None:
-
-        # Extract reference y profile for fit 
-        fit_data = get_xdep_data(data, sweepkey, add_DC0=True)
-        
-        # Extract x and mean y data
-        xdata, ydata = fit_data[xkey], fit_data[mu_ykey]
-
         # Perform fit between input and output variables, log warning if fit fails
         try:
             popt, _, r2, objfunc = compute_fit(xdata, ydata, fit)
         except ValueError as e:
             logger.warning(e)
-            popt = None
+            popt, r2, objfunc = None, None, None
+        
+        # If fit successful, construct predictor function
+        if popt is not None:
+            predfunc = lambda x: objfunc(x, *popt)
+            predstr = f'{objfunc.__name__}: R2 = {r2:.2f}'
+    
+    # If no predictor function, use linear interpolation
+    if predfunc is None:
+        predfunc = interp1d(xdata, ydata, kind='linear')
+        predstr = 'linear int.'
 
-        # If fit succeeded
-        if popt is not None:    
-            # Plot dense fitted profile
-            xdense = np.linspace(xdata.min(), xdata.max(), 1000)
-            yfitdense = objfunc(xdense, *popt)
-            ax.plot(
-                xdense, yfitdense,
-                ls='--', label=f'{objfunc.__name__}: R2 = {r2:.2f}', c=color)
+    # Compute and plot dense predictor profile over reference input range
+    xdense = np.linspace(xdata.min(), xdata.max(), 1000)
+    ypred_dense = predfunc(xdense)
+    ax.plot(xdense, ypred_dense, ls='--', label=predstr, c=color)
 
-            # Get data from other sweep
-            other_data = get_xdep_data(data, otherkey, add_DC0=True)
-            xother, yother, yother_err = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
+    # Get data from the other (non-reference) sweep
+    other_data = get_xdep_data(data, otherkey, add_DC0=True)
+    xother, yother, yother_err = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
 
-            # Apply fit on input range from other sweep
-            yotherfit = objfunc(xother, *popt)
+    # Apply predictor function on input range from other sweep
+    ypred_other = predfunc(xother)
 
-            # Compute alignment error
-            # err = symmetric_accuracy(yother, yotherfit, aggfunc=error_aggfunc)
-            err = ((yother - yotherfit) / yother_err).abs()
-            mu_err, sigma_err = err.mean(), err.sem()
-            err_txt = f'err = {mu_err:.2f} ± {sigma_err:.2f}'
+    # Compute SEM-normalized alignment error
+    err = ((yother - ypred_other) / yother_err).abs()
+    mu_err, sigma_err = err.mean(), err.sem()
+    err_txt = f'err = {mu_err:.2f} ± {sigma_err:.2f}'
 
-            # If error exceeds reasonable range, log warning and set to infinity for plotting
-            if mu_err > 1e3:
-                logger.warning(f'error exceeds reasonable range: {mu_err:.2e}')
-                mu_err = np.inf
+    # If error exceeds reasonable range, log warning and set to infinity for plotting
+    if mu_err > 1e3:
+        logger.warning(f'error exceeds reasonable range: {mu_err:.2e}')
+        mu_err = np.inf
 
-            # Plot divergence between fit and data points from other sweep
-            iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
-            ax.fill(
-                np.hstack((xdense[iswithin], xother[::-1])), 
-                np.hstack((yfitdense[iswithin], yother[::-1])),
-                fc='silver', label=err_txt
-            )
+    # Plot divergence between fit and data points from other sweep
+    iswithin = np.logical_and(xdense >= xother.min(), xdense <= xother.max())
+    ax.fill(
+        np.hstack((xdense[iswithin], xother[::-1])), 
+        np.hstack((ypred_dense[iswithin], yother[::-1])),
+        fc='silver', label=None if full_output else err_txt
+    )
+
+    # If specified, compute and plot threshold x value 
+    # (i.e. value at which fit reaches 10% of its maximum)
+    if add_thr:
+        ythr = .1 * ypred_dense.max()
+        xthr = np.interp(ythr, ypred_dense, xdense)
+        ax.axvline(xthr, c='k', ls='--', lw=1, label=f'10% threshold: {xthr:.2f}')
         
     # Adjust x-scale if specified
     adjust_xscale(ax, xscale=xscale)
@@ -6006,13 +6032,25 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
         xdense = np.linspace(xdata.min(), max(xdata.max(), xmax), 100)
         irange, iext = np.where(xdense <= xdata.max())[0], np.where(xdense > xdata.max())[0]
 
-        # Attempt to fit sigmoid to predict response strength
-        try:
-            popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit)
-            label = f'{line} (R2 = {r2:.2f})'
-        except ValueError as e:
-            logger.warning(f'Failed to fit {line} data: {e}')
-            r2 = None
+        # Initialize empty predictor function
+        predfunc = None
+
+        # If fitting function provided, attempt to fit response profile
+        if fit is not None:
+            try:
+                popt, pcov, r2, objfunc = compute_fit(xdata, ydata, fit)
+                label = f'{line} (R2 = {r2:.2f})'
+            except ValueError as e:
+                logger.warning(f'Failed to fit {line} data: {e}')
+                popt, pcov, r2, objfunc = None
+
+            # If fit successful, construct predictor function
+            if popt is not None:
+                predfunc = lambda x: objfunc(x, *popt)
+        
+        # If not prediction function from fit attempt, use linear interpolant
+        if predfunc is None:
+            predfunc = interp1d(xdata, ydata, kind='linear', fill_value='extrapolate')
 
         # Plot response curve data
         axes[0].errorbar(
@@ -6021,38 +6059,38 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
 
         # If fit was successful 
         if r2 is not None:
-            # Compute and plot fit prediction over x-range
-            yfit = pd.DataFrame({'mean': objfunc(xdense, *popt)})
+            # Compute and plot predictor over x-range
+            ypred = pd.DataFrame({'mean': predfunc(xdense)})
             for idx, ls in zip([irange, iext], ['-', '--']):
-                axes[0].plot(xdense[idx], yfit['mean'][idx], color=color, ls=ls)
+                axes[0].plot(xdense[idx], ypred['mean'][idx], color=color, ls=ls)
 
             # If specified, compute and plot confidence interval over x-range
-            if ci is not None:
-                yfit['lb'], yfit['ub'] = compute_fit_uncertainty(
+            if ci is not None and popt is not None:
+                ypred['lb'], ypred['ub'] = compute_fit_uncertainty(
                     xdense, popt, pcov, objfunc, ci=ci)
-                yfit['err'] = (yfit['ub'] - yfit['lb']) / 2
+                ypred['err'] = (ypred['ub'] - ypred['lb']) / 2
                 axes[0].fill_between(
-                    xdense, yfit['lb'], yfit['ub'], color=color, alpha=.2)
+                    xdense, ypred['lb'], ypred['ub'], color=color, alpha=.2)
             
             # Compute and plot scaled fit predictions
-            scaled_yfit = (yfit - yfit['mean'].min()) * stats.loc[line, 'factor']
+            scaled_ypred = (ypred - ypred['mean'].min()) * stats.loc[line, 'factor']
             for idx, ls in zip([irange, iext], ['-', '--']):
                 axes[1].plot(
-                    xdense[idx], scaled_yfit['mean'][idx], color=color, ls=ls, 
+                    xdense[idx], scaled_ypred['mean'][idx], color=color, ls=ls, 
                     label=line if ls =='-' else None)
             
             # If specified, compute and plot scaled confidence interval
             if ci is not None:
-                scaled_yfit['err'] = yfit['err'] * stats.loc[line, 'factor']
+                scaled_ypred['err'] = ypred['err'] * stats.loc[line, 'factor']
                 axes[1].fill_between(
-                    xdense, scaled_yfit['lb'], scaled_yfit['ub'], color=color, alpha=.2)
+                    xdense, scaled_ypred['lb'], scaled_ypred['ub'], color=color, alpha=.2)
             
             # Compute net effect contribution, with appropriate sign
-            ynet[line] = scaled_yfit['mean'] * stats.loc[line, 'sign']
+            ynet[line] = scaled_ypred['mean'] * stats.loc[line, 'sign']
 
             # If specified, compute contribution error
             if ci is not None:
-                ynet_err[line] = scaled_yfit['err']
+                ynet_err[line] = scaled_ypred['err']
 
     # Add legend to responses plot
     axes[0].legend(frameon=False, fontsize=fs)

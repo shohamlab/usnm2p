@@ -1587,7 +1587,7 @@ def get_window_slice(kind='pre', iref=None, n=None):
         iref = FrameIndex.STIM
     # Otherwise, check that reference index is valid 
     else:
-        if not isinstance(iref, int):
+        if not isinstance(iref, (int, np.int64)):
             raise TypeError(f'reference index must be an integer (got {type(iref)})')
     
     # If window size is not specified, use default window size for kind
@@ -3889,7 +3889,7 @@ def get_fit_table(Pfit='scaled_power', exclude=None):
     fits_per_line = {
         'line3': 'corrected_sigmoid',
         'sst': 'corrected_sigmoid_decay',
-        'pv':  'scaled_power',  # 'delayed_linear',  # 'sigmoid',
+        'pv':  'delayed_linear',  # 'sigmoid',
     }
 
     # Create empty 2D dataFframe

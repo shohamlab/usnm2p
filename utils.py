@@ -909,7 +909,7 @@ def get_sigmoid_decay_params(x, y):
     ]
 
 
-def delayed_linear(x, x0=1, A=1, sigma=0):
+def delayed_linear(x, x0=1, A=1, sigma=0, y0=0):
     '''
     Function that transitions between a constant and a linear regime
     with a parametrized exponential transition
@@ -918,6 +918,7 @@ def delayed_linear(x, x0=1, A=1, sigma=0):
     :param x0: transition point x-coordinate
     :param A: slope of linear segment
     :param sigma: exponential transition width
+    :param y0: vertical offset
     '''
     # If sigma is negative, raise error
     if sigma < 0:
@@ -928,21 +929,26 @@ def delayed_linear(x, x0=1, A=1, sigma=0):
 
     # If input is iterable, apply function to each element, and return array
     if is_iterable(x):
-        return np.array([delayed_linear(xi, x0=x0, A=A, sigma=sigma) for xi in x])
+        return np.array([
+            delayed_linear(xi, x0=x0, A=A, sigma=sigma, y0=y0) for xi in x])
 
     # Compute inverted relative x coordinate to inflexion point
     xrel = x0 - x
 
-    # If too close to inflexion point, return approximation
+    # If too close to inflexion point, set to linear approximation
     if np.abs(xrel) < 1e-5:
-        return A * sigma
+        y = A * sigma
 
-    # If exponential input is too large (i.e. constant regime), return 0
+    # If exponential input is too large (i.e. constant regime), set to 0
     elif xrel / sigma > 1e2:
-        return 0
+        y = 0
     
-    # Otherwise, return real function
-    return A * xrel / (np.exp(xrel / sigma) - 1)
+    # Otherwise, compute real function
+    else:
+        y = A * xrel / (np.exp(xrel / sigma) - 1)
+
+    # Add vertical offset and return
+    return y + y0
 
 
 def get_delayed_linear_params(x, y):
@@ -957,7 +963,8 @@ def get_delayed_linear_params(x, y):
     return [
         x0,
         np.ptp(y) / (x.max() - x0),  # slope: y range / (x0 to xmax range)
-        0.001 * np.ptp(x)  # transition width: 10th of x range
+        0.001 * np.ptp(x),  # transition width: 10th of x range
+        y.min()  # vertical offset: min of y range
     ]
 
 
@@ -969,7 +976,13 @@ def get_delayed_linear_bounds(x, y):
     :param y: output vector
     :return: fit bounds parameters
     '''
-    return ([x.min(), 0, 0], [x.max(), np.inf, .01 * np.ptp(x)])
+    bounds = [
+        (x.min(), x.max()),  # transition point: minimal and maximal x values
+        [0, np.inf],  # slope: >=0
+        [0, .01 * np.ptp(x)],  # transition width: between 0 and 1% of x range
+        [y.min(), y.max()]  # vertical offset: min and max of y range
+    ]
+    return tuple(zip(*bounds))
 
 
 def bilinear(x, x0=0, y0=0, A=1, B=-1):
