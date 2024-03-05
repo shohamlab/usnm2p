@@ -28,7 +28,7 @@ my_log_formatter = colorlog.ColoredFormatter(
 )
 
 
-def initLogHandler(formatter):
+def init_log_handler(formatter):
     ''' Initialize log handler. '''
     # Initialize log handler
     handler = colorlog.StreamHandler()
@@ -40,7 +40,7 @@ def initLogHandler(formatter):
     return handler
 
 
-def assignLogHandler(logger, handler):
+def assign_log_handler(logger, handler):
     ''' Assign handler to logger. '''
     # Remove all previous handlers
     while logger.handlers:
@@ -54,7 +54,7 @@ def assignLogHandler(logger, handler):
         raise ValueError('multiple handlers assigned to logger')
 
 
-def setLogger(name, formatter, level=logging.INFO):
+def set_logger(name, formatter, level=logging.INFO):
     ''' 
     Set up logger with given name and formatter.
     
@@ -66,11 +66,11 @@ def setLogger(name, formatter, level=logging.INFO):
     logger = colorlog.getLogger(name)
 
     # Initialize log handler
-    handler = initLogHandler(formatter)
+    handler = init_log_handler(formatter)
     # print(f'initialized {handler} handler')
 
     # Assign handler to logger
-    assignLogHandler(logger, handler)
+    assign_log_handler(logger, handler)
     # print(f'assigned {handler} to {logger}')
 
     # Set logger level
@@ -80,9 +80,20 @@ def setLogger(name, formatter, level=logging.INFO):
     return logger
 
 
-def getMyLogger():
+class TqdmHandler(logging.StreamHandler):
+
+    def __init__(self, formatter):
+        logging.StreamHandler.__init__(self)
+        self.setFormatter(formatter)
+
+    def emit(self, record):
+        msg = self.format(record)
+        tqdm.write(msg)
+
+
+def get_my_logger():
     ''' wrapper function to define logger '''
-    return setLogger('mylogger', my_log_formatter, level=logging.INFO)
+    return set_logger('mylogger', my_log_formatter, level=logging.INFO)
 
 
-logger = getMyLogger()
+logger = get_my_logger()

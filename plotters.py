@@ -3650,8 +3650,8 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
     ax.set_xlabel(xkey)
     ax.set_ylabel(ykey)
 
-    # Define propagated average and standard error keys
-    mu_key, sem_key = f'{ykey} - mean', f'{ykey} - sem'
+    # Extract mean and sem keys for cross-dataset aggregated variable
+    mu_key, sem_key = get_propagg_keys(ykey)
 
     # Adapt average color to mouse line, if requested
     if avg_color == 'line':
@@ -4568,16 +4568,19 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     if ykey == Label.RESP_FRAC:
         yref = PTHR_DETECTION
 
+    # Extract mean and sem keys for cross-dataset aggregated variable
+    mu_key, sem_key = get_propagg_keys(ykey)
+
     # If specific, normalize metrics for each line
     if norm:
         yrefs = (
-            data[f'{ykey} - mean']
+            data[mu_key]
             .abs()
             .groupby(Label.LINE)
             .max()
         )
-        for k in ['mean', 'sem']:
-            data[f'{ykey} - {k}'] /= yrefs
+        for k in [mu_key, sem_key]:
+            data[k] /= yrefs
     
     # Create figure backbone, or retrieve figure from provided axes
     if axes is None:
@@ -4620,7 +4623,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
             data=depdata, 
             legend=i == len(xkeys) - 1 if legend else False, 
             ax=ax,
-            x=xkey, y=f'{ykey} - mean',
+            x=xkey, y=mu_key,
             hue=Label.LINE,
             palette=Palette.LINE,
             **kwargs
@@ -4637,7 +4640,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
             ldata = ldata.sort_values(xkey)
             
             # Extract ykey mean and sem vectors 
-            ymu, ysem = ldata[f'{ykey} - mean'], ldata[f'{ykey} - sem']
+            ymu, ysem = ldata[mu_key], ldata[sem_key]
             
             # Plot +/-sem error according to err_style
             if err_style == 'band':
@@ -5654,9 +5657,8 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
     # Sort by increasing input value
     data = data.sort_values(xkey)
 
-    # Get mean and sem keys
-    mu_ykey = f'{ykey} - mean'
-    se_ykey = f'{ykey} - sem'
+    # Extract mean and sem keys for cross-dataset aggregated variable
+    mu_key, sem_key = get_propagg_keys(ykey)
 
     # Fetch axis, or create figure
     if ax is None:
@@ -5690,7 +5692,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
         subdata = get_xdep_data(data, subxkey, add_DC0=xkey != Label.P)
         ax.errorbar(
             subdata[xkey], subdata[mu_ykey], 
-            yerr=subdata[se_ykey] if subxkey != sweepkey else None, 
+            yerr=subdata[sem_ykey] if subxkey != sweepkey else None, 
             fmt=marker, 
             c=color, markersize=5, 
             label=f'{subxkey} data'
@@ -6006,6 +6008,9 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     
     myfit = fit
 
+    # Extract mean and sem keys for cross-dataset aggregated variable
+    mu_key, sem_key = get_propagg_keys(ykey)
+
     # For each line
     for line, gdata in data.groupby(Label.LINE):
         logger.info(f'extracting, computing, and scaling {line} responses')
@@ -6024,7 +6029,7 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
         gdata = get_xdep_data(gdata, xkey, add_DC0=True)
         
         # Extract and plot X and Y data vectors
-        xdata, ydata, yerr = gdata[xkey], gdata[f'{ykey} - mean'], gdata[f'{ykey} - sem']
+        xdata, ydata, yerr = gdata[xkey], gdata[mu_key], gdata[sem_key]
         if xmax is None:
             xmax = xdata.max()
 

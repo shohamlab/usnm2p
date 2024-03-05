@@ -2629,6 +2629,16 @@ def get_crossdataset_average(data, xkey, ykey=None, hue=None, weighted=True, err
     return wdata
 
 
+def get_propagg_keys(y):
+    ''' 
+    Get propagated average and standard error keys for an input key
+    
+    :param y: input key
+    :return: propagated average and standard error keys
+    '''
+    return f'{y} - mean', f'{y} - sem'
+
+
 def interpolate_2d_map(df, xkey, ykey, outkey, dx=None, dy=None, method='linear'):
     '''
     Interpolate 2D map of sparse output metrics along X and Y dimensions
@@ -3071,7 +3081,7 @@ def get_rtype_fractions_per_ROI(data):
     return roistats
 
 
-def mylinregress(x, y, robust=False, intercept=True):
+def mylinregress(x, y, robust=False, intercept=True, return_model=False):
     '''
     Perform robust or standard linear regression between 2 1D arrays
 
@@ -3079,7 +3089,9 @@ def mylinregress(x, y, robust=False, intercept=True):
     :param y: dependent variable
     :param robust: whether to perform robust linear regression
     :param intercept: whether to fit with or without intercept
-    :return: fit parameters as a pandas Series
+    :param return_model: whether to return the model object 
+        in addition to fit output (default = False)
+    :return: fit output as a pandas Series, and optionally the model object
     '''
     # If intercept requested, add constant to input vector
     if intercept:
@@ -3094,30 +3106,36 @@ def mylinregress(x, y, robust=False, intercept=True):
     # Fit model
     fit = model.fit()
 
+    # Create fit output series
+    fit_output = pd.Series()
+
     # Extract fit parameters (slope and intercept)
-    fitparams = pd.Series()
     slopeidx = 0
     if intercept:
-        fitparams['intercept'] = fit.params[0]
+        fit_output['intercept'] = fit.params[0]
         slopeidx = 1
     else:
-        fitparams['intercept'] = 0.
-    fitparams['slope'] = fit.params[slopeidx]
+        fit_output['intercept'] = 0.
+    fit_output['slope'] = fit.params[slopeidx]
 
     # Extract associated p-value for the slope
-    fitparams['pval'] = fit.pvalues[slopeidx]
+    fit_output['pval'] = fit.pvalues[slopeidx]
 
     # If OLM, extract R-squared value
     if not robust:
-        fitparams['r2'] = fit.rsquared
+        fit_output['r2'] = fit.rsquared
 
-    # Return fit parameters
-    return fitparams
+    # If specified, return fit output and model object
+    if return_model:
+        return fit_output, fit
+    # Otherwise, return fit output
+    else:
+        return fit_output
     
     # # Otherwise, perform standard linear regression
     # else:    
     #     res = linregress(x, y=y)
-    #     fitparams = pd.Series({
+    #     fit_output = pd.Series({
     #             'slope': res.slope,
     #             'intercept': res.intercept,
     #             'rval': res.rvalue,
@@ -3125,8 +3143,8 @@ def mylinregress(x, y, robust=False, intercept=True):
     #             'intercept_stderr': res.intercept_stderr,
     #     })
     
-    # # Return fit parameters
-    # return fitparams
+    # # Return fit output
+    # return fit_output
 
 
 def apply_linregress(df, xkey=Label.TRIAL, ykey=None, **kwargs):
@@ -3875,6 +3893,15 @@ def compute_fit_uncertainty(xvec, popt, pcov, objfunc, ci=.95, nsims=1000):
     
     # Otherwise, set confidence interval to None
     return yfit_lb, yfit_ub
+
+
+def compute_predictor(*args, **kwargs):
+    ''' 
+    Wrapper around compute_fit to return a predictor function, i.e. the fit function
+    called with optimal fit parameters
+    '''
+    popt, pcov, r2, objfunc = compute_fit(*args, **kwargs)
+    return lambda x: objfunc(x, *popt)
 
 
 def get_fit_table(Pfit='scaled_power', exclude=None):
