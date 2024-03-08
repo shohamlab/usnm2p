@@ -3916,7 +3916,7 @@ def get_fit_table(Pfit='scaled_power', exclude=None):
     fits_per_line = {
         'line3': 'corrected_sigmoid',
         'sst': 'corrected_sigmoid_decay',
-        'pv':  'delayed_linear',  # 'sigmoid',
+        'pv':  'threshold_linear',  # 'sigmoid',
     }
 
     # Create empty 2D dataFframe

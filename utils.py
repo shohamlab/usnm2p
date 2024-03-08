@@ -819,6 +819,33 @@ def compute_mesh_edges(x, scale='lin'):
     return range_func(x[0] - dx / 2, x[-1] + dx / 2, n)
 
 
+def expconv(x, x0=0, tau=1, A=1, y0=0):
+    '''
+    Exponential convergence function with specific time constant
+
+    :param x: independent variable
+    :param x0: convergence start
+    :param tau: time constant
+    :param A: convergence amplitude, i.e. difference between y(x0) and y(inf) 
+    :param y0: vertical offset of steady-state value
+    :return exponential convergence function output
+    '''
+    if is_iterable(x):
+        return np.array([expconv(xi, x0=x0, tau=tau, A=A, y0=y0) for xi in x])
+    if x < x0:
+        return y0
+    else: 
+        ynorm = 1 - np.exp(-(x - x0) / tau)
+        return A * ynorm + y0
+
+
+def expconv_reciprocal(y, x0=0, tau=1, A=1, y0=0):
+    ynorm =  (y - y0) / A
+    if ynorm < 0:
+        raise ValueError('normalized y must be greater than y0')
+    return tau * np.log(1 / (1 - ynorm)) + x0
+
+
 def sigmoid(x, x0=0, sigma=1., A=1, y0=0):
     ''' 
     Apply sigmoid function with specific center and width
@@ -909,13 +936,13 @@ def get_sigmoid_decay_params(x, y):
     ]
 
 
-def delayed_linear(x, x0=1, A=1, sigma=0, y0=0):
+def threshold_linear(x, x0=1, A=1, sigma=0, y0=0):
     '''
     Function that transitions between a constant and a linear regime
-    with a parametrized exponential transition
+    at a specific threshold, with a parametrized exponential transition
 
     :param x: input value
-    :param x0: transition point x-coordinate
+    :param x0: transition threshold
     :param A: slope of linear segment
     :param sigma: exponential transition width
     :param y0: vertical offset
@@ -930,7 +957,7 @@ def delayed_linear(x, x0=1, A=1, sigma=0, y0=0):
     # If input is iterable, apply function to each element, and return array
     if is_iterable(x):
         return np.array([
-            delayed_linear(xi, x0=x0, A=A, sigma=sigma, y0=y0) for xi in x])
+            threshold_linear(xi, x0=x0, A=A, sigma=sigma, y0=y0) for xi in x])
 
     # Compute inverted relative x coordinate to inflexion point
     xrel = x0 - x
@@ -951,9 +978,9 @@ def delayed_linear(x, x0=1, A=1, sigma=0, y0=0):
     return y + y0
 
 
-def get_delayed_linear_params(x, y):
+def get_threshold_linear_params(x, y):
     '''
-    Function estimating the initial parameters of a delayed linear function to fit
+    Function estimating the initial parameters of a threshold-linear function to fit
 
     :param x: input vector
     :param y: output vector
@@ -968,9 +995,9 @@ def get_delayed_linear_params(x, y):
     ]
 
 
-def get_delayed_linear_bounds(x, y):
+def get_threshold_linear_bounds(x, y):
     '''
-    Function estimating the bounds of a delayed linear function to fit
+    Function estimating the bounds of a threshold-linear function to fit
 
     :param x: input vector
     :param y: output vector
@@ -985,39 +1012,21 @@ def get_delayed_linear_bounds(x, y):
     return tuple(zip(*bounds))
 
 
-def bilinear(x, x0=0, y0=0, A=1, B=-1):
+def threshold_sqrt(x, A=1, x0=0, y0=0):
     '''
-    Bilinear function that transitions between two linear regimes.
+    Square root function with a specific threshold, scaling factor, and vertical offset
 
     :param x: input value
-    :param x0: transition point x-coordinate
-    :param y0: transition point y-coordinate
-    :param A: amplitude of first linear segment
-    :param B: amplitude of second linear segment
-    :return: bilinear function output
+    :param A: scaling factor
+    :param x0: threshold
+    :param y0: vertical offset
+    :return: threshold square root function output
     '''
     if is_iterable(x):
-        return np.array([bilinear(xx, x0=x0, y0=0, A=A, B=B) for xx in x])
-    c = A if x < x0 else B
-    return c * (x - x0) + y0
-
-
-def get_bilinear_params(x, y):
-    ''' Initial guess for bilinear fit parameters '''
-    return [
-        np.quantile(x, .5),  # transition x point: 50th percentile of x range
-        y[0],  # transition y point: initial y coordinate
-        0.,  # first slope: ymax/xmax ratio
-        y.max() / x.max()  # second slope: -ymax/xmax ratio
-    ]
-
-
-def mysqrt(x, A=1, x0=0, y0=0):
-    if is_iterable(x):
-        return np.array([mysqrt(xx, A=A, x0=x0, y0=y0) for xx in x])
-    if x < x0:
-        return y0
-    return A * np.sqrt(x - x0) + y0
+        return np.array([threshold_sqrt(xx, A=A, x0=x0, y0=y0) for xx in x])
+    xrel = x - x0
+    yrel = 0 if xrel < 0 else np.sqrt(xrel)
+    return A * yrel + y0
 
 
 def scaled_power(x, A=1, b=1):
@@ -1142,10 +1151,9 @@ fit_functions_dict = {
     'sigmoid_decay': (sigmoid_decay, get_sigmoid_decay_params),
     'corrected_sigmoid_decay': (corrected(sigmoid_decay, ref='min'), get_sigmoid_decay_params),
     'scaled_power': (scaled_power, get_scaled_power_params),
-    'bilinear': (bilinear, get_bilinear_params),
     'parabolic': (parabolic, get_parabolic_params),
     'biexponential': (biexponential, get_biexponential_params),
-    'delayed_linear': (delayed_linear, get_delayed_linear_params, get_delayed_linear_bounds),
+    'threshold_linear': (threshold_linear, get_threshold_linear_params, get_threshold_linear_bounds),
 }
 
 

@@ -5691,8 +5691,8 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
     for subxkey, marker in markers.items():
         subdata = get_xdep_data(data, subxkey, add_DC0=xkey != Label.P)
         ax.errorbar(
-            subdata[xkey], subdata[mu_ykey], 
-            yerr=subdata[sem_ykey] if subxkey != sweepkey else None, 
+            subdata[xkey], subdata[mu_key], 
+            yerr=subdata[sem_key] if subxkey != sweepkey else None, 
             fmt=marker, 
             c=color, markersize=5, 
             label=f'{subxkey} data'
@@ -5700,7 +5700,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
     
     # Extract data of reference profile 
     ref_data = get_xdep_data(data, sweepkey, add_DC0=True)
-    xdata, ydata = ref_data[xkey], ref_data[mu_ykey]
+    xdata, ydata = ref_data[xkey], ref_data[mu_key]
 
     # Initialize empty predictor function
     predfunc = None
@@ -5731,7 +5731,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
 
     # Get data from the other (non-reference) sweep
     other_data = get_xdep_data(data, otherkey, add_DC0=True)
-    xother, yother, yother_err = other_data[xkey], other_data[mu_ykey], other_data[se_ykey]
+    xother, yother, yother_err = other_data[xkey], other_data[mu_key], other_data[sem_key]
 
     # Apply predictor function on input range from other sweep
     ypred_other = predfunc(xother)

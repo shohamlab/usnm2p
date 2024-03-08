@@ -29,7 +29,7 @@ class ODESolver:
         self.dfunc = dfunc
         self.dt = dt
 
-    def checkFunc(self, key, value):
+    def check_func(self, key, value):
         if not callable(value):
             raise ValueError(f'{key} function must be a callable object')
 
@@ -56,7 +56,7 @@ class ODESolver:
 
     @dfunc.setter
     def dfunc(self, value):
-        self.checkFunc('derivative', value)
+        self.check_func('derivative', value)
         self._dfunc = value
 
     @property
@@ -74,7 +74,7 @@ class ODESolver:
                 raise ValueError('time step must be strictly positive')
             self._dt = value
 
-    def getNSamples(self, t0, tend, dt=None):
+    def get_nsamples(self, t0, tend, dt=None):
         ''' Get the number of samples required to integrate across 2 times with a given time step.
 
             :param t0: initial time (s)
@@ -86,7 +86,7 @@ class ODESolver:
             dt = self.dt
         return max(int(np.round((tend - t0) / dt)), 2)
 
-    def getTimeVector(self, t0, tend, **kwargs):
+    def get_time_vector(self, t0, tend, **kwargs):
         ''' Get the time vector required to integrate from an initial to a final time with
             a specific time step.
 
@@ -94,7 +94,7 @@ class ODESolver:
             :param tend: final time (s)
             :return: vector going from current time to target time with appropriate step (s)
         '''
-        return np.linspace(t0, tend, self.getNSamples(t0, tend, **kwargs))
+        return np.linspace(t0, tend, self.get_nsamples(t0, tend, **kwargs))
 
     def initialize(self, y0, t0=0.):
         ''' Initialize global time vector, state vector and solution array.
@@ -141,16 +141,16 @@ class ODESolver:
             self.x = self.x[i_bounded]
 
     @staticmethod
-    def timeStr(t):
+    def time_str(t):
         return f'{t * 1e3:.5f} ms'
 
     def timedlog(self, s, t=None):
         ''' Add preceding time information to log string. '''
         if t is None:
             t = self.t[-1]
-        return f't = {self.timeStr(t)}: {s}'
+        return f't = {self.time_str(t)}: {s}'
 
-    def integrateUntil(self, target_t, remove_first=False):
+    def integrate_until(self, target_t, remove_first=False):
         ''' Integrate system until a target time and append new arrays to global arrays.
 
             :param target_t: target time (s)
@@ -166,13 +166,13 @@ class ODESolver:
                 self.dfunc, [self.t[-1], target_t], self.y[-1], method='LSODA')
             t, y = sol.t, sol.y.T
         else:
-            t = self.getTimeVector(self.t[-1], target_t)
+            t = self.get_time_vector(self.t[-1], target_t)
             y = odeint(self.dfunc, self.y[-1], t, tfirst=True)
         if remove_first:
             t, y = t[1:], y[1:]
         self.append(t, y)
 
-    def resampleArrays(self, t, y, target_dt):
+    def resample_arrays(self, t, y, target_dt):
         ''' Resample a time vector and soluton matrix to target time step.
 
             :param t: time vector to resample (s)
@@ -180,7 +180,7 @@ class ODESolver:
             :param target_dt: target time step (s)
             :return: resampled time vector and solution matrix
         '''
-        tnew = self.getTimeVector(t[0], t[-1], dt=target_dt)
+        tnew = self.get_time_vector(t[0], t[-1], dt=target_dt)
         ynew = np.array([np.interp(tnew, t, x) for x in y.T]).T
         return tnew, ynew
 
@@ -189,7 +189,7 @@ class ODESolver:
 
             :param target_dt: target time step (s)
         '''
-        tnew, self.y = self.resampleArrays(self.t, self.y, target_dt)
+        tnew, self.y = self.resample_arrays(self.t, self.y, target_dt)
         if hasattr(self, 'x'):
             self.x = interp1d(self.t, self.x, kind='nearest', assume_sorted=True)(tnew)
         self.t = tnew
@@ -204,7 +204,7 @@ class ODESolver:
         self.initialize(y0, **kwargs)
 
         # Integrate until tstop
-        self.integrateUntil(tstop, remove_first=True)
+        self.integrate_until(tstop, remove_first=True)
 
     @property
     def solution(self):
@@ -241,9 +241,9 @@ class EventDrivenSolver(ODESolver):
         '''
         super().__init__(*args, **kwargs)
         self.eventfunc = eventfunc
-        self.assignEventParams(event_params)
+        self.assign_event_params(event_params)
 
-    def assignEventParams(self, event_params):
+    def assign_event_params(self, event_params):
         ''' Assign event parameters as instance attributes. '''
         if event_params is not None:
             for k, v in event_params.items():
@@ -255,7 +255,7 @@ class EventDrivenSolver(ODESolver):
 
     @eventfunc.setter
     def eventfunc(self, value):
-        self.checkFunc('event', value)
+        self.check_func('event', value)
         self._eventfunc = value
 
     @property
@@ -270,16 +270,16 @@ class EventDrivenSolver(ODESolver):
         self.xref = 0
         super().initialize(*args, **kwargs)
 
-    def fireEvent(self, xevent):
+    def fire_event(self, xevent):
         ''' Call event function and set new xref value. '''
         if xevent is not None:
             if xevent == 'log':
-                self.logProgress()
+                self.log_progress()
             else:
                 self.eventfunc(xevent)
                 self.xref = xevent
 
-    def initLog(self, logfunc, n):
+    def init_log(self, logfunc, n):
         ''' Initialize progress logger. '''
         self.logfunc = logfunc
         if self.logfunc is None:
@@ -289,21 +289,21 @@ class EventDrivenSolver(ODESolver):
             self.np = n
             logger.debug('integrating stimulus')
 
-    def logProgress(self):
+    def log_progress(self):
         ''' Log simulation progress. '''
         if self.logfunc is None:
             self.pbar.update()
         else:
             logger.debug(self.timedlog(self.logfunc(self.y[-1])))
 
-    def terminateLog(self):
+    def terminate_log(self):
         ''' Terminate progress logger. '''
         if self.logfunc is None:
             self.pbar.close()
         else:
             logger.debug('integration completed')
 
-    def sortEvents(self, events):
+    def sort_events(self, events):
         ''' Sort events pairs by occurence time. '''
         return sorted(events, key=lambda x: x[0])
 
@@ -315,7 +315,7 @@ class EventDrivenSolver(ODESolver):
             :param tstop: stopping time (s)
         '''
         # Sort events according to occurrence time
-        events = self.sortEvents(events)
+        events = self.sort_events(events)
 
         # Make sure all events occur before tstop
         if events[-1][0] > tstop:
@@ -325,8 +325,8 @@ class EventDrivenSolver(ODESolver):
             tlogs = np.arange(kwargs.get('t0', 0.), tstop, log_period)[1:]
             if tstop not in tlogs:
                 tlogs = np.hstack((tlogs, [tstop]))
-            events = self.sortEvents(events + [(t, 'log') for t in tlogs])
-            self.initLog(logfunc, tlogs.size)
+            events = self.sort_events(events + [(t, 'log') for t in tlogs])
+            self.init_log(logfunc, tlogs.size)
         else:  # Otherwise, add None event at tstop
             events.append((tstop, None))
 
@@ -335,11 +335,11 @@ class EventDrivenSolver(ODESolver):
 
         # For each upcoming event
         for i, (tevent, xevent) in enumerate(events):
-            self.integrateUntil(  # integrate until event time
+            self.integrate_until(  # integrate until event time
                 tevent,
                 remove_first=i > 0 and events[i - 1][1] == 'log')
-            self.fireEvent(xevent)  # fire event
+            self.fire_event(xevent)  # fire event
 
         # Terminate log if any
         if log_period is not None:
-            self.terminateLog()
+            self.terminate_log()
