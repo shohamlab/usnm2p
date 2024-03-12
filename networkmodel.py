@@ -6,10 +6,32 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 import seaborn as sns
 from scipy import optimize
+from tqdm import tqdm
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
-from utils import expconv, expconv_reciprocal
+from utils import expconv, expconv_reciprocal, threshold_linear, as_iterable
+
+# Define custom error classes
+
+class SimulationError(Exception):
+    ''' Simulation error '''
+    pass
+
+
+class ModelError(Exception):
+    ''' Model error '''
+    pass
+
+
+class MetricError(Exception):
+    ''' Metric error '''
+    pass
+
+
+class OptimizationError(Exception):
+    ''' Optimization error '''
+    pass
 
 
 class NetworkModel:
@@ -22,18 +44,49 @@ class NetworkModel:
         'SST': 'r'
     }
 
-    def __init__(self, W, tau, fgain, fgain_params=None, b=None):
+    # Max allowed activity value
+    MAX_RATE = 1e3
+
+    # Default coupling strength bounds for excitatory and inhibitory connections
+    DEFAULT_WBOUNDS = {
+        'E': (0, 20),
+        'I': (-20, 0)
+    }
+
+    def __init__(self, W=None, tau=None, fgain=None, fgain_params=None, b=None):
         '''
         Initialize the network model
 
-        :param W: network connectivity matrix, provided as dataframe
-        :param tau: time constants vector, provided as pandas eries
-        :param fgain: gain function
+        :param W (optional): network connectivity matrix, provided as dataframe. If None, set to 0 for all populations
+        :param tau (optional): time constants vector, provided as pandas series. 
+            If None, set to 10 ms for all populations
+        :param fgain (optional): gain function. If None, use threshold-linear
         :param fgain_params (optional): gain function parameters, either:
             - a (name: value) dictionary / pandas Series of parameters, if unique
             - a dataframe with parameters as columns and populations as rows, if population-specific
         :param b (optional): baseline inputs vector, provided as pandas series
         '''
+        # Extract keys from first non-None input
+        for param in (W, tau, fgain_params, b):
+            if param is not None:
+                self.set_keys(param.index.values)
+                break
+        if not self.has_keys():
+            raise ModelError('at least one of the following parameters must be provided: W, tau, fgain_params, b')
+
+        # Get default values for required attributes, if not provided
+        if W is None:
+            W = pd.DataFrame(
+                data=0., 
+                index=pd.Index(self.keys, name='pre-synaptic'), 
+                columns=pd.Index(self.keys, name='post-synaptic')
+            )
+        if tau is None:
+            tau = pd.Series(0.01, index=self.keys, name='tau (s)')
+        if fgain is None:
+            fgain = threshold_linear
+
+        # Set attributes
         self.W = W
         self.tau = tau
         self.fgain = fgain
@@ -70,7 +123,7 @@ class NetworkModel:
         if isinstance(isdiff, np.ndarray):
             isdiff = isdiff.any()
         if isdiff:
-            raise ValueError(f'input keys ({keys}) do not match current model keys ({self.keys})')
+            raise ModelError(f'input keys ({keys}) do not match current model keys ({self.keys})')
     
     def set_keys(self, keys):
         '''
@@ -95,88 +148,95 @@ class NetworkModel:
         :param W: 2D square dataframe where rows and columns represent pre-synaptic
          and post-synaptic elements, respectively.
         '''
+        # Check that input is a dataframe with no NaN values
         if not isinstance(W, pd.DataFrame):
-            raise ValueError('connectivity matrix must be a pandas dataframe')
-        Wmat = W.values
-        Wrows, Wcols = W.index.values, W.columns.values 
+            raise ModelError('connectivity matrix must be a pandas dataframe')
+        if W.isna().any().any():
+            raise ModelError('connectivity matrix cannot contain NaN values')
+        
+        # Check that matrix is square and that rows and columns match
+        Wrows, Wcols = W.index.values, W.columns.values
+        if len(Wrows) != len(Wcols):
+            raise ModelError('connectivity matrix must be square')
         if not np.all(Wrows == Wcols):
-            raise ValueError(f'mismatch between matrix rows {Wrows} and columns {Wcols}')
+            raise ModelError(f'mismatch between matrix rows {Wrows} and columns {Wcols}')
         self.set_keys(Wrows)
-        nx, ny = W.shape
-        if nx != ny:
-            raise ValueError('connectivity matrix must be square')
-        self._W = Wmat
+
+        # If 2-population model with 1 excitatory and 1 inhibitory population,
+        # Check that network is not excitation dominated
+        if len(W) == 2 and 'E' in W.index.values:
+            Ikey = list(set(W.index.values) - set(['E']))[0]
+            Wi = self.get_net_inhibition(Ikey, W=W)
+            We = self.get_net_excitation(Ikey, W=W)
+            if Wi < We:
+                raise ModelError(f'Wi ({Wi}) < We ({We}) -> E/I balance not met')
+
+        # Set connectivity matrix
+        self._W = W
     
     @property
-    def Wtable(self):
-        ''' Return connectivity matrix as dataframe table '''
-        if not self.has_keys():
-            raise ValueError('model keys must be set to convert connectivity matrix to dataframe')
-        return pd.DataFrame(
-            self.W, 
-            index=pd.Index(self.keys, name='pre-synaptic'), 
-            columns=pd.Index(self.keys, name='post-synaptic')
-        )
+    def Wmat(self):
+        ''' Return connectivity matrix a2D numpy array '''
+        return self.W.values.T
+    
+    @property
+    def Wnames(self):
+        ''' Return names of network connectivity matrix elements '''
+        return self.W.stack().index.values
 
-    def get_net_inhibition(self, Ikey, Ekey='E'):
+    def get_net_inhibition(self, Ikey, Ekey='E', W=None):
         ''' 
         Compute strength of the net inhibition between and E and I populations, 
         as the product of (E to I) and (I to E) coupling strengths
 
         :param Ikey: inhibitory population key
         :param Ekey: excitatory population key (default: 'E')
+        :param W (optional): connectivity matrix. If None, use current model connectivity matrix
         :return: net inhibition strength
         '''
-        Wei = self.Wtable.loc[Ekey, Ikey]  # E -> I (> 0)
-        Wie = self.Wtable.loc[Ikey, Ekey]  # I -> E (< 0) 
+        if W is None:
+            W = self.W
+        Wei = W.loc[Ekey, Ikey]  # E -> I (> 0)
+        Wie = W.loc[Ikey, Ekey]  # I -> E (< 0) 
         return Wei * np.abs(Wie)  # < 0
     
-    def get_net_excitation(self, Ikey, Ekey='E'):
+    def get_net_excitation(self, Ikey, Ekey='E', W=None):
         ''' 
         Compute strength of the net excitation between E and I populations, 
         as the product of (E to E) and (I to I) coupling strengths
 
         :param Ikey: inhibitory population key
         :param Ekey: excitatory population key (default: 'E')
+        :param W (optional): connectivity matrix. If None, use current model connectivity matrix
         :return: net excitation strength
         '''
-        Wii = self.Wtable.loc[Ikey, Ikey]  # I -> I (< 0)
-        Wee = self.Wtable.loc[Ekey, Ekey]  # E -> E (> 0)
+        if W is None:
+            W = self.W
+        Wii = W.loc[Ikey, Ikey]  # I -> I (< 0)
+        Wee = W.loc[Ekey, Ekey]  # E -> E (> 0)
         return np.abs(Wii) * Wee  # > 0
-    
-    def get_EI_balance(self, Ikey, Ekey='E'):
-        '''
-        Return the E/I balance between E and I populations 
-        based on the connectivity matrix.
-        
-        :param Ikey: inhibitory population key
-        :param Ekey: excitatory population key (default: 'E')
-        :return: E/I balance
-        '''
-        # Compute net inhibition and excitation
-        Wi = self.get_net_inhibition(Ikey, Ekey=Ekey)
-        We = self.get_net_excitation(Ikey, Ekey=Ekey)
 
-        # Return E/I balance
-        return Wi - We
-    
-    def get_II_balance(self, Ikey1, Ikey2, Ekey='E'):
+    def get_critical_value(self, pre_key, post_key, W=None):
+        ''' 
+        Compute critical pre-post value that would allow a stable network
+
+        :param pre_key: pre-synaptic population key
+        :param post_key: post-synaptic population key
+        :param W (optional): connectivity matrix. If None, use current model connectivity matrix
+        :return: critical value
         '''
-        Return the I/I balance between two inhibitory populations
-        based on the connectivity matrix.
-        
-        :param Ikey1: first inhibitory population key
-        :param Ikey2: second inhibitory population key
-        :param Ekey: excitatory population key (default: 'E')
-        :return: I/I balance
-        '''
-        # Compute net inhibition between E and I1
-        Wi1 = self.get_net_inhibition(Ikey1, Ekey=Ekey)
-        # Compute net inhibition between E and I2
-        Wi2 = self.get_net_inhibition(Ikey2, Ekey=Ekey)
-        
-        # Return I/I balance
-        return Wi1 - Wi2
+        if W is None:
+            W = self.W
+        if len(W) > 2:
+            raise ModelError('critical value can only be computed for 2-population models')
+        Ikey = list(set(W.index.values) - set(['E']))[0]
+        Wi = self.get_net_inhibition(Ikey, W=W)
+        We = self.get_net_excitation(Ikey, W=W)
+        if pre_key == post_key:
+            otherkey = list(set(W.index.values) - set([pre_key]))[0]
+            return -Wi / W.loc[otherkey, otherkey]
+        else:
+            return -We / W.loc[post_key, pre_key]
     
     def process_vector_input(self, v):
         '''
@@ -186,7 +246,7 @@ class NetworkModel:
         :return: processed vector
         '''
         if not isinstance(v, pd.Series):
-            raise ValueError(f'input vector must be provided as pandas series')
+            raise ModelError(f'input vector must be provided as pandas series')
         self.set_keys(v.index.values)
         return v.values
     
@@ -207,7 +267,7 @@ class NetworkModel:
         :return: pandas series
         '''
         if not self.has_keys():
-            raise ValueError('model keys must be set to convert parameter to series')
+            raise ModelError('model keys must be set to convert parameter to series')
         return pd.Series(v, index=pd.Index(self.keys, name='population'), name=name)
     
     @property
@@ -253,7 +313,7 @@ class NetworkModel:
     @fgain.setter
     def fgain(self, fgain):
         if not callable(fgain):
-            raise ValueError('gain function must be callable')
+            raise ModelError('gain function must be callable')
         self._fgain = fgain
     
     @property
@@ -275,14 +335,14 @@ class NetworkModel:
         elif isinstance(params, (dict, pd.Series)):
             for k in params.keys():
                 if k in self.keys:
-                    raise ValueError(f'gain function parameter key {k} matches a population name')
+                    raise ModelError(f'gain function parameter key {k} matches a population name')
         
         # If dataframe provided, check that (1) rows match and (2) columns do not match model population names
         elif isinstance(params, pd.DataFrame):
             self.check_keys(params.index.values)
             for c in params.columns:
                 if c in self.keys:
-                    raise ValueError(f'gain function parameter column {c} matches a population name')
+                    raise ModelError(f'gain function parameter column {c} matches a population name')
         
         self._fgain_params = params
         self.fgain_callable = self.get_fgain_callables(params)
@@ -342,7 +402,7 @@ class NetworkModel:
         # If multiple connectivity matrices provided, plot each on separate axis
         if isinstance(W, dict):
             if ax is not None:
-                raise ValueError('cannot plot multiple connectivity matrices on single axis')
+                raise ModelError('cannot plot multiple connectivity matrices on single axis')
             fig, axes = plt.subplots(1, len(W), figsize=(len(W) * 1.3 * height, height))
             suptitle = 'connectivity matrices'
             if norm:
@@ -402,6 +462,39 @@ class NetworkModel:
         # Return figure handle
         return fig
     
+    def plot_time_constants(self, tau=None, ax=None):
+        '''
+        Plot firing rate adaptation time constants per population
+
+        :param tau: time constants vector, provided as pandas series. If None, use current model time constants
+        :param ax (optional): axis handle
+        :return: figure handle
+        '''
+        # If no time constants provided, use current model time constants
+        if tau is None:
+            tau = self.taustr
+        
+        # Create/retrieve figure and axis
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(3, 3))
+        else:
+            fig = ax.get_figure()
+        
+        # Set axis layout
+        sns.despine(ax=ax)
+        ax.set_title('time constants')
+        ax.set_xlabel('population')
+        
+        # Plot time constants
+        ax.bar(tau.index, tau.values * 1e3, color=[self.palette.get(k, None) for k in tau.index])
+
+        # Set y-axis label and adjust layout
+        ax.set_ylabel('time constant (ms)')
+        # fig.tight_layout()
+
+        # Return figure handle
+        return fig
+    
     def plot_fgain(self, ax=None):
         '''
         Plot the gain function(s)
@@ -417,7 +510,6 @@ class NetworkModel:
 
         # Set axis layout
         sns.despine(ax=ax)
-        ax.set_title('gain function')
         ax.set_xlabel('input')
         ax.set_ylabel('output')
 
@@ -425,16 +517,37 @@ class NetworkModel:
         x = np.linspace(0, 100, 100)
 
         # Plot gain function(s)
+        title = 'gain function'
         if self.is_fgain_unique():
             ax.plot(x, self.fgain_callable(x), lw=2, c='k')
         else:
+            title = f'{title}s'
             for k, fgain in self.fgain_callable.items():
                 ax.plot(x, fgain(x), lw=2, c=self.palette.get(k, None), label=k)
             ax.legend(loc='upper left', frameon=False)
 
         # Adjust layout
+        ax.set_title(title)
         fig.tight_layout()
 
+        # Return figure handle
+        return fig
+
+    def plot_summary(self, height=3):
+        '''
+        Plot model summary, i.e. time constants, gain functions and connectivity matrix
+
+        :param height (optional): figure height
+        :return: figure handle
+        '''
+        # Create figure
+        fig, axes = plt.subplots(1, 3, figsize=(height * 3, height))
+        # Plot time constants, gain function and connectivity matrix
+        self.plot_time_constants(ax=axes[0])
+        self.plot_fgain(ax=axes[1])
+        self.plot_connectivity_matrix(self.W, ax=axes[2])
+        # Adjust layout
+        fig.tight_layout()
         # Return figure handle
         return fig
     
@@ -456,7 +569,7 @@ class NetworkModel:
             return pd.DataFrame(d, columns=self.keys, index=r.index)
         
         # Compute total synaptic drive
-        drive = np.dot(self.W.T, r)
+        drive = np.dot(self.Wmat, r)
         # Add baseline inputs if present
         if self.b is not None:
             drive += self.b
@@ -497,8 +610,6 @@ class NetworkModel:
         objfunc = self.get_steady_state_objfunc(*args, **kwargs)
         # Create initial guess vector
         p0 = np.zeros(self.size)
-        # d = self.compute_drive(np.zeros(self.size), *args, **kwargs)
-        # p0 = self.compute_gain_output(d)
         # Find root of objective function
         ss = optimize.fsolve(objfunc, p0)
         # ss = optimize.root(objfunc, p0).x
@@ -519,11 +630,18 @@ class NetworkModel:
         # Subtract leak term, divide by time constants and return
         return (g - r) / self.tau
         
-    def tderivatives(self, t, *args, **kwargs):
-        ''' Wrapper around derivatives that also takes time as first argument '''
-        return self.derivatives(*args, **kwargs)
+    def tderivatives(self, t, r, *args, **kwargs):
+        ''' 
+        Wrapper around derivatives that:
+            - also takes time as first argument
+            - checks for potential simulation divergence
+        '''
+        # If rates reach unresaonable values, throw error
+        if np.any(r > self.MAX_RATE):
+            raise SimulationError('simulation diverged')
+        return self.derivatives(r, *args, **kwargs)
 
-    def simulate(self, tstop, r0=None, s=None, tstart=0.1, tstim=.2, tau_stim=None, dt=None, verbose=True):
+    def simulate(self, tstop=.5, r0=None, s=None, tstart=0.1, tstim=.2, tau_stim=None, dt=None, verbose=True):
         '''
         Simulate the network model
 
@@ -546,7 +664,7 @@ class NetworkModel:
         # Otherwise, check initial conditions validity
         else: 
             if not isinstance(r0, pd.Series):
-                raise ValueError('initial conditions must be provided as pandas series')
+                raise ModelError('initial conditions must be provided as pandas series')
             self.check_keys(r0.index.values)
         
         # If no external inputs provided
@@ -564,7 +682,7 @@ class NetworkModel:
         else:
             # Check external inputs validity
             if not isinstance(s, pd.Series):
-                raise ValueError('external inputs must be provided as pandas series')
+                raise ModelError('external inputs must be provided as pandas series')
             self.check_keys(s.index.values)
             s = s.values
             
@@ -601,9 +719,9 @@ class NetworkModel:
         tcomp = time.perf_counter() - t0
         flog(f'simulation completed in {tcomp:.3f} s')
 
-        # If solution siverged, raise error
-        if sol[self.keys].max().max() > 1e3:
-            raise ValueError('simulation diverged')
+        # If solution diverged, raise error
+        if sol[self.keys].max().max() > self.MAX_RATE:
+            raise SimulationError('simulation diverged')
 
         # Extract activity time series 
         data = sol[self.keys]
@@ -629,7 +747,8 @@ class NetworkModel:
         # Return output dataframe
         return data
 
-    def extract_stim_bounds(self, x):
+    @staticmethod
+    def extract_stim_bounds(x):
         '''
         Extract stimulus bounds from stimulus modulation vector
 
@@ -640,36 +759,105 @@ class NetworkModel:
         istart, iend = np.where(dx > 0)[0][0], np.where(dx < 0)[0][0] - 1
         tstart, tend = x.index.values[istart], x.index.values[iend]
         return tstart, tend
+    
+    def get_secondhalf_slice(self, data, tbounds):
+        '''
+        Return slice corresponding to second half of a time interval 
+        in a results dataframe 
 
-    def extract_steady_state(self, data):
+        :param data: simulation results dataframe
+        :param tbounds: time bounds tuple
+        :return: second half-slice of input data
+        '''
+        # Unpack time bounds
+        tstart, tend = tbounds
+
+        # Derive closest point to mid-interval time
+        tmid = (tstart + tend) / 2
+        imid = np.argmin(np.abs(data.index.values - tmid))
+        tmid = data.index.values[imid]
+
+        # Return second half-slice of input data
+        return data.loc[tmid:tend]
+
+    def extract_steady_state(self, data, kind='stim', verbose=True):
         '''
         Extract steady-state stimulus-evoked activity from simulation results
 
         :param data: simulation results dataframe
+        :param kind (optional): interval type during which to extract steady-state activity, one of:
+            - "pre": pre-stimulus interval
+            - "stim": stimulus interval
+            - "post": post-stimulus interval
         :return: steady-state activity series
         '''
+        # If index contains extra dimensions, run extraction recursively
+        if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
+            # Identify extra dimensions
+            gby = data.index.names[:-1]
+            if len(gby) == 1:
+                gby = gby[0]
+            # Initialize empty steady-state dictionary
+            ss = {}
+            # For each group from extra-dimensions
+            for k, v in data.groupby(gby):
+                # Attempt to extract steady-state
+                try:
+                    ss[k] = self.extract_steady_state(v.droplevel(gby), kind=kind, verbose=verbose)
+                # If metric error, log warning and set metric to NaN
+                except MetricError as e:
+                    if verbose:
+                        logger.warning(f'{gby} = {k:.2g}: {e}')
+                    ss[k] = pd.Series(index=self.keys, name='activity')
+            return pd.concat(ss, axis=0, names=as_iterable(gby)).unstack(level='population')
+        
         # Extract output data types
         dtypes = list(data.columns.levels[0])
 
         # If not stimulus modulation present, raise error
         if 'x' not in dtypes:
-            raise ValueError('no stimulus modulation present in simulation results')
+            raise ModelError('no stimulus modulation present in simulation results')
 
         # Extract stimulus time bounds from stimulus modulation vector
-        tstart, tend = self.extract_stim_bounds(data[('x', 'all')])
+        tstim = self.extract_stim_bounds(data[('x', 'all')])
 
-        # Derive closest point to mid-stimulus time
-        tmid = (tstart + tend) / 2
-        imid = np.argmin(np.abs(data.index.values - tmid))
-        tmid = data.index.values[imid]
+        # Derive time bounds of interest based on interval type
+        if kind == 'pre':
+            tbounds = (data.index.values[0], tstim[0])
+        elif kind == 'stim':
+            tbounds = tstim
+        elif kind == 'post':
+            tbounds = (tstim[1], data.index.values[-1])
+        else:
+            raise ModelError(f'unknown interval type: {kind}')
 
-        # Compute mean activity during second half of stimulus
-        ss = data['activity'].loc[tmid:tend].mean()
+        # Get data slice for second half of interval of interest
+        subdata = self.get_secondhalf_slice(data, tbounds)['activity']
+        
+        # Compute mean and standard deviation of activity in that slice
+        stats = subdata.agg(['mean', 'std'], axis=0).T
+        stats.index.name = 'population'
+        stats.columns.name = 'activity'
 
-        # Return steady-state activity
-        ss.index.name = 'population'
-        ss.name = 'activity'
-        return ss
+        # Check for stability, 
+        is_stable = True
+        # If non-zero means, compute coefficient of variation
+        if (stats['mean'] > 0).any():
+            stats['cv'] = stats['std'] / stats['mean']
+            # If any population has a high coefficient of variation, raise error
+            if (stats['cv'] > 0.1).any():
+                is_stable = False
+        # Otherwise, check that all populations have zero std
+        elif (stats['std'] > 0).any():
+            is_stable = False
+
+        # If activity is unstable, raise error
+        if not is_stable:
+            raise MetricError(
+                f'unstable activity in [{tbounds[0]:.2f}s - {tbounds[1]:.2f}s] time interval')
+        
+        # Return average activity in that slice 
+        return stats['mean'].rename('activity')        
     
     def plot_timeseries(self, data, ss=None, add_synaptic_drive=False):
         ''' 
@@ -762,7 +950,7 @@ class NetworkModel:
             ax = fig.add_subplot(projection='3d')
         else:
             if not isinstance(ax, Axes3D):
-                raise ValueError('input axis must be 3D')
+                raise ModelError('input axis must be 3D')
             fig = ax.get_figure()
 
         # Select acivtity timeseries
@@ -792,7 +980,355 @@ class NetworkModel:
         # Return figure handle
         return fig
 
+    def run_stim_sweep(self, srel, amps, verbose=True, **kwargs):
+        '''
+        Run sweep of simulations with a range of stimulus amplitudes
 
+        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param amps: stimulus amplitudes vector
+        '''
+        # Make sure relative stimulus amplitudes are normalized
+        srel = srel / srel.max()
 
+        # Initialize results dictionary
+        sweep_data = {}
+        if verbose:
+            logger.info(f'running stimulation sweep')
+        iterable = tqdm(amps) if verbose else amps
+        for A in iterable:
+            try:
+                data = self.simulate(s=A * srel, verbose=False, **kwargs)
+                sweep_data[A] = data
+            except SimulationError as err:
+                if verbose:
+                    logger.error(f'simulation for amplitude {A} failed: {err}')
+        sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
+        return sweep_data
 
+    def plot_sweep_results(self, data, ax=None, norm=False):
+        '''
+        Plot results of stimulus amplitude sweep
+
+        :param data: sweep extracted metrics per population, provided as dataframe
+        :param norm (optional): whether to normalize results per population before plotting
+        :param ax (optional): axis handle
+        :return: figure handle
+        '''
+        # If input is a dataframe with multi-index, run plotting recursively
+        if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
+            if ax is not None:
+                raise ModelError('cannot plot sweep results with multi-index on single axis')
+            gby = data.index.names[:-1]
+            if len(gby) == 1:
+                col, row = gby[0], None
+                template = '{col_var}={col_name:.2g}'
+            elif len(gby) == 2:
+                col, row = gby
+                template = '{row_var}={row_name:.2g}, {col_var}={col_name:.2g}'
+            else:
+                raise ModelError('cannot plot sweep results with more than 2 extra levels')
+            fg = sns.FacetGrid(
+                data=data.reset_index(), 
+                col=col, row=row,
+                aspect=1,
+                height=2,
+            )
+            fg.set_titles(template=template)
+            fig = fg.figure
+            for ax, (_, v) in zip(fig.axes, data.groupby(gby)):
+                self.plot_sweep_results(v.droplevel(gby), ax=ax, norm=norm)
+            return fig
+
+        # Define y-axis label
+        ykey = 'activity'
+
+        # If normalization requested, normalize activity vectors for each population
+        if norm:
+            max_per_pop = data.abs().max(axis=0).replace(0, 1)
+            data = data / max_per_pop
+            ykey = f'normalized {ykey}'
+        
+        # Create/retrieve figure and axis
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(4, 3))
+        else:
+            fig = ax.get_figure()
+        
+        # Adjust axis layout
+        sns.despine(ax=ax)
+
+        # Plot activity vs. stimulus amplitude
+        sns.lineplot(
+            ax=ax,
+            data=data.stack().rename(ykey).reset_index(),
+            x=data.index.name,
+            y=ykey,
+            hue='population',
+            palette=self.palette
+        )
+
+        # Return figure handle
+        return fig
+    
+    def run_W_sweep(self, v, srel, amps, pre_key=None, post_key=None, **kwargs):
+        '''
+        Run sweep in connectivity matrix parameter(s), and extract steady-state
+        activity for each sweep value along a range of stimulus amplitudes.
+
+        :param v: array of sweep values
+        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param amps: stimulus amplitudes vector
+        :param pre_key (optional): pre-synaptic population key of W element to sweep
+        :param post_key (optional): post-synaptic population key of W element to sweep
+        :param kwargs: additional arguments to pass to
+        '''
+        # Construct matrix elements selector
+        suffixes, pre_loc, post_loc = [], slice(None), slice(None)
+        if pre_key is not None:
+            pre_loc = pre_key
+            suffixes.append(pre_key)
+        else:
+            suffixes.append(':')
+        if post_key is not None:
+            post_loc = post_key
+            suffixes.append(post_key)
+        else:
+            suffixes.append(':')
+        key = f'W[{",".join(suffixes)}]'
+        
+        # Make copies of model connectivity matrix for reference and sweep
+        Wref = self.W.copy()
+        Wsweep = Wref.copy()
+
+        # Create empty results list
+        sweep_rss = []
+
+        # Run sweep
+        logger.info(f'running {key} sweep ({len(v)} values)')
+        for x in v:
+            logger.info(f'setting {key} = {x:.2g}')
+            if pre_key is not None and post_key is not None:
+                Wsweep.loc[pre_loc, post_loc] = x
+            else:
+                Wsweep.loc[pre_loc, post_loc] = x * Wref.loc[pre_loc, post_loc]
+            try: 
+                self.W = Wsweep
+            except ModelError as e:
+                logger.error(e)
+                continue
+            sweep_data = self.run_stim_sweep(srel, amps)
+            sweep_rss.append(self.extract_steady_state(sweep_data))
+        
+        # Concatenate sweep results into dataframe
+        sweep_rss = pd.concat(sweep_rss, axis=0, keys=v, names=[key])
+        
+        # Restore original model connectivity matrix
+        self.W = Wref
+
+        # Return sweep results
+        return sweep_rss
+    
+    def get_coupling_bounds(self, wbounds=None):
+        '''
+        Get exploration bounds for each element of the network connectivity matrix
+        of the current model
+
+        :param wbounds: dictionary of coupling strength bounds for excitatory and inhibitory connections
+        '''
+        # If bounds not provided, use defaults
+        if wbounds is None:
+            wbounds = self.DEFAULT_WBOUNDS
+        # Otherwise, check that all required keys are present
+        else:
+            if not all(k in wbounds for k in ['E', 'I']):
+                raise ModelError('wbounds must contain "E" and "I" keys')
+
+        # Initialize empty bounds matrix
+        Wbounds = pd.DataFrame(
+            index=pd.Index(self.keys, name='pre-synaptic'), 
+            columns=pd.Index(self.keys, name='post-synaptic') 
+        )
+
+        # For each pre-synaptic population
+        for key in self.keys:
+            # Get cell-type-specific coupling stength bounds
+            bounds = wbounds['E'] if key == 'E' else wbounds['I']
+            # Assign them to corresponding row in bounds matrix
+            Wbounds.loc[key, :] = [bounds] * self.size
+
+        return Wbounds
+
+    def evaluate(self, ref_profiles, srel, norm=False, invalid_cost=np.inf, **kwargs):
+        '''
+        Run stimulation sweep, compare output to reference profile and compute cost metric
+
+        :param ref_profiles: reference activation profiles per population, provided as dataframe
+        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
+        :return: evaluated cost
+        '''
+        # Extract stimulus amplitudes vector from reference activation profiles 
+        amps = ref_profiles.index.values
+
+        # Run stimulation sweep
+        sweep_data = self.run_stim_sweep(srel, amps, verbose=False, **kwargs)
+
+        # If some simulations in sweep failed, return invalidity cost
+        out_amps = sweep_data.index.unique('amplitude').values
+        if len(out_amps) < len(amps):
+            logger.warning('simulation divergence detected')
+            return invalid_cost
+        
+        # Extract stimulus-evoked steady-states from sweep output
+        stim_ss = self.extract_steady_state(sweep_data, kind='stim', verbose=False)
+        # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
+        if stim_ss.isna().any().any():
+            logger.warning('unstable stimulus-evoked steady-states detected')
+            return invalid_cost
+        
+        # Extract final steady-states from sweep output
+        final_ss = self.extract_steady_state(sweep_data, kind='post', verbose=False)
+        # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
+        if final_ss.isna().any().any():
+            logger.warning('unstable final steady-states detected')
+            return invalid_cost
+        # If some final steady-states did not return to baseline, return invalidity cost
+        if (final_ss > 1e-3).any().any():
+            logger.warning('non-zero final steady-states detected')
+            return invalid_cost
+
+        # If specicied, normalize reference and output activation profiles 
+        if norm:
+            ref_profiles = ref_profiles / ref_profiles.abs().max()
+            stim_ss = stim_ss / stim_ss.abs().max()
+        
+        # Compute errors between reference and output activation profiles
+        err = ref_profiles - stim_ss
+
+        # Compute root mean squared errors per population
+        rmse = np.sqrt((err**2).mean())
+
+        # Return sum of root mean squared errors
+        return rmse.sum()
+    
+    def set_coupling_from_vec(self, x):
+        '''
+        Assign network parameters from 1D vector (useful for optimization algorithms)
+        
+        :param x: network parameters vector (must be of size n^2, where n is the number of populations in the network)
+        '''
+        # Make sure input vector matches network dimensions
+        if len(x) != len(self.Wnames):
+            raise ModelError('input vector length does not match network connectivity matrix size') 
+
+        # Assign parameters to network connectivity matrix
+        for (prekey, postkey), v in zip(self.Wnames, x):
+            self.W.loc[prekey, postkey] = v
+    
+    def set_coupling_and_evaluate(self, x, *args, **kwargs):
+        '''
+        Assign coupling parameters from input vector, run stimulation sweep, 
+        evaluate cost, and reset coupling parameters
+
+        :param x: network parameters vector
+        :param args: additional arguments to pass to evaluate
+        :param kwargs: additional keyword arguments to pass to evaluate
+        :return: evaluated cost
+        '''
+        # Store copy of network connectivity matrix
+        Wref = self.W.copy()
+
+        # Assign network parameters from input vector
+        self.set_coupling_from_vec(x)
+
+        # Run stimulation sweep and evaluate cost
+        cost = self.evaluate(*args, **kwargs)
+
+        # Reset network connectivity matrix to reference
+        self.W = Wref
+
+        # Return cost
+        return cost
+    
+    def get_feval(self, *args, **kwargs):
+        ''' Generate evaluation function for optimization algorithms '''
+        def feval(x):
+            return self.set_coupling_and_evaluate(x, *args, **kwargs)
+        return feval
+    
+    def explore(self, *args, Wbounds=None, npersweep=5, **kwargs):
+        '''
+        Explore divergence from reference activation profiles across a wide
+        range of network connectivity parameters
+
+        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :param npersweep (optional): number of sweep values per parameter (default: 5)
+        :return: exploration results as multi-indexed pandas series
+        '''
+        # If no bounds provided, use default bounds
+        if Wbounds is None:
+            Wbounds = self.get_coupling_bounds()
+        
+        # Serialize bounds into series, if not already
+        if not isinstance(Wbounds, pd.Series):
+            Wbounds = Wbounds.stack().rename('bounds')
+        
+        # Define exploration values 
+        logger.info('deriving exploration values')
+        Wexplore = (Wbounds
+            .apply(lambda x: np.linspace(*x, npersweep).tolist())
+            .rename('parameters')
+        )
+
+        # Generate multi-index with all combinations of exploration values
+        logger.info('assembling exploration queue')
+        mux = pd.MultiIndex.from_product(Wexplore.values, names=self.Wnames)
+        nevals = len(mux)
+        
+        # Run exploration batch
+        logger.info(f'running {nevals} evaluations exploration')
+        cost = list(map(self.get_feval(*args, **kwargs), mux))
+
+        # Format output as multi-indexed series
+        cost = pd.Series(cost, index=mux, name='cost')
+
+        # Return
+        return cost
+
+    def optimize(self, *args, Wbounds=None, **kwargs):
+        '''
+        Find network connectivity matrix that minimizes divergence with a reference set 
+        of activation profiles.
+
+        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :return: optimized network connectivity matrix
+        '''
+        # If no bounds provided, use default bounds
+        if Wbounds is None:
+            Wbounds = self.get_coupling_bounds()
+        
+        # Serialize bounds into series, if not already
+        if not isinstance(Wbounds, pd.Series):
+            Wbounds = Wbounds.stack().rename('bounds')
+        
+        # Run optimization algorithm
+        logger.info('running optimization algorithm')
+        optres = optimize.differential_evolution(
+            self.get_feval(*args, **kwargs),
+            Wbounds.values.tolist(), 
+        )
+
+        # If optimization failed, raise error
+        if not optres.success:
+            raise OptimizationError(f'optimization failed: {optres.message}')
+
+        # Extract solution array
+        sol = optres.x
+
+        # Re-assemble into connectivity matrix
+        Wopt = pd.Series(sol, index=Wbounds.index).unstack()
+
+        # Return 
+        return Wopt
     
