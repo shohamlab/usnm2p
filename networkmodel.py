@@ -747,6 +747,20 @@ class NetworkModel:
         # Return output dataframe
         return data
 
+    @property
+    def no_result(self):
+        '''
+        Return empty results dataframe
+        '''
+        cols = [
+            pd.MultiIndex.from_product([['x'], ['all']]),
+            pd.MultiIndex.from_product([['external inputs'], self.keys]),
+            pd.MultiIndex.from_product([['activity'], self.keys])
+        ]
+        df = pd.concat([pd.DataFrame(columns=c) for c in cols], axis=1)
+        df.index.name = 't'
+        return df
+
     @staticmethod
     def extract_stim_bounds(x):
         '''
@@ -839,16 +853,16 @@ class NetworkModel:
         stats.index.name = 'population'
         stats.columns.name = 'activity'
 
-        # Check for stability, 
+        # Check for stability
         is_stable = True
-        # If non-zero means, compute coefficient of variation
-        if (stats['mean'] > 0).any():
+        # If substantial means, compute coefficient of variation
+        if (stats['mean'] > 1e-1).any():
             stats['cv'] = stats['std'] / stats['mean']
             # If any population has a high coefficient of variation, raise error
             if (stats['cv'] > 0.1).any():
                 is_stable = False
-        # Otherwise, check that all populations have zero std
-        elif (stats['std'] > 0).any():
+        # Otherwise, check that all populations have (close to) zero std
+        elif (stats['std'] > 1e-1).any():
             is_stable = False
 
         # If activity is unstable, raise error
@@ -980,72 +994,114 @@ class NetworkModel:
         # Return figure handle
         return fig
 
-    def run_stim_sweep(self, srel, amps, verbose=True, **kwargs):
+    def run_stim_sweep(self, srel, amps, verbose=True, on_error='abort', **kwargs):
         '''
         Run sweep of simulations with a range of stimulus amplitudes
 
         :param srel: relative stimulus amplitude per population, provided as pandas series
         :param amps: stimulus amplitudes vector
+        :param verbose (optional): whether to log sweep progress
+        :param on_error (optional): behavior on simulation error, one of:
+            - "abort": log error and abort sweep
+            - "continue": log error and continue sweep
         '''
         # Make sure relative stimulus amplitudes are normalized
         srel = srel / srel.max()
 
         # Initialize results dictionary
         sweep_data = {}
+
+        # Log sweep start, if requested
         if verbose:
             logger.info(f'running stimulation sweep')
+        
+        # For each stimulus amplitude
         iterable = tqdm(amps) if verbose else amps
         for A in iterable:
+            # Attempt to run simulation and extract results
             try:
                 data = self.simulate(s=A * srel, verbose=False, **kwargs)
                 sweep_data[A] = data
+            # If simulation fails, log error and abort loop if requested
             except SimulationError as err:
                 if verbose:
                     logger.error(f'simulation for amplitude {A} failed: {err}')
+                if on_error == 'abort':
+                    break
         sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
         return sweep_data
 
-    def plot_sweep_results(self, data, ax=None, norm=False):
+    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, col=None, row=None):
         '''
         Plot results of stimulus amplitude sweep
 
         :param data: sweep extracted metrics per population, provided as dataframe
-        :param norm (optional): whether to normalize results per population before plotting
         :param ax (optional): axis handle
+        :param norm (optional): whether to normalize results per population before plotting
+        :param style (optional): extra grouping dimension to use for styling
+        :param col (optional): extra grouping dimension to use for columns
+        :param row (optional): extra grouping dimension to use for rows
         :return: figure handle
         '''
+        if xkey not in data.index.names:
+            raise ModelError(f'level {xkey} not found in index')
+            
         # If input is a dataframe with multi-index, run plotting recursively
         if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
-            if ax is not None:
-                raise ModelError('cannot plot sweep results with multi-index on single axis')
-            gby = data.index.names[:-1]
-            if len(gby) == 1:
-                col, row = gby[0], None
-                template = '{col_var}={col_name:.2g}'
-            elif len(gby) == 2:
-                col, row = gby
-                template = '{row_var}={row_name:.2g}, {col_var}={col_name:.2g}'
-            else:
-                raise ModelError('cannot plot sweep results with more than 2 extra levels')
-            fg = sns.FacetGrid(
-                data=data.reset_index(), 
-                col=col, row=row,
-                aspect=1,
-                height=2,
-            )
-            fg.set_titles(template=template)
-            fig = fg.figure
-            for ax, (_, v) in zip(fig.axes, data.groupby(gby)):
-                self.plot_sweep_results(v.droplevel(gby), ax=ax, norm=norm)
-            return fig
+            # Extract extra dimensions
+            gby = [k for k in data.index.names if k != xkey]
+            nextra = len(gby)
+            # If more than 3 extra dimensions, raise error
+            if nextra > 3:
+                raise ModelError('cannot plot acitvation profiles with more than 2 extra levels')
+            # Assign dimensions to style, col and row
+            params = [col, row, style]
+            for p in params:
+                if p is not None:
+                    if p not in gby:
+                        raise ModelError(f'level {p} not found in multi-index')
+                    del gby[gby.index(p)]
+            for i, p in enumerate(params):
+                if p is None:
+                    params[i] = gby.pop(0) if gby else None
+            col, row, style = params
+            # Determine whether multi-axis grid is needed
+            grid_gby = [gby[i] for i in [col, row] if i is not None]
+            if len(grid_gby) > 0:
+                if ax is not None:
+                    raise ModelError('axis provided but axis grid is needed')
+                # Adapt axis title template
+                templates = []
+                if col is not None:
+                    templates.append(f'{col}={{col_name:.2g}}')
+                if row is not None:
+                    templates.append(f'{row}={{row_name:.2g}}')
+                template = ', '.join(templates)
+                # Create grid
+                fg = sns.FacetGrid(
+                    data=data.reset_index(), 
+                    col=col,
+                    row=row,
+                    aspect=1,
+                    height=2,
+                )
+                fg.set_titles(template=template)
+                fig = fg.figure
+                # Loop through axes and plot
+                for ax, (_, v) in zip(fig.axes, data.groupby(grid_gby)):
+                    self.plot_sweep_results(v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, style=style)
+                return fig
 
         # Define y-axis label
         ykey = 'activity'
 
         # If normalization requested, normalize activity vectors for each population
         if norm:
-            max_per_pop = data.abs().max(axis=0).replace(0, 1)
-            data = data / max_per_pop
+            normfunc = lambda x: x / x.abs().max(axis=0).replace(0, 1)
+            if style is not None:
+                data = data.groupby(style).apply(normfunc).droplevel(0)
+            else:
+                data = normfunc(data)
             ykey = f'normalized {ykey}'
         
         # Create/retrieve figure and axis
@@ -1061,10 +1117,11 @@ class NetworkModel:
         sns.lineplot(
             ax=ax,
             data=data.stack().rename(ykey).reset_index(),
-            x=data.index.name,
+            x=xkey,
             y=ykey,
             hue='population',
-            palette=self.palette
+            palette=self.palette,
+            style=style,
         )
 
         # Return figure handle
@@ -1158,21 +1215,22 @@ class NetworkModel:
 
         return Wbounds
 
-    def evaluate(self, ref_profiles, srel, norm=False, invalid_cost=np.inf, **kwargs):
+    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, invalid_cost=np.inf):
         '''
-        Run stimulation sweep, compare output to reference profile and compute cost metric
+        Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
+        reference acivtation profile, and (3) computing cost metric
 
         :param ref_profiles: reference activation profiles per population, provided as dataframe
-        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param sweep_data: stimulus amplitude sweep output dataframe
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
         :return: evaluated cost
         '''
+        if 't' not in sweep_data.index.names:
+            raise ModelError('sweep_data must contain a time index')
+
         # Extract stimulus amplitudes vector from reference activation profiles 
         amps = ref_profiles.index.values
-
-        # Run stimulation sweep
-        sweep_data = self.run_stim_sweep(srel, amps, verbose=False, **kwargs)
 
         # If some simulations in sweep failed, return invalidity cost
         out_amps = sweep_data.index.unique('amplitude').values
@@ -1226,14 +1284,17 @@ class NetworkModel:
         for (prekey, postkey), v in zip(self.Wnames, x):
             self.W.loc[prekey, postkey] = v
     
-    def set_coupling_and_evaluate(self, x, *args, **kwargs):
+    def set_coupling_run_and_evaluate(self, x, srel, ref_profiles, norm=False, invalid_cost=np.inf, **kwargs):
         '''
         Assign coupling parameters from input vector, run stimulation sweep, 
         evaluate cost, and reset coupling parameters
 
         :param x: network parameters vector
-        :param args: additional arguments to pass to evaluate
-        :param kwargs: additional keyword arguments to pass to evaluate
+        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param ref_profiles: reference activation profiles per population, provided as dataframe
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
+        :param kwargs: additional keyword arguments to pass to run_stim_sweep
         :return: evaluated cost
         '''
         # Store copy of network connectivity matrix
@@ -1243,7 +1304,9 @@ class NetworkModel:
         self.set_coupling_from_vec(x)
 
         # Run stimulation sweep and evaluate cost
-        cost = self.evaluate(*args, **kwargs)
+        amps = ref_profiles.index.values
+        sweep_data = self.run_stim_sweep(srel, amps, verbose=False, **kwargs)
+        cost = self.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm, invalid_cost=invalid_cost)
 
         # Reset network connectivity matrix to reference
         self.W = Wref
@@ -1251,10 +1314,21 @@ class NetworkModel:
         # Return cost
         return cost
     
-    def get_feval(self, *args, **kwargs):
+    def get_feval(self, *args, nevals=None, **kwargs):
         ''' Generate evaluation function for optimization algorithms '''
+        # Store max number of evaluations
+        self.nevals = nevals
+        # Initialize counter
+        self.counter = 0
         def feval(x):
-            return self.set_coupling_and_evaluate(x, *args, **kwargs)
+            # Log evaluation number and increment counter
+            s = f'evaluation {self.counter + 1}'
+            if self.nevals is not None:
+                s = f'{s}/{nevals}'
+            logger.info(s)
+            self.counter += 1
+            # Call evaluation function with input vector and return results
+            return self.set_coupling_run_and_evaluate(x, *args, **kwargs)
         return feval
     
     def explore(self, *args, Wbounds=None, npersweep=5, **kwargs):
@@ -1288,13 +1362,25 @@ class NetworkModel:
         
         # Run exploration batch
         logger.info(f'running {nevals} evaluations exploration')
-        cost = list(map(self.get_feval(*args, **kwargs), mux))
+        cost = list(map(self.get_feval(*args, invalid_cost=np.nan, nevals=nevals, **kwargs), mux))
 
         # Format output as multi-indexed series
         cost = pd.Series(cost, index=mux, name='cost')
 
         # Return
         return cost
+    
+    def extract_optimal_W(self, cost):
+        '''
+        Extract optimal network connectivity matrix from exploration results
+
+        :param cost: exploration results as multi-indexed pandas series
+        :return: optimal network connectivity matrix
+        '''
+        return pd.Series(
+            cost.idxmin(), 
+            index=pd.MultiIndex.from_tuples(self.Wnames)
+        ).unstack()
 
     def optimize(self, *args, Wbounds=None, **kwargs):
         '''
