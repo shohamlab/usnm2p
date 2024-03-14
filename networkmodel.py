@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2024-03-14 17:13:28
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2024-03-14 17:53:48
 
 import time
 import numpy as np
@@ -7,6 +12,9 @@ from mpl_toolkits.mplot3d.axes3d import Axes3D
 import seaborn as sns
 from scipy import optimize
 from tqdm import tqdm
+import multiprocessing as mp
+import os
+import csv
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
@@ -53,6 +61,8 @@ class NetworkModel:
         'I': (-20, 0)
     }
 
+    DELIMITER = ','
+
     def __init__(self, W=None, tau=None, fgain=None, fgain_params=None, b=None):
         '''
         Initialize the network model
@@ -94,13 +104,40 @@ class NetworkModel:
         self.b = b
     
     def __repr__(self) -> str:
-        s = f'{self.__class__.__name__}('
-        if self.has_keys():
-            keysstr = '[' + ', '.join(self.keys) + ']'
-            s = f'{s}{keysstr}'
-        elif self.has_size():
-            s = f'{s}{self.size}'
-        return f'{s})'
+        return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
+    
+    @property
+    def code(self):
+        ''' Return model code '''
+        return self.__class__.__name__ + '_' + '-'.join(self.keys)
+    
+    def get_log_filename(self, kind):
+        '''
+        Generate log file code with current date and time
+
+        :param kind: kind of evaluation batch (i.e. "explore" "optimize")
+        '''
+        # Extract current date and time
+        now = time.strftime('%Y.%m.%d_%H.%M')
+        # Assemble and return
+        return f'{self.code}_{now}_{kind}_log.csv'
+    
+    def create_log_file(self, fpath):
+        ''' Create batch log file if it does not exist. '''
+        if not os.path.isfile(fpath):
+            logger.debug(f'creating batch log file: "{fpath}"')
+            with open(fpath, 'w') as csvfile:
+                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
+                writer.writerow(['iteration', *self.Wnames, 'cost'])
+        else:
+            logger.debug(f'existing batch log file: "{fpath}"')
+    
+    def append_to_log_file(self, fpath, iteration, params, cost):
+        ''' Append current batch iteration to log file '''
+        logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
+        with open(fpath, 'a') as csvfile:
+            writer = csv.writer(csvfile, delimiter=self.DELIMITER)
+            writer.writerow([iteration, *params, cost])
     
     @property
     def size(self):
@@ -1314,30 +1351,46 @@ class NetworkModel:
         # Return cost
         return cost
     
-    def get_feval(self, *args, nevals=None, **kwargs):
+    def get_feval(self, *args, nevals=None, fpath=None, **kwargs):
         ''' Generate evaluation function for optimization algorithms '''
+        # Create log file, if path provided
+        if fpath is not None:
+            self.create_log_file(fpath)
+
         # Store max number of evaluations
         self.nevals = nevals
+
         # Initialize counter
         self.counter = 0
+
+        # Define evaluation function
         def feval(x):
-            # Log evaluation number and increment counter
+            # Call evaluation function with input vector
+            cost = self.set_coupling_run_and_evaluate(x, *args, **kwargs)
+            # Log evaluation number and cost
             s = f'evaluation {self.counter + 1}'
             if self.nevals is not None:
                 s = f'{s}/{nevals}'
             logger.info(s)
+            # Log to file, if path provided
+            if fpath is not None:
+                self.append_to_log_file(fpath, self.counter, x, cost)
+            # Increment counter
             self.counter += 1
-            # Call evaluation function with input vector and return results
-            return self.set_coupling_run_and_evaluate(x, *args, **kwargs)
+            # Return cost
+            return cost
+
+        # Return evaluation function
         return feval
     
-    def explore(self, *args, Wbounds=None, npersweep=5, **kwargs):
+    def explore(self, *args, Wbounds=None, npersweep=5, logdir=None, **kwargs):
         '''
         Explore divergence from reference activation profiles across a wide
         range of network connectivity parameters
 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param npersweep (optional): number of sweep values per parameter (default: 5)
+        :param logdir (optional): directory to save exploration results
         :return: exploration results as multi-indexed pandas series
         '''
         # If no bounds provided, use default bounds
@@ -1359,10 +1412,20 @@ class NetworkModel:
         logger.info('assembling exploration queue')
         mux = pd.MultiIndex.from_product(Wexplore.values, names=self.Wnames)
         nevals = len(mux)
+
+        # If log folder is provided, create log file
+        if logdir is not None:
+            fpath = os.path.join(logdir, self.get_log_filename('explore'))
+        else:
+            fpath = None
         
+        # Extract evaluation function
+        feval = self.get_feval(*args, invalid_cost=np.nan, nevals=nevals, fpath=fpath, **kwargs)
+
         # Run exploration batch
         logger.info(f'running {nevals} evaluations exploration')
-        cost = list(map(self.get_feval(*args, invalid_cost=np.nan, nevals=nevals, **kwargs), mux))
+        # cost = mp.Pool().imap(feval, mux)
+        cost = list(map(feval, mux))
 
         # Format output as multi-indexed series
         cost = pd.Series(cost, index=mux, name='cost')
@@ -1382,12 +1445,13 @@ class NetworkModel:
             index=pd.MultiIndex.from_tuples(self.Wnames)
         ).unstack()
 
-    def optimize(self, *args, Wbounds=None, **kwargs):
+    def optimize(self, *args, Wbounds=None, logdir=None, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference set 
         of activation profiles.
 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :param logdir (optional): directory to save optimization results
         :return: optimized network connectivity matrix
         '''
         # If no bounds provided, use default bounds
@@ -1397,11 +1461,20 @@ class NetworkModel:
         # Serialize bounds into series, if not already
         if not isinstance(Wbounds, pd.Series):
             Wbounds = Wbounds.stack().rename('bounds')
+
+        # If log folder is provided, create log file
+        if logdir is not None:
+            fpath = os.path.join(logdir, self.get_log_filename('optimize'))
+        else:
+            fpath = None
+        
+        # Extract evaluation function
+        feval = self.get_feval(*args, fpath=fpath, **kwargs)
         
         # Run optimization algorithm
         logger.info('running optimization algorithm')
         optres = optimize.differential_evolution(
-            self.get_feval(*args, **kwargs),
+            feval,
             Wbounds.values.tolist(), 
         )
 
