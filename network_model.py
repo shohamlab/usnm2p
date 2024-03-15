@@ -12,13 +12,30 @@ from mpl_toolkits.mplot3d.axes3d import Axes3D
 import seaborn as sns
 from scipy import optimize
 from tqdm import tqdm
-import multiprocessing as mp
 import os
 import csv
+import hashlib
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
 from utils import expconv, expconv_reciprocal, threshold_linear, as_iterable
+from postpro import mylinregress
+
+
+def generate_unique_id(obj):
+    '''
+    Generate unique identifier for a given object
+
+    :param obj: object to identify
+    :return: unique object identifier
+    '''
+    # Convert object to a string representation
+    s = str(obj)    
+    # Create a hash object using hashlib
+    hash_object = hashlib.md5(s.encode())
+    # Return the hexadecimal digest of the hash
+    return hash_object.hexdigest()
+
 
 # Define custom error classes
 
@@ -63,7 +80,7 @@ class NetworkModel:
 
     DELIMITER = ','
 
-    def __init__(self, W=None, tau=None, fgain=None, fgain_params=None, b=None):
+    def __init__(self, W=None, tau=None, fgain=None, fparams=None, b=None):
         '''
         Initialize the network model
 
@@ -71,18 +88,18 @@ class NetworkModel:
         :param tau (optional): time constants vector, provided as pandas series. 
             If None, set to 10 ms for all populations
         :param fgain (optional): gain function. If None, use threshold-linear
-        :param fgain_params (optional): gain function parameters, either:
+        :param fparams (optional): gain function parameters, either:
             - a (name: value) dictionary / pandas Series of parameters, if unique
             - a dataframe with parameters as columns and populations as rows, if population-specific
         :param b (optional): baseline inputs vector, provided as pandas series
         '''
         # Extract keys from first non-None input
-        for param in (W, tau, fgain_params, b):
+        for param in (W, tau, fparams, b):
             if param is not None:
                 self.set_keys(param.index.values)
                 break
         if not self.has_keys():
-            raise ModelError('at least one of the following parameters must be provided: W, tau, fgain_params, b')
+            raise ModelError('at least one of the following parameters must be provided: W, tau, fparams, b')
 
         # Get default values for required attributes, if not provided
         if W is None:
@@ -100,27 +117,51 @@ class NetworkModel:
         self.W = W
         self.tau = tau
         self.fgain = fgain
-        self.fgain_params = fgain_params
+        self.fparams = fparams
         self.b = b
     
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
     
-    @property
-    def code(self):
-        ''' Return model code '''
-        return self.__class__.__name__ + '_' + '-'.join(self.keys)
+    def code(self, add_W=False):
+        ''' 
+        Return model unique identifier code based on its attributes
+        
+        :param add_W (optional): whether to include the connectivity matrix in the code
+        :return: model code
+        '''
+        # Define attributes to include in the code
+        attrs = ['fparams', 'tau', 'b']
+        if add_W:
+            attrs.append('W')
+        
+        # Assemble unique identifiers for each set attribute
+        attrids = {}
+        for k in attrs:
+            if getattr(self, k) is not None:
+                attrids[k] = generate_unique_id(getattr(self, k))
+        
+        # Assemble into attribute code
+        attrcode  = '_'.join([f'{k}{v}' for k, v in attrids.items()])
+
+        # Extract population and fgain codes
+        fgaincode = f'fgain_{self.fgain.__name__}'
+        popcode = '-'.join(self.keys)
+
+        # Assemble and return
+        return '_'.join([self.__class__.__name__, popcode, fgaincode, attrcode])
     
-    def get_log_filename(self, kind):
+    def get_log_filename(self, suffix):
         '''
         Generate log file code with current date and time
 
-        :param kind: kind of evaluation batch (i.e. "explore" "optimize")
+        :param suffix: suffix to append to the log file code
+        :return: log file code
         '''
-        # Extract current date and time
-        now = time.strftime('%Y.%m.%d_%H.%M')
-        # Assemble and return
-        return f'{self.code}_{now}_{kind}_log.csv'
+        s = self.code()
+        if suffix:
+            s += f'_{suffix}'
+        return f'{s}.csv'
     
     def create_log_file(self, fpath):
         ''' Create batch log file if it does not exist. '''
@@ -199,14 +240,14 @@ class NetworkModel:
             raise ModelError(f'mismatch between matrix rows {Wrows} and columns {Wcols}')
         self.set_keys(Wrows)
 
-        # If 2-population model with 1 excitatory and 1 inhibitory population,
-        # Check that network is not excitation dominated
-        if len(W) == 2 and 'E' in W.index.values:
-            Ikey = list(set(W.index.values) - set(['E']))[0]
-            Wi = self.get_net_inhibition(Ikey, W=W)
-            We = self.get_net_excitation(Ikey, W=W)
-            if Wi < We:
-                raise ModelError(f'Wi ({Wi}) < We ({We}) -> E/I balance not met')
+        # # If 2-population model with 1 excitatory and 1 inhibitory population,
+        # # Check that network is not excitation dominated
+        # if len(W) == 2 and 'E' in W.index.values:
+        #     Ikey = list(set(W.index.values) - set(['E']))[0]
+        #     Wi = self.get_net_inhibition(Ikey, W=W)
+        #     We = self.get_net_excitation(Ikey, W=W)
+        #     if Wi < We:
+        #         raise ModelError(f'Wi ({Wi}) < We ({We}) -> E/I balance not met')
 
         # Set connectivity matrix
         self._W = W
@@ -354,13 +395,13 @@ class NetworkModel:
         self._fgain = fgain
     
     @property
-    def fgain_params(self):
-        return self._fgain_params
+    def fparams(self):
+        return self._fparams
     
-    @fgain_params.setter
-    def fgain_params(self, params):
+    @fparams.setter
+    def fparams(self, params):
         '''
-        :param fgain_params (optional): gain function parameters, either:
+        :param params (optional): gain function parameters, either:
         - a (name: value) dictionary / pandas Series of parameters, if unique
         - a dataframe with parameters as columns and populations as rows, if population-specific
         '''
@@ -381,7 +422,7 @@ class NetworkModel:
                 if c in self.keys:
                     raise ModelError(f'gain function parameter column {c} matches a population name')
         
-        self._fgain_params = params
+        self._fparams = params
         self.fgain_callable = self.get_fgain_callables(params)
     
     def is_fgain_unique(self):
@@ -830,6 +871,42 @@ class NetworkModel:
 
         # Return second half-slice of input data
         return data.loc[tmid:tend]
+    
+    def regress_over_time(self, data):
+        '''
+        Regress data over time
+
+        :param data: time-indexed dataframe
+        :return: regression results dataframe
+        '''
+        # Extract time values
+        t = data.index.values
+        # Regress each column over time
+        regres = {}
+        for k in data:
+            regres[k] = mylinregress(t, data[k].values, robust=True)
+        # Concatenate and return
+        return pd.concat(regres, axis=1)
+    
+    def is_stable(self, data):
+        '''
+        Assess whether activity in simulation results is stable
+
+        :param data: activity-per-population dataframe, indexed by time (s)
+        :return: whether activity is stable
+        '''
+        # If standard deviation is negligible, return True
+        if (data.std(axis=0) < 1e-1).all():
+            return True
+
+        # Regress data over time
+        regres = self.regress_over_time(data)
+        # Check whether regression slope(s) is negligible
+        is_slope_negligible = regres.loc['pval', :] >= 0.05
+
+        # Return True if all regression slopes are negligible, otherwise False
+        is_stable = is_slope_negligible.all()
+        return is_slope_negligible.all()
 
     def extract_steady_state(self, data, kind='stim', verbose=True):
         '''
@@ -885,30 +962,15 @@ class NetworkModel:
         # Get data slice for second half of interval of interest
         subdata = self.get_secondhalf_slice(data, tbounds)['activity']
         
-        # Compute mean and standard deviation of activity in that slice
-        stats = subdata.agg(['mean', 'std'], axis=0).T
-        stats.index.name = 'population'
-        stats.columns.name = 'activity'
-
-        # Check for stability
-        is_stable = True
-        # If substantial means, compute coefficient of variation
-        if (stats['mean'] > 1e-1).any():
-            stats['cv'] = stats['std'] / stats['mean']
-            # If any population has a high coefficient of variation, raise error
-            if (stats['cv'] > 0.1).any():
-                is_stable = False
-        # Otherwise, check that all populations have (close to) zero std
-        elif (stats['std'] > 1e-1).any():
-            is_stable = False
-
-        # If activity is unstable, raise error
-        if not is_stable:
+        # If activity is unstable in that slice, raise error
+        if not self.is_stable(subdata):
             raise MetricError(
                 f'unstable activity in [{tbounds[0]:.2f}s - {tbounds[1]:.2f}s] time interval')
         
         # Return average activity in that slice 
-        return stats['mean'].rename('activity')        
+        mu_act = subdata.mean(axis=0).rename('activity')
+        mu_act.index.name = 'population'
+        return mu_act
     
     def plot_timeseries(self, data, ss=None, add_synaptic_drive=False):
         ''' 
@@ -1383,14 +1445,13 @@ class NetworkModel:
         # Return evaluation function
         return feval
     
-    def explore(self, *args, Wbounds=None, npersweep=5, logdir=None, **kwargs):
+    def explore(self, npersweep, *args, Wbounds=None, **kwargs):
         '''
         Explore divergence from reference activation profiles across a wide
         range of network connectivity parameters
 
+        :param npersweep: number of sweep values per parameter
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param npersweep (optional): number of sweep values per parameter (default: 5)
-        :param logdir (optional): directory to save exploration results
         :return: exploration results as multi-indexed pandas series
         '''
         # If no bounds provided, use default bounds
@@ -1412,15 +1473,10 @@ class NetworkModel:
         logger.info('assembling exploration queue')
         mux = pd.MultiIndex.from_product(Wexplore.values, names=self.Wnames)
         nevals = len(mux)
-
-        # If log folder is provided, create log file
-        if logdir is not None:
-            fpath = os.path.join(logdir, self.get_log_filename('explore'))
-        else:
-            fpath = None
         
         # Extract evaluation function
-        feval = self.get_feval(*args, invalid_cost=np.nan, nevals=nevals, fpath=fpath, **kwargs)
+        feval = self.get_feval(
+            *args, invalid_cost=np.nan, nevals=nevals, **kwargs)
 
         # Run exploration batch
         logger.info(f'running {nevals} evaluations exploration')
@@ -1433,25 +1489,35 @@ class NetworkModel:
         # Return
         return cost
     
-    def extract_optimal_W(self, cost):
+    def Wvec_to_Wmat(self, Wvec):
         '''
-        Extract optimal network connectivity matrix from exploration results
+        Convert network connectivity matrix vector to matrix
 
-        :param cost: exploration results as multi-indexed pandas series
-        :return: optimal network connectivity matrix
+        :param Wvec: network connectivity matrix vector (size n^2, where n is the number of populations in the network)
+        :return: n-by-n network connectivity matrix
         '''
+        if len(Wvec) != len(self.Wnames):
+            raise ModelError('input vector length does not match network connectivity matrix size')
         return pd.Series(
-            cost.idxmin(), 
+            Wvec, 
             index=pd.MultiIndex.from_tuples(self.Wnames)
         ).unstack()
-
-    def optimize(self, *args, Wbounds=None, logdir=None, **kwargs):
+    
+    def brute_force(self, *args, **kwargs):
         '''
-        Find network connectivity matrix that minimizes divergence with a reference set 
-        of activation profiles.
+        Optimize network connectivity matrix using brute-force algorithm
+
+        :return: optimal network connectivity matrix
+        '''
+        cost = self.explore(*args, **kwargs)
+        return self.Wvec_to_Wmat(cost.idxmin())
+
+    def diff_evolution(self, *args, Wbounds=None, **kwargs):
+        '''
+        Use differential evolution to find network connectivity matrix that minimizes
+        divergence with a reference set of activation profiles.
 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param logdir (optional): directory to save optimization results
         :return: optimized network connectivity matrix
         '''
         # If no bounds provided, use default bounds
@@ -1461,15 +1527,9 @@ class NetworkModel:
         # Serialize bounds into series, if not already
         if not isinstance(Wbounds, pd.Series):
             Wbounds = Wbounds.stack().rename('bounds')
-
-        # If log folder is provided, create log file
-        if logdir is not None:
-            fpath = os.path.join(logdir, self.get_log_filename('optimize'))
-        else:
-            fpath = None
         
         # Extract evaluation function
-        feval = self.get_feval(*args, fpath=fpath, **kwargs)
+        feval = self.get_feval(*args, **kwargs)
         
         # Run optimization algorithm
         logger.info('running optimization algorithm')
@@ -1485,9 +1545,58 @@ class NetworkModel:
         # Extract solution array
         sol = optres.x
 
-        # Re-assemble into connectivity matrix
-        Wopt = pd.Series(sol, index=Wbounds.index).unstack()
+        # Re-assemble into connectivity matrix and return
+        return self.Wvec_to_Wmat(sol)
+    
+    def load_log_file(self, fpath):
+        '''
+        Load exploration results from CSV log file
+        '''
+        logger.info(f'loading optimization results from {fpath}')
+        # Infer number of W columns
+        nWcols = len(self.Wnames)
+        # Parse log file while setting W columns to index
+        df = pd.read_csv(fpath, index_col=list(range(1, nWcols + 1)))
+        # Return only 'cost' column (i.e. discard 'iteration' column)
+        return df['cost']
+    
+    def optimize(self, *args, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+        '''
+        Find network connectivity matrix that minimizes divergence with a reference
+        set of activation profiles.
 
-        # Return 
-        return Wopt
+        :param kind (optional): optimization algorithm to use, one of:
+            - "brute": brute-force algorithm
+            - "diffev": differential evolution algorithm
+        :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
+        :return: optimized network connectivity matrix
+        '''
+        # If log folder is provided, create log file
+        if logdir is not None:
+            opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'ref_profiles'], args)}
+            opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
+            suffix = f'optimize_{opt_code}_{kind}'
+            if kind == 'brute':
+                suffix = f'{suffix}_{npersweep}persweep'
+            if norm:
+                suffix = f'{suffix}_norm'
+            fname = self.get_log_filename(suffix)
+            fpath = os.path.join(logdir, fname)
+        else:
+            fpath = None       
+        
+        # If log file exists, load optimization results and return
+        if os.path.isfile(fpath): 
+            cost = self.load_log_file(fpath)
+            return self.Wvec_to_Wmat(cost.idxmin())
+        
+        # Run optimization algorithm and return
+        if kind == 'brute':
+            return self.brute_force(npersweep, *args, fpath=fpath, norm=norm, **kwargs)
+        elif kind == 'diffev':
+            return self.diff_evolution(*args, fpath=fpath, norm=norm, **kwargs)
+        else:
+            raise ModelError(f'unknown optimization algorithm: {kind}')
     
