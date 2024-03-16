@@ -78,6 +78,10 @@ class NetworkModel:
         'I': (-20, 0)
     }
 
+    # Allowed global optimization methods
+    GLOBAL_OPTIMIZERS = [fparams, 'annealing', 'shg', 'direct']
+    
+    # CSV delimiter
     DELIMITER = ','
 
     def __init__(self, W=None, tau=None, fgain=None, fparams=None, b=None):
@@ -1512,14 +1516,24 @@ class NetworkModel:
         cost = self.explore(*args, **kwargs)
         return self.Wvec_to_Wmat(cost.idxmin())
 
-    def diff_evolution(self, *args, Wbounds=None, **kwargs):
+    def global_optimization(self, *args, Wbounds=None, kind='diffev', **kwargs):
         '''
-        Use differential evolution to find network connectivity matrix that minimizes
+        Use global optimization algorithm to find network connectivity matrix that minimizes
         divergence with a reference set of activation profiles.
 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :param kind (optional): optimization algorithm to use, one of:
+            - "diffev": differential evolution algorithm
+            - "annealing": simulated annealing algorithm
+            - "shg": SGH optimization algorithm
+            - "direct": DIRECT optimization algorithm
         :return: optimized network connectivity matrix
         '''
+        # Check optimization algorithm validity and extract optimization function
+        if kind not in self.GLOBAL_OPTIMIZERS:
+            raise ModelError(f'unknown optimization algorithm: {kind}')
+        optfunc = getattr(optimize, kind)
+        
         # If no bounds provided, use default bounds
         if Wbounds is None:
             Wbounds = self.get_coupling_bounds()
@@ -1532,11 +1546,8 @@ class NetworkModel:
         feval = self.get_feval(*args, **kwargs)
         
         # Run optimization algorithm
-        logger.info('running optimization algorithm')
-        optres = optimize.differential_evolution(
-            feval,
-            Wbounds.values.tolist(), 
-        )
+        logger.info(f'running {kind} optimization algorithm')
+        optres = optfunc(feval, Wbounds.values.tolist())
 
         # If optimization failed, raise error
         if not optres.success:
@@ -1573,6 +1584,10 @@ class NetworkModel:
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: optimized network connectivity matrix
         '''
+        # Check validity of optimization algorithm
+        if kind not in ['brute', *self.OPTIMIZERS]:
+            raise ModelError(f'unknown optimization algorithm: {kind}')
+        
         # If log folder is provided, create log file
         if logdir is not None:
             opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'ref_profiles'], args)}
@@ -1595,8 +1610,6 @@ class NetworkModel:
         # Run optimization algorithm and return
         if kind == 'brute':
             return self.brute_force(npersweep, *args, fpath=fpath, norm=norm, **kwargs)
-        elif kind == 'diffev':
-            return self.diff_evolution(*args, fpath=fpath, norm=norm, **kwargs)
         else:
-            raise ModelError(f'unknown optimization algorithm: {kind}')
+            return self.global_optimization(*args, fpath=fpath, kind=kind, norm=norm, **kwargs)
     
