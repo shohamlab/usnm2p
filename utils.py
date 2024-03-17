@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-20 18:48:53
+# @Last Modified time: 2024-03-17 15:21:42
 
 ''' Collection of generic utilities. '''
 
@@ -600,6 +600,49 @@ def intensity_to_pressure(I, rho=1046.0, c=1546.3):
     :return: pressure amplitude (Pa)
     '''
     return np.sqrt(I * 2 * rho * c)
+
+
+def compute_attenuation_coefficient(f, alpha0=6.8032, b=1.3):
+    '''
+    Compute the acoustic attenuation coefficient for a given ultrasound frequency
+
+    :param f: frequency (MHz)
+    :param alpha0: medium constant for attenuation coefficient (Np/m/MHz)
+    :param b: frequency dependence constant for attenuation coefficient (dimensionless)
+    :return: attenuation coefficient (Np/m)
+    '''
+    return alpha0 * f**b
+
+
+def compute_heat_generation_rate(f, I, rho=1046., C=3630., **kwargs):
+    '''
+    Compute rate of heat generation per unit volume for a specific acoustic
+    frequency and intensity
+
+    :param f: frequency (MHz)
+    :param I: acoustic intensity (W/cm2)
+    :param rho: medium density (kg/m3)
+    :param C: specific heat capacity per unit mass (J/kg/°C)
+    :param **kwargs: additional parameters passed to compute_attenuation_coefficient function
+    :return: heat generation rate (°C/s)
+    '''
+    # Compute attenuation coefficient at given frequency
+    alpha = compute_attenuation_coefficient(f, **kwargs)  * 1e-2  # Np/cm
+    # Compute specific heat capacity per unit volume
+    Cv = C * rho / 1e6  # J/cm3/°C
+    # Compute heat generation rate
+    return 2 * alpha * I / Cv  # Np*°C*W/J = Np*°C/s = °C/s
+
+
+def compute_mechanical_index(f, P):
+    '''
+    Compute the mechanical index for a given ultrasound frequency and peak pressure amplitude
+
+    :param f: frequency (MHz)
+    :param P: peak pressure amplitude (MPa)
+    :return: mechanical index (dimensionless)
+    '''
+    return P / np.sqrt(f)
 
 
 def get_dose_metric(P, DC, key):

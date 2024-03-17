@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-14 17:53:48
+# @Last Modified time: 2024-03-17 17:28:16
 
 import time
 import numpy as np
@@ -30,7 +30,7 @@ def generate_unique_id(obj):
     :return: unique object identifier
     '''
     # Convert object to a string representation
-    s = str(obj)    
+    s = str(obj)
     # Create a hash object using hashlib
     hash_object = hashlib.md5(s.encode())
     # Return the hexadecimal digest of the hash
@@ -79,7 +79,7 @@ class NetworkModel:
     }
 
     # Allowed global optimization methods
-    GLOBAL_OPTIMIZERS = [fparams, 'annealing', 'shg', 'direct']
+    GLOBAL_OPTIMIZERS = ['diffev', 'annealing', 'shg', 'direct']
     
     # CSV delimiter
     DELIMITER = ','
@@ -170,7 +170,7 @@ class NetworkModel:
     def create_log_file(self, fpath):
         ''' Create batch log file if it does not exist. '''
         if not os.path.isfile(fpath):
-            logger.debug(f'creating batch log file: "{fpath}"')
+            logger.info(f'creating batch log file: "{fpath}"')
             with open(fpath, 'w') as csvfile:
                 writer = csv.writer(csvfile, delimiter=self.DELIMITER)
                 writer.writerow(['iteration', *self.Wnames, 'cost'])
@@ -1532,7 +1532,16 @@ class NetworkModel:
         # Check optimization algorithm validity and extract optimization function
         if kind not in self.GLOBAL_OPTIMIZERS:
             raise ModelError(f'unknown optimization algorithm: {kind}')
-        optfunc = getattr(optimize, kind)
+        if kind == 'diffev':
+            optfunc = optimize.differential_evolution
+        elif kind == 'annealing':
+            optfunc = optimize.dual_annealing
+        elif kind == 'shg':
+            optfunc = optimize.shgo
+        elif kind == 'direct':
+            optfunc = optimize.direct
+        else:
+            raise ModelError(f'unknown optimization algorithm: {kind}')
         
         # If no bounds provided, use default bounds
         if Wbounds is None:
@@ -1585,7 +1594,7 @@ class NetworkModel:
         :return: optimized network connectivity matrix
         '''
         # Check validity of optimization algorithm
-        if kind not in ['brute', *self.OPTIMIZERS]:
+        if kind not in ['brute', *self.GLOBAL_OPTIMIZERS]:
             raise ModelError(f'unknown optimization algorithm: {kind}')
         
         # If log folder is provided, create log file
