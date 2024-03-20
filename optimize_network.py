@@ -84,11 +84,22 @@ if __name__ == '__main__':
     parser.add_argument(
         '--norm', action='store_true',
         help='Normalize profiles prior to comparison')
+    parser.add_argument(
+        '--mpi', action='store_true', help='Run with MPI')
+    parser.add_argument(
+        '--nosave', action='store_true', help='Do not save results in log file')
+    
     args = parser.parse_args()
     npops = args.npops
     method = args.method
     npersweep = args.npersweep
     norm = args.norm
+    mpi = args.mpi
+    save = not args.nosave
+
+    # If nosave option, set logdir to None
+    if not save:
+        logdir = None
 
     # If 2 populations selected, remove PV related parameters
     if npops == 2:
@@ -103,14 +114,20 @@ if __name__ == '__main__':
     logger.info(f'running {method} optimization for {model}')
 
     # Optimize connectivity matrix to minimize divergence with reference profiles
-    Wopt = model.optimize(
-        srel,
-        ref_profiles, 
-        norm=norm,
-        logdir=logdir,
-        kind=method, 
-        npersweep=npersweep
-    )
+    try:
+        Wopt = ModelOptimizer.optimize(
+            model,
+            srel,
+            ref_profiles, 
+            norm=norm,
+            mpi=mpi,
+            logdir=logdir,
+            kind=method, 
+            npersweep=npersweep,
+        )
+    except OptimizationError as e:
+        logger.error(e)
+        quit()
 
     # Perform stimulus sweep with optimal connectivity matrix
     logger.info(f'optimal connectivity matrix:\n{Wopt}')

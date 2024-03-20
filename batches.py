@@ -17,6 +17,16 @@ import pandas as pd
 from logger import logger
 
 
+def get_cpu_count():
+    ''' Return number of available CPUs. '''
+    # If running on a cluster, use the number of allocated CPUs per task
+    if 'SLURM_CPUS_PER_TASK' in os.environ:
+        return int(os.environ['SLURM_CPUS_PER_TASK'])
+    # Otherwise, use the number of available CPUs on the local machine
+    else:
+        return mp.cpu_count()
+
+
 class Consumer(mp.Process):
     ''' Generic consumer process, taking tasks from a queue and outputing results in
         another queue.
@@ -83,19 +93,10 @@ class Batch:
     def __call__(self, *args, **kwargs):
         ''' Call the internal run method. '''
         return self.run(*args, **kwargs)
-    
-    def cpu_count(self):
-        ''' Return number of available CPUs. '''
-        # If running on a cluster, use the number of allocated CPUs per task
-        if 'SLURM_CPUS_PER_TASK' in os.environ:
-            return int(os.environ['SLURM_CPUS_PER_TASK'])
-        # Otherwise, use the number of available CPUs on the local machine
-        else:
-            return mp.cpu_count()
 
     def getNConsumers(self):
         ''' Determine number of consumers based on queue length and number of available CPUs. '''
-        return min(self.cpu_count(), len(self.queue))
+        return min(get_cpu_count(), len(self.queue))
 
     def start(self):
         ''' Create tasks and results queues, and start consumers. '''

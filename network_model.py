@@ -15,11 +15,14 @@ from tqdm import tqdm
 import os
 import csv
 import hashlib
+import lockfile
+import multiprocessing as mp
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
 from utils import expconv, expconv_reciprocal, threshold_linear, as_iterable
 from postpro import mylinregress
+from batches import get_cpu_count
 
 
 def generate_unique_id(obj):
@@ -59,6 +62,15 @@ class OptimizationError(Exception):
     pass
 
 
+class FGainCallable:
+    def __init__(self, fgain, params):
+        self.fgain = fgain
+        self.params = params
+    
+    def __call__(self, x):
+        return self.fgain(x, **self.params)
+
+
 class NetworkModel:
     ''' Network model of the visual cortex micro-circuitry '''
 
@@ -77,9 +89,6 @@ class NetworkModel:
         'E': (0, 20),
         'I': (-20, 0)
     }
-
-    # Allowed global optimization methods
-    GLOBAL_OPTIMIZERS = ['diffev', 'annealing', 'shg', 'direct']
     
     # CSV delimiter
     DELIMITER = ','
@@ -123,6 +132,9 @@ class NetworkModel:
         self.fgain = fgain
         self.fparams = fparams
         self.b = b
+
+        # Log
+        logger.info(f'initialized {self}')
     
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
@@ -180,9 +192,10 @@ class NetworkModel:
     def append_to_log_file(self, fpath, iteration, params, cost):
         ''' Append current batch iteration to log file '''
         logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
-        with open(fpath, 'a') as csvfile:
-            writer = csv.writer(csvfile, delimiter=self.DELIMITER)
-            writer.writerow([iteration, *params, cost])
+        with lockfile.FileLock(fpath):
+            with open(fpath, 'a') as csvfile:
+                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
+                writer.writerow([iteration, *params, cost])
     
     @property
     def size(self):
@@ -431,7 +444,8 @@ class NetworkModel:
     
     def is_fgain_unique(self):
         ''' Return whether gain function is unique or population-specific '''
-        return not isinstance(self.fgain_callable, dict)
+        return self.fparams is None or isinstance(self.fparams, (dict, pd.Series))
+        # return not isinstance(self.fgain_callable, dict)
 
     def get_fgain_callable(self, params):
         '''
@@ -440,7 +454,8 @@ class NetworkModel:
         :param params: dictionary gain function parameters
         :return: gain function callable
         '''
-        return lambda x: self.fgain(x, **params)
+        # return lambda x: self.fgain(x, **params)
+        return FGainCallable(self.fgain, params)
     
     def get_fgain_callables(self, params):
         '''
@@ -467,7 +482,7 @@ class NetworkModel:
 
     @classmethod
     def plot_connectivity_matrix(cls, W, norm=False, ax=None, cbar=True, height=2.5, 
-                                 vmin=None, vmax=None, title=None):
+                                 vmin=None, vmax=None, title=None, colwrap=4):
         '''
         Plot connectivity matrix(ces)
 
@@ -483,15 +498,25 @@ class NetworkModel:
         '''
         # If multiple connectivity matrices provided, plot each on separate axis
         if isinstance(W, dict):
+            ninputs = len(W)
             if ax is not None:
-                raise ModelError('cannot plot multiple connectivity matrices on single axis')
-            fig, axes = plt.subplots(1, len(W), figsize=(len(W) * 1.3 * height, height))
-            suptitle = 'connectivity matrices'
-            if norm:
-                suptitle = f'normalized {suptitle}'
-            fig.suptitle(suptitle, fontsize=12, y=1.3)
+                axes = as_iterable(ax)
+                if len(axes) != ninputs:
+                    raise ModelError(f'number of axes ({len(axes)}) does not correspond to number of connectivity matrices ({ninputs})')
+            else:
+                nrows, ncols = ninputs // colwrap + 1, colwrap
+                fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
+                if nrows > 1:
+                    fig.subplots_adjust(hspace=1)
+                axes = axes.flatten()
+                suptitle = 'connectivity matrices'
+                if norm:
+                    suptitle = f'normalized {suptitle}'
+                fig.suptitle(suptitle, fontsize=12, y=1 + .2 / nrows)
             for ax, (k, w) in zip(axes, W.items()):
                 cls.plot_connectivity_matrix(w, norm=norm, ax=ax, title=k, cbar=False)
+            for ax in axes[ninputs:]:
+                ax.axis('off')
             return fig       
 
         # Create/retrieve figure and axis
@@ -876,41 +901,32 @@ class NetworkModel:
         # Return second half-slice of input data
         return data.loc[tmid:tend]
     
-    def regress_over_time(self, data):
-        '''
-        Regress data over time
-
-        :param data: time-indexed dataframe
-        :return: regression results dataframe
-        '''
-        # Extract time values
-        t = data.index.values
-        # Regress each column over time
-        regres = {}
-        for k in data:
-            regres[k] = mylinregress(t, data[k].values, robust=True)
-        # Concatenate and return
-        return pd.concat(regres, axis=1)
-    
     def is_stable(self, data):
         '''
         Assess whether activity in simulation results is stable
 
-        :param data: activity-per-population dataframe, indexed by time (s)
+        :param data: activity series (or activity-per-population dataframe), indexed by time (s)
         :return: whether activity is stable
         '''
+        # If input is a dataframe, assess stability for each population
+        if isinstance(data, pd.DataFrame) and len(data.columns) > 1:
+            is_stable = data.apply(self.is_stable, axis=0)
+            return is_stable.all()
+
         # If standard deviation is negligible, return True
-        if (data.std(axis=0) < 1e-1).all():
+        if data.std() < 1e-1:
             return True
 
-        # Regress data over time
-        regres = self.regress_over_time(data)
-        # Check whether regression slope(s) is negligible
-        is_slope_negligible = regres.loc['pval', :] >= 0.05
+        # Predict relative linear variation over interval
+        t = data.index.values
+        regres = mylinregress(t, data.values, robust=True)
+        tbounds = np.array([t[0], t[-1]])
+        ybounds = regres.loc['slope'] * tbounds + regres.loc['intercept']
+        yreldiff = np.diff(ybounds)[0] / np.mean(ybounds)
 
-        # Return True if all regression slopes are negligible, otherwise False
-        is_stable = is_slope_negligible.all()
-        return is_slope_negligible.all()
+        # Return whether linear variations are negligible
+        return np.abs(yreldiff) < 1e-2
+        # return regres['pval'] >= 0.05
 
     def extract_steady_state(self, data, kind='stim', verbose=True):
         '''
@@ -1355,7 +1371,7 @@ class NetworkModel:
             logger.warning('unstable final steady-states detected')
             return invalid_cost
         # If some final steady-states did not return to baseline, return invalidity cost
-        if (final_ss > 1e-3).any().any():
+        if (final_ss > 1e-1).any().any():
             logger.warning('non-zero final steady-states detected')
             return invalid_cost
 
@@ -1417,82 +1433,6 @@ class NetworkModel:
         # Return cost
         return cost
     
-    def get_feval(self, *args, nevals=None, fpath=None, **kwargs):
-        ''' Generate evaluation function for optimization algorithms '''
-        # Create log file, if path provided
-        if fpath is not None:
-            self.create_log_file(fpath)
-
-        # Store max number of evaluations
-        self.nevals = nevals
-
-        # Initialize counter
-        self.counter = 0
-
-        # Define evaluation function
-        def feval(x):
-            # Call evaluation function with input vector
-            cost = self.set_coupling_run_and_evaluate(x, *args, **kwargs)
-            # Log evaluation number and cost
-            s = f'evaluation {self.counter + 1}'
-            if self.nevals is not None:
-                s = f'{s}/{nevals}'
-            logger.info(s)
-            # Log to file, if path provided
-            if fpath is not None:
-                self.append_to_log_file(fpath, self.counter, x, cost)
-            # Increment counter
-            self.counter += 1
-            # Return cost
-            return cost
-
-        # Return evaluation function
-        return feval
-    
-    def explore(self, npersweep, *args, Wbounds=None, **kwargs):
-        '''
-        Explore divergence from reference activation profiles across a wide
-        range of network connectivity parameters
-
-        :param npersweep: number of sweep values per parameter
-        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :return: exploration results as multi-indexed pandas series
-        '''
-        # If no bounds provided, use default bounds
-        if Wbounds is None:
-            Wbounds = self.get_coupling_bounds()
-        
-        # Serialize bounds into series, if not already
-        if not isinstance(Wbounds, pd.Series):
-            Wbounds = Wbounds.stack().rename('bounds')
-        
-        # Define exploration values 
-        logger.info('deriving exploration values')
-        Wexplore = (Wbounds
-            .apply(lambda x: np.linspace(*x, npersweep).tolist())
-            .rename('parameters')
-        )
-
-        # Generate multi-index with all combinations of exploration values
-        logger.info('assembling exploration queue')
-        mux = pd.MultiIndex.from_product(Wexplore.values, names=self.Wnames)
-        nevals = len(mux)
-        
-        # Extract evaluation function
-        feval = self.get_feval(
-            *args, invalid_cost=np.nan, nevals=nevals, **kwargs)
-
-        # Run exploration batch
-        logger.info(f'running {nevals} evaluations exploration')
-        # cost = mp.Pool().imap(feval, mux)
-        cost = list(map(feval, mux))
-
-        # Format output as multi-indexed series
-        cost = pd.Series(cost, index=mux, name='cost')
-
-        # Return
-        return cost
-    
     def Wvec_to_Wmat(self, Wvec):
         '''
         Convert network connectivity matrix vector to matrix
@@ -1502,71 +1442,13 @@ class NetworkModel:
         '''
         if len(Wvec) != len(self.Wnames):
             raise ModelError('input vector length does not match network connectivity matrix size')
-        return pd.Series(
+        Wmat = pd.Series(
             Wvec, 
             index=pd.MultiIndex.from_tuples(self.Wnames)
         ).unstack()
-    
-    def brute_force(self, *args, **kwargs):
-        '''
-        Optimize network connectivity matrix using brute-force algorithm
-
-        :return: optimal network connectivity matrix
-        '''
-        cost = self.explore(*args, **kwargs)
-        return self.Wvec_to_Wmat(cost.idxmin())
-
-    def global_optimization(self, *args, Wbounds=None, kind='diffev', **kwargs):
-        '''
-        Use global optimization algorithm to find network connectivity matrix that minimizes
-        divergence with a reference set of activation profiles.
-
-        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param kind (optional): optimization algorithm to use, one of:
-            - "diffev": differential evolution algorithm
-            - "annealing": simulated annealing algorithm
-            - "shg": SGH optimization algorithm
-            - "direct": DIRECT optimization algorithm
-        :return: optimized network connectivity matrix
-        '''
-        # Check optimization algorithm validity and extract optimization function
-        if kind not in self.GLOBAL_OPTIMIZERS:
-            raise ModelError(f'unknown optimization algorithm: {kind}')
-        if kind == 'diffev':
-            optfunc = optimize.differential_evolution
-        elif kind == 'annealing':
-            optfunc = optimize.dual_annealing
-        elif kind == 'shg':
-            optfunc = optimize.shgo
-        elif kind == 'direct':
-            optfunc = optimize.direct
-        else:
-            raise ModelError(f'unknown optimization algorithm: {kind}')
-        
-        # If no bounds provided, use default bounds
-        if Wbounds is None:
-            Wbounds = self.get_coupling_bounds()
-        
-        # Serialize bounds into series, if not already
-        if not isinstance(Wbounds, pd.Series):
-            Wbounds = Wbounds.stack().rename('bounds')
-        
-        # Extract evaluation function
-        feval = self.get_feval(*args, **kwargs)
-        
-        # Run optimization algorithm
-        logger.info(f'running {kind} optimization algorithm')
-        optres = optfunc(feval, Wbounds.values.tolist())
-
-        # If optimization failed, raise error
-        if not optres.success:
-            raise OptimizationError(f'optimization failed: {optres.message}')
-
-        # Extract solution array
-        sol = optres.x
-
-        # Re-assemble into connectivity matrix and return
-        return self.Wvec_to_Wmat(sol)
+        Wmat.index.name = 'pre-synaptic'
+        Wmat.columns.name = 'post-synaptic'
+        return Wmat
     
     def load_log_file(self, fpath):
         '''
@@ -1580,21 +1462,247 @@ class NetworkModel:
         # Return only 'cost' column (i.e. discard 'iteration' column)
         return df['cost']
     
-    def optimize(self, *args, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+    def feval(self, args):
+        '''
+        Model evaluation function
+
+        :param args: input arguments
+        '''
+        # Unpack input arguments and log evaluation
+        if self.nevals is not None:
+            i, x = args
+            logger.info(f'evaluation {i + 1}/{self.nevals}')
+        else:
+            pid = os.getpid()
+            p = mp.current_process()
+            if len(p._identity) > 0:
+                logger.info(f'pid {pid}, evaluation {p._identity[0]}')
+            else:
+                logger.info(f'pid {pid}, subprocess {p}')
+            x = args 
+
+        # Call evaluation function with input vector
+        cost = self.set_coupling_run_and_evaluate(
+            x, *self.eval_args, **self.eval_kwargs)
+
+        # Log to file, if path provided
+        if self.eval_fpath is not None:
+            self.append_to_log_file(self.eval_fpath, i, x, cost)
+        
+        # Return cost
+        return cost
+
+    def setup_eval(self, *args, nevals=None, fpath=None, **kwargs):
+        ''' Initialize attributes used in evaluation function '''
+        logger.info(f'setting up {self} for evaluation')
+        self.eval_args = args
+        self.eval_kwargs = kwargs
+        self.eval_fpath = fpath
+        self.nevals = nevals
+
+        # Create log file, if path provided
+        if fpath is not None:
+            self.create_log_file(fpath)
+    
+    def cleanup_eval(self):
+        ''' Clean-up attributes used in evaluation function '''
+        logger.info(f'cleaning up {self} after evaluation')
+        self.eval_args = []
+        self.eval_kwargs = {}
+        self.eval_fpath = None
+        self.nevals = None
+
+    def __call__(self, args):
+        ''' Call model evaluation function '''
+        # Call evaluation function
+        return self.feval(args)
+
+
+class ModelOptimizer:
+
+    # Allowed global optimization methods
+    GLOBAL_OPT_METHODS = ['diffev', 'annealing', 'shg', 'direct']
+
+    @staticmethod
+    def explore(model, npersweep, *args, Wbounds=None, mpi=False, **kwargs):
+        '''
+        Explore divergence from reference activation profiles across a wide
+        range of network connectivity parameters
+
+        :param model: model instance
+        :param npersweep: number of sweep values per parameter
+        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :param mpi (optional): whether to use multiprocessing (default: False)
+        :return: exploration results as multi-indexed pandas series
+        '''
+        # If no bounds provided, use default bounds
+        if Wbounds is None:
+            Wbounds = model.get_coupling_bounds()
+        
+        # Serialize bounds into series, if not already
+        if not isinstance(Wbounds, pd.Series):
+            Wbounds = Wbounds.stack().rename('bounds')
+        
+        # Define exploration values 
+        logger.info('deriving exploration values')
+        if npersweep > 1:
+            Wexplore = (Wbounds
+                .apply(lambda x: np.linspace(*x, npersweep).tolist())
+                .rename('parameters')
+            )
+        else:
+            Wexplore = (Wbounds
+                .apply(lambda x: [np.mean(x)])
+                .rename('parameters')
+            )
+
+        # Generate multi-index with all combinations of exploration values
+        logger.info('assembling exploration queue')
+        mux = pd.MultiIndex.from_product(Wexplore.values, names=model.Wnames)
+        nevals = len(mux)
+
+        # Get number of workers
+        if mpi:
+            # If multiprocessing requested, get minimum of number of available CPUs and number of evaluations
+            nworkers = min(get_cpu_count(), nevals)
+        else:
+            # Otherwise, number of workers is 1
+            nworkers = 1
+
+        # Run exploration batch
+        s = f'running {nevals} evaluations exploration'
+        if nworkers > 1:
+            s = f'{s} with {nworkers} parallel workers'
+        logger.info(s)
+        model.setup_eval(*args, invalid_cost=np.nan, nevals=nevals, **kwargs)
+        if nworkers > 1:
+            with mp.Pool(processes=nworkers) as pool:
+                cost = pool.map(model, enumerate(mux))
+        else:
+            cost = list(map(model, enumerate(mux)))
+        model.cleanup_eval()
+
+        # Format output as multi-indexed series
+        cost = pd.Series(cost, index=mux, name='cost')
+
+        # Return
+        return cost
+    
+    @staticmethod
+    def extract_optimum(cost):
+        '''
+        Extract optimum from cost series
+
+        :param cost: exploration results as multi-indexed pandas series
+        :return: vector of parameter values yielding optimal cost
+        '''
+        if len(cost) == 1:
+            return cost.index[0]
+        else:
+            return cost.idxmin()
+
+    @classmethod
+    def brute_force(cls, model, *args, **kwargs):
+        '''
+        Optimize network connectivity matrix using brute-force algorithm
+
+        :param model: model instance
+        :return: optimal network connectivity matrix
+        '''
+        cost = cls.explore(model, *args, **kwargs)
+        Wvec = cls.extract_optimum(cost)
+        return model.Wvec_to_Wmat(Wvec)
+
+    @classmethod
+    def global_optimization(cls, model, *args, Wbounds=None, kind='diffev', mpi=False, **kwargs):
+        '''
+        Use global optimization algorithm to find network connectivity matrix that minimizes
+        divergence with a reference set of activation profiles.
+
+        :param model: model instance
+        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+        :param kind (optional): optimization algorithm to use, one of:
+            - "diffev": differential evolution algorithm
+            - "annealing": simulated annealing algorithm
+            - "shg": SGH optimization algorithm
+            - "direct": DIRECT optimization algorithm
+        :param mpi (optional): whether to use multiprocessing (default: False)
+        :return: optimized network connectivity matrix
+        '''
+        # Check optimization algorithm validity and extract optimization function
+        if kind not in cls.GLOBAL_OPT_METHODS:
+            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+        if kind == 'diffev':
+            optfunc = optimize.differential_evolution
+        elif kind == 'annealing':
+            optfunc = optimize.dual_annealing
+        elif kind == 'shg':
+            optfunc = optimize.shgo
+        elif kind == 'direct':
+            optfunc = optimize.direct
+        else:
+            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+        
+        # Initialize empty dictionary for optimization keyword arguments
+        optkwargs = {}
+
+        # If multiprocessing requested
+        if mpi:
+            # If optimization method is not compatible with multiprocessing, raise error
+            if kind != 'diffev':
+                raise OptimizationError('multiprocessing only supported for differential evolution algorithm')
+            # Get the number of available CPUs
+            ncpus = get_cpu_count()
+            # If more than 1 CPU available, update keyword arguments
+            if ncpus > 1:
+                # Use as many workers as there are cores
+                optkwargs.update({
+                    'workers': ncpus,
+                    'updating': 'deferred'
+                })
+        
+        # If no bounds provided, use default bounds
+        if Wbounds is None:
+            Wbounds = model.get_coupling_bounds()
+        
+        # Serialize bounds into series, if not already
+        if not isinstance(Wbounds, pd.Series):
+            Wbounds = Wbounds.stack().rename('bounds')
+                
+        # Run optimization algorithm
+        s = f'running {kind} optimization algorithm'
+        if 'workers' in optkwargs:
+            s = f'{s} with {optkwargs["workers"]} parallel workers'
+        logger.info(s)
+        model.setup_eval(*args, **kwargs) 
+        optres = optfunc(model, Wbounds.values.tolist(), **optkwargs)
+        model.cleanup_eval()
+
+        # If optimization failed, raise error
+        if not optres.success:
+            raise OptimizationError(f'optimization failed: {optres.message}')
+
+        # Extract solution array
+        sol = optres.x
+
+        # Re-assemble into connectivity matrix and return
+        return model.Wvec_to_Wmat(sol)
+
+    @classmethod
+    def optimize(cls, model, *args, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
 
-        :param kind (optional): optimization algorithm to use, one of:
-            - "brute": brute-force algorithm
-            - "diffev": differential evolution algorithm
+        :param model: model instance 
+        :param kind (optional): optimization algorithm (default = "diffev")
         :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: optimized network connectivity matrix
         '''
         # Check validity of optimization algorithm
-        if kind not in ['brute', *self.GLOBAL_OPTIMIZERS]:
+        if kind not in ['brute', *cls.GLOBAL_OPT_METHODS]:
             raise ModelError(f'unknown optimization algorithm: {kind}')
         
         # If log folder is provided, create log file
@@ -1606,19 +1714,19 @@ class NetworkModel:
                 suffix = f'{suffix}_{npersweep}persweep'
             if norm:
                 suffix = f'{suffix}_norm'
-            fname = self.get_log_filename(suffix)
+            fname = model.get_log_filename(suffix)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None       
         
         # If log file exists, load optimization results and return
-        if os.path.isfile(fpath): 
-            cost = self.load_log_file(fpath)
-            return self.Wvec_to_Wmat(cost.idxmin())
+        if fpath is not None and os.path.isfile(fpath): 
+            cost = model.load_log_file(fpath)
+            Wvec = cls.extract_optimum(cost)
+            return model.Wvec_to_Wmat(Wvec)
         
         # Run optimization algorithm and return
         if kind == 'brute':
-            return self.brute_force(npersweep, *args, fpath=fpath, norm=norm, **kwargs)
+            return cls.brute_force(model, npersweep, *args, fpath=fpath, norm=norm, **kwargs)
         else:
-            return self.global_optimization(*args, fpath=fpath, kind=kind, norm=norm, **kwargs)
-    
+            return cls.global_optimization(model, *args, fpath=fpath, kind=kind, norm=norm, **kwargs)

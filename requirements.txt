@@ -19,4 +19,5 @@ statannotations
 openpyxl
 scikit-image
 spectrum
+lockfile
 suite2p==0.10.2
