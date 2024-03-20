@@ -1597,7 +1597,9 @@ class ModelOptimizer:
         :param cost: exploration results as multi-indexed pandas series
         :return: vector of parameter values yielding optimal cost
         '''
-        if len(cost) == 1:
+        if len(cost) == 0:
+            raise OptimizationError('no exploration results available')
+        elif len(cost) == 1:
             return cost.index[0]
         else:
             return cost.idxmin()
