@@ -1476,9 +1476,10 @@ class NetworkModel:
             pid = os.getpid()
             p = mp.current_process()
             if len(p._identity) > 0:
-                logger.info(f'pid {pid}, evaluation {p._identity[0]}')
+                i = p._identity[0]
             else:
-                logger.info(f'pid {pid}, subprocess {p}')
+                i = -1
+            logger.info(f'pid {pid}, evaluation {i}')
             x = args 
 
         # Call evaluation function with input vector
