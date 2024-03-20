@@ -537,6 +537,7 @@ class NetworkModel:
 
         # If no vmin/vmax provided, set to symmetric values
         Wamax = W.abs().max().max()
+        Wamax = np.ceil(10 * Wamax) / 10
         if vmin is None:
             vmin = -Wamax
         if vmax is None:
@@ -552,6 +553,7 @@ class NetworkModel:
             center=0, 
             cmap='coolwarm', 
             annot=True,
+            fmt='.2g',
             cbar=cbar,
             cbar_kws={'label': 'connection strength'} if cbar else None,
         )
