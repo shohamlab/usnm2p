@@ -7,6 +7,8 @@
 import numpy as np
 import pandas as pd
 from argparse import ArgumentParser
+import os
+import pandas as pd
 
 from logger import logger
 from network_model import *
@@ -56,14 +58,16 @@ rel_amps = np.linspace(0, 10, 25)
 amps = rel_amps * Ithr
 
 # Target activity profiles
-ref_profiles = pd.DataFrame(
-    data={
-        'E': threshold_linear(amps, **fparams.loc['E', :]),
-        'PV': threshold_linear(amps, **fparams.loc['PV', :]),
-        'SST': threshold_linear(amps, **fparams.loc['E', :])
-    },
-    index=pd.Index(amps, name='amplitude')
-)
+ref_fpath = os.path.join(logdir, 'ref_profiles.csv')
+ref_profiles = pd.read_csv(ref_fpath).set_index('amplitude')
+# ref_profiles = pd.DataFrame(
+#     data={
+#         'E': threshold_linear(amps, **fparams.loc['E', :]),
+#         'PV': threshold_linear(amps, **fparams.loc['PV', :]),
+#         'SST': threshold_linear(amps, **fparams.loc['E', :])
+#     },
+#     index=pd.Index(amps, name='amplitude')
+# )
 ref_profiles.columns.name = 'population'
 
 

@@ -571,12 +571,13 @@ class NetworkModel:
         # Return figure handle
         return fig
     
-    def plot_time_constants(self, tau=None, ax=None):
+    def plot_time_constants(self, tau=None, ax=None, suffix=None):
         '''
         Plot firing rate adaptation time constants per population
 
         :param tau: time constants vector, provided as pandas series. If None, use current model time constants
         :param ax (optional): axis handle
+        :param suffix (optional): suffix to append to the axis title
         :return: figure handle
         '''
         # If no time constants provided, use current model time constants
@@ -591,11 +592,17 @@ class NetworkModel:
         
         # Set axis layout
         sns.despine(ax=ax)
-        ax.set_title('time constants')
+        title = 'time constants'
+        if suffix is not None:
+            title = f'{title} ({suffix})'
+        ax.set_title(title)
         ax.set_xlabel('population')
         
         # Plot time constants
-        ax.bar(tau.index, tau.values * 1e3, color=[self.palette.get(k, None) for k in tau.index])
+        ax.bar(
+            tau.index, 
+            tau.values * 1e3, 
+            color=[self.palette.get(k, None) for k in tau.index])
 
         # Set y-axis label and adjust layout
         ax.set_ylabel('time constant (ms)')
@@ -604,11 +611,12 @@ class NetworkModel:
         # Return figure handle
         return fig
     
-    def plot_fgain(self, ax=None):
+    def plot_fgain(self, ax=None, suffix=None):
         '''
         Plot the gain function(s)
 
         :param ax (optional): axis handle
+        :param suffix (optional): suffix to append to the axis title
         :return: figure handle
         '''
         # Create.retrieve figure and axis
@@ -636,6 +644,8 @@ class NetworkModel:
             ax.legend(loc='upper left', frameon=False)
 
         # Adjust layout
+        if suffix is not None:
+            title = f'{title} ({suffix})'
         ax.set_title(title)
         fig.tight_layout()
 
@@ -657,6 +667,7 @@ class NetworkModel:
         self.plot_connectivity_matrix(self.W, ax=axes[2])
         # Adjust layout
         fig.tight_layout()
+        fig.suptitle(self, fontsize=12, y=1.05)
         # Return figure handle
         return fig
     
@@ -1014,19 +1025,21 @@ class NetworkModel:
 
         # Extract output data types
         dtypes = data.columns.get_level_values(0).unique()
-        naxes = len(dtypes)
-
-        # Create figure backbone
-        fig, axes = plt.subplots(naxes, 1, figsize=(7, 2 * naxes), sharex=True)
-        axes = np.atleast_1d(axes)
-        sns.despine(fig=fig)        
-        axes[0].set_title('simulation results')
 
         # Extract stimulus bounds, if present
         tbounds = None
         if 'x' in dtypes:
             tbounds = self.extract_stim_bounds(data['x'])
+            del data['x']
+            dtypes = data.columns.get_level_values(0).unique()
         
+        # Create figure backbone
+        naxes = len(dtypes)
+        fig, axes = plt.subplots(naxes, 1, figsize=(7, 2 * naxes), sharex=True)
+        axes = np.atleast_1d(axes)
+        sns.despine(fig=fig)        
+        axes[0].set_title(f'{self} - simulation results')
+
         # For each type in output data
         axdict = {}
         for dtype, ax in zip(dtypes, axes):
@@ -1040,8 +1053,6 @@ class NetworkModel:
                 )
                 if dtype == 'activity' and ss is not None:
                     ax.axhline(ss.loc[k], ls='--', c=self.palette[k])
-            if dtype == 'x':
-                ax.set_ylabel('stimulus modulation')
             if ncols > 1:
                 ax.legend(loc='upper right', frameon=False)
             if dtype == 'activity' and self.is_fgain_bounded():
@@ -1152,7 +1163,7 @@ class NetworkModel:
         sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
         return sweep_data
 
-    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, col=None, row=None):
+    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, col=None, row=None, title=None):
         '''
         Plot results of stimulus amplitude sweep
 
@@ -1162,6 +1173,7 @@ class NetworkModel:
         :param style (optional): extra grouping dimension to use for styling
         :param col (optional): extra grouping dimension to use for columns
         :param row (optional): extra grouping dimension to use for rows
+        :param title (optional): axis title
         :return: figure handle
         '''
         if xkey not in data.index.names:
@@ -1233,6 +1245,10 @@ class NetworkModel:
         
         # Adjust axis layout
         sns.despine(ax=ax)
+
+        # Set axis title
+        if title is not None:
+            ax.set_title(title)
 
         # Plot activity vs. stimulus amplitude
         sns.lineplot(
