@@ -2104,112 +2104,185 @@ def get_plot_data(timeseries, stats, keys=None):
     return plt_data
 
 
-def anova1d(data, xkey, ykey, categorical=True, full_output=False):
+def eta_squared(anova_table):
     '''
-    Wrapper around the statsmodels ANOVA functions to perform a 1-way
-    ANOVA to assess whether a dependent variable is dependent
-    on a given independent variable (i.e. group, factor).
+    Compute eta-squared (η²) from ANOVA results table.
 
-    :param data: pandas dataframe
-    :param xkey: name of column (or index dimension) containing the independent variable
-    :param ykey: name of column containing the dependent variable
-    :param categorical: whether the independent variable is categorical (default: True)
-    :param full_output: whether to return full ANOVA table or just the p-value
-    :return: p-value for dependency of y on x, or full ANOVA table
+    :param anova_table: dataFrame containing the ANOVA results.
+    :return: series with factor names as keys and eta-squared values as values.
     '''
-    # Extract and rename columns of interest to ensure compatibility
-    # with statsmodels formula API
-    data = data.reset_index()[[xkey, ykey]].rename(columns={xkey: 'x', ykey: 'y'})
-    # Define formula and output xkeys
-    formula_xkey = 'C(x)' if categorical else 'x'
-    output_xkey = f'C({xkey})' if categorical else xkey
-    # Construct formula
-    formula = f'y ~ {formula_xkey}'
-    # Construct OLS model with data
-    model = ols(formula, data=data).fit()
-    # Extract results table for type II ANOVA
-    anova_table = sm.stats.anova_lm(model, typ=2)
-    # Rename some table entries
-    anova_table = anova_table.rename(
-        index={formula_xkey: output_xkey},  # formula xkey -> output xkey
-        columns={  # rename columns for clarity
-            'sum_sq': 'SS',
-            'PR(>F)': 'p-value'
-        })
-    # Return full table if requested
-    if full_output:
-        # Add effect size column
-        anova_table['eta^2'] = anova_table['SS'] / (anova_table['SS'] + anova_table.loc['Residual', 'SS'])
-        # anova_table['eta^2'] = anova_table['SS'] / anova_table['SS'].sum()
-        anova_table.loc['Residual', 'eta^2'] = np.nan
-        return anova_table
-    # Otherwise, return relevant p-value for dependency
-    return anova_table.loc[xkey, 'p-value']
+    # Compute η² for each factor
+    e2 = anova_table['sum_sq'] / anova_table['sum_sq'].sum()
+    # Add Residual=NaN row for compatibility with ANOVA table 
+    e2['Residual'] = np.nan    
+    # Return
+    return e2
 
 
-def anova2d(data, xkey, ykey, zkey, categorical=True, interaction=False, full_output=False):
+def omega_squared(anova_table):
     '''
-    Wrapper around the statsmodels ANOVA functions to perform a 2-way
+    Compute omega-squared (ω²) from ANOVA results table (from Kroes & Finley, 2023).
+
+    :param anova_table: dataFrame containing the ANOVA results.
+    :return: series with factor names as keys and omega-squared values as values.
+    '''
+    # Compute ω² for each factor
+    MS_error = anova_table.loc['Residual', 'mean_sq']
+    SS_total = anova_table['sum_sq'] + (anova_table['df'] * MS_error)
+    w2 = (anova_table['sum_sq'] - (anova_table['df'] * MS_error)) / (SS_total + MS_error)
+    # Add Residual=NaN row for compatibility with ANOVA table 
+    w2['Residual'] = np.nan
+    # Return
+    return w2
+
+
+def parse_factor(key, categorical):
+    '''
+    Parse factor name and type from key and categorical flag
+
+    :param key: factor key
+    :param categorical: whether the factor is categorical
+    :return: parsed factor name
+    '''
+    if is_iterable(key):
+        if not is_iterable(categorical):
+            raise ValueError('categorical must be a a tuple of booleans')
+        if len(key) != len(categorical):
+            raise ValueError('key and categorical must have the same length')
+        return [parse_factor(k, c) for k, c in zip(key, categorical)]
+    if categorical:
+        return f'C({key})'
+    return key
+
+
+def anova_formula(ykey, xkey, categorical=True, interaction=False):
+    '''
+    Generate a formula string for ANOVA analysis
+
+    :param ykey: dependent variable key
+    :param xkey: independent variable key
+    :param categorical: whether the independent variable is categorical
+    :param interaction: whether to include interaction term in the model
+    :return: formula string
+    '''
+    # Make sure xkey and categorical have the same length
+    if len(categorical) != len(xkey):
+        raise ValueError('xkey and categorical must have the same length')
+    # Apply "categorical" tag to specified xkeys
+    xkeys = parse_factor(xkey, categorical)
+    # Link xkeys with "+" or "*" operator depending on interaction flag
+    opstr = ' * ' if interaction else ' + '
+    xstr = opstr.join(xkeys)
+    # Construct and return formula
+    return f'{ykey} ~ {xstr}'
+
+
+def anova(data, ykey, xkey, categorical=True, typ=1, interaction=False, full_output=False, gby=None, verbose=True):
+    '''
+    Wrapper around the statsmodels ANOVA functions to perform a 1 or 2-way
     ANOVA to assess whether a dependent variable is dependent
     on two given independent variables (i.e. group, factor).
 
     :param data: pandas dataframe
-    :param xkey: name of column (or index dimension) containing the first independent variable
-    :param ykey: name of column (or index dimension) containing the second independent variable
-    :param zkey: name of column containing the dependent variable
+    :param xkey: name of column(s) (or index dimension(s)) containing the independent variable(s)
+    :param ykey: name of column containing the dependent variable
     :param categorical: scalar or 2-tuple of booleans indicating whether the independent variables are categorical (default: True)
+    :param typ: type of ANOVA to perform (default: 2)
     :param interaction: whether to include interaction term in the model
+    :param gby: grouping variables
     :param full_output: whether to return full ANOVA table or just the p-values
+    :param verbose: whether to print out results
+    :return: p-values for dependency of y on factor(s) and their interaction, or full ANOVA table
     '''
-    # If categorical is a scalar, apply it to both x and y
+    # Cast xkey and categorical to lists if not already
+    xkey = as_iterable(xkey)
+    # Check that number of independent variables is <= 2
+    if len(xkey) > 2:
+        raise ValueError('ANOVA currently supports maximum 2 independent variables')
+    # If categorical is a scalar, apply it to all independent variables
     if not is_iterable(categorical):
-        categorical = (categorical, categorical)
-    # Otherwise, make sure that it is a 2-tuple of booleans
-    else:
-        if len(categorical) != 2 or not all(isinstance(c, bool) for c in categorical):
-            raise ValueError('categorical must be a scalar or a 2-tuple of booleans')
-    
-    # Extract and rename columns of interest to ensure compatibility
-    # with statsmodels formula API
-    data = data.reset_index()[[xkey, ykey, zkey]].rename(columns={xkey: 'x', ykey: 'y', zkey: 'z'})
-    
-    # Define formula and output xkeys
-    formula_xkey = 'C(x)' if categorical[0] else 'x'
-    output_xkey = f'C({xkey})' if categorical[0] else xkey
-    formula_ykey = 'C(y)' if categorical[1] else 'y'
-    output_ykey = f'C({ykey})' if categorical[1] else ykey
+        categorical = (categorical,) * len(xkey)
+    # Otherwise, check that xkey and categorical have the same length
+    elif len(xkey) != len(categorical):
+        raise ValueError('xkey and categorical must have the same length')
+    # Check that categorical is a tuple of booleans
+    if not all(isinstance(c, bool) for c in categorical):
+        raise ValueError('categorical must be a scalar or a tuple of booleans')
 
-    # Construct formula
-    formula = f'z ~ {formula_xkey} * {formula_ykey}' if interaction else f'z ~ {formula_xkey} + {formula_ykey}'
+    # Log process, if requested
+    if verbose:
+        formula = anova_formula(
+            ykey, xkey, categorical=categorical, interaction=interaction)
+        s = f'performing "{formula}" type {typ} ANOVA'
+        if gby is not None:
+            s = f'{s} across {gby}'
+        logger.info(s)
+    
+    # If gby is specified, apply 2-way ANOVA to each group
+    if gby is not None:
+        out = {}
+        for glabel, gdata in tqdm(data.groupby(gby)):
+            out[glabel] = anova(
+                gdata, ykey, xkey, 
+                categorical=categorical, typ=typ, interaction=interaction, 
+                full_output=full_output, verbose=False)
+        return pd.concat(
+            out, 
+            axis=0,
+            names=gby,
+            keys=out.keys(),
+        )
+
+    # Define placeholders for dependent and independent variables to ensure compatibility
+    # with statsmodels formula API
+    xplaceholders = [f'x{i}' for i in range(len(xkey))]
+    yplaceholder = 'y'
+    col_mapper = {xk: xp for xk, xp in zip(xkey, xplaceholders)}
+    col_mapper[ykey] = yplaceholder
+
+    # Extract and rename columns of interest
+    data = data.reset_index()[[*xkey, ykey]].rename(columns=col_mapper)
+
+    # Construct placeholder formula
+    placeholder_formula = anova_formula(
+        yplaceholder, xplaceholders, categorical=categorical, interaction=interaction)
 
     # Construct OLS model with data
-    model = ols(formula, data=data).fit()
+    model = ols(placeholder_formula, data=data).fit()
 
-    # Extract results table for type I ANOVA
-    anova_table = sm.stats.anova_lm(model, typ=1)
-
-    # Rename some table entries
-    anova_table = anova_table.rename(
-        index={formula_xkey: output_xkey, formula_ykey: output_ykey},  # formula dep. keys -> output dep. xkeys
-        columns={  # rename columns for clarity
-            'sum_sq': 'SS',
-            'PR(>F)': 'p-value'
-        })
-    if interaction:
-        anova_table = anova_table.rename(
-            index={f'{formula_xkey}:{formula_ykey}': f'{output_xkey}:{output_ykey}'})
+    # Extract results table for appropriate ANOVA type
+    anova_table = sm.stats.anova_lm(model, typ=typ)
+    anova_table.index.name = 'factor'
     
-    # Return full table if requested
+    # Construct factors mapper 
+    factor_mapper = dict(zip(
+        parse_factor(xkey, categorical), parse_factor(xplaceholders, categorical)))
+    if interaction:
+        factor_mapper[':'.join(factor_mapper.keys())] = ':'.join(factor_mapper.values())
+
+    # Rename factor rows
+    anova_table = anova_table.rename(index={v: k for k, v in factor_mapper.items()})
+
+    # If full output requested, add effect size columns
     if full_output:
-        # Add effect size column
-        anova_table['eta^2'] = anova_table['SS'] / (anova_table['SS'] + anova_table.loc['Residual', 'SS'])
-        anova_table.loc['Residual', 'eta^2'] = np.nan
-
-        # Return
+        anova_table['η²'] = eta_squared(anova_table)
+        if 'mean_sq' in anova_table.columns:
+            anova_table['ω²'] = omega_squared(anova_table)
+    
+    # Rename some table columns for compatibility with other statistical tests
+    anova_table = anova_table.rename(columns={
+        'sum_sq': 'SS',
+        'PR(>F)': 'p-value'
+    })
+    
+    # Return
+    if full_output:
         return anova_table
-
-    # Otherwise, return relevant p-values for dependency
-    return anova_table.loc[[xkey, ykey, f'{xkey}:{ykey}'], 'p-value']
+    else:
+        pval = anova_table['p-value'].drop('Residual')
+        if len(pval) == 1:
+            pval = pval.iloc[0]
+        return pval
 
 
 def sum_of_square_devs(x):

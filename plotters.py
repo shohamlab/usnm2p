@@ -149,28 +149,6 @@ def harmonize_axes_limits(axes, axkey='y'):
             limsetter(ax)(*bounds)
 
 
-def parse_axis_label(label):
-    '''
-    Extract name and unit from axis label, or raise error if not possible
-
-    :param label: axis label
-    :return: name and unit
-    '''
-    # Regular expression for "<name> (<unit>)" label
-    lbl_pattern = r'^(.*)\s*\s\((.*)\)$' 
-
-    # Attempt to match pattern to label
-    mo = re.match(lbl_pattern, label)
-
-    # If no match found, raise Error
-    if mo is None:
-        raise ValueError(f'could not extract unit from "{label}" label')
-    
-    # If label matches pattern, extract name and unit, and return
-    name, unit = mo.groups()
-    return name, unit
-
-
 def add_minimal_xy_scale(ax, pos='bottom-left', hide_original=True, xunit='auto', yunit='auto', 
                          anchor_margin=0, lw=2, fs=12, adjust_background=True):
     ''' 
@@ -252,7 +230,7 @@ def add_minimal_xy_scale(ax, pos='bottom-left', hide_original=True, xunit='auto'
         if unit == 'auto':
             lbl = getattr(ax, f'get_{k}label')()
             try:
-                _, unit = parse_axis_label(lbl)
+                _, unit = parse_label(lbl)
             except ValueError:
                 logger.warning(f'could not parse name and unit from {k} label "{lbl}" -> using entire label as unit')
                 unit = lbl
@@ -3407,8 +3385,8 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         # Aggregate data by input value and dataset
         dataset_agg_data = data.groupby([xkey, Label.DATASET])[ykey].mean()
         # Compute 1-way ANOVA on dataset-aggregated data
-        pval = anova1d(
-            dataset_agg_data.reset_index(), xkey, ykey,
+        pval = anova(
+            dataset_agg_data.reset_index(), ykey, xkey,
             categorical=False
         )
         pstr = f'p = {pval:.3f}' if pval >= 0.001 else 'p < 0.001' 
@@ -4662,7 +4640,7 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
                     if add_metrics:
                         ythr = .1 * yfitdense.max()
                         xthr = np.interp(ythr, yfitdense, xdense)
-                        _, xunit = parse_axis_label(xkey)
+                        _, xunit = parse_label(xkey)
                         logger.info(f'10% activation threshold for {line} line: {xthr:.2f} {xunit}')
                         ax.axvline(xthr, c=color, ls='--', lw=1)
 
@@ -5934,7 +5912,7 @@ def plot_enriched_parameter_dependency(df, xkey=Label.ISPTA, ykey=None, yref=0.,
     if run_anova:
         # Assess dependency of output variable on parameter
         logger.info(f'assessing dependence of {ykey} on {xkey} with ANOVA...')
-        anova_pval = anova1d(df, xkey, ykey)
+        anova_pval = anova(df, ykey, xkey)
         logger.info(f'pvalue = {anova_pval:.3g}')
 
         # Add significance level

@@ -13,6 +13,7 @@ from pandas.api.types import is_numeric_dtype
 import operator
 from functools import wraps
 from fractions import Fraction
+import re
 
 from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME, PA_TO_MPA, M2_TO_CM2
 from logger import logger
@@ -1420,3 +1421,26 @@ def get_idx_slice_size(s):
     if s.start is None or s.stop is None:
         raise ValueError('start and stop must be defined')
     return s.stop - s.start
+
+
+
+def parse_label(label):
+    '''
+    Extract name and unit from label, or raise error if not possible
+
+    :param label: label
+    :return: name and unit
+    '''
+    # Regular expression for "<name> (<unit>)" label
+    lbl_pattern = r'^(.*)\s*\s\((.*)\)$' 
+
+    # Attempt to match pattern to label
+    mo = re.match(lbl_pattern, label)
+
+    # If no match found, raise Error
+    if mo is None:
+        raise ValueError(f'could not extract unit from "{label}" label')
+    
+    # If label matches pattern, extract name and unit, and return
+    name, unit = mo.groups()
+    return name, unit
