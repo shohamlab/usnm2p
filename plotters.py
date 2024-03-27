@@ -6390,3 +6390,56 @@ def plot_traces_vs_exclusion(timeseries, stats, ykey, keys=None, add_combs=False
 
     # Return figure handle
     return fig
+
+
+def add_mean_and_sem_bars(add_text=False, ytxt=.9, **kwargs):
+    '''
+    Add mean bar and SEM error bars to a plot
+    
+    :param add_text: whether to add text with mean and SEM values
+    '''
+    for k in ['ax', 'data', 'x', 'y']:
+        if k not in kwargs:
+            raise ValueError(f'missing required keyword argument: {k}')
+    kwargs = kwargs.copy()
+    color = kwargs.pop('color', 'k')
+    for errorbar, capsize in zip([('ci', 0), 'se'], [.3, 0]):
+        sns.pointplot(
+            **kwargs, 
+            join=False, 
+            color=color,
+            capsize=capsize, 
+            scale=0,
+            errorbar=errorbar,
+        )
+    if add_text:
+        ax, ykey = kwargs['ax'], kwargs['y']
+        ymu, ysem = kwargs['data'][ykey].agg(['mean', 'sem'])
+        label = f'{ykey} = {ymu:.2g} ± {ysem:.2g}'
+        ax.text(.5, ytxt, label, transform=ax.transAxes, ha='center', va='top')
+
+
+def add_regression_line(add_text=False, ytxt=.9, robust=False, ls='-', **kwargs):
+    '''
+    Add linear regression line to a plot
+
+    :param add_text: whether to add text with regression parameters
+    '''
+    for k in ['ax', 'data', 'x', 'y']:
+        if k not in kwargs:
+            raise ValueError(f'missing required keyword argument: {k}')
+    kwargs = kwargs.copy()
+    color = kwargs.pop('color', 'k')
+    regdf = apply_linregress(
+        kwargs['data'],
+        xkey=kwargs['x'], 
+        ykey=kwargs['y'], 
+        robust=robust
+    )
+    y0, s, p = regdf[['intercept', 'slope', 'pval']]
+    ax = kwargs['ax']
+    ax.axline((0, y0), (1, s + y0), c=color, ls=ls)
+    if add_text:
+        regstr = f's = {s:.2g} (p = {p:.3f})'
+        ax.text(.5, ytxt, regstr, color=color, transform=ax.transAxes, ha='center', va='top')
+    
