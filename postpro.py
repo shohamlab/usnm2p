@@ -3921,3 +3921,23 @@ def compute_crossROIs_correlations(data, key, remove_diag=True, remove_utri=True
 
     # Return 
     return C
+
+
+def extract_run_index(table, P=P_REF, DC=DC_REF):
+    '''
+    Extract run index for a given P, DC condition
+
+    :param table: run-indexed pandas dataframe with experiment parameters
+    :param P: pressure condition (default = P_PREF) 
+    :param DC: duty cycle condition (default = DC_REF)
+    :return: run index for specified P, DC condition
+    '''
+    # Extract parameters by run from info table
+    pbyrun = get_params_by_run(table)
+    # Identify target condition in info table
+    iscond = (pbyrun[Label.P] == P) & (pbyrun[Label.DC] == DC) 
+    # If no run found for target condition, raise error
+    if iscond.sum() == 0:
+        raise ValueError(f'no run found for P = {P}, DC = {DC}')
+    # Return run index for target condition
+    return pbyrun[iscond].index[0]
