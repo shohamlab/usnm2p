@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-13 14:12:50
+# @Last Modified time: 2024-03-29 17:01:00
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3402,14 +3402,15 @@ def phase_clustering(phi, aggby):
     )
 
 
-def shuffle(y, keep_index=True, key=None, gby=None):
+def shuffle(y, keep_index=True, key=None, gby=None, verbose=True):
     '''
     Shuffle input
     
     :param y: input (pandas Series/DataFrame object or iterable)
     :param keep_index: whether to keep original index (only for pandas inputs)
     :param key: name of specific column for which to shuffle data (optional, only for DataFrame inputs)
-    :param gby: name of dimension along which to shuffle data (optional, only for pandas inputs)
+    :param gby: name of grouping dimension(s) inside which to shuffle data (optional)
+    :param verbose: verbosity flag
     :return: input with shuffled values
     '''
     # If column key specified
@@ -3429,7 +3430,7 @@ def shuffle(y, keep_index=True, key=None, gby=None):
                 if gb not in yout.index.names:
                     yout = yout.set_index(gb, append=True)
                     extraidx.append(gb)
-        # Shuffle specified column
+        # Shuffle specified column and keeping overall index
         yout[key] = shuffle(yout[key], keep_index=True, gby=gby)
         # Reset added index dimensions as columns
         for gb in extraidx:
@@ -3447,10 +3448,20 @@ def shuffle(y, keep_index=True, key=None, gby=None):
             raise ValueError('input must be a pandas Series/DataFrame object or an iterable')
         # Otherwise, convert to Series
         y = pd.Series(y)
-    
+
+    # Log process if required 
+    if verbose:
+        s = f'shuffling {y.name} data'
+        if gby is not None:
+            s += f' within {gby} groups'
+        logger.info(s)
+
     # If specified, shuffle data along specified dimension
     if gby is not None:
-        yout = y.groupby(gby).apply(lambda x: x.sample(frac=1))
+        groups = y.groupby(gby)
+        with tqdm(total=len(groups)) as pbar:
+            yout = groups.apply(pbar_update(lambda x: x.sample(frac=1).droplevel(gby), pbar))
+
     # Otherwise, shuffle data along its entire length
     else:
         yout = y.sample(frac=1)
@@ -3465,6 +3476,90 @@ def shuffle(y, keep_index=True, key=None, gby=None):
 
     # Return
     return yout
+
+
+def cyclic_shift(y, key=None, n=None, keep_index=True, gby=None, verbose=True):
+    '''
+    Cyclically shift a pandas Series by n positions.
+
+    :param s: pandas Series
+    :param key: name of specific column for which to shift data (optional, only for DataFrame inputs)
+    :param n: number of positions to shift (default: random)
+    :param keep_index: whether to keep original index (default: True)
+    :param gby: dimension along which to group data before shifting
+    :param verbose: verbosity flag
+    :return: shifted pandas Series
+    '''
+    # Assess whether input is a pandas series (Series or DataFrame)
+    is_pandas_input = isinstance(y, (pd.Series, pd.DataFrame))
+
+    # Extract key if pandas input
+    if is_pandas_input:
+        # If dataframe input, make sure column of interest is present
+        if isinstance(y, pd.DataFrame):
+            if key is None:
+                raise ValueError('key must be specified for DataFrame inputs')
+            if key not in y.columns:
+                raise ValueError(f'"{key}" not found in input DataFrame columns')
+        # Otherwise, extract name of series
+        else:
+            key = y.name
+    # Otherwise, set key to empty string
+    else:
+        key = ''
+
+    # Log process if required 
+    if verbose:
+        s = f'performing cyclic shift of {key} data'
+        if gby is not None:
+            s += f' within {gby} groups'
+        logger.info(s)
+
+    # If specified, shuffle data along specified dimension
+    if gby is not None:
+        if not is_pandas_input:
+            raise ValueError('groupby option only available for pandas Series/DataFrame inputs')
+        groups = y.groupby(gby)
+        with tqdm(total=len(groups)) as pbar:
+            yout = groups.apply(pbar_update(
+                lambda x: cyclic_shift(
+                    x, key=key, n=n, keep_index=keep_index, verbose=False).droplevel(gby), 
+                    pbar))
+        return yout
+
+    # In case it is not
+    if not is_pandas_input:
+        # If not an iterable, raise error
+        if not is_iterable(y):
+            raise ValueError('input must be a pandas Series/DataFrame object or an iterable')
+        # Otherwise, convert to Series
+        y = pd.Series(y)
+    
+    # If dataframe input, extract column of interest
+    if isinstance(y, pd.DataFrame):
+        y = y[key]
+
+    # Randomly select shift value if not provided
+    if n is None:
+        n = np.random.randint(len(y))
+
+    # Check that shift value is within bounds
+    if n > len(y):
+        raise ValueError(f'required shift ({n}) > input length ({len(y)})')
+
+    # Perform cyclic shift
+    sout = y.reindex(index=np.roll(y.index, n))
+
+    # Keep original index if requested
+    if keep_index:
+        sout.index = y.index
+    
+    # If input was not pandas object, convert back to numpy array
+    if not is_pandas_input:
+        yout = yout.values
+
+    # Return
+    return sout
 
 
 def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, remove_utri=False):
@@ -3876,13 +3971,14 @@ def compute_vca(data, groupkey=None, **fit_kwargs):
     logger.info(f'VCA results:\n{res.summary().as_text()}')
     return res
 
-def compute_crossROIs_correlations(data, key, remove_diag=True, remove_utri=True, 
+
+def compute_crossROIs_correlations(data, key=None, remove_diag=True, remove_utri=True, 
                                    serialize=False, by=None):
     ''' 
     Compute pairwise correlation across ROIs for a specific statistics.
     
-    :param data: multi-indexed pandas Series with data to correlate
-    :param key: key of statistics to correlate
+    :param data: multi-indexed pandas dataframe/series with data to correlate
+    :param key: key of statistics to correlate (for dataframe inputs)
     :param remove_diag: whether to remove diagonal elements from correlation matrix
     :param remove_utri: whether to remove upper triangular elements from correlation matrix
     :param serialize: whether to serialize correlation matrix to 1D array
@@ -3891,22 +3987,35 @@ def compute_crossROIs_correlations(data, key, remove_diag=True, remove_utri=True
     '''
     # If grouping dimension specified, compute pairwise correlations within each group
     if by is not None: 
+        # groups = data.groupby(by)
+        # with tqdm(total=len(groups)) as pbar:
+        #     out = groups.apply(pbar_update(
+        #         lambda x: compute_crossROIs_correlations(
+        #             x, key=key, remove_diag=remove_diag, remove_utri=remove_utri, serialize=serialize), pbar))
+        # return out.rename('R')
         return (data
             .groupby(by)
             .apply(lambda x: compute_crossROIs_correlations(
-                x, key, remove_diag=remove_diag, remove_utri=remove_utri,
-                serialize=True))
-    )
+                x, key=key, remove_diag=remove_diag, remove_utri=remove_utri, serialize=True))
+            .rename('R')
+        )
+    
+    # For dataframe inputs, extract column of interest
+    if isinstance(data, pd.DataFrame):
+        if key is None:
+            raise ValueError('key must be specified for DataFrame inputs')
+        if key not in data.columns:
+            raise ValueError(f'"{key}" not found in input DataFrame columns')
+        data = data[key]
 
     # Gather non-ROI index dimensions
     extra_dims = [d for d in data.index.names if d != Label.ROI]
     
-    # Unstack series and compute pairwise correlation matrix
-    C = (data[key]
-        .unstack(level=extra_dims)
-        .T
-        .corr()
-    )
+    # Unstack series into (ROI x samples) matrix
+    M = data.unstack(level=extra_dims).T
+    
+    # Compute pairwise correlation matrix
+    C = M.corr()
 
     # If specified, remove diagonal elements
     if remove_diag:
@@ -3920,6 +4029,7 @@ def compute_crossROIs_correlations(data, key, remove_diag=True, remove_utri=True
     if serialize:
         C = C.stack().dropna().sort_index().rename('R')
         C.index.names = ['ROI1', 'ROI2']
+        C.name = 'R'
 
     # Return 
     return C
@@ -3945,6 +4055,21 @@ def extract_run_index(table, P=P_REF, DC=DC_REF):
     return pbyrun[iscond].index[0]
 
 
+def compute_covariance_matrix(y):
+    '''
+    Compute covariance matrix of data grouped by "by" dimension.
+
+    :param y: 2D (features x samples) input provided as pandas series
+    :return: pandas dataframe with covariance matrix
+    '''
+    # Squeeze index levels with only one value
+    y = squeeze_multiindex(y)
+    # Unstack series along sample dimension
+    Y = y.unstack().T
+    # Return covariance matrix
+    return Y.cov()
+
+
 def shuffle_columns(data):
     ''' Shuffle values within each column of a 2D array '''
     # Create empty copy of input data
@@ -3958,34 +4083,69 @@ def shuffle_columns(data):
     return shuffled_data
 
 
-def fit_PCA(y, mean_correct=True, norm=True, shuffle=False, verbose=True):
+def fit_PCA(y, n_components=None, mean_correct=True, norm=True, shuffle=False, verbose=True, gby=None, **kwargs):
     '''
-    Apply PCA on a 2D pandas series
+    Fit Principal Component tensor to a 2D pandas series.
 
-    :param y: 2D (features x samples) response provided as pandas series
-    :param mean_correct: bool, whether to subtract the mean from the response before decomposition
-    :param norm: bool, whether to normalize the response before decomposition
+    :param y: 2D (features x samples) input provided as pandas series
+    :param n_components: number of components in the PC tensor 
+    :param mean_correct: bool, whether to mean-subtract each feature before decomposition
+    :param norm: bool, whether to normalize each feature before decomposition
     :param shuffle: whether to shuffle 
     :param verbose: verbosity flag
+    :param gby: dimension along which to group data before fitting
+    :param kwargs: additional keyword arguments to pass to PCA model
     :return: PCA model object
     '''
+    # Create tensor descriptor if log requested
+    if verbose:
+        if n_components is not None:
+            tensor_prefix = f'{n_components}-component'
+            if n_components > 1:
+                tensor_prefix += 's'
+            tensor_prefix = f'{tensor_prefix} '
+        else:
+            tensor_prefix = ''
+        tensor_str = f'{tensor_prefix}PC tensor'
+
+    # If grouping dimension specified, fit PCA within each group
+    if gby is not None:
+        # Log if requested
+        if verbose:
+            fkey, skey = excluded(y, gby)
+            input_str = f'({fkey} x {skey}) {y.name} input'
+            if shuffle:
+                input_str = f'shuffled {input_str}'
+            logger.info(f'fitting {tensor_str} to {input_str} across {gby}')
+
+        groups = y.groupby(gby)
+        with tqdm(total=len(groups)) as pbar:
+            out = groups.apply(pbar_update(
+                lambda x: fit_PCA(
+                    x, n_components=n_components, mean_correct=mean_correct, norm=norm, shuffle=shuffle, verbose=False), pbar))
+        return out.rename('PCA')
+    
     # Squeeze index levels with only one value
-    for name in y.index.names:
-        if len(y.index.unique(level=name)) == 1:
-            y = y.droplevel(name)
+    y = squeeze_multiindex(y)
 
     # Check input validity
-    if len(y.index.names) != 2:
+    if not isinstance(y, pd.Series) or len(y.index.names) != 2:
         raise ValueError('input must be a 2D series')
-
-    # Extract feature and sample names
+    
+    # Extract feature and sample keys 
     fkey, skey = y.index.names
-    if verbose:
-        logger.info(f'decomposing {fkey} x {skey} response')
 
-    # Convert series to (samples x features) array
+    # Convert series to (samples x features) array, and extract dimensions
     X = mux_series_to_array(y).T
+    ns, nf = X.shape
 
+    # Log if requested
+    if verbose:
+        input_str = f'({nf} {fkey}s x {ns} {skey}s) {y.name} input'
+        if shuffle:
+            input_str = f'shuffled {input_str}'
+        logger.info(f'fitting {tensor_str} to {input_str}')
+    
     # If required, shuffle columns
     if shuffle:
         X = shuffle_columns(X)
@@ -3995,36 +4155,119 @@ def fit_PCA(y, mean_correct=True, norm=True, shuffle=False, verbose=True):
     X = scaler.fit_transform(X)
 
     # Fit PCA model to the data
-    pca = PCA()
+    pca = PCA(n_components=n_components, **kwargs)
     pca.fit(X)
 
     # Return PCA object
     return pca
 
 
-def decompose_response(y, gby=None, verbose=True, **kwargs):
+def extract_PC_loadings(pca, fkey, verbose=True):
     '''
-    Decompose response
+    Extract PC loadings matrix as a 2D pandas series
 
-    :param y: 2D (features x samples) response provided as pandas series
-    :param gby: list of str, grouping variables to apply decomposition across groups
+    :param pca: PCA model object
+    :param fkey: feature key
     :param verbose: verbosity flag
+    :return: 2D pandas series with (PC, features) PC loadings
     '''
-    # If grouping variables specified, apply decomposition across groups
-    if gby is not None:
-        return (y
-            .groupby(gby)
-            .apply(lambda s: decompose_response(s, **kwargs, verbose=False))
-            .rename('explained variance')
-        )
-    
-    # Fit PCA to input series and return PCA model object
-    pca = fit_PCA(y, **kwargs, verbose=verbose)
+    # Log if requested
+    if verbose:
+        logger.info(f'extracting PC loadings from PCA results')
 
-    # Extract fraction of variance explained by each PC
+    # If input is a series, apply function to each element
+    if isinstance(pca, pd.Series):
+        df = pca.apply(
+            lambda x: extract_PC_loadings(x, fkey, verbose=False))
+        return df.stack()
+    
+    # Extract (PC, features) loadings matrix from PCA model
+    W = pca.components_
+
+    # Cast as 2D series
+    name = 'loading'
+    s = array_to_dataframe(W, name, dim_names=['PC', fkey])[name]
+    
+    # Set PC index values to start from 1 instead of 0
+    W = s.unstack()
+    W.index = W.index + 1
+    s = W.stack().rename(name)
+
+    # Return
+    return s
+
+
+def extract_explained_variance(pca, cumulative=False, verbose=True):
+    ''' 
+    Extract fraction of variance explained by each PC from a fitted PC tensor
+    
+    :param pca: PCA model object
+    :param cumulative: bool, whether to compute cumulative explained variance
+    :return: 1D pandas series with explained variance for each PC
+    '''
+    # Log if requested
+    if verbose:
+        logger.info(f'extracting explained variance from PCA results')
+
+    # If input is a series, apply function to each element
+    if isinstance(pca, pd.Series):
+        df = pca.apply(
+            lambda x: extract_explained_variance(x, cumulative=cumulative, verbose=False))
+        return df.stack().rename('explained variance')
+        
+    # Extract explained variance from PCA object
     expvar = pd.Series(
         pca.explained_variance_ratio_,
-        index=pd.Index(np.arange(1, pca.n_components_ + 1), name='PC'),
         name='explained variance'
     )
+    expvar.index = expvar.index + 1
+    expvar.index.name = 'PC'
+
+    # Compute cumulative variance if requested
+    if cumulative:
+        expvar = expvar.cumsum()
+        expvar.name = f'cumulative {expvar.name}'
+        expvar.index.name = '# PCs'
+    
+    # Return
     return expvar
+
+
+def transform_PCA(y, pca, mean_correct=True, norm=True, verbose=True):
+    '''
+    Transform input 2D pandas series using a fitted PCA model.
+
+    :param y: 2D (features x samples) input provided as pandas series
+    :param pca: PCA model object
+    :param mean_correct: bool, whether to mean-subtract each feature before transformation
+    :param norm: bool, whether to normalize each feature before transformation
+    :param verbose: verbosity flag
+    :return: transformed 2D pandas series
+    '''
+    # Squeeze index levels with only one value
+    y = squeeze_multiindex(y)
+
+    # Check input validity
+    if not isinstance(y, pd.Series) or len(y.index.names) != 2:
+        raise ValueError('input must be a 2D series')
+
+    # Extract feature and sample keys 
+    fkey, skey = y.index.names
+
+    # Convert series to (samples x features) array, and extract dimensions
+    X = mux_series_to_array(y).T
+    ns, nf = X.shape
+
+    # Log if requested
+    if verbose:
+        logger.info(f'transforming ({nf} {fkey}s x {ns} {skey}) {y.name} input')
+
+    # Standardize input
+    scaler = StandardScaler(with_mean=mean_correct, with_std=norm)
+    X = scaler.fit_transform(X)
+
+    # Transform input using PCA model
+    Xout = pca.transform(X)
+
+    # Return transformed data as 2D series
+    return array_to_dataframe(Xout.T, y.name, dim_names=['PC', skey])

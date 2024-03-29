@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-18 18:46:48
+# @Last Modified time: 2024-03-29 15:48:47
 
 ''' Collection of plotting utilities. '''
 
@@ -4663,8 +4663,8 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
 
 
 def plot_stat_heatmap(data, ykey=None, rowkey=None, colkey=None, robust=True, add_cv=False, 
-                   aggfunc=None, sortby=None, ascending=False, add_marginals=False, sparse_ticks=None, 
-                   marg_color='k', title=None, ax=None):
+                   aggfunc=None, sortby=None, ascending=False, add_marginals=False, 
+                   marg_error=None, marg_color='k', sparse_ticks=None, title=None, ax=None):
     '''
     Plot heatmap of statistics across 2 dimensions
 
@@ -4678,6 +4678,7 @@ def plot_stat_heatmap(data, ykey=None, rowkey=None, colkey=None, robust=True, ad
     :param sortby (optional): dimension across which to sort matrix before rendering. One of "row" or "col"
     :param ascending (optional): whether to sort in ascending order
     :param add_marginals (optional): whether to add marginal profiles to heatmap
+    :param marg_error (optional): whether/how to add error bars to marginal profiles
     :param marg_color (optional): marginal profile color
     :param sparse_ticks (optional): whether to show only first and last tick labels for specific axes. One of "x", "y", or "xy"
     :param title (optional): graph title
@@ -4752,7 +4753,6 @@ def plot_stat_heatmap(data, ykey=None, rowkey=None, colkey=None, robust=True, ad
     # Log 
     logger.info(f'plotting {ykey} distribution across {rowkey} and {colkey}')
     
-    
     # Create/retrieve figure and ax(es)
     if ax is None:
         # If marginals required, use jointgrid configuration
@@ -4798,8 +4798,8 @@ def plot_stat_heatmap(data, ykey=None, rowkey=None, colkey=None, robust=True, ad
             pltkwargs = dict(
                 ax=marg_ax,
                 **xydict,
-                errorbar=None,
                 color=marg_color,
+                errorbar=marg_error,
             )
             if xk == rowkey:
                 if sortby is not None:
@@ -6580,10 +6580,12 @@ def add_mean_and_sem_bars(add_text=False, ytxt=.9, **kwargs):
     for errorbar, capsize in zip([('ci', 0), 'se'], [.3, 0]):
         sns.pointplot(
             **kwargs, 
+            # linestyle='none',
+            # markersize=0,
             join=False, 
+            scale=0,
             color=color,
             capsize=capsize, 
-            scale=0,
             errorbar=errorbar,
         )
     if add_text:

@@ -20,4 +20,5 @@ openpyxl
 scikit-image
 spectrum
 lockfile
+diptest
 suite2p==0.10.2

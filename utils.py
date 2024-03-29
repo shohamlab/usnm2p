@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-17 15:21:42
+# @Last Modified time: 2024-03-29 13:06:41
 
 ''' Collection of generic utilities. '''
 
@@ -275,6 +275,22 @@ def list_difference(l1, l2):
     '''
     diff = set(l1) - set(l2)
     return [o for o in l1 if o in diff]
+
+
+def excluded(mux, key):
+    '''
+    Get the names of the dimensions of a dataframe, excluding (a) specific one(s) 
+
+    :param df: multiindex/dataframe/series object
+    :param key: name of the dimension(s) to exclude
+    '''
+    if isinstance(mux, (pd.Series, pd.DataFrame)):
+        mux = mux.index
+    if not isinstance(mux, pd.MultiIndex):
+        raise ValueError('input is not a multi-index object')
+    if not is_iterable(key):
+        key = [key]
+    return list_difference(mux.names, key)
 
 
 def expand_to_match(df, mux):
@@ -1444,3 +1460,15 @@ def parse_label(label):
     # If label matches pattern, extract name and unit, and return
     name, unit = mo.groups()
     return name, unit
+
+
+def squeeze_multiindex(x):
+    '''
+    Squeeze multiindex pandas object by removing index levels with only one value
+    '''
+    if not isinstance(x, (pd.DataFrame, pd.Series)):
+        raise ValueError('input must be a pandas DataFrame or Series')
+    for name in x.index.names:
+        if len(x.index.unique(level=name)) == 1:
+            x = x.droplevel(name)
+    return x
