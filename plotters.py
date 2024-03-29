@@ -2367,7 +2367,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
     :param center (optional): center value of colormap
     :param vmin (optional): lower bound of colormap
     :param vmax (optional): upper bound of colormap
-    :param quantile_bounds (optional): distirbution quantiles used to set the colorbar limits.
+    :param quantile_bounds (optional): distribution quantiles used to set the colorbar limits.
         If none, the data bounds are taken.
     :param mark_stim: whether to mark the stimulus onset with a vertical line (default = True)
     :param col_order (optional): order of columns
@@ -3883,7 +3883,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None, deta
     if title is not None:
         stitle = f'{title} ({stitle})'
 
-    # If details not requested, plot histogram distirbution of cell counts per hue
+    # If details not requested, plot histogram distribution of cell counts per hue
     if not details:
         gby = [Label.DATASET]
         if hue is not None:
@@ -4662,29 +4662,203 @@ def plot_parameter_dependency_across_lines(data, xkey, ykey, yref=0., axes=None,
     return fig
 
 
-def plot_stat_heatmap(data, ykey, ax=None, run_order=None, aggfunc=None, **kwargs):
-    ''' 
-    Plot a heatmap of statistics across runs & trials
-
-    :param data: multi-index statistics dataframe
-    :param ykey: variable of interest
-    :return: figure handle    
+def plot_stat_heatmap(data, ykey=None, rowkey=None, colkey=None, robust=True, add_cv=False, 
+                   aggfunc=None, sortby=None, ascending=False, add_marginals=False, sparse_ticks=None, 
+                   marg_color='k', title=None, ax=None):
     '''
-    # Create or retrieve figure
-    if ax is None:
-        fig, ax = plt.subplots()
-    else:
-        fig = ax.get_figure()
-    ax.set_title(f'{ykey} across runs and trials')
-    # Aggregate across ROIs for each run & trial
+    Plot heatmap of statistics across 2 dimensions
+
+    :param data: 2D statistics dataframe/series
+    :param ykey (optional): variable of interest. Must be provided for dataframe inputs with more than 1 column
+    :param rowkey (optional): row index key
+    :param colkey (optional): column index key
+    :param robust (optional): whether to use robust scaling for heatmap
+    :param add_cv (optional): whether to add coefficient of variation to heatmap
+    :param aggfunc (optional): aggregation function (default: np.mean)
+    :param sortby (optional): dimension across which to sort matrix before rendering. One of "row" or "col"
+    :param ascending (optional): whether to sort in ascending order
+    :param add_marginals (optional): whether to add marginal profiles to heatmap
+    :param marg_color (optional): marginal profile color
+    :param sparse_ticks (optional): whether to show only first and last tick labels for specific axes. One of "x", "y", or "xy"
+    :param title (optional): graph title
+    :param ax (optional): heatmap axis handle
+    :return: figure handle
+    '''
+    # Extract aggregation function
     if aggfunc is None:
-        aggfunc = lambda x: x.mean()
-    yagg = data[ykey].groupby([Label.RUN, Label.TRIAL]).agg(aggfunc)
-    # Plot heatmap
-    table = yagg.unstack()
-    if run_order is not None:
-        table = table.reindex(run_order, axis=0)
-    sns.heatmap(table, ax=ax, center=0, **kwargs)
+        aggfunc = 'mean'
+
+    # Extract ykey
+    if ykey is None:
+        if isinstance(data, pd.DataFrame):
+            if data.shape[1] > 1:
+                raise ValueError('ykey must be provided for multi-column dataframes')
+            ykey = data.columns[0]
+        else:
+            ykey = data.name
+
+    # Extract series
+    if isinstance(data, pd.DataFrame):
+        y = data[ykey]
+    else:
+        y = data.copy()
+    
+    # Check input validity and aggregate across extra dimensions
+    if y.index.nlevels < 2:
+        raise ValueError('input data must have at least 2 index levels')
+    if y.index.nlevels > 2: 
+        if rowkey is None or colkey is None:
+            raise ValueError('rowkey and colkey must be provided for inputs with more than 2 index levels')
+        y = y.groupby([rowkey, colkey]).agg(aggfunc)
+    
+    # Extract row and column keys, if not provided
+    refkeys = list(y.index.names)
+    if rowkey is None and colkey is None:
+        rowkey, colkey = y.index.names
+    else:
+        if rowkey is not None:
+            if rowkey not in refkeys:
+                raise ValueError(f'"{rowkey}" not found in data index')
+            if colkey is None:
+                colkey = [k for k in refkeys if k != rowkey][0]
+        if colkey is not None:
+            if colkey not in refkeys:
+                raise ValueError(f'"{colkey}" not found in data index')
+            if rowkey is None:
+                rowkey = [k for k in refkeys if k != colkey][0]
+
+    # Format as table
+    ytable = y.unstack()
+    if rowkey != ytable.index.name:
+        ytable = ytable.T
+
+    # If sortby specified, sort table along specified dimension
+    if sortby is not None:
+        if sortby not in ['row', 'col']:
+            raise ValueError('sortby must be one of ["row", "col"]')
+        sort_ax = 1 if sortby == 'row' else 0
+        sort_key = rowkey if sortby == 'row' else colkey
+        logger.info(f'sorting {ykey} across {sort_key}...')
+        yagg_sorted = ytable.agg(
+            aggfunc, axis=sort_ax).sort_values(ascending=ascending)
+        sort_idx = yagg_sorted.index
+        ytable = ytable.reindex(sort_idx, axis=1 - sort_ax)
+        y = ytable.stack().rename(ykey)
+    
+    # Reset index for plotting
+    y = y.reset_index()
+    y[rowkey] = y[rowkey].astype('category')
+
+    # Log 
+    logger.info(f'plotting {ykey} distribution across {rowkey} and {colkey}')
+    
+    
+    # Create/retrieve figure and ax(es)
+    if ax is None:
+        # If marginals required, use jointgrid configuration
+        if add_marginals:
+            jg = sns.JointGrid(ratio=2, marginal_ticks=True)
+            fig, heatmap_ax = jg.figure, jg.ax_joint
+            marg_axes = {
+                rowkey: jg.ax_marg_y,
+                colkey: jg.ax_marg_x, 
+            }
+        else:
+            fig, heatmap_ax = plt.subplots(figsize=(4, 4))
+    else:
+        if add_marginals:
+            raise ValueError('marginals cannot be added to single input axis')
+        fig = ax.get_figure()
+        heatmap_ax = ax
+
+    # Add title
+    if title is None:
+        title = f'{ykey} across {rowkey} and {colkey}'
+        if add_marginals:
+            fig.suptitle(title, y=1.05)
+        else:
+            heatmap_ax.set_title(title)
+    
+    # Add colorbar axis to figure
+    wcbar = 0.05
+    if add_marginals:
+        marg_pos = {k: ax.get_position() for k, ax in marg_axes.items()}
+        cbar_ax = fig.add_axes([
+            marg_pos[rowkey].x0 + .2 * marg_pos[rowkey].width, 
+            marg_pos[colkey].y0, wcbar, marg_pos[colkey].height])
+    else:
+        pos = heatmap_ax.get_position()
+        cbar_ax = fig.add_axes([pos.x1 + .05, pos.y0, wcbar, pos.height])
+
+    # Plot marginal profiles, if requested
+    if add_marginals:
+        for xk, marg_ax in marg_axes.items():
+            xykeys = ['x', 'y'] if xk == colkey else ['y', 'x']
+            xydict = dict(zip(xykeys, [xk, ykey]))
+            pltkwargs = dict(
+                ax=marg_ax,
+                **xydict,
+                errorbar=None,
+                color=marg_color,
+            )
+            if xk == rowkey:
+                if sortby is not None:
+                    pltkwargs['order'] = sort_idx
+                else:
+                    pltkwargs['order'] = ytable.index
+            sns.barplot(data=y, **pltkwargs)
+            orient = 'h' if xk == colkey else 'v'
+            getattr(marg_ax, f'ax{orient}line')(0, c='k', ls='--')
+
+    # Plot response heatmap
+    sns.heatmap(
+        data=ytable,
+        ax=heatmap_ax,
+        center=0,
+        cbar_ax=cbar_ax,
+        robust=robust,
+    )
+
+    # If specified, simplify axis labels
+    if sparse_ticks is not None:
+        if 'x' in sparse_ticks:
+            xticks = np.array([0, len(ytable.columns) - 1])
+            heatmap_ax.set_xticks(xticks + 0.5)
+            heatmap_ax.set_xticklabels(xticks + 1)
+        if 'y' in sparse_ticks:
+            yticks = np.array([0, len(ytable.index) - 1])
+            heatmap_ax.set_yticks(yticks + 0.5)
+            heatmap_ax.set_yticklabels(yticks + 1)
+
+    # Add padding to ax(es) spines
+    sns.despine(ax=heatmap_ax, offset=5)
+    if add_marginals:
+        for ax in marg_axes.values():
+            sns.despine(ax=ax, offset=5)
+
+    # Unlink axes, if marginals requested
+    if add_marginals:
+        heatmap_ax.get_shared_x_axes().clean()
+        heatmap_ax.get_shared_y_axes().clean()
+    
+    # Remove redundant spines and ticks from marginal axes
+    if add_marginals:
+        marg_axes[colkey].spines['bottom'].set_visible(False)
+        marg_axes[rowkey].spines['left'].set_visible(False)
+        marg_axes[colkey].tick_params('x', labelbottom=False, length=0)
+        marg_axes[rowkey].tick_params('y', labelleft=False, length=0)
+
+    # Add colorbar label
+    cbar_ax.set_ylabel(ykey)
+    
+    # Add CV in the middle of heatmap (if requested)
+    if add_cv:
+        cv = y[ykey].std() / np.abs(y[ykey].mean())
+        heatmap_ax.text(
+            0.5, 0.5, f'CV = {cv:.2f}', 
+            color='w', ha='center', va='center', transform=heatmap_ax.transAxes, 
+            fontsize=12, fontweight='bold')
+
     # Return figure
     return fig
 
@@ -5583,7 +5757,7 @@ def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC,
     :param error_aggfunc (optional): error aggregation function
     :param color (optional): line color
     :param add_thr (optional): whether to add threshold line (computed from fit)
-    :param full_output (optional): whether to return alignment error distirbution together with figure (default=False)
+    :param full_output (optional): whether to return alignment error distribution together with figure (default=False)
     :return: figure handle, and optional alignment error distribution
     '''
     # If multi-dataset input, compute cross-dataset average for output variable

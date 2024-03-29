@@ -24,6 +24,8 @@ import spectrum
 import statsmodels.api as sm
 from statsmodels.formula.api import ols
 from functools import wraps
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 from constants import *
 from logger import logger
@@ -3941,3 +3943,88 @@ def extract_run_index(table, P=P_REF, DC=DC_REF):
         raise ValueError(f'no run found for P = {P}, DC = {DC}')
     # Return run index for target condition
     return pbyrun[iscond].index[0]
+
+
+def shuffle_columns(data):
+    ''' Shuffle values within each column of a 2D array '''
+    # Create empty copy of input data
+    shuffled_data = np.empty_like(data)
+    # Shuffle values within each column
+    for col_idx in range(data.shape[1]):
+        col_values = data[:, col_idx]
+        np.random.shuffle(col_values)
+        shuffled_data[:, col_idx] = col_values
+    # Return shuffled array
+    return shuffled_data
+
+
+def fit_PCA(y, mean_correct=True, norm=True, shuffle=False, verbose=True):
+    '''
+    Apply PCA on a 2D pandas series
+
+    :param y: 2D (features x samples) response provided as pandas series
+    :param mean_correct: bool, whether to subtract the mean from the response before decomposition
+    :param norm: bool, whether to normalize the response before decomposition
+    :param shuffle: whether to shuffle 
+    :param verbose: verbosity flag
+    :return: PCA model object
+    '''
+    # Squeeze index levels with only one value
+    for name in y.index.names:
+        if len(y.index.unique(level=name)) == 1:
+            y = y.droplevel(name)
+
+    # Check input validity
+    if len(y.index.names) != 2:
+        raise ValueError('input must be a 2D series')
+
+    # Extract feature and sample names
+    fkey, skey = y.index.names
+    if verbose:
+        logger.info(f'decomposing {fkey} x {skey} response')
+
+    # Convert series to (samples x features) array
+    X = mux_series_to_array(y).T
+
+    # If required, shuffle columns
+    if shuffle:
+        X = shuffle_columns(X)
+
+    # Standardize input
+    scaler = StandardScaler(with_mean=mean_correct, with_std=norm)
+    X = scaler.fit_transform(X)
+
+    # Fit PCA model to the data
+    pca = PCA()
+    pca.fit(X)
+
+    # Return PCA object
+    return pca
+
+
+def decompose_response(y, gby=None, verbose=True, **kwargs):
+    '''
+    Decompose response
+
+    :param y: 2D (features x samples) response provided as pandas series
+    :param gby: list of str, grouping variables to apply decomposition across groups
+    :param verbose: verbosity flag
+    '''
+    # If grouping variables specified, apply decomposition across groups
+    if gby is not None:
+        return (y
+            .groupby(gby)
+            .apply(lambda s: decompose_response(s, **kwargs, verbose=False))
+            .rename('explained variance')
+        )
+    
+    # Fit PCA to input series and return PCA model object
+    pca = fit_PCA(y, **kwargs, verbose=verbose)
+
+    # Extract fraction of variance explained by each PC
+    expvar = pd.Series(
+        pca.explained_variance_ratio_,
+        index=pd.Index(np.arange(1, pca.n_components_ + 1), name='PC'),
+        name='explained variance'
+    )
+    return expvar
