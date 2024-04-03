@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-29 15:48:47
+# @Last Modified time: 2024-04-03 10:22:07
 
 ''' Collection of plotting utilities. '''
 
@@ -6306,8 +6306,8 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
     return fig
 
 
-def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None, 
-                     scale='symlog', color=None, addreg=False):
+def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, ax=None, 
+                        scale='linear', pmax=None, bins=None, add_marginals=False, color=None, addreg=False):
     '''
     Plot correlation of between two variables.
 
@@ -6327,9 +6327,17 @@ def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None,
 
     # If split variable provided, make sure it is available in stats
     if splitby is not None:
+        if add_marginals is not None:
+            raise ValueError('marginal plots not supported with split option')
+        if ax is not None:
+            raise ValueError('input axis not supported with split option')
         if splitby not in data.index.names and splitby not in data.columns:
             raise ValueError(f'splitby variable "{splitby}" not found in input data')
         logger.info(f'splitting data by {splitby}...')
+
+    # Check if marginal plots requested, and if so, that no axis is provided 
+    if add_marginals and ax is not None:
+        raise ValueError('input axis not supported with marginal plot option')
 
     # If average variable provided, average data by it
     if avgby is not None:
@@ -6345,6 +6353,17 @@ def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None,
     else:
         maxnptspergraph = len(data)
 
+    # Define xy and plot kwargs
+    xykwargs = dict(
+        data=data, 
+        x=xkey,
+        y=ykey,
+    )
+    gridkwargs = xykwargs.copy()
+    pltkwargs = dict(
+        color=color
+    )
+
     # If plot kind not specified, infer it from data size
     if kind is None:
         kind = 'scatter' if maxnptspergraph < 500 else 'hist'
@@ -6352,50 +6371,74 @@ def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None,
     # Select plotting function based on kind
     try:
         pltfunc = {
-            'hist': sns.displot,
-            'scatter': sns.relplot,
+            'hist': sns.histplot,
+            'scatter': sns.scatterplot,
         }[kind]
     except KeyError:
         raise ValueError(f'unknown plot kind: {kind}')
     
-    # Define plotting kwargs based on kind
-    pltkwargs = {'color': color}
+    # Adjust plotting kwargs based on kind
     if kind == 'scatter':
         pltkwargs['s'] = 10
     elif kind == 'hist':
-        pltkwargs['bins'] = 'sqrt' if maxnptspergraph > 2000 else 'auto'
-        pltkwargs['rasterized'] = True
-
-    # If not splitby variable provided, switch to joint plot
-    if splitby is None:
-        pltfunc = sns.jointplot
+        if bins is None:
+            bins = 'sqrt' if maxnptspergraph > 2000 else 'auto'
         pltkwargs.update(dict(
+            bins=bins,
+            rasterized=True,
+            stat='density',
+            pmax=pmax,
+        ))
+    else:
+        raise ValueError(f'unknown plot kind: {kind}')
+    
+    # Adjust plotting kwargs if split variable provided
+    if splitby is not None:
+        gridkwargs.update(dict(
+            height=2,
+            col=splitby,
+            col_wrap=4,
+        ))
+
+    # Adjust plotting kwargs if marginal plots requested
+    if add_marginals:
+        gridkwargs.update(dict(
             ratio=2,
             height=4
         ))
-    else:
-        pltkwargs.update(dict(
-            col=splitby,
-            col_wrap=4,
-            height=2
-        ))
 
+    # Create/retrieve axis and figure
+    g = None
+    if ax is not None:
+        fig = ax.get_figure()
+        sns.despine(ax=ax)
+        axdict = {'all': ax}
+    elif splitby is None and not add_marginals:
+        fig, ax = plt.subplots(figsize=(4, 4))
+        sns.despine(ax=ax)
+        axdict = {'all': ax}
+    elif splitby is not None:
+        g = sns.FacetGrid(**gridkwargs)
+        axdict = g.axdict
+    elif add_marginals:
+        g = sns.JointGrid(**gridkwargs)
+        axdict = {'all': g.ax_joint}
+    
     # Plot pre-post distribution
     logger.info(f'rendering {kind}-plot of {yrelstr}...')
-    g = pltfunc(
-        data=data, 
-        kind=kind,
-        x=xkey,
-        y=ykey,
-        **pltkwargs
-    )
+    if g is not None:
+        fig = g.fig
+        if isinstance(g, sns.JointGrid):
+            g.plot_joint(pltfunc, **pltkwargs)
+            g.plot_marginals(sns.histplot, **pltkwargs)
+        else:
+            g.map(pltfunc)
+    else:
+        pltfunc(ax=ax, **xykwargs, **pltkwargs)
 
     # Adapt plot titles if split by ISPTA
     if splitby == Label.ISPTA:
         g.set_titles(template='{col_var} = {col_name:.2f}')
-    
-    # Get axes dictionary
-    axdict = g.axes_dict if splitby is not None else {'all': g.ax_joint}
 
     # Loop through axes
     for ax in axdict.values():
@@ -6446,7 +6489,7 @@ def plot_correlation(data, xkey, ykey, splitby=None, avgby=None, kind=None,
                 xtext, ytext, f'y = {m:.2f} x + {b:.2f}', **textkwargs)
     
     # Return figure handle
-    return g.fig
+    return fig
 
 
 def plot_pct_excluded(stats, keys=None, gby=None, ax=None):

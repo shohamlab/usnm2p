@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-29 17:01:00
+# @Last Modified time: 2024-04-03 11:52:36
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4271,3 +4271,24 @@ def transform_PCA(y, pca, mean_correct=True, norm=True, verbose=True):
 
     # Return transformed data as 2D series
     return array_to_dataframe(Xout.T, y.name, dim_names=['PC', skey])
+
+
+def bimodality_coefficient(data):
+    ''' Compute bimodality coefficient of data '''
+    # Compute mean and standard deviation of the data
+    mu = np.mean(data)
+    sigma = np.std(data)
+    
+    # Compute probability densities for each data point using a normal distribution
+    pdf_values = norm.pdf(data, loc=mu, scale=sigma)
+    
+    # Compute the mean of the probability densities
+    pdf_mean = np.mean(pdf_values)
+    
+    # Compute the variance of the probability densities
+    pdf_variance = np.var(pdf_values)
+    
+    # Compute the Bimodality Coefficient
+    bc = pdf_variance / (pdf_mean**2)
+    
+    return bc
