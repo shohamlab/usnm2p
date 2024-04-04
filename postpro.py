@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-03 11:52:36
+# @Last Modified time: 2024-04-04 15:39:02
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -1447,17 +1447,35 @@ def get_ROI_masks(stats, iROIs):
     return pd.concat(masks).set_index(Label.ROI, drop=True)
 
 
-def get_quantile_slice(s, qmin=0.25, qmax=0.75):
+def is_within_quantiles(s, qmin=0.25, qmax=0.75):
+    '''
+    Return boolean series stating which entries are within a given 
+    quantile interval of the input
+    
+    :param s: pandas Series  object
+    :param qmin: quantile of the lower bound
+    :param qmax: quantile of the upper bound
+    :return: boolean series
+    '''
+    xmin, xmax = s.quantile([qmin, qmax])
+    return (s >= xmin) & (s <= xmax)
+
+
+def get_quantile_slice(s, key=None, **kwargs):
     '''
     Get the values of a series that lie within a specific quantile interval
     
-    :param s: pandas Series object
-    :param qmin: quantile of the lower bound
-    :param qmax: quantile of the upper bound
-    :return: series reduced only to its quantile slice constituents
+    :param s: pandas Series/Dataframe  object
+    :param key: column key to apply quantile selection on (for dataframe input)
+    :return: series/dataframe reduced only to its quantile slice constituents
     '''
-    xmin, xmax = s.quantile(qmin), s.quantile(qmax)
-    return s[(s >= xmin) & (s <= xmax)]
+    if isinstance(s, pd.DataFrame):
+        if key is None:
+            raise ValueError('key must be provided for dataframe input')
+        cond = is_within_quantiles(s[key], **kwargs)
+    else:
+        cond = is_within_quantiles(s, **kwargs)
+    return s[cond]
 
 
 def get_quantile_indexes(data, qbounds, ykey, groupby=None):

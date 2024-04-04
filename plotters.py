@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-03 10:22:07
+# @Last Modified time: 2024-04-04 15:19:16
 
 ''' Collection of plotting utilities. '''
 
@@ -6307,7 +6307,8 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
 
 
 def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, ax=None, 
-                        scale='linear', pmax=None, bins=None, add_marginals=False, color=None, addreg=False):
+                        scale='linear', pmax=None, bins=None, add_marginals=False, color=None, 
+                        addcorr=False, addreg=False):
     '''
     Plot correlation of between two variables.
 
@@ -6327,7 +6328,7 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
 
     # If split variable provided, make sure it is available in stats
     if splitby is not None:
-        if add_marginals is not None:
+        if add_marginals:
             raise ValueError('marginal plots not supported with split option')
         if ax is not None:
             raise ValueError('input axis not supported with split option')
@@ -6451,15 +6452,16 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
             ax.set_yscale(scale)
 
     # Compute correlation coefficients
-    logger.info(f'computing correlation coefficients of {yrelstr}...')
-    groups = data.copy()
-    if splitby is not None:
-        groups = groups.groupby(splitby)
-    corrcoeffs = groups[[xkey, ykey]].corr().iloc[::2, 1]
-    if splitby is not None:
-        corrcoeffs = corrcoeffs.droplevel(-1)
-    else:
-        corrcoeffs.index = ['all']
+    if addcorr:
+        logger.info(f'computing correlation coefficients of {yrelstr}...')
+        groups = data.copy()
+        if splitby is not None:
+            groups = groups.groupby(splitby)
+        corrcoeffs = groups[[xkey, ykey]].corr().iloc[::2, 1]
+        if splitby is not None:
+            corrcoeffs = corrcoeffs.droplevel(-1)
+        else:
+            corrcoeffs.index = ['all']
     
     # Compute linear regression if requested
     if addreg:
@@ -6477,9 +6479,10 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
     for key, ax in axdict.items():
         xtext, ytext = .95, .95
         textkwargs = dict(transform=ax.transAxes, va='top', ha='right')
-        ax.text(
-            xtext, ytext, f'r = {corrcoeffs.loc[key]:.2f}', **textkwargs)
-        ytext += dytext
+        if addcorr:
+            ax.text(
+                xtext, ytext, f'r = {corrcoeffs.loc[key]:.2f}', **textkwargs)
+            ytext += dytext
         if addreg:
             m, b = regres.loc[key, ['slope', 'intercept']]
             xdense = np.linspace(*bounds(data[xkey]), 100)
