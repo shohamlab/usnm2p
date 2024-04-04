@@ -69,7 +69,7 @@ ref_profiles = pd.read_csv(ref_fpath).set_index('amplitude')
 #     index=pd.Index(amps, name='amplitude')
 # )
 ref_profiles.columns.name = 'population'
-
+logger.info(f'target activity profiles:\n{ref_profiles}')
 
 # Main
 if __name__ == '__main__':
