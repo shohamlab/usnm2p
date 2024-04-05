@@ -144,6 +144,8 @@ if __name__ == '__main__':
         for (kpre, kpost), vals in wbounds.items():
             Wbounds.loc[kpre, kpost] = vals
         logger.info(f'adjusted weight bounds:\n{Wbounds}')
+    else:
+        Wbounds = None
     
     logger.info(f'running {method} optimization for {model}')
     logger.info(f'target activity profiles:\n{ref_profiles}')
@@ -155,6 +157,7 @@ if __name__ == '__main__':
             srel,
             ref_profiles, 
             norm=norm,
+            Wbounds=Wbounds,
             mpi=mpi,
             logdir=logdir,
             kind=method, 
