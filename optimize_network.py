@@ -93,6 +93,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--nosave', action='store_true', help='Do not save results in log file')
     parser.add_argument(
+        '--force-rerun', action='store_true', help='Enforce rerun of optimization')
+    parser.add_argument(
         '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
         help='List of coupling weight bounds to adjust search range')
     
@@ -103,6 +105,7 @@ if __name__ == '__main__':
     norm = args.norm
     mpi = args.mpi
     save = not args.nosave
+    force_rerun = args.force_rerun
 
     # If nosave option, set logdir to None
     if not save:
@@ -143,6 +146,8 @@ if __name__ == '__main__':
         Wbounds = model.get_coupling_bounds()
         for (kpre, kpost), vals in wbounds.items():
             Wbounds.loc[kpre, kpost] = vals
+            # Convert Wbounds to float tuples if not already
+            Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
         logger.info(f'adjusted weight bounds:\n{Wbounds}')
     else:
         Wbounds = None
@@ -162,6 +167,7 @@ if __name__ == '__main__':
             logdir=logdir,
             kind=method, 
             npersweep=npersweep,
+            force_rerun=force_rerun
         )
     except OptimizationError as e:
         logger.error(e)

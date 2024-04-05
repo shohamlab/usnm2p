@@ -1743,6 +1743,8 @@ class ModelOptimizer:
         # If log folder is provided, create log file
         opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'targets'], [srel, ref_profiles])}
         if Wbounds is not None:
+            # Convert Wbounds to float tuples if not already
+            Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
             opt_ids['wbounds'] = generate_unique_id(Wbounds)
         opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
         opt_code = f'{opt_code}_{kind}'
@@ -1754,7 +1756,7 @@ class ModelOptimizer:
         return f'{opt_code}.csv'
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
@@ -1768,23 +1770,73 @@ class ModelOptimizer:
         '''
         # Check validity of optimization algorithm
         if kind not in ['brute', *cls.GLOBAL_OPT_METHODS]:
-            raise ModelError(f'unknown optimization algorithm: {kind}')
+            raise OptimizationError(f'unknown optimization algorithm: {kind}')
         
-        # If log folder is provided, create log file
+        # If log folder is provided, derive path to log file
         if logdir is not None:
             fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None
         
-        # If log file exists, load optimization results and return
+        # If log file exists,
         if fpath is not None and os.path.isfile(fpath): 
-            cost = model.load_log_file(fpath)
-            Wvec = cls.extract_optimum(cost)
-            return model.Wvec_to_Wmat(Wvec)
+            # If force_rerun flag not set, load optimization results and return
+            if not force_rerun:
+                cost = model.load_log_file(fpath)
+                Wvec = cls.extract_optimum(cost)
+                return model.Wvec_to_Wmat(Wvec)
+            # Otherwise, re-run optimization and save in different file
+            else:
+                irerun = 1
+                while os.path.isfile(fpath):
+                    fcode, fext = os.path.splitext(fpath)
+                    fpath = f'{fcode}_rerun{irerun}{fext}'
+                    irerun += 1
+                logger.warning(f're-running optimization and saving results in new log file {fpath}')
         
         # Run optimization algorithm and return
         if kind == 'brute':
             return cls.brute_force(model, npersweep, *args, Wbounds=Wbounds, fpath=fpath, norm=norm, **kwargs)
         else:
             return cls.global_optimization(model, *args, Wbounds=Wbounds, fpath=fpath, kind=kind, norm=norm, **kwargs)
+
+    @classmethod
+    def load_optimization_history(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+        ''' 
+        Load optimization history from CSV log file
+        
+        :param model: model instance 
+        :param kind (optional): optimization algorithm (default = "diffev")
+        :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
+        :return: network connectivity matrix optimizaiton history
+        '''
+        # Check validity of optimization algorithm
+        if kind not in ['brute', *cls.GLOBAL_OPT_METHODS]:
+            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+        
+        # If log folder is not provided, raise error
+        if logdir is None:
+            raise OptimizationError('log directory must be provided')
+        
+        # Derive path to log file
+        fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
+        fpath = os.path.join(logdir, fname)
+
+        # If log file does not exist, raise error
+        if not os.path.isfile(fpath):
+            raise OptimizationError(f'log file {fpath} not found')
+        
+        # Load optimization history
+        logger.info(f'loading optimization history from {fpath}')
+        cost = model.load_log_file(fpath)
+
+        # Add iteration number to cost series
+        cost = cost.reset_index()
+        cost.index.name = 'iteration'
+
+        # Return
+        return cost
+         
