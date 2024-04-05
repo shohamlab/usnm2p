@@ -75,7 +75,8 @@ logger.info(f'target activity profiles:\n{ref_profiles}')
 if __name__ == '__main__':
 
     # Parse command-line arguments
-    parser = ArgumentParser()
+    parser = ArgumentParser(
+        description='Script for network model connectivity matrix optimization')
     parser.add_argument(
         '--npops', type=int, choices=(2, 3), default=2, 
         help='Number of populations')
@@ -92,6 +93,9 @@ if __name__ == '__main__':
         '--mpi', action='store_true', help='Run with MPI')
     parser.add_argument(
         '--nosave', action='store_true', help='Do not save results in log file')
+    parser.add_argument(
+        '--bounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
+        help='List of coupling weight bounds to adjust search range')
     
     args = parser.parse_args()
     npops = args.npops
@@ -100,6 +104,11 @@ if __name__ == '__main__':
     norm = args.norm
     mpi = args.mpi
     save = not args.nosave
+    wbounds = {k: (float(v1), float(v2)) for k, v1, v2 in zip(args.bounds[::2], args.bounds[1::2])} if args.bounds else None
+    print('wbounds')
+    print(wbounds)
+
+    quit()
 
     # If nosave option, set logdir to None
     if not save:

@@ -25,19 +25,37 @@ from postpro import mylinregress
 from batches import get_cpu_count
 
 
-def generate_unique_id(obj):
+def generate_unique_id(obj, max_length=None):
     '''
     Generate unique identifier for a given object
 
     :param obj: object to identify
+    :param max_length (optional): maximum length of the identifier
     :return: unique object identifier
     '''
-    # Convert object to a string representation
-    s = str(obj)
-    # Create a hash object using hashlib
-    hash_object = hashlib.md5(s.encode())
-    # Return the hexadecimal digest of the hash
-    return hash_object.hexdigest()
+    # Convert object to string and create corresponding hash object
+    hash_object = hashlib.md5(str(obj).encode())
+    # Compute the hexadecimal digest of the hash
+    shash = hash_object.hexdigest()
+    # If max length provided, truncate hash string
+    if max_length is not None and max_length < len(shash):
+        shash = shash[:max_length]
+    # If series input, return serialized series string if shorter than hash
+    if isinstance(obj, pd.Series):
+        s = ''.join([f'{k}{v}' for k, v in obj.items()])
+        if len(s) < len(shash):
+            return s
+    # If input is a callable with a name, return the name if shorter than hash
+    if callable(obj) and hasattr(obj, '__name__'):
+        if len(obj.__name__) < len(shash):
+            return obj.__name__
+    # If input is a list / 1D array, return serialized list string if shorter than hash
+    if isinstance(obj, list) or (isinstance(obj, np.ndarray) and obj.ndim == 1):
+        s = '-'.join([str(v) for v in obj])
+        if len(s) < len(shash):
+            return s
+    # Return hash string
+    return shash
 
 
 # Define custom error classes
@@ -139,45 +157,45 @@ class NetworkModel:
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
     
-    def code(self, add_W=False):
-        ''' 
-        Return model unique identifier code based on its attributes
-        
+    def attrcodes(self, add_W=False):
+        '''
+        Construct dictionary of unique identifiers for model attributes
         :param add_W (optional): whether to include the connectivity matrix in the code
-        :return: model code
+        :return: dictionary of attribute codes
         '''
         # Define attributes to include in the code
-        attrs = ['fparams', 'tau', 'b']
+        attrs = ['keys', 'fgain', 'fparams', 'tau', 'b']
         if add_W:
             attrs.append('W')
         
         # Assemble unique identifiers for each set attribute
         attrids = {}
         for k in attrs:
-            if getattr(self, k) is not None:
-                attrids[k] = generate_unique_id(getattr(self, k))
+            val = getattr(self, k)
+            if val is not None:
+                attrids[k] = generate_unique_id(val)
         
-        # Assemble into attribute code
-        attrcode  = '_'.join([f'{k}{v}' for k, v in attrids.items()])
-
-        # Extract population and fgain codes
-        fgaincode = f'fgain_{self.fgain.__name__}'
-        popcode = '-'.join(self.keys)
-
-        # Assemble and return
-        return '_'.join([self.__class__.__name__, popcode, fgaincode, attrcode])
+        # Return attribute codes 
+        return attrids
     
-    def get_log_filename(self, suffix):
+    def code(self, **kwargs):
+        ''' 
+        Return model unique identifier code based on its attributes
+        
+        :return: model code
         '''
-        Generate log file code with current date and time
-
-        :param suffix: suffix to append to the log file code
-        :return: log file code
-        '''
-        s = self.code()
-        if suffix:
-            s += f'_{suffix}'
-        return f'{s}.csv'
+        # Assemble unique identifiers for model attributes
+        attrids = self.attrcodes(**kwargs)
+        # Unzip attribute codes
+        keys = list(attrids.keys())
+        vals = list(attrids.values())
+        # Replace "keys" and "fgain" attribute keys by empty strings
+        exclude = ['keys', 'fgain']
+        keys = [k if k not in exclude else '' for k in keys]
+        # Assemble into attribute code
+        attrcode  = '_'.join([f'{k}{v}' for k, v in zip(keys, vals)])
+        # Return
+        return attrcode
     
     def create_log_file(self, fpath):
         ''' Create batch log file if it does not exist. '''
@@ -271,7 +289,7 @@ class NetworkModel:
     
     @property
     def Wmat(self):
-        ''' Return connectivity matrix a2D numpy array '''
+        ''' Return connectivity matrix a 2D numpy array '''
         return self.W.values.T
     
     @property
@@ -333,17 +351,18 @@ class NetworkModel:
         else:
             return -We / W.loc[post_key, pre_key]
     
-    def process_vector_input(self, v):
+    def check_vector_input(self, v):
         '''
-        Process vector input
+        Check vector input
 
         :param v: vector input, provided as pandas Series
-        :return: processed vector
         '''
         if not isinstance(v, pd.Series):
             raise ModelError(f'input vector must be provided as pandas series')
-        self.set_keys(v.index.values)
-        return v.values
+        if len(v) != self.size:
+            raise ModelError(f'input vector length ({len(v)}) does not match model size ({self.size})')
+        if not np.all(v.index.values == self.keys):
+            raise ModelError(f'input vector keys ({v.index.values}) do not match model keys ({self.keys})')
     
     @property
     def tau(self):
@@ -351,27 +370,14 @@ class NetworkModel:
     
     @tau.setter
     def tau(self, tau):
-        self._tau = self.process_vector_input(tau)
-    
-    def get_param_table(self, name, v):
-        '''
-        Get table of model parameter across populations
-
-        :param name: parameter name
-        :param v: parameter values vector
-        :return: pandas series
-        '''
-        if not self.has_keys():
-            raise ModelError('model keys must be set to convert parameter to series')
-        return pd.Series(v, index=pd.Index(self.keys, name='population'), name=name)
+        self.check_vector_input(tau)
+        self._tau = tau
     
     @property
-    def taustr(self):
-        '''
-        Return time constants as pandas Series
-        '''
-        return self.get_param_table('tau (s)', self.tau)
-
+    def tauvec(self):
+        ''' Return time constants as numpy array '''
+        return self.tau.values
+    
     @property
     def b(self):
         return self._b
@@ -379,24 +385,19 @@ class NetworkModel:
     @b.setter
     def b(self, b):
         if b is not None:
-            self._b = self.process_vector_input(b)
-        else:
-            self._b = None
-    
+            self.check_vector_input(b)
+        self._b = b
+
     @property
-    def bstr(self):
-        '''
-        Return baseline inputs as pandas Series
-        '''
-        if self.b is None:
-            return None
-        return self.get_param_table('baseline input (?)', self.b)
+    def bvec(self):
+        ''' Return baseline inputs as numpy array '''
+        return self.b.values if self.b is not None else None
     
     @property
     def params_table(self):
         ''' Return dataframe with model parameters per population ''' 
         cols = []
-        for col in [self.taustr, self.bstr]:
+        for col in [self.tau, self.b]:
             if col is not None:
                 cols.append(col) 
         return pd.concat(cols, axis=1)
@@ -582,7 +583,7 @@ class NetworkModel:
         '''
         # If no time constants provided, use current model time constants
         if tau is None:
-            tau = self.taustr
+            tau = self.tau
         
         # Create/retrieve figure and axis
         if ax is None:
@@ -691,8 +692,8 @@ class NetworkModel:
         # Compute total synaptic drive
         drive = np.dot(self.Wmat, r)
         # Add baseline inputs if present
-        if self.b is not None:
-            drive += self.b
+        if self.bvec is not None:
+            drive += self.bvec
         # Add stimulus inputs if present
         if s is not None:
             drive += s
@@ -748,7 +749,7 @@ class NetworkModel:
         # Compute gain function output
         g = self.compute_gain_output(drive)
         # Subtract leak term, divide by time constants and return
-        return (g - r) / self.tau
+        return (g - r) / self.tauvec
         
     def tderivatives(self, t, r, *args, **kwargs):
         ''' 
@@ -1351,6 +1352,24 @@ class NetworkModel:
             Wbounds.loc[key, :] = [bounds] * self.size
 
         return Wbounds
+    
+    def check_coupling_bounds(self, Wbounds):
+        '''
+        Check that connectivitty matrix exploration bounds is comptaible with current model
+        
+        :param Wbounds: 2D dataframe of exploration bounds for connectivity matrix
+        '''
+        # Check input validity
+        if not isinstance(Wbounds, pd.DataFrame):
+            raise ModelError('Wbounds must be a DataFrame')
+        if Wbounds.shape != (self.size, self.size):
+            raise ModelError(f'Wbounds shape ({Wbounds.shape}) does not match network size ({self.size})')
+        if not Wbounds.index.equals(Wbounds.columns):
+            raise ModelError('Wbounds must have identical row and column indices')
+        if not Wbounds.index.equals(self.W.index):
+            raise ModelError('Wbounds indices must match network keys')
+        if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
+            raise ModelError('all Wbounds values must be tuples')
 
     def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, invalid_cost=np.inf):
         '''
@@ -1496,7 +1515,8 @@ class NetworkModel:
             if len(p._identity) > 0:
                 i = p._identity[0]
             else:
-                i = -1
+                i = self.ieval
+                self.ieval += 1
             logger.info(f'pid {pid}, evaluation {i}')
             x = args 
 
@@ -1518,6 +1538,7 @@ class NetworkModel:
         self.eval_kwargs = kwargs
         self.eval_fpath = fpath
         self.nevals = nevals
+        self.ieval = 0
 
         # Create log file, if path provided
         if fpath is not None:
@@ -1530,6 +1551,7 @@ class NetworkModel:
         self.eval_kwargs = {}
         self.eval_fpath = None
         self.nevals = None
+        self.ieval = None
 
     def __call__(self, args):
         ''' Call model evaluation function '''
@@ -1557,6 +1579,9 @@ class ModelOptimizer:
         # If no bounds provided, use default bounds
         if Wbounds is None:
             Wbounds = model.get_coupling_bounds()
+        # Otherwise, check that bounds are compatible with model
+        else:
+            model.check_coupling_bounds(Wbounds)
         
         # Serialize bounds into series, if not already
         if not isinstance(Wbounds, pd.Series):
@@ -1685,6 +1710,9 @@ class ModelOptimizer:
         # If no bounds provided, use default bounds
         if Wbounds is None:
             Wbounds = model.get_coupling_bounds()
+        # Otherwise, check that bounds are compatible with model
+        else:
+            model.check_coupling_bounds(Wbounds)
         
         # Serialize bounds into series, if not already
         if not isinstance(Wbounds, pd.Series):
@@ -1708,9 +1736,25 @@ class ModelOptimizer:
 
         # Re-assemble into connectivity matrix and return
         return model.Wvec_to_Wmat(sol)
+    
+    @staticmethod
+    def get_log_filename(model, srel, ref_profiles, kind, Wbounds, npersweep, norm):
+        ''' Generate log filename for optimization input arguments '''
+        # If log folder is provided, create log file
+        opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'targets'], [srel, ref_profiles])}
+        if Wbounds is not None:
+            opt_ids['wbounds'] = generate_unique_id(Wbounds)
+        opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
+        opt_code = f'{opt_code}_{kind}'
+        if kind == 'brute':
+            opt_code = f'{opt_code}_{npersweep}persweep'
+        if norm:
+            opt_code = f'{opt_code}_norm'
+        opt_code = f'{model.code()}_{opt_code}'
+        return f'{opt_code}.csv'
 
     @classmethod
-    def optimize(cls, model, *args, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
@@ -1728,17 +1772,10 @@ class ModelOptimizer:
         
         # If log folder is provided, create log file
         if logdir is not None:
-            opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'ref_profiles'], args)}
-            opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
-            suffix = f'optimize_{opt_code}_{kind}'
-            if kind == 'brute':
-                suffix = f'{suffix}_{npersweep}persweep'
-            if norm:
-                suffix = f'{suffix}_norm'
-            fname = model.get_log_filename(suffix)
+            fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
             fpath = os.path.join(logdir, fname)
         else:
-            fpath = None       
+            fpath = None
         
         # If log file exists, load optimization results and return
         if fpath is not None and os.path.isfile(fpath): 
@@ -1748,6 +1785,6 @@ class ModelOptimizer:
         
         # Run optimization algorithm and return
         if kind == 'brute':
-            return cls.brute_force(model, npersweep, *args, fpath=fpath, norm=norm, **kwargs)
+            return cls.brute_force(model, npersweep, *args, Wbounds=Wbounds, fpath=fpath, norm=norm, **kwargs)
         else:
-            return cls.global_optimization(model, *args, fpath=fpath, kind=kind, norm=norm, **kwargs)
+            return cls.global_optimization(model, *args, Wbounds=Wbounds, fpath=fpath, kind=kind, norm=norm, **kwargs)
