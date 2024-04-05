@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-04 15:39:02
+# @Last Modified time: 2024-04-05 17:10:29
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2952,6 +2952,9 @@ def mylinregress(x, y, robust=False, intercept=True, return_model=False):
     # If OLM, extract R-squared value
     if not robust:
         fit_output['r2'] = fit.rsquared
+    # Otherwise, compute R-squared value manually
+    else:
+        fit_output['r2'] = rsquared(y, fit.predict(x))
 
     # If specified, return fit output and model object
     if return_model:
@@ -2959,20 +2962,6 @@ def mylinregress(x, y, robust=False, intercept=True, return_model=False):
     # Otherwise, return fit output
     else:
         return fit_output
-    
-    # # Otherwise, perform standard linear regression
-    # else:    
-    #     res = linregress(x, y=y)
-    #     fit_output = pd.Series({
-    #             'slope': res.slope,
-    #             'intercept': res.intercept,
-    #             'rval': res.rvalue,
-    #             'stderr': res.stderr,
-    #             'intercept_stderr': res.intercept_stderr,
-    #     })
-    
-    # # Return fit output
-    # return fit_output
 
 
 def apply_linregress(df, xkey=Label.TRIAL, ykey=None, **kwargs):

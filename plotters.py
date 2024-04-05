@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-04 15:19:16
+# @Last Modified time: 2024-04-05 13:38:43
 
 ''' Collection of plotting utilities. '''
 
@@ -6308,7 +6308,7 @@ def plot_circuit_effect(data, stats, xkey, ykey, fit=None, ci=None, xmax=None, a
 
 def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, ax=None, 
                         scale='linear', pmax=None, bins=None, add_marginals=False, color=None, 
-                        addcorr=False, addreg=False):
+                        addcorr=False, addreg=False, qbounds=None):
     '''
     Plot correlation of between two variables.
 
@@ -6319,8 +6319,15 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
     :param avgby (optional): variable to average data by before computing correlation & plotting
     :param kind (optional): plot kind (one of "scatter", "hist" or "kde"). If none provided,
     the plot kind is inferred from the data
+    :param ax (optional): axis to plot on
     :param scale (optional): scale to use for axes (default: symlog)
+    :param pmax (optional): maximum probability value for histogram
+    :param bins (optional): number of bins for histogram
+    :param add_marginals (optional): whether to add marginal plots
+    :param color (optional): color to use for plotting
+    :param addcorr (optional): whether to compute and display correlation coefficients
     :param addreg (optional): whether to add linear regression line
+    :param qbounds (optional): quantile bounds for visualization
     :return: figure handle
     '''
     # Construct descriptive strings
@@ -6618,7 +6625,7 @@ def add_mean_and_sem_bars(add_text=False, ytxt=.9, **kwargs):
     
     :param add_text: whether to add text with mean and SEM values
     '''
-    for k in ['ax', 'data', 'x', 'y']:
+    for k in ['ax', 'data', 'y']:
         if k not in kwargs:
             raise ValueError(f'missing required keyword argument: {k}')
     kwargs = kwargs.copy()
