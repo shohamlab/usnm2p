@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-14 17:57:53
+# @Last Modified time: 2024-04-05 10:53:42
 
 import numpy as np
 import pandas as pd
@@ -69,7 +69,6 @@ ref_profiles = pd.read_csv(ref_fpath).set_index('amplitude')
 #     index=pd.Index(amps, name='amplitude')
 # )
 ref_profiles.columns.name = 'population'
-logger.info(f'target activity profiles:\n{ref_profiles}')
 
 # Main
 if __name__ == '__main__':
@@ -94,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--nosave', action='store_true', help='Do not save results in log file')
     parser.add_argument(
-        '--bounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
+        '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
         help='List of coupling weight bounds to adjust search range')
     
     args = parser.parse_args()
@@ -104,11 +103,6 @@ if __name__ == '__main__':
     norm = args.norm
     mpi = args.mpi
     save = not args.nosave
-    wbounds = {k: (float(v1), float(v2)) for k, v1, v2 in zip(args.bounds[::2], args.bounds[1::2])} if args.bounds else None
-    print('wbounds')
-    print(wbounds)
-
-    quit()
 
     # If nosave option, set logdir to None
     if not save:
@@ -124,7 +118,35 @@ if __name__ == '__main__':
     
     # Initialize model
     model = NetworkModel(W=W, tau=tau, fgain=fgain, fparams=fparams)
+
+    # Parse weight bounds
+    wbounds = None
+    if args.wbounds is not None:
+        if not len(args.wbounds) % 4 == 0:
+            raise ValueError('Invalid number of arguments for wbounds (should be multiple of 4)')
+        wquads = [args.wbounds[i:i+4] for i in range(0, len(args.wbounds), 4)]
+        wbounds = {}
+        for quad in wquads:
+            keys, vals = quad[:2], quad[2:]
+            for k in keys:
+                if k not in model.keys:
+                    raise ValueError(f'Invalid population key in wbounds: {k}')
+            try:
+                vals = list(map(float, vals))
+            except ValueError:
+                raise ValueError(f'Invalid weight bound tuple value in wbounds: {vals}')
+            vals = tuple(sorted(vals))
+            wbounds[tuple(keys)] = tuple(sorted(vals))
+
+    # Adjust search range for coupling weights if requested
+    if wbounds is not None:
+        Wbounds = model.get_coupling_bounds()
+        for (kpre, kpost), vals in wbounds.items():
+            Wbounds.loc[kpre, kpost] = vals
+        logger.info(f'adjusted weight bounds:\n{Wbounds}')
+    
     logger.info(f'running {method} optimization for {model}')
+    logger.info(f'target activity profiles:\n{ref_profiles}')
 
     # Optimize connectivity matrix to minimize divergence with reference profiles
     try:
