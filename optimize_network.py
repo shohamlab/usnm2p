@@ -95,6 +95,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--force-rerun', action='store_true', help='Enforce rerun of optimization')
     parser.add_argument(
+        '--nruns', type=int, default=1, help='Number of optimization runs')
+    parser.add_argument(
         '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
         help='List of coupling weight bounds to adjust search range')
     
@@ -106,6 +108,9 @@ if __name__ == '__main__':
     mpi = args.mpi
     save = not args.nosave
     force_rerun = args.force_rerun
+    nruns = args.nruns
+    if nruns > 1:
+        force_rerun = True
 
     # If nosave option, set logdir to None
     if not save:
@@ -152,32 +157,35 @@ if __name__ == '__main__':
     else:
         Wbounds = None
     
-    logger.info(f'running {method} optimization for {model}')
     logger.info(f'target activity profiles:\n{ref_profiles}')
 
-    # Optimize connectivity matrix to minimize divergence with reference profiles
-    try:
-        Wopt = ModelOptimizer.optimize(
-            model,
-            srel,
-            ref_profiles, 
-            norm=norm,
-            Wbounds=Wbounds,
-            mpi=mpi,
-            logdir=logdir,
-            kind=method, 
-            npersweep=npersweep,
-            force_rerun=force_rerun
-        )
-    except OptimizationError as e:
-        logger.error(e)
-        quit()
+    # For each specified run
+    for i in range(nruns):
+        logger.info(f'running {method} optimization for {model}')
 
-    # Perform stimulus sweep with optimal connectivity matrix
-    logger.info(f'optimal connectivity matrix:\n{Wopt}')
-    model.W = Wopt
-    sweep_data = model.run_stim_sweep(srel, amps)
+        # Optimize connectivity matrix to minimize divergence with reference profiles
+        try:
+            Wopt = ModelOptimizer.optimize(
+                model,
+                srel,
+                ref_profiles, 
+                norm=norm,
+                Wbounds=Wbounds,
+                mpi=mpi,
+                logdir=logdir,
+                kind=method, 
+                npersweep=npersweep,
+                force_rerun=force_rerun
+            )
+        except OptimizationError as e:
+            logger.error(e)
+            quit()
 
-    # Compare results to reference profiles
-    rmse = model.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm)
-    logger.info(f'RMSE = {rmse:.2f}')
+        # Perform stimulus sweep with optimal connectivity matrix
+        logger.info(f'optimal connectivity matrix:\n{Wopt}')
+        model.W = Wopt
+        sweep_data = model.run_stim_sweep(srel, amps)
+
+        # Compare results to reference profiles
+        rmse = model.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm)
+        logger.info(f'RMSE = {rmse:.2f}')

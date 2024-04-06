@@ -1789,10 +1789,12 @@ class ModelOptimizer:
             # Otherwise, re-run optimization and save in different file
             else:
                 irerun = 1
-                while os.path.isfile(fpath):
+                newfpath = fpath
+                while os.path.isfile(newfpath):
                     fcode, fext = os.path.splitext(fpath)
-                    fpath = f'{fcode}_rerun{irerun}{fext}'
+                    newfpath = f'{fcode}_rerun{irerun}{fext}'
                     irerun += 1
+                fpath = newfpath
                 logger.warning(f're-running optimization and saving results in new log file {fpath}')
         
         # Run optimization algorithm and return
