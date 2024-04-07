@@ -5,6 +5,7 @@
 # @Last Modified time: 2024-03-17 17:28:16
 
 import time
+import glob
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -103,10 +104,7 @@ class NetworkModel:
     MAX_RATE = 1e3
 
     # Default coupling strength bounds for excitatory and inhibitory connections
-    DEFAULT_WBOUNDS = {
-        'E': (0, 20),
-        'I': (-20, 0)
-    }
+    WMAX = 20.
     
     # CSV delimiter
     DELIMITER = ','
@@ -1323,20 +1321,21 @@ class NetworkModel:
         # Return sweep results
         return sweep_rss
     
-    def get_coupling_bounds(self, wbounds=None):
+    def get_coupling_bounds(self, wmax=None):
         '''
         Get exploration bounds for each element of the network connectivity matrix
         of the current model
 
-        :param wbounds: dictionary of coupling strength bounds for excitatory and inhibitory connections
+        :param wmax: max absolute coupling strength across the network
         '''
-        # If bounds not provided, use defaults
-        if wbounds is None:
-            wbounds = self.DEFAULT_WBOUNDS
-        # Otherwise, check that all required keys are present
+        # If max strength not provided, use default
+        if wmax is None:
+            wmax = self.WMAX
+        # Otherwise, check that is is a positive int or float
         else:
-            if not all(k in wbounds for k in ['E', 'I']):
-                raise ModelError('wbounds must contain "E" and "I" keys')
+            if not isinstance(wmax, (int, float)) or wmax <= 0:
+                raise ModelError('wmax must be a positive number')
+            wmax = float(wmax)
 
         # Initialize empty bounds matrix
         Wbounds = pd.DataFrame(
@@ -1347,7 +1346,7 @@ class NetworkModel:
         # For each pre-synaptic population
         for key in self.keys:
             # Get cell-type-specific coupling stength bounds
-            bounds = wbounds['E'] if key == 'E' else wbounds['I']
+            bounds = (0., wmax) if key == 'E' else (-wmax, 0.)
             # Assign them to corresponding row in bounds matrix
             Wbounds.loc[key, :] = [bounds] * self.size
 
@@ -1640,10 +1639,14 @@ class ModelOptimizer:
         :param cost: exploration results as multi-indexed pandas series
         :return: vector of parameter values yielding optimal cost
         '''
+        if isinstance(cost, pd.DataFrame):
+            cost = cost['cost']
         if len(cost) == 0:
             raise OptimizationError('no exploration results available')
         elif len(cost) == 1:
             return cost.index[0]
+        elif cost.index.names[0] == 'run':
+            return cost.groupby('run').agg(lambda x: x.droplevel('run').idxmin())
         else:
             return cost.idxmin()
 
@@ -1756,7 +1759,8 @@ class ModelOptimizer:
         return f'{opt_code}.csv'
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, force_rerun=False, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, 
+                 logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
@@ -1804,7 +1808,8 @@ class ModelOptimizer:
             return cls.global_optimization(model, *args, Wbounds=Wbounds, fpath=fpath, kind=kind, norm=norm, **kwargs)
 
     @classmethod
-    def load_optimization_history(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, logdir=None, **kwargs):
+    def load_optimization_history(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5,
+                                  norm=False, logdir=None, **kwargs):
         ''' 
         Load optimization history from CSV log file
         
@@ -1827,18 +1832,39 @@ class ModelOptimizer:
         fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
         fpath = os.path.join(logdir, fname)
 
-        # If log file does not exist, raise error
-        if not os.path.isfile(fpath):
-            raise OptimizationError(f'log file {fpath} not found')
+        # Split into code and extension
+        fcode, fext = os.path.splitext(fpath)
+
+        # List all files that match the code in the log directory
+        fpaths = glob.glob(f'{fcode}*{fext}')
+
+        # If no files found, raise error
+        if len(fpaths) == 0:
+            raise OptimizationError(f'no optimization log files found with code {fcode}')
         
-        # Load optimization history
-        logger.info(f'loading optimization history from {fpath}')
-        cost = model.load_log_file(fpath)
+        # Sort files by creation date
+        fpaths = sorted(fpaths, key=os.path.getctime)
+        
+        # Load optimization history of each file, and return
+        costs = []
+        for fpath in fpaths:
+            cost = model.load_log_file(fpath)
+            cost = cost.to_frame()
+            cost['iteration'] = np.arange(len(cost)) + 1
+            costs.append(cost)
+        if len(costs) == 1:
+            return costs[0]
+        else:
+            return pd.concat(costs, keys=range(len(costs)), names=['run'])
+    
+    @classmethod
+    def has_optimization_converged(cls, cost):
+        if isinstance(cost, pd.DataFrame):
+            cost = cost['cost']
+        if cost.index.names[0] == 'run':
+            return cost.groupby('run').agg(
+                lambda x: cls.has_optimization_converged(x.droplevel('run')))
+        idxmin = cost.idxmin()
+        imin = np.where(cost.index == idxmin)[0][0]
+        return imin > 0.9 * len(cost)
 
-        # Add iteration number to cost series
-        cost = cost.reset_index()
-        cost.index.name = 'iteration'
-
-        # Return
-        return cost
-         

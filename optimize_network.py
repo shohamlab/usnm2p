@@ -77,8 +77,15 @@ if __name__ == '__main__':
     parser = ArgumentParser(
         description='Script for network model connectivity matrix optimization')
     parser.add_argument(
-        '--npops', type=int, choices=(2, 3), default=2, 
+        '--npops', type=int, choices=(2, 3), default=3, 
         help='Number of populations')
+    parser.add_argument(
+        '--wmax', type=float, default=NetworkModel.WMAX, help='Maximum absolute value for coupling weights')
+    parser.add_argument(
+        '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
+        help='List of coupling weight bounds to adjust search range')
+    parser.add_argument(
+        '--uniform-gain', action='store_true', help='Use uniform gain function for all populations')
     parser.add_argument(
         '-m', '--method', type=str, choices=('brute', 'diffev'), default='diffev', 
         help='Optimization method')
@@ -96,12 +103,13 @@ if __name__ == '__main__':
         '--force-rerun', action='store_true', help='Enforce rerun of optimization')
     parser.add_argument(
         '--nruns', type=int, default=1, help='Number of optimization runs')
-    parser.add_argument(
-        '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
-        help='List of coupling weight bounds to adjust search range')
     
     args = parser.parse_args()
     npops = args.npops
+    wmax = args.wmax
+    if wmax == NetworkModel.WMAX:
+        wmax = None
+    uniform_gain = args.uniform_gain
     method = args.method
     npersweep = args.npersweep
     norm = args.norm
@@ -123,6 +131,11 @@ if __name__ == '__main__':
         W = W.drop('PV', axis=0).drop('PV', axis=1)
         srel = srel.drop('PV')
         ref_profiles = ref_profiles.drop('PV', axis=1)
+    
+    # If uniform gain function requested, assign all populations to same values as E
+    if uniform_gain:
+        for k in fparams.index:
+            fparams.loc[k] = fparams.loc['E']
     
     # Initialize model
     model = NetworkModel(W=W, tau=tau, fgain=fgain, fparams=fparams)
@@ -146,17 +159,25 @@ if __name__ == '__main__':
             vals = tuple(sorted(vals))
             wbounds[tuple(keys)] = tuple(sorted(vals))
 
-    # Adjust search range for coupling weights if requested
+    # Initialize weight bounds matrix to None
+    Wbounds = None
+
+    # Adjust search range for all coupling weights if requested
+    if wmax is not None:
+        Wbounds = model.get_coupling_bounds(wmax=wmax)
+        logger.info(f'default weight bounds:\n{Wbounds}')
+
+    # Adjust search range for specific coupling weights if requested
     if wbounds is not None:
-        Wbounds = model.get_coupling_bounds()
+        if Wbounds is None:
+            Wbounds = model.get_coupling_bounds()
         for (kpre, kpost), vals in wbounds.items():
             Wbounds.loc[kpre, kpost] = vals
             # Convert Wbounds to float tuples if not already
             Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
         logger.info(f'adjusted weight bounds:\n{Wbounds}')
-    else:
-        Wbounds = None
-    
+
+
     logger.info(f'target activity profiles:\n{ref_profiles}')
 
     # For each specified run
