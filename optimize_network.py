@@ -181,6 +181,7 @@ if __name__ == '__main__':
     logger.info(f'target activity profiles:\n{ref_profiles}')
 
     # For each specified run
+    convergence = []
     for i in range(nruns):
         logger.info(f'running {method} optimization for {model}')
 
@@ -198,15 +199,21 @@ if __name__ == '__main__':
                 npersweep=npersweep,
                 force_rerun=force_rerun
             )
+            convergence.append(True)
         except OptimizationError as e:
             logger.error(e)
-            quit()
+            convergence.append(False)
+        
+    # If one run failed, quit
+    if not all(convergence):
+        logger.error('At least one optimization run failed')
+        quit()
 
-        # Perform stimulus sweep with optimal connectivity matrix
-        logger.info(f'optimal connectivity matrix:\n{Wopt}')
-        model.W = Wopt
-        sweep_data = model.run_stim_sweep(srel, amps)
+    # Perform stimulus sweep with optimal connectivity matrix
+    logger.info(f'optimal connectivity matrix:\n{Wopt}')
+    model.W = Wopt
+    sweep_data = model.run_stim_sweep(srel, amps)
 
-        # Compare results to reference profiles
-        rmse = model.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm)
-        logger.info(f'RMSE = {rmse:.2f}')
+    # Compare results to reference profiles
+    rmse = model.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm)
+    logger.info(f'RMSE = {rmse:.2f}')
