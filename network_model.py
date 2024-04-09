@@ -265,6 +265,9 @@ class NetworkModel:
         if W.isna().any().any():
             raise ModelError('connectivity matrix cannot contain NaN values')
         
+        # Cast as float
+        W = W.astype(float)
+        
         # Check that matrix is square and that rows and columns match
         Wrows, Wcols = W.index.values, W.columns.values
         if len(Wrows) != len(Wcols):
@@ -481,7 +484,8 @@ class NetworkModel:
 
     @classmethod
     def plot_connectivity_matrix(cls, W, norm=False, ax=None, cbar=True, height=2.5, 
-                                 vmin=None, vmax=None, title=None, colwrap=4):
+                                 vmin=None, vmax=None, title=None, colwrap=4, 
+                                 agg=False, clabel=None):
         '''
         Plot connectivity matrix(ces)
 
@@ -493,30 +497,56 @@ class NetworkModel:
         :param vmin (optional): minimum value for color scale
         :param vmax (optional): maximum value for color scale
         :param title (optional): axis title
+        :param colwrap (optional): number of columns to wrap connectivity matrices
+        :param agg (optional): whether to aggregate multiple matrices into a single one
         :return: figure handle
         '''
-        # If multiple connectivity matrices provided, plot each on separate axis
+        # If disctionary provided, concatenate into single dataframe
         if isinstance(W, dict):
-            ninputs = len(W)
-            if ax is not None:
-                axes = as_iterable(ax)
-                if len(axes) != ninputs:
-                    raise ModelError(f'number of axes ({len(axes)}) does not correspond to number of connectivity matrices ({ninputs})')
+            W = pd.concat(W, axis=0, names=['matrix']) 
+
+        # If multiple connectivity matrices provided
+        if isinstance(W.index, pd.MultiIndex) and W.index.nlevels > 1:
+            gby = W.index.names[0]
+            if len(W.index.get_level_values(gby).unique()) == 1:
+                W = W.droplevel(gby)
+            # If aggregation flag ON, plot mean and CV of connectivity matrices
+            elif agg:
+                groups = W.groupby('pre-synaptic')
+                Wmean, Wstd = groups.mean(), groups.std()
+                Wcv = Wstd / Wmean.abs()
+                fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+                cls.plot_connectivity_matrix(
+                    Wmean, norm=norm, ax=axes[0], title='mean', cbar=True)
+                cls.plot_connectivity_matrix(
+                    Wcv, norm=False, ax=axes[1], title=f'CV across {gby}s', cbar=True, clabel='CV')
+                fig.subplots_adjust(wspace=0.5)
+                return fig
+
+            # Otherwise, plot each matrix on separate axis
             else:
-                nrows, ncols = ninputs // colwrap + 1, colwrap
-                fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
-                if nrows > 1:
-                    fig.subplots_adjust(hspace=1)
-                axes = axes.flatten()
-                suptitle = 'connectivity matrices'
-                if norm:
-                    suptitle = f'normalized {suptitle}'
-                fig.suptitle(suptitle, fontsize=12, y=1 + .2 / nrows)
-            for ax, (k, w) in zip(axes, W.items()):
-                cls.plot_connectivity_matrix(w, norm=norm, ax=ax, title=k, cbar=False)
-            for ax in axes[ninputs:]:
-                ax.axis('off')
-            return fig       
+                groups = W.groupby(gby)
+                ninputs = len(groups)
+                if ax is not None:
+                    axes = as_iterable(ax)
+                    if len(axes) != ninputs:
+                        raise ModelError(f'number of axes ({len(axes)}) does not correspond to number of connectivity matrices ({ninputs})')
+                    fig = axes[0].get_figure()
+                else:
+                    nrows, ncols = ninputs // colwrap + 1, colwrap
+                    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
+                    if nrows > 1:
+                        fig.subplots_adjust(hspace=1)
+                    axes = axes.flatten()
+                    suptitle = 'connectivity matrices'
+                    if norm:
+                        suptitle = f'normalized {suptitle}'
+                    fig.suptitle(suptitle, fontsize=12, y=1 + .05 / nrows)
+                for ax, (k, w) in zip(axes, groups):
+                    cls.plot_connectivity_matrix(w.droplevel(gby), norm=norm, ax=ax, title=k, cbar=False)
+                for ax in axes[ninputs:]:
+                    ax.axis('off')
+                return fig       
 
         # Create/retrieve figure and axis
         if ax is None:
@@ -533,14 +563,19 @@ class NetworkModel:
         # If normalization requested, normalize matrix
         if norm:
             W = W / W.abs().max().max()
+        
+        # Check if matrix is an error matrix (i.e., has no negative values)
+        iserror = all(W.stack().dropna() > 0)
+        if clabel is None:
+            clabel = 'connection strength' if not iserror else 'error'
 
         # If no vmin/vmax provided, set to symmetric values
         Wamax = W.abs().max().max()
         Wamax = np.ceil(10 * Wamax) / 10
         if vmin is None:
-            vmin = -Wamax
+            vmin = 0 if iserror else -Wamax
         if vmax is None:
-            vmax = Wamax
+            vmax = 1.5 if iserror else Wamax
             
         # Plot connectivity matrix
         sns.heatmap(
@@ -549,18 +584,16 @@ class NetworkModel:
             square=True, 
             vmin=vmin, 
             vmax=vmax,
-            center=0, 
-            cmap='coolwarm', 
+            center=0 if not iserror else None, 
+            cmap='flare' if iserror else 'coolwarm', 
             annot=True,
             fmt='.2g',
             cbar=cbar,
-            cbar_kws={'label': 'connection strength'} if cbar else None,
+            cbar_kws={'label': clabel} if cbar else None,
         )
 
-        # Set x label on top and remove ticks
-        ax.xaxis.tick_top()
-        ax.xaxis.set_label_position('top')
-        ax.tick_params(axis='both', which='both', top=False, left=False)
+        # Remove ticks
+        ax.tick_params(axis='both', which='both', bottom=False, left=False)
 
         # If colorbar predent, restrict its ticks to [vmin, 0, vmax]
         if cbar:
@@ -1469,13 +1502,81 @@ class NetworkModel:
         # Return cost
         return cost
     
+    def evaluate_sensitivity(self, srel, amps, rel_perturbation=0.1, norm=False, aggfunc=None, **kwargs):
+        '''
+        Evaluate sensitivity of model to relative variations
+        in connectivity parameters
+
+        :param srel: relative stimulus amplitude per population, provided as pandas series
+        :param amps: stimulus amplitudes vector
+        :param rel_perturbation: relative perturbation amplitude (default: 0.1)
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param aggfunc (optional): aggregation function to apply across relative perturbations (default: 'mean')
+        :return: sensitivity matrix for each connection weight
+        '''
+        # Simulate model with default connectivity to generate reference profiles
+        sweep_data = self.run_stim_sweep(srel, amps, **kwargs)
+        ref_profiles = self.extract_steady_state(sweep_data, kind='stim', verbose=False)
+        
+        # Extract vector of reference connection weights
+        Wref = self.W.stack().rename('connection weight')
+        idxnames = list(Wref.index.names)
+
+        # Define vector of "symmetric" relative perturbations
+        rel_perturbations = pd.Index(
+            np.array([-rel_perturbation, rel_perturbation]), 
+            name='rel_perturbation')
+
+        # Define global costs dictionary
+        costs = {}
+
+        # For each relative perturbation
+        logger.info(f'{self}: evaluating sensitivity to connectivity perturbations')
+        for relp in rel_perturbations:
+            logger.info(f'relative perturbation: {relp * 1e2}%')
+            # Define cost array
+            cost = np.zeros(len(Wref))
+
+            # For each connection weight
+            for i, w in enumerate(tqdm(Wref)):
+                # Create copy of reference connection weights with perturbed value
+                Wvec = Wref.values.copy()
+                Wvec[i] = w * (1 + relp)
+
+                # Assign perturbed parameters to network connectivity matrix, 
+                # run stimulation sweep, and evaluate cost
+                cost[i] = self.set_coupling_run_and_evaluate(
+                    Wvec, srel, ref_profiles, norm=norm, **kwargs)
+                
+            # Cast as series and store in global costs dictionary
+            costs[relp] = pd.Series(cost, index=Wref.index)
+        
+        # Concatenate costs into dataframe
+        costs = pd.concat(costs, axis=0, names=[rel_perturbations.name])
+
+        # Aggregate across relative perturbations
+        if aggfunc is None:
+            aggfunc = 'mean'
+        aggcosts = costs.groupby(idxnames).agg(aggfunc)
+
+        # Recast as sensitivity matrix
+        W = aggcosts.unstack()
+
+        # Return
+        return W
+    
     def Wvec_to_Wmat(self, Wvec):
         '''
         Convert network connectivity matrix vector to matrix
 
-        :param Wvec: network connectivity matrix vector (size n^2, where n is the number of populations in the network)
+        :param Wvec: network connectivity matrix vector(s) (size n^2, where n is the number of populations in the network)
         :return: n-by-n network connectivity matrix
         '''
+        # If input is a series, assume 1 vector per row and convert each one to matrix
+        if isinstance(Wvec, pd.Series):
+            Wdict = {k: self.Wvec_to_Wmat(v) for k, v in Wvec.items()}
+            gname = Wvec.index.name if Wvec.index.name is not None else 'matrix'
+            return pd.concat(Wdict, axis=0, names=[gname])
         if len(Wvec) != len(self.Wnames):
             raise ModelError('input vector length does not match network connectivity matrix size')
         Wmat = pd.Series(
@@ -1867,4 +1968,3 @@ class ModelOptimizer:
         idxmin = cost.idxmin()
         imin = np.where(cost.index == idxmin)[0][0]
         return imin > 0.9 * len(cost)
-

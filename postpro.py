@@ -4299,3 +4299,23 @@ def bimodality_coefficient(data):
     bc = pdf_variance / (pdf_mean**2)
     
     return bc
+
+
+def compute_trajectory_angles(trajectory):
+    ''' 
+    Compute angles between point-to-point vectors in a trajectory.
+
+    :param trajectory: numpy array of shape (npoints, ndims) representing the trajectory
+    :return: vector of angles (in radians) between point-to-point vectors
+    '''
+    npoints, ndims = trajectory.shape
+    logger.info(f'computing tangent vectors along {npoints} points {ndims}D trajectory')
+    # Compute tangent vectors along trajectory
+    tangents = np.diff(trajectory, axis=0)  # (npoints - 1, ndims)
+    # Compute dot products between tangent vectors
+    dotprods = np.array([np.dot(A, B) for A, B in zip(tangents[:-1], tangents[1:])])
+    # Compute norms products of tangent vectors
+    norms = np.linalg.norm(tangents, axis=1)
+    normprods = norms[:-1] * norms[1:]
+    # Compute angles between tangent vectors
+    return np.arccos(dotprods / normprods)

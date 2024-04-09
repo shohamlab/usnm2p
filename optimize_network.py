@@ -27,7 +27,6 @@ tau = pd.Series(
     },
     name='tau (s)'
 )
-
 populations = tau.index
 
 # Gain function
@@ -60,14 +59,6 @@ amps = rel_amps * Ithr
 # Target activity profiles
 ref_fpath = os.path.join(logdir, 'ref_profiles.csv')
 ref_profiles = pd.read_csv(ref_fpath).set_index('amplitude')
-# ref_profiles = pd.DataFrame(
-#     data={
-#         'E': threshold_linear(amps, **fparams.loc['E', :]),
-#         'PV': threshold_linear(amps, **fparams.loc['PV', :]),
-#         'SST': threshold_linear(amps, **fparams.loc['E', :])
-#     },
-#     index=pd.Index(amps, name='amplitude')
-# )
 ref_profiles.columns.name = 'population'
 
 # Main
