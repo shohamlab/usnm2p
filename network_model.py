@@ -559,6 +559,9 @@ class NetworkModel:
         if title is None:
             title = 'connectivity matrix'
         ax.set_title(title, pad=10)
+
+        # Replace infinite values by NaN
+        W = W.replace([np.inf, -np.inf], np.nan)
         
         # If normalization requested, normalize matrix
         if norm:
