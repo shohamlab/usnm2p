@@ -6,6 +6,7 @@
 
 import time
 import glob
+import itertools
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -105,6 +106,9 @@ class NetworkModel:
 
     # Default coupling strength bounds for excitatory and inhibitory connections
     WMAX = 20.
+
+    # Scaling factor for activity level ratio to cost
+    ACTIVITY_RATIO_TO_COST = 1e-2
     
     # CSV delimiter
     DELIMITER = ','
@@ -1406,7 +1410,7 @@ class NetworkModel:
         if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
             raise ModelError('all Wbounds values must be tuples')
 
-    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, invalid_cost=np.inf):
+    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, penalize_disparity=False, invalid_cost=np.inf):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
         reference acivtation profile, and (3) computing cost metric
@@ -1415,6 +1419,8 @@ class NetworkModel:
         :param sweep_data: stimulus amplitude sweep output dataframe
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
+        :param penalize_disparity (optional): whether to penalize disparity in activation levels (i.e., 
+            high ratios in max activation levels) across populations
         :return: evaluated cost
         '''
         if 't' not in sweep_data.index.names:
@@ -1458,8 +1464,29 @@ class NetworkModel:
         # Compute root mean squared errors per population
         rmse = np.sqrt((err**2).mean())
 
-        # Return sum of root mean squared errors
-        return rmse.sum()
+        # Sum root mean squared errors across populations
+        cost = rmse.sum()
+
+        # If requested, add penalty for disparity in activity levels across populations
+        if penalize_disparity:
+            # Compute max activation levels across sweep for each population
+            maxlevels = stim_ss.max().rename('max level')
+            # Compute all pairwise ratios of max activation levels
+            pairs = list(itertools.combinations(maxlevels.index, 2))
+            ratios = pd.Series(
+                [maxlevels.loc[p[0]] / maxlevels.loc[p[1]] for p in pairs],
+                index=pairs,
+                name='max level ratio'
+            )
+            # Transform ratios < 1 to reciprocal
+            ratios = ratios.where(ratios > 1, 1 / ratios)
+            # Compute max ratio
+            maxratio = ratios.max()
+            # Add max ratio to cost, with appropriate scaling factor
+            cost += maxratio * self.ACTIVITY_RATIO_TO_COST
+
+        # Return cost
+        return cost
     
     def set_coupling_from_vec(self, x):
         '''
@@ -1475,7 +1502,8 @@ class NetworkModel:
         for (prekey, postkey), v in zip(self.Wnames, x):
             self.W.loc[prekey, postkey] = v
     
-    def set_coupling_run_and_evaluate(self, x, srel, ref_profiles, norm=False, invalid_cost=np.inf, **kwargs):
+    def set_coupling_run_and_evaluate(self, x, srel, ref_profiles, norm=False, 
+                                      penalize_disparity=False, invalid_cost=np.inf, **kwargs):
         '''
         Assign coupling parameters from input vector, run stimulation sweep, 
         evaluate cost, and reset coupling parameters
@@ -1497,7 +1525,12 @@ class NetworkModel:
         # Run stimulation sweep and evaluate cost
         amps = ref_profiles.index.values
         sweep_data = self.run_stim_sweep(srel, amps, verbose=False, **kwargs)
-        cost = self.evaluate_stim_sweep(ref_profiles, sweep_data, norm=norm, invalid_cost=invalid_cost)
+        cost = self.evaluate_stim_sweep(
+            ref_profiles, sweep_data, 
+            norm=norm, 
+            penalize_disparity=penalize_disparity, 
+            invalid_cost=invalid_cost
+        )
 
         # Reset network connectivity matrix to reference
         self.W = Wref
@@ -1505,7 +1538,7 @@ class NetworkModel:
         # Return cost
         return cost
     
-    def evaluate_sensitivity(self, srel, amps, rel_perturbation=0.1, norm=False, aggfunc=None, **kwargs):
+    def evaluate_sensitivity(self, srel, amps, rel_perturbation=0.1, norm=False, penalize_disparity=False, aggfunc=None, **kwargs):
         '''
         Evaluate sensitivity of model to relative variations
         in connectivity parameters
@@ -1549,7 +1582,8 @@ class NetworkModel:
                 # Assign perturbed parameters to network connectivity matrix, 
                 # run stimulation sweep, and evaluate cost
                 cost[i] = self.set_coupling_run_and_evaluate(
-                    Wvec, srel, ref_profiles, norm=norm, **kwargs)
+                    Wvec, srel, ref_profiles, norm=norm, 
+                    penalize_disparity=penalize_disparity, **kwargs)
                 
             # Cast as series and store in global costs dictionary
             costs[relp] = pd.Series(cost, index=Wref.index)
@@ -1845,7 +1879,7 @@ class ModelOptimizer:
         return model.Wvec_to_Wmat(sol)
     
     @staticmethod
-    def get_log_filename(model, srel, ref_profiles, kind, Wbounds, npersweep, norm):
+    def get_log_filename(model, srel, ref_profiles, kind, Wbounds, npersweep, norm, penalize_disparity):
         ''' Generate log filename for optimization input arguments '''
         # If log folder is provided, create log file
         opt_ids = {k: generate_unique_id(arg) for k, arg in zip(['srel', 'targets'], [srel, ref_profiles])}
@@ -1859,12 +1893,14 @@ class ModelOptimizer:
             opt_code = f'{opt_code}_{npersweep}persweep'
         if norm:
             opt_code = f'{opt_code}_norm'
+        if penalize_disparity:
+            opt_code = f'{opt_code}_pendisp'
         opt_code = f'{model.code()}_{opt_code}'
         return f'{opt_code}.csv'
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False, 
-                 logdir=None, force_rerun=False, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5, norm=False,
+                 penalize_disparity=False, logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
@@ -1873,6 +1909,7 @@ class ModelOptimizer:
         :param kind (optional): optimization algorithm (default = "diffev")
         :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param penalize_disparity (optional): whether to penalize disparity in activation levels across populations
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: optimized network connectivity matrix
         '''
@@ -1882,7 +1919,7 @@ class ModelOptimizer:
         
         # If log folder is provided, derive path to log file
         if logdir is not None:
-            fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
+            fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm, penalize_disparity)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None
@@ -1907,13 +1944,17 @@ class ModelOptimizer:
         
         # Run optimization algorithm and return
         if kind == 'brute':
-            return cls.brute_force(model, npersweep, *args, Wbounds=Wbounds, fpath=fpath, norm=norm, **kwargs)
+            return cls.brute_force(
+                model, npersweep, *args, Wbounds=Wbounds, fpath=fpath, norm=norm, 
+                penalize_disparity=penalize_disparity, **kwargs)
         else:
-            return cls.global_optimization(model, *args, Wbounds=Wbounds, fpath=fpath, kind=kind, norm=norm, **kwargs)
+            return cls.global_optimization(
+                model, *args, Wbounds=Wbounds, fpath=fpath, kind=kind, norm=norm, 
+                penalize_disparity=penalize_disparity, **kwargs)
 
     @classmethod
     def load_optimization_history(cls, model, *args, Wbounds=None, kind='diffev', npersweep=5,
-                                  norm=False, logdir=None, **kwargs):
+                                  norm=False, penalize_disparity=False, logdir=None, **kwargs):
         ''' 
         Load optimization history from CSV log file
         
@@ -1921,6 +1962,7 @@ class ModelOptimizer:
         :param kind (optional): optimization algorithm (default = "diffev")
         :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param penalize_disparity (optional): whether to penalize disparity in activation levels across populations
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: network connectivity matrix optimizaiton history
         '''
@@ -1933,7 +1975,7 @@ class ModelOptimizer:
             raise OptimizationError('log directory must be provided')
         
         # Derive path to log file
-        fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm)
+        fname = cls.get_log_filename(model, *args, kind, Wbounds, npersweep, norm, penalize_disparity)
         fpath = os.path.join(logdir, fname)
 
         # Split into code and extension
