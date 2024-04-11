@@ -87,7 +87,8 @@ if __name__ == '__main__':
         '--norm', action='store_true',
         help='Normalize profiles prior to comparison')
     parser.add_argument(
-        '--pendisp', action='store_true', help='Penalize disparity in activity levels across populations')
+        '--xdisp', type=float, default=0., 
+        help='Cost scaling factor to penalize disparity in activity levels across populations')
     parser.add_argument(
         '--mpi', action='store_true', help='Run with MPI')
     parser.add_argument(
@@ -106,7 +107,7 @@ if __name__ == '__main__':
     method = args.method
     npersweep = args.npersweep
     norm = args.norm
-    penalize_disparity = args.pendisp
+    disparity_cost_factor = args.xdisp
     mpi = args.mpi
     save = not args.nosave
     force_rerun = args.force_rerun
@@ -186,7 +187,7 @@ if __name__ == '__main__':
                 srel,
                 ref_profiles, 
                 norm=norm,
-                penalize_disparity=penalize_disparity,
+                disparity_cost_factor=disparity_cost_factor,
                 Wbounds=Wbounds,
                 mpi=mpi,
                 logdir=logdir,
@@ -211,5 +212,5 @@ if __name__ == '__main__':
 
     # Compare results to reference profiles
     rmse = model.evaluate_stim_sweep(
-        ref_profiles, sweep_data, norm=norm, penalize_disparity=penalize_disparity)
+        ref_profiles, sweep_data, norm=norm, disparity_cost_factor=disparity_cost_factor)
     logger.info(f'RMSE = {rmse:.2f}')
