@@ -48,18 +48,11 @@ W = pd.DataFrame(
     columns=pd.Index(populations, name='post-synaptic')
 )
 
-# Relative input strength per population
-srel = pd.Series(1., populations, name='external input')
-
-# Define vector of amplitudes of external input w.r.t. reference value
-Ithr = fparams.loc['E', 'x0']  # E activation threshold
-rel_amps = np.linspace(0, 10, 25)
-amps = rel_amps * Ithr
-
 # Target activity profiles
 ref_fpath = os.path.join(logdir, 'ref_profiles.csv')
 ref_profiles = pd.read_csv(ref_fpath).set_index('amplitude')
 ref_profiles.columns.name = 'population'
+amps = ref_profiles.index.values
 
 # Main
 if __name__ == '__main__':
@@ -75,6 +68,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
         help='List of coupling weight bounds to adjust search range')
+    parser.add_argument(
+        '--srel', metavar='KEY VALUE', nargs='+', type='str', 
+        help='List of relative stimulus sensitivity per populations')
+    parser.add_argument(
+        '--explore-srel', action='store_true', help='Explore relative stimulus sensitivities')
     parser.add_argument(
         '--uniform-gain', action='store_true', help='Use uniform gain function for all populations')
     parser.add_argument(
@@ -103,6 +101,7 @@ if __name__ == '__main__':
     wmax = args.wmax
     if wmax == NetworkModel.WMAX:
         wmax = None
+    explore_srel = args.explore_srel
     uniform_gain = args.uniform_gain
     method = args.method
     npersweep = args.npersweep
@@ -124,23 +123,41 @@ if __name__ == '__main__':
         tau = tau.drop('PV')
         fparams = fparams.drop('PV')
         W = W.drop('PV', axis=0).drop('PV', axis=1)
-        srel = srel.drop('PV')
         ref_profiles = ref_profiles.drop('PV', axis=1)
+        populations = tau.index
     
     # If uniform gain function requested, assign all populations to same values as E
     if uniform_gain:
         for k in fparams.index:
             fparams.loc[k] = fparams.loc['E']
     
+    # Parse relative stimulus sensitivities
+    srel = None
+    if args.srel is not None:
+        if not len(args.srel) % 2 == 0:
+            raise ValueError('Invalid number of arguments for srel (should be multiple of 2)')
+        spairs = [args.srel[i:i + 2] for i in range(0, len(args.srel), 2)]
+        srel = {}
+        for pair in spairs:
+            k, v = pair
+            if k not in populations:
+                raise ValueError(f'Invalid population key in srel: {k}')
+            try:
+                v = float(v)
+            except ValueError:
+                raise ValueError(f'Invalid relative stimulus sensitivity value in srel: {v}')
+            srel[k] = v
+        srel = pd.Series(srel, name='stimulus sensitivities')
+    
     # Initialize model
-    model = NetworkModel(W=W, tau=tau, fgain=fgain, fparams=fparams)
+    model = NetworkModel(W=W, tau=tau, fgain=fgain, fparams=fparams, srel=srel)
 
     # Parse weight bounds
     wbounds = None
     if args.wbounds is not None:
         if not len(args.wbounds) % 4 == 0:
             raise ValueError('Invalid number of arguments for wbounds (should be multiple of 4)')
-        wquads = [args.wbounds[i:i+4] for i in range(0, len(args.wbounds), 4)]
+        wquads = [args.wbounds[i:i + 4] for i in range(0, len(args.wbounds), 4)]
         wbounds = {}
         for quad in wquads:
             keys, vals = quad[:2], quad[2:]
@@ -171,8 +188,14 @@ if __name__ == '__main__':
             # Convert Wbounds to float tuples if not already
             Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
         logger.info(f'adjusted weight bounds:\n{Wbounds}')
-
-
+    
+    # If exploring relative stimulus sensitivities
+    if explore_srel:
+        logger.info('adding bounds for relative stimulus sensitivities exploration')
+        srel_bounds = (0., 1.)
+    else:
+        srel_bounds = None
+    
     logger.info(f'target activity profiles:\n{ref_profiles}')
 
     # For each specified run
@@ -184,11 +207,11 @@ if __name__ == '__main__':
         try:
             Wopt = ModelOptimizer.optimize(
                 model,
-                srel,
                 ref_profiles, 
                 norm=norm,
                 disparity_cost_factor=disparity_cost_factor,
                 Wbounds=Wbounds,
+                srel_bounds=srel_bounds,
                 mpi=mpi,
                 logdir=logdir,
                 kind=method, 
@@ -208,7 +231,7 @@ if __name__ == '__main__':
     # Perform stimulus sweep with optimal connectivity matrix
     logger.info(f'optimal connectivity matrix:\n{Wopt}')
     model.W = Wopt
-    sweep_data = model.run_stim_sweep(srel, amps)
+    sweep_data = model.run_stim_sweep(amps)
 
     # Compare results to reference profiles
     rmse = model.evaluate_stim_sweep(
