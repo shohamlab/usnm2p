@@ -69,7 +69,7 @@ if __name__ == '__main__':
         '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
         help='List of coupling weight bounds to adjust search range')
     parser.add_argument(
-        '--srel', metavar='KEY VALUE', nargs='+', type='str', 
+        '--srel', metavar='KEY VALUE', nargs='+', type=str, 
         help='List of relative stimulus sensitivity per populations')
     parser.add_argument(
         '--explore-srel', action='store_true', help='Explore relative stimulus sensitivities')
@@ -148,6 +148,8 @@ if __name__ == '__main__':
                 raise ValueError(f'Invalid relative stimulus sensitivity value in srel: {v}')
             srel[k] = v
         srel = pd.Series(srel, name='stimulus sensitivities')
+        srel.index.name = 'population'
+        srel = srel.reindex(populations)
     
     # Initialize model
     model = NetworkModel(W=W, tau=tau, fgain=fgain, fparams=fparams, srel=srel)

@@ -692,13 +692,13 @@ class NetworkModel:
         # Return figure handle
         return fig
 
-    def plot_stimulus_sensitivity(self, srel=None, ax=None, suffix=None):
+    def plot_stimulus_sensitivity(self, srel=None, ax=None, title=None):
         '''
         Plot relative stimulus sensitivity per population
 
         :param srel: relative sensitivities vector, provided as pandas series. If None, use current model sensitivities
         :param ax (optional): axis handle
-        :param suffix (optional): suffix to append to the axis title
+        :param title (optional): axis title
         :return: figure handle
         '''
         # If no sensitivities provided, use current model sensitivities
@@ -713,9 +713,8 @@ class NetworkModel:
         
         # Set axis layout
         sns.despine(ax=ax)
-        title = 'stimulus sensitivities'
-        if suffix is not None:
-            title = f'{title} ({suffix})'
+        if title is None:
+            title = 'stimulus sensitivities'
         ax.set_title(title)
         ax.set_xlabel('population')
         
@@ -733,12 +732,12 @@ class NetworkModel:
         # Return figure handle
         return fig
     
-    def plot_fgain(self, ax=None, suffix=None):
+    def plot_fgain(self, ax=None, title=None):
         '''
         Plot the gain function(s)
 
         :param ax (optional): axis handle
-        :param suffix (optional): suffix to append to the axis title
+        :param title (optional): axis title
         :return: figure handle
         '''
         # Create.retrieve figure and axis
@@ -755,19 +754,21 @@ class NetworkModel:
         # Create x values
         x = np.linspace(0, 100, 100)
 
+        # Determine title if not provided
+        if title is None:
+            title = 'gain function'
+            if not self.is_fgain_unique():
+                title = f'{title}s'
+        
         # Plot gain function(s)
-        title = 'gain function'
         if self.is_fgain_unique():
             ax.plot(x, self.fgain_callable(x), lw=2, c='k')
         else:
-            title = f'{title}s'
             for k, fgain in self.fgain_callable.items():
                 ax.plot(x, fgain(x), lw=2, c=self.palette.get(k, None), label=k)
             ax.legend(loc='upper left', frameon=False)
 
         # Adjust layout
-        if suffix is not None:
-            title = f'{title} ({suffix})'
         ax.set_title(title)
         fig.tight_layout()
 
@@ -2001,8 +2002,14 @@ class ModelOptimizer:
             # If force_rerun flag not set, load optimization results and return
             if not force_rerun:
                 cost = cls.load_log_file(fpath)
-                Wvec = cls.extract_optimum(cost)
-                return model.Wvec_to_Wmat(Wvec)
+                xvec = cls.extract_optimum(cost)
+                Wvec, srelvec = xvec[:model.nW], xvec[model.nW:]
+                Wmat = model.Wvec_to_Wmat(Wvec)
+                if srelvec:
+                    srel = pd.Series(srelvec, index=model.keys)
+                    return Wmat, srel
+                else:
+                    return Wmat
             # Otherwise, re-run optimization and save in different file
             else:
                 irerun = 1
