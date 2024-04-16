@@ -104,6 +104,14 @@ class NetworkModel:
     # Max allowed activity value
     MAX_RATE = 1e3
 
+    # Reference coupling strength for E -> SST connections, 
+    # used to rescale connectivity matrices
+    WREF = ('E', 'SST', 12.)
+
+    # Reference gain threshold and slope for E population, used to rescale gain functions
+    XREF = ('E', 5.)
+    GREF = ('E', 1.)
+
     # Default coupling strength bounds for excitatory and inhibitory connections
     WMAX = 20.
     
@@ -115,7 +123,7 @@ class NetworkModel:
         Initialize the network model
 
         :param W (optional): network connectivity matrix, provided as dataframe. If None, set to 0 for all populations
-        :param tau (optional): time constants vector, provided as pandas series. 
+        :param tau (optional): time constants vector (in ms), provided as pandas series. 
             If None, set to 10 ms for all populations
         :param fgain (optional): gain function. If None, use threshold-linear
         :param fparams (optional): gain function parameters, either:
@@ -157,73 +165,6 @@ class NetworkModel:
     
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
-    
-    def attrcodes(self, add_W=False):
-        '''
-        Construct dictionary of unique identifiers for model attributes
-        :param add_W (optional): whether to include the connectivity matrix in the code
-        :return: dictionary of attribute codes
-        '''
-        # Define attributes to include in the code
-        attrs = ['keys', 'fgain', 'fparams', 'tau', 'b', 'srel']
-        if add_W:
-            attrs.append('W')
-        
-        # Assemble unique identifiers for each set attribute
-        attrids = {}
-        for k in attrs:
-            val = getattr(self, k)
-            if val is not None:
-                attrids[k] = generate_unique_id(val)
-        
-        # Remove stimulus sensitivity vector from attribute codes if uniform
-        if 'srel' in attrids and self.is_srel_uniform:
-            del attrids['srel']
-        
-        # Return attribute codes 
-        return attrids
-    
-    def code(self, **kwargs):
-        ''' 
-        Return model unique identifier code based on its attributes
-        
-        :return: model code
-        '''
-        # Assemble unique identifiers for model attributes
-        attrids = self.attrcodes(**kwargs)
-        # Unzip attribute codes
-        keys = list(attrids.keys())
-        vals = list(attrids.values())
-        # Replace "keys" and "fgain" attribute keys by empty strings
-        exclude = ['keys', 'fgain']
-        keys = [k if k not in exclude else '' for k in keys]
-        # Assemble into attribute code
-        attrcode  = '_'.join([f'{k}{v}' for k, v in zip(keys, vals)])
-        # Return
-        return attrcode
-    
-    def create_log_file(self, fpath, pnames):
-        ''' 
-        Create batch log file if it does not exist.
-        
-        :param fpath: path to log file
-        :param pnames: list of input parameter names
-        '''
-        if not os.path.isfile(fpath):
-            logger.info(f'creating batch log file: "{fpath}"')
-            with open(fpath, 'w') as csvfile:
-                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
-                writer.writerow(['iteration', *pnames, 'cost'])
-        else:
-            logger.debug(f'existing batch log file: "{fpath}"')
-    
-    def append_to_log_file(self, fpath, iteration, params, cost):
-        ''' Append current batch iteration to log file '''
-        logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
-        with lockfile.FileLock(fpath):
-            with open(fpath, 'a') as csvfile:
-                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
-                writer.writerow([iteration, *params, cost])
     
     @property
     def size(self):
@@ -369,6 +310,12 @@ class NetworkModel:
         else:
             return -We / W.loc[post_key, pre_key]
     
+    @classmethod
+    def rescale_W(cls, W):
+        ''' Rescale connectivity matrix to match reference coupling strength '''
+        Wval = W.loc[cls.WREF[0], cls.WREF[1]]
+        return W * cls.WREF[2] / Wval
+    
     def check_vector_input(self, v):
         '''
         Check vector input
@@ -389,7 +336,7 @@ class NetworkModel:
     @tau.setter
     def tau(self, tau):
         self.check_vector_input(tau)
-        self._tau = tau
+        self._tau = tau.round(2)
     
     @property
     def tauvec(self):
@@ -424,9 +371,10 @@ class NetworkModel:
         self.check_vector_input(srel)
         if srel.min() < 0:
             raise ModelError('relative stimulus sensitivities must be positive numbers')        
-        # Normalize to 0 - 1 range
+        # Cast as float
         srel = srel.astype(float)
-        srel = srel / srel.max()
+        # # Normalize to 0 - 1 range
+        # srel = srel / srel.max()
         # Set attribute
         self._srel = srel
     
@@ -487,6 +435,10 @@ class NetworkModel:
                 if c in self.keys:
                     raise ModelError(f'gain function parameter column {c} matches a population name')
         
+        # If params provided, round to 2 decimals
+        if isinstance(params, (pd.Series, pd.DataFrame)):
+            params = params.round(2)
+        
         self._fparams = params
         self.fgain_callable = self.get_fgain_callables(params)
     
@@ -527,6 +479,81 @@ class NetworkModel:
         Assess wither gain function is bounded to 0-1 interval
         '''
         return np.isclose(self.fgain(1e3), 1)
+    
+    @classmethod
+    def rescale_fparams(cls, fparams):
+        ''' Rescale gain function parameters to match reference threshold and slope '''
+        # Extract reference threshold and slope
+        x0 = fparams.loc[cls.XREF[0], 'x0']
+        g = fparams.loc[cls.GREF[0], 'A']
+
+        # Create copy and rescale threshold and slope
+        fparams_rescaled = fparams.copy()
+        fparams_rescaled['x0'] *= cls.XREF[1] / x0
+        fparams_rescaled['A'] *= cls.GREF[1] / g
+
+        # Return rescaled parameters
+        return fparams_rescaled
+    
+    def attrcodes(self):
+        '''
+        Construct dictionary of unique identifiers for model attributes
+        :return: dictionary of attribute codes
+        '''
+        # Define attributes to include in the code
+        attrs = ['keys', 'W', 'fgain', 'fparams', 'tau', 'b', 'srel']
+        
+        # Assemble unique identifiers for each set attribute
+        attrids = {}
+        for k in attrs:
+            val = getattr(self, k)
+            if val is not None:
+                attrids[k] = generate_unique_id(val)
+        
+        # Return attribute codes 
+        return attrids
+    
+    # def code(self, **kwargs):
+    #     ''' 
+    #     Return model unique identifier code based on its attributes
+        
+    #     :return: model code
+    #     '''
+    #     # Assemble unique identifiers for model attributes
+    #     attrids = self.attrcodes(**kwargs)
+    #     # Unzip attribute codes
+    #     keys = list(attrids.keys())
+    #     vals = list(attrids.values())
+    #     # Replace "keys" and "fgain" attribute keys by empty strings
+    #     exclude = ['keys', 'fgain']
+    #     keys = [k if k not in exclude else '' for k in keys]
+    #     # Assemble into attribute code
+    #     attrcode  = '_'.join([f'{k}{v}' for k, v in zip(keys, vals)])
+    #     # Return
+    #     return attrcode
+    
+    def create_log_file(self, fpath, pnames):
+        ''' 
+        Create batch log file if it does not exist.
+        
+        :param fpath: path to log file
+        :param pnames: list of input parameter names
+        '''
+        if not os.path.isfile(fpath):
+            logger.info(f'creating batch log file: "{fpath}"')
+            with open(fpath, 'w') as csvfile:
+                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
+                writer.writerow(['iteration', *pnames, 'cost'])
+        else:
+            logger.debug(f'existing batch log file: "{fpath}"')
+    
+    def append_to_log_file(self, fpath, iteration, params, cost):
+        ''' Append current batch iteration to log file '''
+        logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
+        with lockfile.FileLock(fpath):
+            with open(fpath, 'a') as csvfile:
+                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
+                writer.writerow([iteration, *params, cost])
 
     @classmethod
     def plot_connectivity_matrix(cls, W, norm=False, ax=None, cbar=True, height=2.5, 
@@ -682,7 +709,7 @@ class NetworkModel:
         # Plot time constants
         ax.bar(
             tau.index, 
-            tau.values * 1e3, 
+            tau.values, 
             color=[self.palette.get(k, None) for k in tau.index])
 
         # Set y-axis label and adjust layout
@@ -726,7 +753,7 @@ class NetworkModel:
 
         # Set y-axis label and adjust layout
         ax.set_ylabel('rel. sensitivity')
-        ax.set_ylim(0, 1.05)
+        ax.set_ylim(0, max(1, ax.get_ylim()[1]))
         # fig.tight_layout()
 
         # Return figure handle
@@ -751,8 +778,12 @@ class NetworkModel:
         ax.set_xlabel('input')
         ax.set_ylabel('output')
 
-        # Create x values
-        x = np.linspace(0, 100, 100)
+        # Create x values (up to 3 times the maximum threshold value)
+        if self.is_fgain_unique():
+            x0max = self.fparams['x0']
+        else:
+            x0max = self.fparams['x0'].max()
+        x = np.linspace(0, 3 * x0max, 100)
 
         # Determine title if not provided
         if title is None:
@@ -886,17 +917,17 @@ class NetworkModel:
             raise SimulationError('simulation diverged')
         return self.derivatives(r, *args, **kwargs)
 
-    def simulate(self, tstop=.5, r0=None, A=None, tstart=0.1, tstim=.2, tau_stim=None, dt=None, verbose=True):
+    def simulate(self, tstop=500., r0=None, A=None, tstart=100., tstim=200., tau_stim=None, dt=None, verbose=True):
         '''
         Simulate the network model
 
-        :param tstop: total simulation time (s)
+        :param tstop: total simulation time (ms)
         :param r0: initial activity vector, provided as pandas series
         :param A: external stimulus amplitude
-        :param tstart: stimulus start time (s)
-        :param tstim: stimulus duration (s)
-        :param tau_stim (optional): stimulus rise/decay time constant (s)
-        :param dt: simulation time step (s)
+        :param tstart: stimulus start time (ms)
+        :param tstim: stimulus duration (ms)
+        :param tau_stim (optional): stimulus rise/decay time constant (ms)
+        :param dt: simulation time step (ms)
         :param verbose (optional): whether to log simulation progress
         :return: activity time series
         '''
@@ -974,8 +1005,8 @@ class NetworkModel:
         '''
         Extract stimulus bounds from stimulus modulation vector
 
-        :param x: stimulus pandas series, indexed by time (s)
-        :return: stimulus start and end times (s)
+        :param x: stimulus pandas series, indexed by time
+        :return: stimulus start and end times
         '''
         dx = x.diff()
         # If no stimulus modulation, return bounds of time vector
@@ -1171,7 +1202,7 @@ class NetworkModel:
                 ax.set_ylim(ymin, ymax)
         
         # Set x-axis label on last axis
-        axes[-1].set_xlabel('time (s)')
+        axes[-1].set_xlabel('time (ms)')
 
         # Highlight stimulus period on all axes, if present
         if tbounds is not None:
@@ -1180,50 +1211,6 @@ class NetworkModel:
 
         # Adjust layout
         fig.tight_layout()
-
-        # Return figure handle
-        return fig
-
-    def plot_trajectory(self, sol, ax=None, ss=None):
-        ''' 
-        Plot 3D trajectory from simulation results
-
-        :param sol: simulation results dataframe
-        :param ax (optional): axis handle
-        :param ss (optional): steady-state values to add to activity trajectory
-        :return: figure handle
-        '''
-        # Create/retrieve figure and 3D axis
-        if ax is None:
-            fig = plt.figure(figsize=(5, 5))
-            ax = fig.add_subplot(projection='3d')
-        else:
-            if not isinstance(ax, Axes3D):
-                raise ModelError('input axis must be 3D')
-            fig = ax.get_figure()
-        
-        data = sol[[k for k in self.keys]]
-
-        # Plot trajectory
-        xk, yk, zk = data.columns
-        ax.set_xlabel(xk)
-        ax.set_ylabel(yk)
-        ax.set_zlabel(zk)
-        if self.is_fgain_bounded():
-            ax.set_xlim(-0.05, 1.05)
-            ax.set_ylim(-0.05, 1.05)
-            ax.set_zlim(-0.05, 1.05)
-        x, y, z = data.values.T
-        ax.plot(x, y, z, label='trajectory', c='k')
-        ax.scatter(
-            [x[0]], [y[0]], [z[0]], c='b', s=30, label='start')
-        ax.legend()
-
-        # Add steady-state values if present
-        if ss is not None:
-            ax.scatter(
-                ss[xk], ss[yk], ss[zk], c='r', s=30, label='steady state')
-            ax.legend()
 
         # Return figure handle
         return fig
@@ -1506,8 +1493,42 @@ class NetworkModel:
         for (prekey, postkey), w in zip(self.Wnames, Wvec):
             self.W.loc[prekey, postkey] = w
     
+    def parse_input_vector(self, xvec):
+        '''
+        Parse input parameters
+
+        :param xvec: vector of input parameters
+        '''
+        nx = len(xvec)
+        Wvec, srelvec = None, None
+        if nx == self.size:
+            srelvec = xvec
+        elif nx == self.nW:
+            Wvec = xvec
+        elif nx == self.nW + self.size:
+            Wvec, srelvec = xvec[:self.nW], xvec[self.nW:]
+        else:
+            raise ModelError(f'{self}: cannot parse input vector of size {nx}')
+        return Wvec, srelvec
+    
+    def parse_optimum_vector(self, xvec):
+        '''
+        Parse model parameters from optimum output vector
+
+        :param xvec: vector of optimum output parameters
+        :return: dictonary of corresponding model parameter objects
+        '''
+        Wvec, srelvec = self.parse_input_vector(xvec)
+        opt = {}
+        if Wvec is not None:
+            opt['W'] = self.Wvec_to_Wmat(Wvec)
+        if srelvec is not None:
+            opt['srel'] = pd.Series(srelvec, index=self.keys)
+        return opt
+    
     def set_run_and_evaluate(self, xvec, ref_profiles, norm=False, 
-                             disparity_cost_factor=0., invalid_cost=np.inf, **kwargs):
+                             disparity_cost_factor=0., Wdev_cost_factor=0.,
+                             invalid_cost=np.inf, **kwargs):
         '''
         Adjust specific model parameters, run stimulation sweep, 
         evaluate cost, and reset parameters to original values
@@ -1516,23 +1537,23 @@ class NetworkModel:
         :param ref_profiles: reference activation profiles per population, provided as dataframe
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
+        :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
         :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
         :param kwargs: additional keyword arguments to pass to run_stim_sweep
         :return: evaluated cost
-        '''
-        # Store copy of model parameters
-        Wref = self.W.copy()
-        srel_ref = self.srel.copy()
-        
+        '''        
         # Parse input parameters
-        Wvec, svec = np.array(xvec[:self.nW]), xvec[self.nW:]
+        Wvec, srelvec = self.parse_input_vector(xvec)
 
-        # Assign network parameters from input vector
-        self.set_coupling_from_vec(Wvec)
+        # If input coupling weights provided, store reference and assign to model
+        if Wvec is not None:
+            Wref = self.W.copy()
+            self.set_coupling_from_vec(np.array(Wvec))
 
-        # Assign relative stimulus amplitudes, if provided in input vector
-        if len(svec) > 0:
-            self.srel = pd.Series(svec, index=self.keys)
+        # If input stimulus sensitivities provided, store reference and assign to model
+        if srelvec is not None:
+            srel_ref = self.srel.copy()
+            self.srel = pd.Series(srelvec, index=self.keys)
 
         # Run stimulation sweep and evaluate cost
         amps = ref_profiles.index.values
@@ -1544,9 +1565,15 @@ class NetworkModel:
             invalid_cost=invalid_cost
         )
 
-        # Reset original model parameters
-        self.W = Wref
-        if len(svec) > 0:
+        # If requested, add cost for relative deviation from reference network connectivity matrix
+        if Wdev_cost_factor > 0:
+            Wreldiff = (self.W - Wref) / Wref
+            cost += Wdev_cost_factor * Wreldiff.abs().sum().sum()
+
+        # Reset model parameters that have been modified
+        if Wvec is not None:
+            self.W = Wref
+        if srelvec is not None:
             self.srel = srel_ref
 
         # Return cost
@@ -1702,30 +1729,28 @@ class NetworkModel:
 class ModelOptimizer:
 
     # Allowed global optimization methods
-    GLOBAL_OPT_METHODS = ['diffev', 'annealing', 'shg', 'direct']
+    GLOBAL_OPT_METHODS = ('diffev', 'annealing', 'shg', 'direct')
 
     @staticmethod
     def get_exploration_bounds(model, Wbounds, srel_bounds):
         '''
-        Assemble list of exploration boundsfor network connectivity parameters 
+        Assemble list of exploration bounds, given bounds for specific input parameters network connectivity parameters 
         (and relative stimulus amplitudes, if provided).
 
         :param model: model instance
-        :param Wbounds: network connectivity matrix bounds
+        :param Wbounds: coupling bounds matrix
         :param srel_bounds: relative stimulus amplitude bounds
         :return: series of exploration bounds per parameter
         '''
-        logger.info('extracting exploration bounds')
-        # If no bounds provided, use default bounds
-        if Wbounds is None:
-            Wbounds = model.get_coupling_bounds()
-        # Otherwise, check that bounds are compatible with model
-        else:
+        # Initialize empty list of exploration bounds
+        xbounds = []
+
+        # If coupling bounds matrix provided
+        if Wbounds is not None:
+            # Check compatibility with model
             model.check_coupling_bounds(Wbounds)
-        
-        # Serialize bounds into series, if not already
-        if not isinstance(Wbounds, pd.Series):
-            xbounds = Wbounds.stack().rename('bounds')
+            # Append serialized bounds to exploration bounds
+            xbounds.append(Wbounds.stack().rename('bounds'))
 
         # If relative stimulus amplitude bounds provided
         if srel_bounds is not None:
@@ -1743,68 +1768,14 @@ class ModelOptimizer:
                     raise ModelError('all srel_bounds values must be tuples')
             
             # Add relative stimulus amplitude bounds to exploration
-            xbounds = pd.concat([xbounds, srel_bounds.add_prefix('srel ')])
+            xbounds.append(srel_bounds.rename('srel_bounds'))
         
-        # Return exploration bounds
-        return xbounds
-
-    @classmethod
-    def explore(cls, model, npersweep, *args, Wbounds=None, srel_bounds=None, mpi=False, **kwargs):
-        '''
-        Explore divergence from reference activation profiles across a wide
-        range of network connectivity parameters
-
-        :param model: model instance
-        :param npersweep: number of sweep values per parameter
-        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
-        :param mpi (optional): whether to use multiprocessing (default: False)
-        :return: exploration results as multi-indexed pandas series
-        '''
-        # Define sampling function
-        if npersweep > 1:
-            fsample = lambda x: np.linspace(*x, npersweep).tolist()
-        else:
-            fsample = lambda x: [np.mean(x)]
-
-        # Extract exploration bounds per parameter
-        xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds)
-
-        # Define exploration values per parameter 
-        logger.info('deriving exploration values')
-        xvals = xbounds.apply(fsample).rename('parameters')
-
-        # Generate multi-index with all combinations of exploration values
-        logger.info('assembling exploration queue')
-        mux = pd.MultiIndex.from_product(xvals.values, names=xvals.index)
-        nevals = len(mux)
-
-        # Get number of workers
-        if mpi:
-            # If multiprocessing requested, get minimum of number of available CPUs and number of evaluations
-            nworkers = min(get_cpu_count(), nevals)
-        else:
-            # Otherwise, number of workers is 1
-            nworkers = 1
-
-        # Run exploration batch
-        s = f'running {nevals} evaluations exploration'
-        if nworkers > 1:
-            s = f'{s} with {nworkers} parallel workers'
-        logger.info(s)
-        model.setup_eval(*args, invalid_cost=np.nan, nevals=nevals, **kwargs)
-        if nworkers > 1:
-            with mp.Pool(processes=nworkers) as pool:
-                cost = pool.map(model, enumerate(mux))
-        else:
-            cost = list(map(model, enumerate(mux)))
-        model.cleanup_eval()
-
-        # Format output as multi-indexed series
-        cost = pd.Series(cost, index=mux, name='cost')
-
-        # Return
-        return cost
+        # If no exploration bounds provided, raise error
+        if len(xbounds) == 0:
+            raise ModelError('no exploration bounds provided')
+        
+        # Concatenate exploration bounds, and return
+        return pd.concat(xbounds)
     
     @staticmethod
     def extract_optimum(cost):
@@ -1826,27 +1797,9 @@ class ModelOptimizer:
             return cost.idxmin()
 
     @classmethod
-    def brute_force(cls, model, *args, **kwargs):
-        '''
-        Optimize network connectivity matrix using brute-force algorithm
-
-        :param model: model instance
-        :return: optimal network connectivity matrix (and relative stimulus amplitudes, if explored)
-        '''
-        cost = cls.explore(model, *args, **kwargs)
-        xvec = cls.extract_optimum(cost)
-        Wvec, srelvec = xvec[:model.nW], xvec[model.nW:]
-        Wmat = model.Wvec_to_Wmat(Wvec)
-        if srelvec:
-            srel = pd.Series(srelvec, index=model.keys)
-            return Wmat, srel
-        else:
-            return Wmat
-
-    @classmethod
     def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', mpi=False, **kwargs):
         '''
-        Use global optimization algorithm to find network connectivity matrix that minimizes
+        Use global optimization algorithm to find set of model parameters that minimizes
         divergence with a reference set of activation profiles.
 
         :param model: model instance
@@ -1860,9 +1813,6 @@ class ModelOptimizer:
         :param mpi (optional): whether to use multiprocessing (default: False)
         :return: optimized network connectivity matrix
         '''
-        # Check optimization algorithm validity and extract optimization function
-        if kind not in cls.GLOBAL_OPT_METHODS:
-            raise OptimizationError(f'unknown optimization algorithm: {kind}')
         if kind == 'diffev':
             optfunc = optimize.differential_evolution
         elif kind == 'annealing':
@@ -1911,20 +1861,27 @@ class ModelOptimizer:
         # Extract solution array
         sol = optres.x
 
-        # Re-assemble into connectivity matrix and return
-        return model.Wvec_to_Wmat(sol)
+        # Return appropriate model output
+        return model.parse_optimum_vector(sol)
     
     @staticmethod
-    def get_log_filename(model, ref_profiles, kind, Wbounds, srel_bounds, npersweep, norm, disparity_cost_factor):
+    def get_log_filename(model, ref_profiles, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor):
         ''' Generate log filename for optimization input arguments '''
+        # Gather dictionary of model attribute codes
+        model_ids = model.attrcodes()
+        
         # Create empty dictionary for optimization IDs
         opt_ids = {}
+        
         # Add "targets" ID 
         opt_ids['targets'] = generate_unique_id(ref_profiles)
+        
         # Add "Wbounds" ID, casted as tuple of floats (if not None)
         if Wbounds is not None:
             Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
             opt_ids['wbounds'] = generate_unique_id(Wbounds)
+            del model_ids['W']
+        
         # Add "srel_bounds" ID, casted as tuple of floats (if not None)
         if srel_bounds is not None:
             if isinstance(srel_bounds, tuple):
@@ -1932,23 +1889,42 @@ class ModelOptimizer:
             else:
                 srel_bounds = srel_bounds.apply(lambda x: tuple(map(float, x)))
             opt_ids['srelbounds'] = generate_unique_id(srel_bounds)
+            del model_ids['srel']
+        
         # Assemble optimization code from IDs
         opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
+        
         # Add optimization algorithm
         opt_code = f'{opt_code}_{kind}'
-        # For brute-force kind, add number of poitns per sweep
-        if kind == 'brute':
-            opt_code = f'{opt_code}_{npersweep}persweep'
+        
         # Add "norm" suffix if normalization specified
         if norm:
             opt_code = f'{opt_code}_norm'
+        
         # Add disparity cost factor, if non-zero
         if disparity_cost_factor > 0:
             opt_code = f'{opt_code}_xdisp{disparity_cost_factor:.2g}'
+        
+        # Add Wdev cost factor, if non-zero
+        if Wdev_cost_factor > 0:
+            opt_code = f'{opt_code}_xwdev{Wdev_cost_factor:.2g}'
+
+        # If srel is uniformly unitary, remove "srel" attribute code if present
+        if 'srel' in model_ids and np.isclose(model.srel, 1.).all():
+            del model_ids['srel']
+
+        # Replace "keys" and "fgain" attribute keys by empty strings
+        exclude = ['keys', 'fgain']
+        keys = [k if k not in exclude else '' for k in model_ids.keys()]
+        
+        # Assemble into attribute code
+        model_code  = '_'.join([f'{k}{v}' for k, v in zip(keys, model_ids.values())])
+        
         # Merge model code and optimization code
-        opt_code = f'{model.code()}_{opt_code}'
+        code = f'{model_code}_{opt_code}'
+
         # Add extension and return
-        return f'{opt_code}.csv'
+        return f'{code}.csv'
     
     @staticmethod
     def load_log_file(fpath):
@@ -1969,8 +1945,8 @@ class ModelOptimizer:
         return df['cost']
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', npersweep=5, norm=False,
-                 disparity_cost_factor=0., logdir=None, force_rerun=False, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', norm=False,
+                 disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
@@ -1979,37 +1955,33 @@ class ModelOptimizer:
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
         :param kind (optional): optimization algorithm (default = "diffev")
-        :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
+        :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: optimized network connectivity matrix
         '''
         # Check validity of optimization algorithm
-        if kind not in ['brute', *cls.GLOBAL_OPT_METHODS]:
+        if kind not in cls.GLOBAL_OPT_METHODS:
             raise OptimizationError(f'unknown optimization algorithm: {kind}')
         
         # If log folder is provided, derive path to log file
         if logdir is not None:
             fname = cls.get_log_filename(
-                model, *args, kind, Wbounds, srel_bounds, npersweep, norm, disparity_cost_factor)
+                model, *args, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None
         
         # If log file exists,
         if fpath is not None and os.path.isfile(fpath): 
-            # If force_rerun flag not set, load optimization results and return
+            # If force_rerun flag not set, load optimization results 
+            # and return appropriate output
             if not force_rerun:
                 cost = cls.load_log_file(fpath)
                 xvec = cls.extract_optimum(cost)
-                Wvec, srelvec = xvec[:model.nW], xvec[model.nW:]
-                Wmat = model.Wvec_to_Wmat(Wvec)
-                if srelvec:
-                    srel = pd.Series(srelvec, index=model.keys)
-                    return Wmat, srel
-                else:
-                    return Wmat
+                return model.parse_optimum_vector(xvec)
+
             # Otherwise, re-run optimization and save in different file
             else:
                 irerun = 1
@@ -2027,18 +1999,13 @@ class ModelOptimizer:
             model.create_log_file(fpath, xnames)
         
         # Run optimization algorithm and return
-        if kind == 'brute':
-            return cls.brute_force(
-                model, npersweep, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, fpath=fpath, norm=norm, 
-                disparity_cost_factor=disparity_cost_factor, **kwargs)
-        else:
-            return cls.global_optimization(
-                model, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, fpath=fpath, kind=kind, norm=norm, 
-                disparity_cost_factor=disparity_cost_factor, **kwargs)
+        return cls.global_optimization(
+            model, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, fpath=fpath, kind=kind, norm=norm, 
+            disparity_cost_factor=disparity_cost_factor, Wdev_cost_factor=Wdev_cost_factor, **kwargs)
 
     @classmethod
-    def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', npersweep=5,
-                                  norm=False, disparity_cost_factor=0., logdir=None, **kwargs):
+    def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', norm=False, 
+                                  disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, **kwargs):
         ''' 
         Load optimization history from CSV log file
         
@@ -2046,14 +2013,14 @@ class ModelOptimizer:
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
         :param kind (optional): optimization algorithm (default = "diffev")
-        :param npersweep (optional): number of sweep values per parameter for brute-force algorithm (default: 5)
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
+        :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
         :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
         :return: network connectivity matrix optimizaiton history
         '''
         # Check validity of optimization algorithm
-        if kind not in ['brute', *cls.GLOBAL_OPT_METHODS]:
+        if kind not in cls.GLOBAL_OPT_METHODS:
             raise OptimizationError(f'unknown optimization algorithm: {kind}')
         
         # If log folder is not provided, raise error
@@ -2062,7 +2029,7 @@ class ModelOptimizer:
         
         # Derive path to log file
         fname = cls.get_log_filename(
-            model, *args, kind, Wbounds, srel_bounds, npersweep, norm, disparity_cost_factor)
+            model, *args, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor)
         fpath = os.path.join(logdir, fname)
 
         # If log file does not exist, raise error
