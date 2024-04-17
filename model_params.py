@@ -49,6 +49,7 @@ tau_RomeroSosa = pd.Series(
     },
     name=tau_key
 )
+tau_RomeroSosa.index.name = 'population'
 
 # Allen Institute database (experimental, cortex V1 layer 2/3)
 tau_AllenInstitute = Allen_ephys_features[tau_key]

@@ -19,6 +19,7 @@ import csv
 import hashlib
 import lockfile
 import multiprocessing as mp
+from statannotations.Annotator import Annotator
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
@@ -104,6 +105,9 @@ class NetworkModel:
     # Max allowed activity value
     MAX_RATE = 1e3
 
+    # Default colormap for connectivity matrices
+    W_CMAP = sns.diverging_palette(145, 300, s=60, as_cmap=True)
+
     # Reference coupling strength for E -> SST connections, 
     # used to rescale connectivity matrices
     WREF = ('E', 'SST', 12.)
@@ -139,18 +143,6 @@ class NetworkModel:
                 break
         if not self.has_keys():
             raise ModelError('at least one of the following parameters must be provided: W, tau, fparams, b')
-
-        # Get default values for required attributes, if not provided
-        if W is None:
-            W = pd.DataFrame(
-                data=0., 
-                index=pd.Index(self.keys, name='pre-synaptic'), 
-                columns=pd.Index(self.keys, name='post-synaptic')
-            )
-        if tau is None:
-            tau = pd.Series(0.01, index=self.keys, name='tau (s)')
-        if fgain is None:
-            fgain = threshold_linear
 
         # Set attributes
         self.W = W
@@ -200,6 +192,13 @@ class NetworkModel:
         else:
             self.check_keys(keys)
     
+    def get_empty_W(self):
+        ''' Return model-sized empty connectivity matrix '''
+        return pd.DataFrame(
+            index=pd.Index(self.keys, name='pre-synaptic'), 
+            columns=pd.Index(self.keys, name='post-synaptic')
+        )
+    
     @property
     def W(self):
         return self._W
@@ -212,6 +211,9 @@ class NetworkModel:
         :param W: 2D square dataframe where rows and columns represent pre-synaptic
          and post-synaptic elements, respectively.
         '''
+        if W is None:
+            W = self.get_empty_W().fillna(0.)
+
         # Check that input is a dataframe with no NaN values
         if not isinstance(W, pd.DataFrame):
             raise ModelError('connectivity matrix must be a pandas dataframe')
@@ -328,6 +330,8 @@ class NetworkModel:
             raise ModelError(f'input vector length ({len(v)}) does not match model size ({self.size})')
         if not np.all(v.index.values == self.keys):
             raise ModelError(f'input vector keys ({v.index.values}) do not match model keys ({self.keys})')
+        if v.index.name != 'population':
+            raise ModelError(f'input vector index name must be "population"')
     
     @property
     def tau(self):
@@ -335,6 +339,12 @@ class NetworkModel:
     
     @tau.setter
     def tau(self, tau):
+        if tau is None:
+            tau = pd.Series(
+                10., 
+                index=pd.Index(self.keys, name='population'),
+                name='tau (s)'
+            )
         self.check_vector_input(tau)
         self._tau = tau.round(2)
     
@@ -366,7 +376,11 @@ class NetworkModel:
     def srel(self, srel):
         # If no input provided, set all values to 1
         if srel is None:
-            srel = pd.Series(1., index=self.keys, name='relative stimulus sensitivity')
+            srel = pd.Series(
+                1., 
+                index=pd.Index(self.keys, name='population'), 
+                name='stimulus sensitivity'
+            )
         # Check input validity
         self.check_vector_input(srel)
         if srel.min() < 0:
@@ -403,6 +417,8 @@ class NetworkModel:
 
     @fgain.setter
     def fgain(self, fgain):
+        if fgain is None:
+            fgain = threshold_linear
         if not callable(fgain):
             raise ModelError('gain function must be callable')
         self._fgain = fgain
@@ -661,7 +677,7 @@ class NetworkModel:
             vmin=vmin, 
             vmax=vmax,
             center=0 if not iserror else None, 
-            cmap='flare' if iserror else 'coolwarm', 
+            cmap='flare' if iserror else cls.W_CMAP, 
             annot=True,
             fmt='.2g',
             cbar=cbar,
@@ -744,17 +760,33 @@ class NetworkModel:
             title = 'stimulus sensitivities'
         ax.set_title(title)
         ax.set_xlabel('population')
+
+        pltkwargs = dict(
+            data=srel.reset_index(),
+            x='population',
+            y=srel.name,
+        )
         
         # Plot sensitivities
-        ax.bar(
-            srel.index, 
-            srel.values, 
-            color=[self.palette.get(k, None) for k in srel.index])
+        sns.barplot(
+            ax=ax,
+            **pltkwargs,
+            palette=self.palette,
+            errorbar='se'
+        )
 
-        # Set y-axis label and adjust layout
-        ax.set_ylabel('rel. sensitivity')
-        ax.set_ylim(0, max(1, ax.get_ylim()[1]))
-        # fig.tight_layout()
+        # If extra dimension, perform statistical comparison across populations
+        if srel.index.nlevels > 1:
+            pairs = list(itertools.combinations(self.keys, 2))
+            # Perform tests and add statistical annotations
+            annotator = Annotator(
+                ax=ax, pairs=pairs, **pltkwargs)
+            annotator.configure(
+                test='Mann-Whitney', 
+                text_format='star',
+                loc='outside'
+            )
+            annotator.apply_and_annotate()
 
         # Return figure handle
         return fig
@@ -1131,13 +1163,14 @@ class NetworkModel:
         mu_act.index.name = 'population'
         return mu_act
     
-    def plot_timeseries(self, sol, ss=None, add_synaptic_drive=False):
+    def plot_timeseries(self, sol, ss=None, add_synaptic_drive=False, title=None):
         ''' 
         Plot timeseries from simulation results
 
         :param sol: simulation results dataframe
         :param ss (optional): steady-state values to add to activity timeseries
         :param add_synaptic_drive (optional): whether to add synaptic input drives to timeseries
+        :param title (optional): figure title
         :return: figure handle
         '''
         # Create copy of input data to avoid in-place modification
@@ -1151,6 +1184,8 @@ class NetworkModel:
         if 'x' in sol.columns:
             x = sol.pop('x')
             tbounds = self.extract_stim_bounds(x)
+            if x.max() == 0:
+                tbounds = None
             naxes += 1
 
         # Add synaptic inputs to data, if requested
@@ -1161,8 +1196,10 @@ class NetworkModel:
         # Create figure backbone
         fig, axes = plt.subplots(naxes, 1, figsize=(7, 2 * naxes), sharex=True)
         axes = np.atleast_1d(axes)
-        sns.despine(fig=fig)        
-        axes[0].set_title(f'{self} - simulation results')
+        sns.despine(fig=fig)
+        if title is None:
+            title = f'{self} - simulation results'
+        axes[0].set_title(title)
         axiter = iter(axes)
         ax = next(axiter)
 
@@ -1170,7 +1207,6 @@ class NetworkModel:
         if x is not None:
             ax.plot(x.index, x.values, c='k')
             ax.set_ylabel('stimulus')
-            ax.axvspan(*tbounds, fc='k', ec=None, alpha=0.1)
             ax = next(axiter)
         
         # Plot activity time series
@@ -1366,10 +1402,7 @@ class NetworkModel:
             wmax = float(wmax)
 
         # Initialize empty bounds matrix
-        Wbounds = pd.DataFrame(
-            index=pd.Index(self.keys, name='pre-synaptic'), 
-            columns=pd.Index(self.keys, name='post-synaptic') 
-        )
+        Wbounds = self.get_empty_W()
 
         # For each pre-synaptic population
         for key in self.keys:
@@ -1523,7 +1556,11 @@ class NetworkModel:
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
         if srelvec is not None:
-            opt['srel'] = pd.Series(srelvec, index=self.keys)
+            opt['srel'] = pd.Series(
+                srelvec, 
+                index=pd.Index(self.keys, name='population'),
+                name='stimulus sensitivity'
+            )
         return opt
     
     def set_run_and_evaluate(self, xvec, ref_profiles, norm=False, 
@@ -1905,8 +1942,8 @@ class ModelOptimizer:
         if disparity_cost_factor > 0:
             opt_code = f'{opt_code}_xdisp{disparity_cost_factor:.2g}'
         
-        # Add Wdev cost factor, if non-zero
-        if Wdev_cost_factor > 0:
+        # Add Wdev cost factor, if non-zero and Wbounds provided
+        if Wbounds is not None and Wdev_cost_factor > 0:
             opt_code = f'{opt_code}_xwdev{Wdev_cost_factor:.2g}'
 
         # If srel is uniformly unitary, remove "srel" attribute code if present
