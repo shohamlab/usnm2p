@@ -604,7 +604,13 @@ class NetworkModel:
                 groups = W.groupby('pre-synaptic')
                 Wmean, Wstd = groups.mean(), groups.std()
                 Wcv = Wstd / Wmean.abs()
-                fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+                if ax is not None:
+                    axes = ax
+                    if len(axes) != 2:
+                        raise ModelError('when aggregation is ON, 2 axes must be provided')
+                    fig = axes[0].get_figure()
+                else:
+                    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
                 cls.plot_connectivity_matrix(
                     Wmean, norm=norm, ax=axes[0], title='mean', cbar=True)
                 cls.plot_connectivity_matrix(
@@ -657,7 +663,7 @@ class NetworkModel:
             W = W / W.abs().max().max()
         
         # Check if matrix is an error matrix (i.e., has no negative values)
-        iserror = all(W.stack().dropna() > 0)
+        iserror = all(W.stack().dropna() >= 0)
         if clabel is None:
             clabel = 'connection strength' if not iserror else 'error'
 
@@ -667,7 +673,7 @@ class NetworkModel:
         if vmin is None:
             vmin = 0 if iserror else -Wamax
         if vmax is None:
-            vmax = 1.5 if iserror else Wamax
+            vmax = Wamax
             
         # Plot connectivity matrix
         sns.heatmap(
