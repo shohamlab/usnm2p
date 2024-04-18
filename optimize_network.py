@@ -51,6 +51,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--srel-max', type=float, default=None, help='Maximal stimulus sensitivity value (for exploration)')
     parser.add_argument(
+        '--uniform-srel', action='store_true', help='Use uniform stimulus sensitivity for all populations')
+    parser.add_argument(
         '--uniform-gain', action='store_true', help='Use uniform gain function for all populations')
     parser.add_argument(
         '-m', '--method', type=str, choices=ModelOptimizer.GLOBAL_OPT_METHODS, 
@@ -79,6 +81,7 @@ if __name__ == '__main__':
     npops = args.npops
     wmax = args.wmax
     srelmax = args.srel_max
+    uniform_srel = args.uniform_srel
     uniform_gain = args.uniform_gain
     method = args.method
     norm = args.norm
@@ -204,6 +207,7 @@ if __name__ == '__main__':
                 Wdev_cost_factor=Wdev_cost_factor,
                 Wbounds=Wbounds,
                 srel_bounds=srel_bounds,
+                uniform_srel=uniform_srel,
                 mpi=mpi,
                 logdir=logdir,
                 kind=method, 

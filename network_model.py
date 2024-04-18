@@ -158,9 +158,25 @@ class NetworkModel:
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(' + ', '.join(self.keys) + ')'
     
+    def copy(self):
+        ''' Return copy of current model '''
+        return self.__class__(
+            W=self.W.copy(),
+            tau=self.tau.copy(),
+            fgain=self.fgain,
+            fparams=self.fparams.copy() if self.fparams is not None else None,
+            b=self.b.copy() if self.b is not None else None,
+            srel=self.srel.copy() if self.srel is not None else None
+        )
+    
     @property
     def size(self):
         return len(self.keys)
+
+    @property
+    def idx(self):
+        ''' Return model constituent population names as pandas index '''
+        return pd.Index(self.keys, name='population')
     
     def has_keys(self):
         ''' Return whether the model keys have been set or not '''
@@ -340,11 +356,7 @@ class NetworkModel:
     @tau.setter
     def tau(self, tau):
         if tau is None:
-            tau = pd.Series(
-                10., 
-                index=pd.Index(self.keys, name='population'),
-                name='tau (s)'
-            )
+            tau = pd.Series(10., index=self.idx, name='tau (s)')
         self.check_vector_input(tau)
         self._tau = tau.round(2)
     
@@ -376,19 +388,13 @@ class NetworkModel:
     def srel(self, srel):
         # If no input provided, set all values to 1
         if srel is None:
-            srel = pd.Series(
-                1., 
-                index=pd.Index(self.keys, name='population'), 
-                name='stimulus sensitivity'
-            )
+            srel = pd.Series(1., index=self.idx, name='stimulus sensitivity')
         # Check input validity
         self.check_vector_input(srel)
         if srel.min() < 0:
             raise ModelError('relative stimulus sensitivities must be positive numbers')        
         # Cast as float
         srel = srel.astype(float)
-        # # Normalize to 0 - 1 range
-        # srel = srel / srel.max()
         # Set attribute
         self._srel = srel
     
@@ -528,25 +534,6 @@ class NetworkModel:
         
         # Return attribute codes 
         return attrids
-    
-    # def code(self, **kwargs):
-    #     ''' 
-    #     Return model unique identifier code based on its attributes
-        
-    #     :return: model code
-    #     '''
-    #     # Assemble unique identifiers for model attributes
-    #     attrids = self.attrcodes(**kwargs)
-    #     # Unzip attribute codes
-    #     keys = list(attrids.keys())
-    #     vals = list(attrids.values())
-    #     # Replace "keys" and "fgain" attribute keys by empty strings
-    #     exclude = ['keys', 'fgain']
-    #     keys = [k if k not in exclude else '' for k in keys]
-    #     # Assemble into attribute code
-    #     attrcode  = '_'.join([f'{k}{v}' for k, v in zip(keys, vals)])
-    #     # Return
-    #     return attrcode
     
     def create_log_file(self, fpath, pnames):
         ''' 
@@ -1537,17 +1524,26 @@ class NetworkModel:
         Parse input parameters
 
         :param xvec: vector of input parameters
+        :return: parsed connectivity and sensitivity vectors
         '''
+        # Compute vector size
         nx = len(xvec)
+        # Initialize output vectors to None
         Wvec, srelvec = None, None
-        if nx == self.size:
+        # If vector is of size n (or 1), assign to sensitivity vector
+        if nx == self.size or nx == 1:
             srelvec = xvec
+        # If vector is of size n^2, assign to connectivity vector
         elif nx == self.nW:
             Wvec = xvec
-        elif nx == self.nW + self.size:
+        # If vector is of size n^2 + n (or n^2 + 1), assign to both 
+        # connectivity and sensitivity vectors
+        elif (nx == self.nW + self.size) or (nx == self.nW + 1):
             Wvec, srelvec = xvec[:self.nW], xvec[self.nW:]
+        # Otherwise, raise error
         else:
             raise ModelError(f'{self}: cannot parse input vector of size {nx}')
+        # Return parsed vectors
         return Wvec, srelvec
     
     def parse_optimum_vector(self, xvec):
@@ -1562,11 +1558,7 @@ class NetworkModel:
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
         if srelvec is not None:
-            opt['srel'] = pd.Series(
-                srelvec, 
-                index=pd.Index(self.keys, name='population'),
-                name='stimulus sensitivity'
-            )
+            opt['srel'] = pd.Series(srelvec, index=self.idx, name='stimulus sensitivity')
         return opt
     
     def set_run_and_evaluate(self, xvec, ref_profiles, norm=False, 
@@ -1595,8 +1587,10 @@ class NetworkModel:
 
         # If input stimulus sensitivities provided, store reference and assign to model
         if srelvec is not None:
+            if len(srelvec) == 1:
+                srelvec = srelvec[0]
             srel_ref = self.srel.copy()
-            self.srel = pd.Series(srelvec, index=self.keys)
+            self.srel = pd.Series(srelvec, index=self.idx)
 
         # Run stimulation sweep and evaluate cost
         amps = ref_profiles.index.values
@@ -1621,71 +1615,6 @@ class NetworkModel:
 
         # Return cost
         return cost
-    
-    def evaluate_sensitivity(self, amps, rel_perturbation=0.1, norm=False, disparity_cost_factor=0., aggfunc=None, **kwargs):
-        '''
-        Evaluate sensitivity of model to relative variations
-        in connectivity parameters
-
-        :param amps: stimulus amplitudes vector
-        :param rel_perturbation: relative perturbation amplitude (default: 0.1)
-        :param norm (optional): whether to normalize reference and output activation profiles before comparison
-        :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
-        :param aggfunc (optional): aggregation function to apply across relative perturbations (default: 'mean')
-        :return: sensitivity matrix for each connection weight
-        '''
-        # Simulate model with default connectivity to generate reference profiles
-        sweep_data = self.run_stim_sweep(amps, **kwargs)
-        ref_profiles = self.extract_steady_state(sweep_data, kind='stim', verbose=False)
-        
-        # Extract vector of reference connection weights
-        Wref = self.W.stack().rename('connection weight')
-        idxnames = list(Wref.index.names)
-
-        # Define vector of "symmetric" relative perturbations
-        rel_perturbations = pd.Index(
-            np.array([-rel_perturbation, rel_perturbation]), 
-            name='rel_perturbation')
-
-        # Define global costs dictionary
-        costs = {}
-
-        # For each relative perturbation
-        logger.info(f'{self}: evaluating sensitivity to connectivity perturbations')
-        for relp in rel_perturbations:
-            logger.info(f'relative perturbation: {relp * 1e2}%')
-            # Define cost array
-            cost = np.zeros(len(Wref))
-
-            # For each connection weight
-            for i, w in enumerate(tqdm(Wref)):
-                # Create copy of reference connection weights with perturbed value
-                Wvec = Wref.values.copy()
-                Wvec[i] = w * (1 + relp)
-
-                # Assign perturbed parameters to network connectivity matrix, 
-                # run stimulation sweep, and evaluate cost
-                cost[i] = self.set_run_and_evaluate(
-                    Wvec, ref_profiles, norm=norm, 
-                    disparity_cost_factor=disparity_cost_factor, 
-                    **kwargs)
-                
-            # Cast as series and store in global costs dictionary
-            costs[relp] = pd.Series(cost, index=Wref.index)
-        
-        # Concatenate costs into dataframe
-        costs = pd.concat(costs, axis=0, names=[rel_perturbations.name])
-
-        # Aggregate across relative perturbations
-        if aggfunc is None:
-            aggfunc = 'mean'
-        aggcosts = costs.groupby(idxnames).agg(aggfunc)
-
-        # Recast as sensitivity matrix
-        W = aggcosts.unstack()
-
-        # Return
-        return W
     
     def Wvec_to_Wmat(self, Wvec):
         '''
@@ -1775,14 +1704,15 @@ class ModelOptimizer:
     GLOBAL_OPT_METHODS = ('diffev', 'annealing', 'shg', 'direct')
 
     @staticmethod
-    def get_exploration_bounds(model, Wbounds, srel_bounds):
+    def get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=False):
         '''
-        Assemble list of exploration bounds, given bounds for specific input parameters network connectivity parameters 
-        (and relative stimulus amplitudes, if provided).
+        Assemble list of exploration bounds, given bounds for specific input parameters.
 
         :param model: model instance
         :param Wbounds: coupling bounds matrix
-        :param srel_bounds: relative stimulus amplitude bounds
+        :param srel_bounds: stimulus amplitude bounds
+        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity
+            across populations (default: False)
         :return: series of exploration bounds per parameter
         '''
         # Initialize empty list of exploration bounds
@@ -1795,23 +1725,27 @@ class ModelOptimizer:
             # Append serialized bounds to exploration bounds
             xbounds.append(Wbounds.stack().rename('bounds'))
 
-        # If relative stimulus amplitude bounds provided
+        # If stimulus sensitivities bounds provided
         if srel_bounds is not None:
             # If single tuple provided, broadcast to all populations
             if isinstance(srel_bounds, tuple):
-                srel_bounds = pd.Series(
-                    index=model.keys, data=[srel_bounds] * model.size)
+                if uniform_srel:
+                    srel_bounds = pd.Series(index=['all'], data=[srel_bounds])
+                else:
+                    srel_bounds = pd.Series(index=model.keys, data=[srel_bounds] * model.size)
             # Otherwise, check that bounds are compatible with model
             else:
                 if not isinstance(srel_bounds, pd.Series):
                     raise ModelError('srel_bounds must be a Series')
-                if not srel_bounds.index.equals(model.keys):
-                    raise ModelError('srel_bounds indices must match network keys')
                 if not all(isinstance(x, tuple) for x in srel_bounds.values):
                     raise ModelError('all srel_bounds values must be tuples')
+                if not uniform_srel and not srel_bounds.index.equals(model.keys):
+                    raise ModelError('srel_bounds indices must match network keys')
+                if uniform_srel and len(srel_bounds) != 1:
+                    raise ModelError('uniform_srel=True but srel_bounds has more than 1 value')
             
-            # Add relative stimulus amplitude bounds to exploration
-            xbounds.append(srel_bounds.rename('srel_bounds'))
+            # Add stimulus sensitivities bounds to exploration
+            xbounds.append(srel_bounds)
         
         # If no exploration bounds provided, raise error
         if len(xbounds) == 0:
@@ -1840,14 +1774,15 @@ class ModelOptimizer:
             return cost.idxmin()
 
     @classmethod
-    def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', mpi=False, **kwargs):
+    def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, kind='diffev', mpi=False, **kwargs):
         '''
         Use global optimization algorithm to find set of model parameters that minimizes
         divergence with a reference set of activation profiles.
 
         :param model: model instance
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
+        :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
+        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
         :param kind (optional): optimization algorithm to use, one of:
             - "diffev": differential evolution algorithm
             - "annealing": simulated annealing algorithm
@@ -1886,7 +1821,7 @@ class ModelOptimizer:
                 })
         
         # Extract exploration bounds per parameter
-        xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds)
+        xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=uniform_srel)
                  
         # Run optimization algorithm
         s = f'running {kind} optimization algorithm'
@@ -1908,7 +1843,7 @@ class ModelOptimizer:
         return model.parse_optimum_vector(sol)
     
     @staticmethod
-    def get_log_filename(model, ref_profiles, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor):
+    def get_log_filename(model, ref_profiles, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor):
         ''' Generate log filename for optimization input arguments '''
         # Gather dictionary of model attribute codes
         model_ids = model.attrcodes()
@@ -1951,6 +1886,10 @@ class ModelOptimizer:
         # Add Wdev cost factor, if non-zero and Wbounds provided
         if Wbounds is not None and Wdev_cost_factor > 0:
             opt_code = f'{opt_code}_xwdev{Wdev_cost_factor:.2g}'
+        
+        # If exploration assumes uniform sensitivity, add "unisrel" suffix
+        if srel_bounds is not None and uniform_srel:
+            opt_code = f'{opt_code}_unisrel'
 
         # If srel is uniformly unitary, remove "srel" attribute code if present
         if 'srel' in model_ids and np.isclose(model.srel, 1.).all():
@@ -1988,7 +1927,7 @@ class ModelOptimizer:
         return df['cost']
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', norm=False,
+    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, kind='diffev', norm=False,
                  disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
@@ -1996,7 +1935,8 @@ class ModelOptimizer:
 
         :param model: model instance 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
+        :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
+        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
         :param kind (optional): optimization algorithm (default = "diffev")
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
@@ -2011,7 +1951,7 @@ class ModelOptimizer:
         # If log folder is provided, derive path to log file
         if logdir is not None:
             fname = cls.get_log_filename(
-                model, *args, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor)
+                model, *args, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None
@@ -2038,23 +1978,27 @@ class ModelOptimizer:
         
         # Create log file, if path provided
         if fpath is not None:
-            xnames = cls.get_exploration_bounds(model, Wbounds, srel_bounds).index.values
+            xnames = cls.get_exploration_bounds(
+                model, Wbounds, srel_bounds, uniform_srel=uniform_srel).index.values
             model.create_log_file(fpath, xnames)
         
         # Run optimization algorithm and return
         return cls.global_optimization(
-            model, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, fpath=fpath, kind=kind, norm=norm, 
-            disparity_cost_factor=disparity_cost_factor, Wdev_cost_factor=Wdev_cost_factor, **kwargs)
+            model, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, uniform_srel=uniform_srel, 
+            fpath=fpath, kind=kind, norm=norm, disparity_cost_factor=disparity_cost_factor, 
+            Wdev_cost_factor=Wdev_cost_factor, **kwargs)
 
     @classmethod
-    def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, kind='diffev', norm=False, 
-                                  disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, **kwargs):
+    def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, 
+                                  kind='diffev', norm=False, disparity_cost_factor=0., Wdev_cost_factor=0., 
+                                  logdir=None, **kwargs):
         ''' 
         Load optimization history from CSV log file
         
         :param model: model instance 
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): relative stimulus amplitude bounds. If None, do not explore.
+        :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
+        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
         :param kind (optional): optimization algorithm (default = "diffev")
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
@@ -2072,7 +2016,7 @@ class ModelOptimizer:
         
         # Derive path to log file
         fname = cls.get_log_filename(
-            model, *args, kind, Wbounds, srel_bounds, norm, disparity_cost_factor, Wdev_cost_factor)
+            model, *args, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
         fpath = os.path.join(logdir, fname)
 
         # If log file does not exist, raise error
