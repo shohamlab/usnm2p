@@ -1558,6 +1558,8 @@ class NetworkModel:
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
         if srelvec is not None:
+            if len(srelvec) == 1:
+                srelvec = srelvec[0]
             opt['srel'] = pd.Series(srelvec, index=self.idx, name='stimulus sensitivity')
         return opt
     
