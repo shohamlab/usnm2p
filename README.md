@@ -51,4 +51,4 @@ To access command line options, type in: `python <script_name> -h`
 
 ## Authors & contributors
 
-Code written and maintained by [Theo Lemaire](theo.lemaire1@gmail.com)
+Code written and maintained by [Theo Lemaire](mailto:theo.lemaire1@gmail.com)
