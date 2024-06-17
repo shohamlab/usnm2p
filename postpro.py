@@ -3816,7 +3816,7 @@ def compute_predictor(*args, **kwargs):
     return lambda x: objfunc(x, *popt)
 
 
-def get_fit_table(Pfit='scaled_power', exclude=None):
+def get_fit_table(Pfit='poly2', exclude=None):
     ''' 
     Generate 2D table of fit functions across cell lines and input parameters
     

@@ -4011,8 +4011,8 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None, deta
     return fig
 
 
-def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket_r', color='silver', s=30,
-                  ncontours=4, contour_labels=False, fs=12, ax=None):
+def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='viridis_r', color='silver', s=30,
+                  ncontours=4, contour_labels=False, fs=12, ax=None, vmax=None):
     ''' 
     Plot sonication protocol in the DC - pressure space
     
@@ -4035,7 +4035,8 @@ def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket_r', color='silver
         for key, ax in zip(dose_key, axes.ravel()):
             plot_P_DC_map(
                 P=P, DC=DC, dose_key=key, cmap=cmap, color=color, s=20, 
-                ncontours=ncontours, contour_labels=contour_labels, fs=fs, ax=ax)
+                ncontours=ncontours, contour_labels=contour_labels, fs=fs, 
+                ax=ax, vmax=vmax)
         return fig
 
     # Create or retrieve figure
@@ -4080,7 +4081,11 @@ def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='rocket_r', color='silver
         # Plot dose metric colormap over DC - DC space
         sm = ax.pcolormesh(
             DCrange, Prange, dose_values,
-            shading='nearest', rasterized=True, cmap=cmap)
+            shading='nearest', 
+            rasterized=True, 
+            cmap=cmap,
+            vmax=vmax,
+        )
         
         # Create axis for colorbar on the right side of the plot
         bbox = ax.get_position()
