@@ -590,7 +590,9 @@ class NetworkModel:
             elif agg:
                 groups = W.groupby('pre-synaptic')
                 Wmean, Wstd = groups.mean(), groups.std()
-                Wcv = Wstd / Wmean.abs()
+                # Wcv = Wstd / Wmean.abs()
+                if norm:
+                    Wstd = Wstd / Wmean.abs().max().max()
                 if ax is not None:
                     axes = ax
                     if len(axes) != 2:
@@ -601,7 +603,8 @@ class NetworkModel:
                 cls.plot_connectivity_matrix(
                     Wmean, norm=norm, ax=axes[0], title='mean', cbar=True)
                 cls.plot_connectivity_matrix(
-                    Wcv, norm=False, ax=axes[1], title=f'CV across {gby}s', cbar=True, clabel='CV')
+                    Wstd, # Wcv,
+                    ax=axes[1], title=f'std across {gby}s', cbar=True, clabel='std')
                 fig.subplots_adjust(wspace=0.5)
                 return fig
 
