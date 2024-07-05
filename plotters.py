@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-05 13:38:43
+# @Last Modified time: 2024-07-05 10:59:43
 
 ''' Collection of plotting utilities. '''
 
@@ -6469,7 +6469,7 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
         groups = data.copy()
         if splitby is not None:
             groups = groups.groupby(splitby)
-        corrcoeffs = groups[[xkey, ykey]].corr().iloc[::2, 1]
+        corrcoeffs = groups[[xkey, ykey]].corr(method='spearman').iloc[::2, 1]
         if splitby is not None:
             corrcoeffs = corrcoeffs.droplevel(-1)
         else:
@@ -6499,7 +6499,7 @@ def plot_codistribution(data, xkey, ykey, splitby=None, avgby=None, kind=None, a
             m, b = regres.loc[key, ['slope', 'intercept']]
             xdense = np.linspace(*bounds(data[xkey]), 100)
             ydense = m * xdense + b
-            ax.plot(xdense, ydense, c=color, lw=2)
+            ax.plot(xdense, ydense, c='k', lw=2)
             ax.text(
                 xtext, ytext, f'y = {m:.2f} x + {b:.2f}', **textkwargs)
     

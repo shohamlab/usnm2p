@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-05 17:10:29
+# @Last Modified time: 2024-07-05 13:11:54
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -31,6 +31,8 @@ from constants import *
 from logger import logger
 from utils import *
 from parsers import parse_2D_offset
+from surrogates import generate_surrogate
+
 
 # Register tqdm progress functionality to pandas
 tqdm.pandas()
@@ -535,17 +537,23 @@ def compute_displacement_velocity(ops, mux, um_per_pixel, fps, isubs=None, full_
         return df[Label.SPEED_UM_S]
 
 
-def apply_in_window(data, ykey, wslice, aggfunc='mean', weights=None, verbose=True, log_completion_rate=False):
+def apply_in_window(data, wslice, ykey=None, aggfunc='mean', weights=None, verbose=True, log_completion_rate=False):
     '''
     Apply function to a given signal within a specific observation window
     
-    :param data: multi-indexed fluorescence timeseries dataframe
+    :param data: multi-indexed fluorescence timeseries series/dataframe
     :param ykey: name of the column containing the signal of interest
     :param wslice: slice object (or index) representing the indexes of the window
     :param aggfunc: aggregation function (name or callable)
     :param weights (optional): weights to apply to the samples prior to aggregation
     '''
-    # Extract non-frame index levels in input dataframe
+    # If dataframe input, extract column containing signal of interest
+    if isinstance(data, pd.DataFrame):
+        if ykey is None:
+            raise ValueError('ykey must be specified for dataframe input')
+        data = data[ykey]
+
+    # Extract non-frame index levels in input series
     idxlevels = [k for k in data.index.names if k != Label.FRAME]
 
     # If window slice is an integer, convert to slice object
@@ -575,7 +583,7 @@ def apply_in_window(data, ykey, wslice, aggfunc='mean', weights=None, verbose=Tr
             wstr = f'{wstr} index'
         istr = ', '.join(idxlevels)
         funcstr = aggfunc.__name__ if callable(aggfunc) else aggfunc
-        logstr = f'applying {funcstr} function on {ykey} in {wstr} across {istr}'
+        logstr = f'applying {funcstr} function on {data.name} in {wstr} across {istr}'
         if weights is not None:
             logstr = f'{logstr} with weights {weights}'
         logger.info(logstr)
@@ -586,7 +594,7 @@ def apply_in_window(data, ykey, wslice, aggfunc='mean', weights=None, verbose=Tr
         np.arange(wslice.start, wslice.stop + 1), name=Label.FRAME)
     
     # Extract slice data
-    sdata = data.loc[mux_slice, ykey]
+    sdata = data.loc[mux_slice]
 
     # If weights are provided, multiply slice data
     if weights is not None:
@@ -1683,7 +1691,7 @@ def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=No
 
     # Compute metrics average in pre- and post-stimulus windows for each ROI & run
     ystats = pd.DataFrame(
-        {k: apply_in_window(data, ykey, s, verbose=verbose) for k, s in sdict.items()})
+        {k: apply_in_window(data[ykey], s, verbose=verbose) for k, s in sdict.items()})
 
     # Compute evoked change as their difference
     if verbose:
@@ -4319,3 +4327,49 @@ def compute_trajectory_angles(trajectory):
     normprods = norms[:-1] * norms[1:]
     # Compute angles between tangent vectors
     return np.arccos(dotprods / normprods)
+
+
+def autoreg_predict(y, wbounds, order=None, surrogate=False):
+    '''
+    Use auto-regression model to predict post-stim data from pre-stim data  
+
+    :param y: 1D trial and frame indexed timeseries
+    :param wbounds: bounding indexes of prediction window
+    :param order: auto-regresion model order. If None, infered from the starting
+        index of the prediction window
+    :param surrogate: whether to use surrogate signal to fit AR model
+    ''' 
+    # Parse order if needed
+    if order is None:
+        order = wbounds[0]
+
+    # If surrogate signal requested, generate surrogate signal as training signal
+    if surrogate:
+        ytrain = generate_surrogate(y)
+    else:
+        ytrain = y.copy()
+    
+    # Fit AR model to training signal and extract fitted model parameters
+    ar_model = sm.tsa.AutoReg(ytrain.values, order)
+    ar_params = ar_model.fit().params
+
+    # Generate new model to predict values on input signal using 
+    # AR parameters fitted on training signal 
+    ar_model = sm.tsa.AutoReg(y.values, order)
+
+    # Predict post-stim values from pre-stim values
+    ypred = y.copy()
+    extradims = [k for k in y.index.names if k != Label.FRAME]
+    iref = 0
+    for _, yseg in ypred.groupby(extradims):
+        ibounds = iref + wbounds
+        ypred.iloc[ibounds[0]:ibounds[1] + 1] = ar_model.predict(
+            ar_params,
+            start=ibounds[0], 
+            end=ibounds[1],
+            dynamic=True,
+        )
+        iref += yseg.size 
+    
+    # Return predicted signal
+    return ypred

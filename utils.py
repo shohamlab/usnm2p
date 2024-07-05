@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-29 13:06:41
+# @Last Modified time: 2024-06-26 19:43:28
 
 ''' Collection of generic utilities. '''
 
@@ -14,6 +14,7 @@ import operator
 from functools import wraps
 from fractions import Fraction
 import re
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler
 
 from constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME, PA_TO_MPA, M2_TO_CM2
 from logger import logger
@@ -335,6 +336,7 @@ def expand_to_match(df, mux):
         return newdf.loc[:, name]
     else:
         return newdf
+
 
 def expand_and_add(dfnew, dfref, prefix=''):
     '''
@@ -709,7 +711,6 @@ def get_dose_metric(P, DC, key):
     raise ValueError(f'invalid dose metric key: "{key}"')
 
 
-
 def normalize_stack(x, bounds=(0, 1000)):
     '''
     Normalize stack to a given interval
@@ -802,11 +803,14 @@ def pandas_proof(func):
     '''
     @wraps(func)
     def wrapper(y, *args, **kwargs):
-        yout = func(y)
+        idx, name = None, None
         if isinstance(y, pd.Series):
-            return pd.Series(data=yout, index=y.index)
-        else:
-            return yout
+            idx, name = y.index, y.name
+            y = y.values
+        yout = func(y)
+        if idx is not None:
+            yout = pd.Series(data=yout, index=idx, name=name)
+        return yout
     return wrapper
 
 
@@ -1472,3 +1476,53 @@ def squeeze_multiindex(x):
         if len(x.index.unique(level=name)) == 1:
             x = x.droplevel(name)
     return x
+
+
+def rescale(s, method='minmax'):
+    '''
+    Rescale pandas series according to specific scaling rule
+    
+    :param s: pandas series
+    :param method: str, rescaling method, one of 'minmax', 'maxabs', 'zscore'
+    :return: rescaled series
+    '''
+    # Select scaler corresponding to specified method
+    try:
+        scaler = {
+        'minmax': MinMaxScaler,
+        'maxabs': MaxAbsScaler,
+        'zscore': StandardScaler,
+        }[method]()
+    except KeyError:
+        raise ValueError(f'unknown scaler method: {method}')
+
+    # Reshape input series as 2D array for scaler compatibility
+    x = s.values.reshape(-1, 1)
+
+    # Fit and transform data
+    xout = scaler.fit_transform(x)
+
+    # Cast as series and return
+    return pd.Series(xout.flatten(), index=s.index, name=s.name)
+
+
+def randomize_phase(signal):
+    '''
+    Generate surrogate data by phase randomization of the signal while preserving the overall structure.
+
+    :param signal: input signal
+    :return: surrogate signal
+    '''
+    # Compute signal real FFT
+    rfft = np.fft.rfft(signal)
+    # Generate vector of random complex phases
+    rand_phases = 2 * np.pi * np.random.rand(len(rfft))
+    # Multiply FFT by complex random phases
+    rfft *= np.exp(1j * rand_phases)
+    # Compute inverse FFT to get surrogate signal 
+    surrogate = np.fft.irfft(rfft).real
+    # Cast as pandas series if input was a series
+    if isinstance(signal, pd.Series):
+        surrogate = pd.Series(surrogate, index=signal.index, name=signal.name)
+    # Return surrogate signal
+    return surrogate
