@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-05 13:11:54
+# @Last Modified time: 2024-07-11 13:50:39
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4373,3 +4373,63 @@ def autoreg_predict(y, wbounds, order=None, surrogate=False):
     
     # Return predicted signal
     return ypred
+
+
+def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_aggregate=True, binagg_func='median', add_to_data=False):
+    '''
+    Bin specific variable into quantile intervals
+
+    :param data: pandas dataframe with data to bin
+    :param ykey: key of variable to bin
+    :param nbins: number of quantile intervals to use
+    :param qlabel: whether to use quantile values for interval labels
+    :param gby: grouping key inside which to perform binning
+    :param add_aggregate: whether to add another series with aggregate value in each quantile interval
+    :param binagg_func: function to use for aggregation in each quantile interval
+    :return: pandas series with binned data
+    '''
+    # Work on data copy if new columns must not be added
+    if not add_to_data:
+        data = data.copy()
+    
+    # Define binning function
+    qints = pd.IntervalIndex.from_breaks(np.linspace(0, 1, nbins + 1).round(2), closed='right')
+    def fbin(s):
+        y = pd.qcut(s, nbins, precision=2)
+        if qlabel:
+            mapper = dict(zip(y.unique(), qints))
+            return y.map(mapper)
+        else:
+            return y
+    
+    # Bin pre-stim data into quantile intervals, per dose level
+    logger.info(f'binning {ykey} data into {nbins} quantile intervals...')
+    bin_key = f'{ykey} {"q" if qlabel else ""}bin'
+    if gby is not None:
+        data[bin_key] = (data
+            .groupby(gby)
+            [ykey]
+            .apply(fbin)
+            .droplevel(0)
+        )
+    else:
+        data[bin_key] = fbin(data[ykey])
+
+    # If requested, compute average value in each quantile interval
+    if add_aggregate:
+        binagg_key = f'{bin_key} agg'
+        gby = bin_key if gby is None else [*as_iterable(gby), bin_key]
+        avgbybin = (data
+            .groupby(gby)
+            [ykey]
+            .agg(binagg_func)
+        )
+        data[binagg_key] = (data
+            .groupby(gby)
+            [ykey]
+            .transform(lambda s: avgbybin.loc[s.name])
+        )
+        return data[[bin_key, binagg_key]]
+
+    else:
+        return data[bin_key]
