@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-03-17 17:28:16
+# @Last Modified time: 2024-07-18 12:01:36
 
 import time
 import glob
@@ -258,6 +258,11 @@ class NetworkModel:
 
         # Set connectivity matrix
         self._W = W
+    
+    def disconnect(self):
+        ''' Disconnect all populations '''
+        self.W = self.get_empty_W().fillna(0.)
+        return self
     
     @property
     def Wmat(self):
@@ -559,13 +564,14 @@ class NetworkModel:
                 writer.writerow([iteration, *params, cost])
 
     @classmethod
-    def plot_connectivity_matrix(cls, W, norm=False, ax=None, cbar=True, height=2.5, 
+    def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height=2.5, 
                                  vmin=None, vmax=None, title=None, colwrap=4, 
                                  agg=False, clabel=None):
         '''
         Plot connectivity matrix(ces)
 
         :param W: connectivity matrix(ces) to plot.
+        :param Werr (optional): error matrix to use for +/- annotations
         :param norm (optional): whether to normalize the matrix before plotting
         :param ax (optional): axis handle
         :param cbar (optional): whether to display colorbar
@@ -583,55 +589,64 @@ class NetworkModel:
 
         # If multiple connectivity matrices provided
         if isinstance(W.index, pd.MultiIndex) and W.index.nlevels > 1:
+
+            # Extract grouping variable 
             gby = W.index.names[0]
+
+            # If only one group, drop groupby level
             if len(W.index.get_level_values(gby).unique()) == 1:
                 W = W.droplevel(gby)
-            # If aggregation flag ON, plot mean and CV of connectivity matrices
-            elif agg:
-                groups = W.groupby('pre-synaptic')
-                Wmean, Wstd = groups.mean(), groups.std()
-                # Wcv = Wstd / Wmean.abs()
-                if norm:
-                    Wstd = Wstd / Wmean.abs().max().max()
-                if ax is not None:
-                    axes = ax
-                    if len(axes) != 2:
-                        raise ModelError('when aggregation is ON, 2 axes must be provided')
-                    fig = axes[0].get_figure()
-                else:
-                    fig, axes = plt.subplots(1, 2, figsize=(8, 3))
-                cls.plot_connectivity_matrix(
-                    Wmean, norm=norm, ax=axes[0], title='mean', cbar=True)
-                cls.plot_connectivity_matrix(
-                    Wstd, # Wcv,
-                    ax=axes[1], title=f'std across {gby}s', cbar=True, clabel='std')
-                fig.subplots_adjust(wspace=0.5)
-                return fig
 
-            # Otherwise, plot each matrix on separate axis
             else:
-                groups = W.groupby(gby)
-                ninputs = len(groups)
-                if ax is not None:
-                    axes = as_iterable(ax)
-                    if len(axes) != ninputs:
-                        raise ModelError(f'number of axes ({len(axes)}) does not correspond to number of connectivity matrices ({ninputs})')
-                    fig = axes[0].get_figure()
+                # If error matrix providedm raise error
+                if Werr is not None:
+                    raise ModelError('error matrix cannot be provided for multi-matrix input')
+
+                # If aggregation flag ON, aggregate across groups and 
+                # plot mean matrix with +/- std annotations
+                if agg:
+                    aggby = W.index.names[-1]
+                    groups = W.groupby(aggby)
+                    Wmean, Wstd = groups.mean(), groups.std()
+                    if ax is not None:
+                        fig = ax.get_figure()
+                    else:
+                        fig, ax = plt.subplots(figsize=(4, 3))
+                    cls.plot_connectivity_matrix(
+                        Wmean, 
+                        Werr=Wstd, 
+                        norm=norm, 
+                        ax=ax,
+                        title=f'mean across {gby}' if title is None else title,
+                        cbar=True
+                    )
+                    fig.subplots_adjust(wspace=0.5)
+                    return fig
+
+                # Otherwise, plot each matrix on separate axis
                 else:
-                    nrows, ncols = ninputs // colwrap + 1, colwrap
-                    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
-                    if nrows > 1:
-                        fig.subplots_adjust(hspace=1)
-                    axes = axes.flatten()
-                    suptitle = 'connectivity matrices'
-                    if norm:
-                        suptitle = f'normalized {suptitle}'
-                    fig.suptitle(suptitle, fontsize=12, y=1 + .05 / nrows)
-                for ax, (k, w) in zip(axes, groups):
-                    cls.plot_connectivity_matrix(w.droplevel(gby), norm=norm, ax=ax, title=k, cbar=False)
-                for ax in axes[ninputs:]:
-                    ax.axis('off')
-                return fig       
+                    groups = W.groupby(gby)
+                    ninputs = len(groups)
+                    if ax is not None:
+                        axes = as_iterable(ax)
+                        if len(axes) != ninputs:
+                            raise ModelError(f'number of axes ({len(axes)}) does not correspond to number of connectivity matrices ({ninputs})')
+                        fig = axes[0].get_figure()
+                    else:
+                        nrows, ncols = ninputs // colwrap + 1, colwrap
+                        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
+                        if nrows > 1:
+                            fig.subplots_adjust(hspace=1)
+                        axes = axes.flatten()
+                        suptitle = 'connectivity matrices'
+                        if norm:
+                            suptitle = f'normalized {suptitle}'
+                        fig.suptitle(suptitle, fontsize=12, y=1 + .05 / nrows)
+                    for ax, (k, w) in zip(axes, groups):
+                        cls.plot_connectivity_matrix(w.droplevel(gby), norm=norm, ax=ax, title=k, cbar=False)
+                    for ax in axes[ninputs:]:
+                        ax.axis('off')
+                    return fig       
 
         # Create/retrieve figure and axis
         if ax is None:
@@ -647,21 +662,25 @@ class NetworkModel:
 
         # Replace infinite values by NaN
         W = W.replace([np.inf, -np.inf], np.nan)
+        if Werr is not None:
+            Werr = Werr.replace(np.inf, np.nan)
+            if any(Werr.stack().dropna() < 0):
+                raise ModelError('error matrix cannot contain negative values')
         
-        # If normalization requested, normalize matrix
+        # If normalization requested, normalize matrix(es)
         if norm:
-            W = W / W.abs().max().max()
+            Wamax = W.abs().max().max()
+            W = W / Wamax
+            if Werr is not None:
+                Werr = Werr / Wamax
         
-        # Check if matrix is an error matrix (i.e., has no negative values)
-        iserror = all(W.stack().dropna() >= 0)
-        if clabel is None:
-            clabel = 'connection strength' if not iserror else 'error'
+        clabel = 'connection strength'
 
         # If no vmin/vmax provided, set to symmetric values
         Wamax = W.abs().max().max()
         Wamax = np.ceil(10 * Wamax) / 10
         if vmin is None:
-            vmin = 0 if iserror else -Wamax
+            vmin = -Wamax
         if vmax is None:
             vmax = Wamax
             
@@ -672,13 +691,36 @@ class NetworkModel:
             square=True, 
             vmin=vmin, 
             vmax=vmax,
-            center=0 if not iserror else None, 
-            cmap='flare' if iserror else cls.W_CMAP, 
-            annot=True,
-            fmt='.2g',
+            center=0, 
+            cmap=cls.W_CMAP, 
             cbar=cbar,
             cbar_kws={'label': clabel} if cbar else None,
         )
+
+        # Add annotations
+        for y in range(W.shape[0]):
+            for x in range(W.shape[1]):
+                txt = f'{W.iloc[y, x]:.2g}'
+                ishigh = np.abs(W.iloc[y, x]) > 0.5 * Wamax
+                color = 'w' if ishigh else 'k'
+                dy = 0
+                if Werr is not None:
+                    errtxt = f'\n±{Werr.iloc[y, x]:.1g}'
+                    dy = 0.1
+                ax.text(
+                    x + 0.5, y + 0.5 - dy, txt,
+                    ha='center', va='center',
+                    fontsize=12, 
+                    color=color, 
+                    fontweight='bold' if Werr is not None else 'normal',
+                )
+                if Werr is not None:
+                    ax.text(
+                        x + 0.5, y + 0.5 + dy, errtxt,
+                        ha='center', va='center',
+                        fontsize=10, 
+                        color=color,
+                    )
 
         # Remove ticks
         ax.tick_params(axis='both', which='both', bottom=False, left=False)
@@ -855,25 +897,34 @@ class NetworkModel:
         # Return figure handle
         return fig
     
-    def compute_drive(self, r, x=None):
+    def compute_drive(self, r, x=None, signed=True):
         '''
         Compute total input drive to gain function
 
         :param r: activity vector (Hz)
         :param x (optional): stimulus input (scalar or model-sized vector)
+        :param signed (optional): whether to compute and sum signed presynaptic drives 
+            (i.e. inhibitory drives are negative) or absolute values (all drives are positive).
+            Defaults to True (i.e. signed drives)
         :return: total input drive vector
         '''
         # If input activity is a dataframe, apply function on each row and 
         # return as dataframe
         if isinstance(r, pd.DataFrame):
             self.check_keys(r.columns)
-            d = np.array([self.compute_drive(rr) for rr in r.values])
+            d = np.array([self.compute_drive(rr, x=x, signed=signed) for rr in r.values])
             if x is not None:
                 d += x
             return pd.DataFrame(d, columns=self.keys, index=r.index)
         
+        # Extract connectivity matrix, and take absolute values if signed=False
+        W = self.Wmat.copy()
+        if not signed:
+            W = np.abs(W)
+        
         # Compute total synaptic drive
-        drive = np.dot(self.Wmat, r)
+        drive = np.dot(W, r)
+        
         # Add baseline inputs if present
         if self.bvec is not None:
             drive += self.bvec
@@ -1159,7 +1210,7 @@ class NetworkModel:
         mu_act.index.name = 'population'
         return mu_act
     
-    def plot_timeseries(self, sol, ss=None, add_synaptic_drive=False, title=None):
+    def plot_timeseries(self, sol, ss=None, add_synaptic_drive=False, title=None, axes=None):
         ''' 
         Plot timeseries from simulation results
 
@@ -1167,6 +1218,7 @@ class NetworkModel:
         :param ss (optional): steady-state values to add to activity timeseries
         :param add_synaptic_drive (optional): whether to add synaptic input drives to timeseries
         :param title (optional): figure title
+        :param axes (optional): axes handles
         :return: figure handle
         '''
         # Create copy of input data to avoid in-place modification
@@ -1189,10 +1241,17 @@ class NetworkModel:
             syninputs = self.compute_drive(sol)
             naxes += 1
         
-        # Create figure backbone
-        fig, axes = plt.subplots(naxes, 1, figsize=(7, 2 * naxes), sharex=True)
-        axes = np.atleast_1d(axes)
-        sns.despine(fig=fig)
+        # Create figure backbone / retrieve axes
+        if axes is None:
+            fig, axes = plt.subplots(naxes, 1, figsize=(7, 2 * naxes), sharex=True)
+            axes = np.atleast_1d(axes)
+            sns.despine(fig=fig)
+        else:
+            if len(axes) != naxes:
+                raise ModelError(f'number of axes ({len(axes)}) does not match number of subplots ({naxes})')
+            fig = axes[0].get_figure()
+            for ax in axes:
+                sns.despine(ax=ax)
         if title is None:
             title = f'{self} - simulation results'
         axes[0].set_title(title)
