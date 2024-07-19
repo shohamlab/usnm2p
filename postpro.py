@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-18 14:07:38
+# @Last Modified time: 2024-07-19 14:53:17
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4404,13 +4404,17 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_a
     def fbin(s):
         y = pd.qcut(s, nbins, precision=2)
         if qlabel:
-            mapper = dict(zip(y.unique(), qints))
+            ycat = pd.Categorical(y)
+            mapper = dict(zip(ycat.categories, qints))
             return y.map(mapper)
         else:
             return y
     
     # Bin pre-stim data into quantile intervals, per dose level
-    logger.info(f'binning {ykey} data into {nbins} quantile intervals...')
+    suffix = ''
+    if gby is not None:
+        suffix = f', per {gby}'
+    logger.info(f'binning {ykey} data into {nbins} quantile intervals{suffix}')
     bin_key = f'{ykey} {"q" if qlabel else ""}bin'
     if gby is not None:
         data[bin_key] = (data

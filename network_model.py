@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-18 12:09:07
+# @Last Modified time: 2024-07-19 11:53:12
 
 import time
 import glob
@@ -1340,7 +1340,7 @@ class NetworkModel:
         sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
         return sweep_data
 
-    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, col=None, row=None, title=None):
+    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, style_order=None, col=None, row=None, title=None):
         '''
         Plot results of stimulus amplitude sweep
 
@@ -1363,7 +1363,7 @@ class NetworkModel:
             nextra = len(gby)
             # If more than 3 extra dimensions, raise error
             if nextra > 3:
-                raise ModelError('cannot plot acitvation profiles with more than 2 extra levels')
+                raise ModelError('cannot plot activation profiles with more than 2 extra levels')
             # Assign dimensions to style, col and row
             params = [col, row, style]
             for p in params:
@@ -1399,7 +1399,9 @@ class NetworkModel:
                 fig = fg.figure
                 # Loop through axes and plot
                 for ax, (_, v) in zip(fig.axes, data.groupby(grid_gby)):
-                    self.plot_sweep_results(v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, style=style)
+                    self.plot_sweep_results(
+                        v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, style=style, 
+                        style_order=style_order)
                 return fig
 
         # Define y-axis label
@@ -1436,6 +1438,7 @@ class NetworkModel:
             hue='population',
             palette=self.palette,
             style=style,
+            style_order=style_order,
         )
 
         # Return figure handle
