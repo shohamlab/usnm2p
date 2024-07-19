@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-18 12:01:36
+# @Last Modified time: 2024-07-18 12:09:07
 
 import time
 import glob
@@ -928,6 +928,7 @@ class NetworkModel:
         # Add baseline inputs if present
         if self.bvec is not None:
             drive += self.bvec
+        
         # Add stimulus-driven input, if present
         if x is not None:
             drive += x * self.srel_vec

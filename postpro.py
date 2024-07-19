@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-11 13:50:39
+# @Last Modified time: 2024-07-18 14:07:38
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4375,6 +4375,13 @@ def autoreg_predict(y, wbounds, order=None, surrogate=False):
     return ypred
 
 
+def get_quantile_intervals(nbins):
+    '''
+    Return quantile intervals for a given number of bins
+    '''
+    return pd.IntervalIndex.from_breaks(np.linspace(0, 1, nbins + 1).round(2), closed='right')
+
+
 def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_aggregate=True, binagg_func='median', add_to_data=False):
     '''
     Bin specific variable into quantile intervals
@@ -4393,7 +4400,7 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_a
         data = data.copy()
     
     # Define binning function
-    qints = pd.IntervalIndex.from_breaks(np.linspace(0, 1, nbins + 1).round(2), closed='right')
+    qints = get_quantile_intervals(nbins)
     def fbin(s):
         y = pd.qcut(s, nbins, precision=2)
         if qlabel:
