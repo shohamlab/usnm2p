@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-04-05 10:53:42
+# @Last Modified time: 2024-07-20 12:02:57
 
 import numpy as np
 import pandas as pd
@@ -210,7 +210,7 @@ if __name__ == '__main__':
                 uniform_srel=uniform_srel,
                 mpi=mpi,
                 logdir=logdir,
-                kind=method, 
+                method=method, 
                 force_rerun=force_rerun
             )
             convergence.append(True)

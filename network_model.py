@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-19 11:53:12
+# @Last Modified time: 2024-07-22 18:46:40
 
 import time
 import glob
@@ -20,6 +20,7 @@ import hashlib
 import lockfile
 import multiprocessing as mp
 from statannotations.Annotator import Annotator
+from scipy.integrate import simps
 
 from solvers import ODESolver, EventDrivenSolver
 from logger import logger
@@ -970,7 +971,103 @@ class NetworkModel:
         ss = optimize.fsolve(objfunc, p0)
         # ss = optimize.root(objfunc, p0).x
         # Cast output as series, and return
-        return pd.Series(data=ss, index=self.keys, name='activity')
+        return pd.Series(data=ss, index=self.idx, name='activity')
+    
+    def find_baseline_drive(self, pkey, r, *args, bkey=None, maxiter=100, rtol=1e-2, **kwargs):
+        '''
+        Perform, binary search to find baseline drive necessary to reach desired
+        steady state activity on specific population.
+
+        :param pkey: name of population of interest regarding steady state activity
+        :param r: desired steady state activity (scalar)
+        :param bkey: name of population targeted by baseline input (defaults to population of interest)
+        :param maxiter (optional): maximum number of iterations
+        :param rtol (optional): relative tolerance for convergence
+        :return: baseline drive (scalar)
+        '''
+        # If baseline key not provided, set to population of interest
+        if bkey is None:
+            bkey = pkey
+
+        logger.info(f'finding baseline {bkey} drive required to reach {pkey} = {r:.2f} steady state activity')
+
+        # If baseline is already set, keep a copy
+        bcopy = None
+        if self.b is not None:
+            bcopy = self.b.copy()
+        
+        # Set initial baseline input: 0 except for for targeted population
+        self.b = pd.Series(0., index=self.idx)
+        self.b.loc[bkey] = 1
+
+        # Compute steady state activity
+        ss = self.compute_steady_state(*args, **kwargs)[pkey]
+
+        # Initialize parameters
+        niter = 0  # iterations counter
+        converged = False  # convergence flag
+
+        # First pass: progressively increase baseline input until steady state activity is above target
+        while ss < r:
+            logger.debug(f'iter {niter}: {bkey}drive = {self.b.loc[bkey]} -> ss = {ss:.2f}')
+            self.b.loc[bkey] *= 2
+            ss = self.compute_steady_state(*args, **kwargs)[pkey]
+            if self.b.loc[bkey] > 1000:
+                logger.warning(
+                    f'cannot reach targeted {pkey} steady state activity with reasonable {bkey}drive')
+                return np.nan
+            niter += 1
+        logger.debug(f'iter {niter}: {bkey}drive = {self.b.loc[bkey]} -> ss = {ss:.2f}')
+        niter += 1
+
+        # Second pass: binary search to find baseline input that yields steady state activity closest to target
+        bounds = [self.b.loc[bkey] / 2, self.b.loc[bkey]]
+        while not converged and niter <= maxiter:
+            # Set baseline input to mean of bounds, and compute steady state activity
+            self.b.loc[bkey] = np.mean(bounds)
+            ss = self.compute_steady_state(*args, **kwargs)[pkey]
+            logger.debug(f'iter {niter}: {bkey}drive = {self.b.loc[bkey]} -> ss = {ss:.2f}')
+
+            # If steady state activity is close enough to target, mark convergence
+            if np.isclose(ss, r, rtol=rtol):
+                converged = True
+            # Otherwise, update bounds
+            elif ss < r:
+                bounds[0] = self.b.loc[bkey]
+            else:
+                bounds[1] = self.b.loc[bkey]
+
+            # Increment iteration counter
+            niter += 1
+        
+        # If maximum number of iterations reached, raise error
+        if niter > maxiter:
+            raise ModelError('maximum number of iterations reached')
+        
+        # Store final baseline input
+        out = self.b.loc[bkey]
+
+        # Reset baseline input to original value
+        self.b = bcopy
+
+        # Return target baseline input
+        return out
+    
+    def find_baseline_drives(self, r, *args, bkey=None, **kwargs):
+        '''
+        Find baseline drives necessary to reach desired steady state activities
+
+        :param r: desired steady state activity per population, provided as pandas series
+        :param bkey (optional): name of population targeted by baseline input (defaults to "self" for each population)
+        :return: baseline drives for the corresponding populations, formatted as pandas series
+        '''
+        # Initialize baseline drives vector
+        b = pd.Series(0., index=self.idx)
+        # Iterate over populations
+        for pkey, rpop in r.items():
+            b[pkey] = self.find_baseline_drive(pkey, rpop, *args, bkey=bkey, **kwargs)
+        # Return baseline drives
+        return b
 
     def derivatives(self, r, *args, **kwargs):
         '''
@@ -1147,16 +1244,20 @@ class NetworkModel:
         return np.abs(yreldiff) < 1e-2
         # return regres['pval'] >= 0.05
 
-    def extract_steady_state(self, data, kind='stim', verbose=True):
+    def extract_response_magnitude(self, data, window='stim', metric='ss', verbose=True):
         '''
-        Extract steady-state stimulus-evoked activity from simulation results
+        Extract magnitude of stimulus-evoked response from simulation results
 
         :param data: simulation results dataframe
-        :param kind (optional): interval type during which to extract steady-state activity, one of:
+        :param window (optional): window interval during which to extract response magnitude, one of:
             - "pre": pre-stimulus interval
             - "stim": stimulus interval
             - "post": post-stimulus interval
-        :return: steady-state activity series
+        :param metric (optional): metric to extract, one of:
+            - "ss": steady-state activity
+            - "peak": peak activity
+            - "mean": mean of activity
+        :return: response magnitude activity series
         '''
         # If index contains extra dimensions, run extraction recursively
         if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
@@ -1170,7 +1271,7 @@ class NetworkModel:
             for k, v in data.groupby(gby):
                 # Attempt to extract steady-state
                 try:
-                    ss[k] = self.extract_steady_state(v.droplevel(gby), kind=kind, verbose=verbose)
+                    ss[k] = self.extract_response_magnitude(v.droplevel(gby), window=window, metric=metric, verbose=verbose)
                 # If metric error, log warning and set metric to NaN
                 except MetricError as e:
                     if verbose:
@@ -1189,34 +1290,56 @@ class NetworkModel:
         tstim = self.extract_stim_bounds(data.pop('x'))
 
         # Derive time bounds of interest based on interval type
-        if kind == 'pre':
+        if window == 'pre':
             tbounds = (data.index.values[0], tstim[0])
-        elif kind == 'stim':
+        elif window == 'stim':
             tbounds = tstim
-        elif kind == 'post':
+        elif window == 'post':
             tbounds = (tstim[1], data.index.values[-1])
         else:
-            raise ModelError(f'unknown interval type: {kind}')
-
-        # Get data slice for second half of interval of interest
-        subdata = self.get_secondhalf_slice(data, tbounds)
-        
-        # If activity is unstable in that slice, raise error
-        if not self.is_stable(subdata):
-            raise MetricError(
-                f'unstable activity in [{tbounds[0]:.2f}s - {tbounds[1]:.2f}s] time interval')
-        
-        # Return average activity in that slice 
-        mu_act = subdata.mean(axis=0).rename('activity')
-        mu_act.index.name = 'population'
-        return mu_act
+            raise ModelError(f'unknown window interval type: {window}')
     
-    def plot_timeseries(self, sol, ss=None, add_synaptic_drive=False, title=None, axes=None):
+        # If window is stim, extract activity baseline as last values preceding stimulus onset
+        if window == 'stim':
+            baseline = data.loc[tstim[0]].iloc[0]
+        # Otherwise, set baseline to zero
+        else:
+            baseline = pd.Series(0., index=self.keys)
+
+        # If steady-state requested, extract data for second half of selected window and check stability  
+        if metric == 'ss':
+            data = self.get_secondhalf_slice(data, tbounds)
+            if not self.is_stable(data):
+                raise MetricError(
+                    f'unstable activity in [{tbounds[0]:.2f}s - {tbounds[1]:.2f}s] time interval')
+            resp = data.mean(axis=0)
+        
+        # Compute appropriate metric
+        elif metric == 'mean':
+            # Mean: compute area under curve, and normalize by window duration
+            resp = {}
+            for col in data.columns:
+                resp[col] = simps(data[col], data.index)
+            resp = pd.Series(resp) / (tbounds[1] - tbounds[0])
+        elif metric == 'peak':
+            resp = data.max(axis=0)
+        else:
+            raise ModelError(f'unknown response quantification metric: {metric}')
+
+        # Compute relative response magnitude
+        resp = resp - baseline
+        
+        # Return computed metric
+        resp.index.name = 'population'
+        return resp.rename('activity')
+    
+    def plot_timeseries(self, sol, ss=None, plot_stimulus=True, add_synaptic_drive=False, title=None, axes=None):
         ''' 
         Plot timeseries from simulation results
 
         :param sol: simulation results dataframe
         :param ss (optional): steady-state values to add to activity timeseries
+        :param plot_stimulus (optional): whether to plot stimulus time series, if present
         :param add_synaptic_drive (optional): whether to add synaptic input drives to timeseries
         :param title (optional): figure title
         :param axes (optional): axes handles
@@ -1235,7 +1358,8 @@ class NetworkModel:
             tbounds = self.extract_stim_bounds(x)
             if x.max() == 0:
                 tbounds = None
-            naxes += 1
+            if plot_stimulus:
+                naxes += 1
 
         # Add synaptic inputs to data, if requested
         if add_synaptic_drive:
@@ -1248,6 +1372,7 @@ class NetworkModel:
             axes = np.atleast_1d(axes)
             sns.despine(fig=fig)
         else:
+            axes = as_iterable(axes)
             if len(axes) != naxes:
                 raise ModelError(f'number of axes ({len(axes)}) does not match number of subplots ({naxes})')
             fig = axes[0].get_figure()
@@ -1260,7 +1385,7 @@ class NetworkModel:
         ax = next(axiter)
 
         # Plot stimulus time series, if present
-        if x is not None:
+        if x is not None and plot_stimulus:
             ax.plot(x.index, x.values, c='k')
             ax.set_ylabel('stimulus')
             ax = next(axiter)
@@ -1340,13 +1465,19 @@ class NetworkModel:
         sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
         return sweep_data
 
-    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=False, style=None, style_order=None, col=None, row=None, title=None):
+    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=None, hue='population', style=None, style_order=None, col=None, row=None, title=None):
         '''
         Plot results of stimulus amplitude sweep
 
         :param data: sweep extracted metrics per population, provided as dataframe
         :param ax (optional): axis handle
-        :param norm (optional): whether to normalize results per population before plotting
+        :param xkey (optional): x-axis key
+        :param norm (optional): dimension(s) along which to normalize results per population before plotting, one of:
+            - None: no normalization
+            - 'style': normalize per style
+            - 'ax': normalize per axis
+            - 'grid': normalize across entire grid
+        :param hue (optional): extra grouping dimension to use for coloring (default = 'population')
         :param style (optional): extra grouping dimension to use for styling
         :param col (optional): extra grouping dimension to use for columns
         :param row (optional): extra grouping dimension to use for rows
@@ -1355,15 +1486,21 @@ class NetworkModel:
         '''
         if xkey not in data.index.names:
             raise ModelError(f'level {xkey} not found in index')
+        
+        # Define normalization function
+        def normfunc(x):
+            return x / x.abs().max(axis=0).replace(0, 1)
             
         # If input is a dataframe with multi-index, run plotting recursively
         if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
             # Extract extra dimensions
             gby = [k for k in data.index.names if k != xkey]
             nextra = len(gby)
+            
             # If more than 3 extra dimensions, raise error
             if nextra > 3:
                 raise ModelError('cannot plot activation profiles with more than 2 extra levels')
+            
             # Assign dimensions to style, col and row
             params = [col, row, style]
             for p in params:
@@ -1375,11 +1512,23 @@ class NetworkModel:
                 if p is None:
                     params[i] = gby.pop(0) if gby else None
             col, row, style = params
+            
             # Determine whether multi-axis grid is needed
             grid_gby = [gby[i] for i in [col, row] if i is not None]
+
+            # If grid is needed, create it and loop through axes
             if len(grid_gby) > 0:
+
+                # If single axis provided, raise error 
                 if ax is not None:
                     raise ModelError('axis provided but axis grid is needed')
+                
+                # If grid normalization requested, normalize data across entire grid
+                if norm == 'grid':
+                    data = normfunc(data)
+                    ykey = f'normalized {ykey}'
+                    norm = None
+                
                 # Adapt axis title template
                 templates = []
                 if col is not None:
@@ -1387,6 +1536,7 @@ class NetworkModel:
                 if row is not None:
                     templates.append(f'{row}={{row_name:.2g}}')
                 template = ', '.join(templates)
+                
                 # Create grid
                 fg = sns.FacetGrid(
                     data=data.reset_index(), 
@@ -1397,24 +1547,26 @@ class NetworkModel:
                 )
                 fg.set_titles(template=template)
                 fig = fg.figure
+                
                 # Loop through axes and plot
                 for ax, (_, v) in zip(fig.axes, data.groupby(grid_gby)):
                     self.plot_sweep_results(
-                        v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, style=style, 
-                        style_order=style_order)
+                        v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, hue=hue,
+                        style=style, style_order=style_order)
                 return fig
 
         # Define y-axis label
         ykey = 'activity'
 
         # If normalization requested, normalize activity vectors for each population
-        if norm:
-            normfunc = lambda x: x / x.abs().max(axis=0).replace(0, 1)
-            if style is not None:
+        if style is not None:
+            if norm == 'style':
                 data = data.groupby(style).apply(normfunc).droplevel(0)
-            else:
+            elif norm == 'ax':
                 data = normfunc(data)
-            ykey = f'normalized {ykey}'
+        else:
+            if norm:
+                data = normfunc(data)
         
         # Create/retrieve figure and axis
         if ax is None:
@@ -1435,7 +1587,7 @@ class NetworkModel:
             data=data.stack().rename(ykey).reset_index(),
             x=xkey,
             y=ykey,
-            hue='population',
+            hue=hue,
             palette=self.palette,
             style=style,
             style_order=style_order,
@@ -1516,14 +1668,14 @@ class NetworkModel:
             return invalid_cost
         
         # Extract stimulus-evoked steady-states from sweep output
-        stim_ss = self.extract_steady_state(sweep_data, kind='stim', verbose=False)
+        stim_ss = self.extract_response_magnitude(sweep_data, window='stim', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if stim_ss.isna().any().any():
             logger.warning('unstable stimulus-evoked steady-states detected')
             return invalid_cost
         
         # Extract final steady-states from sweep output
-        final_ss = self.extract_steady_state(sweep_data, kind='post', verbose=False)
+        final_ss = self.extract_response_magnitude(sweep_data, window='post', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if final_ss.isna().any().any():
             logger.warning('unstable final steady-states detected')
@@ -1842,7 +1994,7 @@ class ModelOptimizer:
             return cost.idxmin()
 
     @classmethod
-    def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, kind='diffev', mpi=False, **kwargs):
+    def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method='diffev', mpi=False, **kwargs):
         '''
         Use global optimization algorithm to find set of model parameters that minimizes
         divergence with a reference set of activation profiles.
@@ -1851,7 +2003,7 @@ class ModelOptimizer:
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
         :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
-        :param kind (optional): optimization algorithm to use, one of:
+        :param method (optional): optimization algorithm to use, one of:
             - "diffev": differential evolution algorithm
             - "annealing": simulated annealing algorithm
             - "shg": SGH optimization algorithm
@@ -1859,16 +2011,16 @@ class ModelOptimizer:
         :param mpi (optional): whether to use multiprocessing (default: False)
         :return: optimized network connectivity matrix
         '''
-        if kind == 'diffev':
+        if method == 'diffev':
             optfunc = optimize.differential_evolution
-        elif kind == 'annealing':
+        elif method == 'annealing':
             optfunc = optimize.dual_annealing
-        elif kind == 'shg':
+        elif method == 'shg':
             optfunc = optimize.shgo
-        elif kind == 'direct':
+        elif method == 'direct':
             optfunc = optimize.direct
         else:
-            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+            raise OptimizationError(f'unknown optimization algorithm: {method}')
         
         # Initialize empty dictionary for optimization keyword arguments
         optkwargs = {}
@@ -1876,7 +2028,7 @@ class ModelOptimizer:
         # If multiprocessing requested
         if mpi:
             # If optimization method is not compatible with multiprocessing, raise error
-            if kind != 'diffev':
+            if method != 'diffev':
                 raise OptimizationError('multiprocessing only supported for differential evolution algorithm')
             # Get the number of available CPUs
             ncpus = get_cpu_count()
@@ -1892,7 +2044,7 @@ class ModelOptimizer:
         xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=uniform_srel)
                  
         # Run optimization algorithm
-        s = f'running {kind} optimization algorithm'
+        s = f'running {method} optimization algorithm'
         if 'workers' in optkwargs:
             s = f'{s} with {optkwargs["workers"]} parallel workers'
         logger.info(s)
@@ -1911,7 +2063,7 @@ class ModelOptimizer:
         return model.parse_optimum_vector(sol)
     
     @staticmethod
-    def get_log_filename(model, ref_profiles, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor):
+    def get_log_filename(model, ref_profiles, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor):
         ''' Generate log filename for optimization input arguments '''
         # Gather dictionary of model attribute codes
         model_ids = model.attrcodes()
@@ -1941,7 +2093,7 @@ class ModelOptimizer:
         opt_code = '_'.join([f'{k}{v}' for k, v in opt_ids.items()])
         
         # Add optimization algorithm
-        opt_code = f'{opt_code}_{kind}'
+        opt_code = f'{opt_code}_{method}'
         
         # Add "norm" suffix if normalization specified
         if norm:
@@ -1995,7 +2147,7 @@ class ModelOptimizer:
         return df['cost']
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, kind='diffev', norm=False,
+    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method='diffev', norm=False,
                  disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, force_rerun=False, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
@@ -2005,7 +2157,7 @@ class ModelOptimizer:
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
         :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
-        :param kind (optional): optimization algorithm (default = "diffev")
+        :param method (optional): optimization algorithm (default = "diffev")
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
         :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
@@ -2013,13 +2165,13 @@ class ModelOptimizer:
         :return: optimized network connectivity matrix
         '''
         # Check validity of optimization algorithm
-        if kind not in cls.GLOBAL_OPT_METHODS:
-            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+        if method not in cls.GLOBAL_OPT_METHODS:
+            raise OptimizationError(f'unknown optimization algorithm: {method}')
         
         # If log folder is provided, derive path to log file
         if logdir is not None:
             fname = cls.get_log_filename(
-                model, *args, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
+                model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
             fpath = os.path.join(logdir, fname)
         else:
             fpath = None
@@ -2053,12 +2205,12 @@ class ModelOptimizer:
         # Run optimization algorithm and return
         return cls.global_optimization(
             model, *args, Wbounds=Wbounds, srel_bounds=srel_bounds, uniform_srel=uniform_srel, 
-            fpath=fpath, kind=kind, norm=norm, disparity_cost_factor=disparity_cost_factor, 
+            fpath=fpath, method=method, norm=norm, disparity_cost_factor=disparity_cost_factor, 
             Wdev_cost_factor=Wdev_cost_factor, **kwargs)
 
     @classmethod
     def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, 
-                                  kind='diffev', norm=False, disparity_cost_factor=0., Wdev_cost_factor=0., 
+                                  method='diffev', norm=False, disparity_cost_factor=0., Wdev_cost_factor=0., 
                                   logdir=None, **kwargs):
         ''' 
         Load optimization history from CSV log file
@@ -2067,7 +2219,7 @@ class ModelOptimizer:
         :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
         :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
         :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
-        :param kind (optional): optimization algorithm (default = "diffev")
+        :param method (optional): optimization algorithm (default = "diffev")
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
         :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
@@ -2075,8 +2227,8 @@ class ModelOptimizer:
         :return: network connectivity matrix optimizaiton history
         '''
         # Check validity of optimization algorithm
-        if kind not in cls.GLOBAL_OPT_METHODS:
-            raise OptimizationError(f'unknown optimization algorithm: {kind}')
+        if method not in cls.GLOBAL_OPT_METHODS:
+            raise OptimizationError(f'unknown optimization algorithm: {method}')
         
         # If log folder is not provided, raise error
         if logdir is None:
@@ -2084,7 +2236,7 @@ class ModelOptimizer:
         
         # Derive path to log file
         fname = cls.get_log_filename(
-            model, *args, kind, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
+            model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
         fpath = os.path.join(logdir, fname)
 
         # If log file does not exist, raise error

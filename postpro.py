@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-19 14:53:17
+# @Last Modified time: 2024-07-23 11:28:04
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4382,30 +4382,58 @@ def get_quantile_intervals(nbins):
     return pd.IntervalIndex.from_breaks(np.linspace(0, 1, nbins + 1).round(2), closed='right')
 
 
-def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_aggregate=True, binagg_func='median', add_to_data=False):
+def bin_by_quantile_intervals(data, ykey, nbins=10, bin_unit=None, gby=None, add_aggregate=True, binagg_func='median', add_to_data=False):
     '''
     Bin specific variable into quantile intervals
 
     :param data: pandas dataframe with data to bin
     :param ykey: key of variable to bin
     :param nbins: number of quantile intervals to use
-    :param qlabel: whether to use quantile values for interval labels
+    :param bin_unit: labelling unit of output quantile intervals. One of:
+        - "data": data units
+        - "quantile": quantile units
+        - "desc": qualitative descriptors (only valid for nbins <= 3)
     :param gby: grouping key inside which to perform binning
     :param add_aggregate: whether to add another series with aggregate value in each quantile interval
     :param binagg_func: function to use for aggregation in each quantile interval
     :return: pandas series with binned data
     '''
+    # Check number of bins validity
+    if nbins < 2:
+        raise ValueError('number of bins must be at least 2')
+    
+    # If bin unit not specified, infer from number of bins
+    if bin_unit is None:
+        bin_unit = 'desc' if nbins <= 3 else 'quantile'
+
+    # Generate binning labels based on bin unit
+    if bin_unit == 'data':
+        binlabels = None
+        bin_key = f'{ykey} bin'
+    elif bin_unit == 'quantile':
+        binlabels = get_quantile_intervals(nbins)
+        bin_key = f'{ykey} qbin'
+    elif bin_unit == 'desc':
+        bin_key = f'{ykey} qcat'
+        if nbins == 2:
+            binlabels = ['low', 'high']
+        elif nbins == 3:
+            binlabels = ['low', 'medium', 'high']
+        else:
+            raise ValueError('cannot use qualitative descriptors for more than 3 bins')
+    else:
+        raise ValueError(f'invalid bin unit: {bin_unit}')
+    
     # Work on data copy if new columns must not be added
     if not add_to_data:
         data = data.copy()
     
     # Define binning function
-    qints = get_quantile_intervals(nbins)
     def fbin(s):
         y = pd.qcut(s, nbins, precision=2)
-        if qlabel:
+        if binlabels is not None:
             ycat = pd.Categorical(y)
-            mapper = dict(zip(ycat.categories, qints))
+            mapper = dict(zip(ycat.categories, binlabels))
             return y.map(mapper)
         else:
             return y
@@ -4415,7 +4443,6 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, qlabel=True, gby=None, add_a
     if gby is not None:
         suffix = f', per {gby}'
     logger.info(f'binning {ykey} data into {nbins} quantile intervals{suffix}')
-    bin_key = f'{ykey} {"q" if qlabel else ""}bin'
     if gby is not None:
         data[bin_key] = (data
             .groupby(gby)
