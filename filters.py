@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-04 17:44:51
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-02-08 16:04:54
+# @Last Modified time: 2024-07-30 11:18:19
 
 ''' Collection of filtering utilities. '''
 
@@ -55,7 +55,7 @@ class KalmanDenoiser(StackFilter):
     '''
     Main interface to Kalman filtering denoiser.
 
-    Based on ImageJ plugin written by Christopher Philip Mauer (https://imagej.nih.gov/ij/plugins/kalman.html).
+    Based on ImageJ plugin written by Christopher Philip Mauer (https://imagej.net/ij/plugins/kalman.html).
 
     This plugin implements a recursive prediction/correction algorithm which is based on the Kalman Filter
     (Piovoso and Laplante, 2003) commonly used for robotic vision and navigation to remove high gain noise
