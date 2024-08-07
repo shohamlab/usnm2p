@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-20 12:02:57
+# @Last Modified time: 2024-08-07 18:27:54
 
 import numpy as np
 import pandas as pd
@@ -10,11 +10,11 @@ from argparse import ArgumentParser
 import os
 import pandas as pd
 
-from logger import logger
-from network_model import *
-from constants import Label
-from fileops import get_data_root, get_output_equivalent
-from model_params import *
+from usnm2p.logger import logger
+from usnm2p.network_model import *
+from usnm2p.constants import Label
+from usnm2p.fileops import get_data_root, get_output_equivalent
+from usnm2p.model_params import *
 
 # Set up logging folder
 logdir = get_output_equivalent(get_data_root(), 'raw', 'model')
