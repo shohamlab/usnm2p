@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 12:44:16
+# @Last Modified time: 2024-08-07 13:36:46
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -395,6 +395,7 @@ sweep_markers = {
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {
     'line3': 1400.,
+    'sarah_line3': 1400.,
     'sst': None,
     'pv': None,
 }
