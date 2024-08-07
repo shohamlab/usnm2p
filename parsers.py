@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-05-03 12:24:15
+# @Last Modified time: 2024-08-07 12:21:25
 
 ''' Collection of parsing utilities. '''
 
@@ -443,7 +443,7 @@ def resolve_mouseline(s):
         return 'line3'
     elif 'pv' in s:
         return 'pv'
-    elif 'sst'in s:
+    elif 'sst' in s:
         return 'sst'
     else:
         raise ValueError(f'invalid mouse line: {s}')
