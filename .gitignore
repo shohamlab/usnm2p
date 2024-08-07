@@ -1,8 +1,8 @@
 # Personal configuration file
-config.py
+usnm2p/config.py
 
 # outputs folder
-outputs/
+nboutputs/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,linux,python,visualstudiocode,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,linux,python,visualstudiocode,jupyternotebooks

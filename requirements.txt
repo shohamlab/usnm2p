@@ -6,7 +6,6 @@ numpy_image_widget
 imagecodecs
 ipywidgets
 tifffile
-seaborn
 statsmodels
 black
 papermill
@@ -21,4 +20,5 @@ scikit-image
 spectrum
 lockfile
 diptest
+seaborn==0.12.2
 suite2p==0.10.2
