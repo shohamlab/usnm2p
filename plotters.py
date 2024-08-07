@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-07-05 10:59:43
+# @Last Modified time: 2024-08-07 14:30:58
 
 ''' Collection of plotting utilities. '''
 
@@ -5140,6 +5140,8 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
         responder_types = (
             cond_fracs['positive'] >= pthr).astype(int).map(RTYPE_MAP)
         rtype_counts = responder_types.value_counts()
+        if 'positive' not in rtype_counts:
+            rtype_counts['positive'] = 0
         prop_pos = rtype_counts['positive'] / rtype_counts.sum()
         logger.info(f'identified {prop_pos * 100:.1f}% of responders with {pthr} as threshold proportion of responding conditions')
         
