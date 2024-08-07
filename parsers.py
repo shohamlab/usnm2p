@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 12:21:25
+# @Last Modified time: 2024-08-07 12:36:49
 
 ''' Collection of parsing utilities. '''
 
@@ -12,7 +12,6 @@ import re
 import os
 import numpy as np
 import pandas as pd
-from argparse import ArgumentTypeError
 from constants import *
 from logger import logger
 from utils import itemize

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2023-10-20 19:13:55
+# @Last Modified time: 2024-08-07 12:44:16
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -373,6 +373,7 @@ class Palette:
     }
     LINE = {  # mouse line (categorical)
         'line3': 'C0',
+        'sarah_line3': 'b',
         'pv': 'C1',
         'sst': 'r'
     }
