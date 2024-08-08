@@ -20,10 +20,10 @@ from .parsers import P_TIFFILE, group_by_run
 class ImageStacker(metaclass=abc.ABCMeta):
     ''' Generic interface to an image stacker. '''
 
-    def __init__(self, *args, input_type='image', align=False, **kwargs):
+    def __init__(self, input_type='image', align=False, verbose=True):
         self.input_type = input_type
         self.align = align
-        super().__init__(*args, **kwargs)
+        self.verbose = verbose
     
     @property
     def rootcode(self):
@@ -93,9 +93,14 @@ class ImageStacker(metaclass=abc.ABCMeta):
                 return output_fpath, dims
             else:
                 return output_fpath
+    
         # Initialize stack array
         stack = []
         refshape = None
+
+        # Log message
+        logger.info(f'stacking {len(input_fpaths)} {self.input_type}s from "{os.path.dirname(input_fpaths[0])}"...')
+
         # For each input filepath
         for i, fpath in enumerate(input_fpaths):
             # Load input
@@ -103,6 +108,7 @@ class ImageStacker(metaclass=abc.ABCMeta):
                 stack_input = self.load_image(fpath)
             else:
                 stack_input = self.load_stack(fpath)
+          
             # Assign reference shape or ensure match of current input with reference
             if refshape is None:
                 refshape = stack_input.shape
@@ -110,21 +116,27 @@ class ImageStacker(metaclass=abc.ABCMeta):
                 if stack_input.shape != refshape:
                     raise ValueError(
                         f'{self.input_type} {i} shape {stack_input.shape} does not match reference {refshape}')
+
             # Append input to stack
             stack.append(stack_input)
+        
         # If specified, offset sub-stacks / frames to align baselines
         if self.align:
             stack = self.align_baselines(stack)
+        
         # Convert stack to numpy array 
         if self.input_type == 'image':
             stack = np.stack(stack)
         else:
             stack = np.concatenate(stack)
+        
         # Check stack integrity
         self.check_stack_integrity(stack)
+        
         # Save stack as single file and return output filepath
         logger.info(f'generated {stack.shape[0]}-frames image stack')
         self.save_stack(output_fpath, stack)
+        
         # Return
         if full_output:
             return output_fpath, stack.shape
@@ -137,7 +149,7 @@ class TifStacker(ImageStacker):
 
     def load_image(self, fpath):
         with warnings.catch_warnings(record=True):
-            image = loadtif(fpath)
+            image = loadtif(fpath, verbose=self.verbose)
         # Implement fix for first file that contains 10 frames (a mystery) -> we just take the last one.
         if image.ndim > 2:
             nframes = image.shape[0]
@@ -158,22 +170,25 @@ class TifStacker(ImageStacker):
             logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
 
 
-def stack_tifs(inputdir, pattern=P_TIFFILE, input_key=None, **kwargs):
+def stack_tifs(inputdir, pattern=P_TIFFILE, input_key=None, output_key=None, verbose=True, **kwargs):
     '''
-    high-level function to merge individual TIF files into an TIF stack.
+    High-level function to merge individual TIF files into an TIF stack.
 
     :param inputdir: absolute path to directory containing the input images
     :param pattern: filename matching pattern 
     :param input_key: input key for output path replacement
+    :param output_key: replacement key for output path
     :return: filepath to the created tif stack
     '''
     if input_key is None:
         input_key = DataRoot.RAW
+    if output_key is None:
+        output_key = DataRoot.STACKED
     # Cast inputdir to absolute path
     inputdir = os.path.abspath(inputdir)
     # Get output file name
     pardir, dirname = os.path.split(inputdir)
-    outdir = get_output_equivalent(pardir, input_key, DataRoot.STACKED)
+    outdir = get_output_equivalent(pardir, input_key, output_key)
     output_fpath = os.path.join(outdir, f'{dirname}.tif')
     # Get tif files list
     try:
@@ -181,7 +196,7 @@ def stack_tifs(inputdir, pattern=P_TIFFILE, input_key=None, **kwargs):
     except ValueError:
         return None
     fpaths = [os.path.join(inputdir, fname) for fname in fnames]
-    return TifStacker().stack(fpaths, output_fpath, **kwargs)
+    return TifStacker(verbose=verbose).stack(fpaths, output_fpath, **kwargs)
 
 
 def stack_trial_tifs(input_fpaths, input_key=None, align=True, **kwargs):

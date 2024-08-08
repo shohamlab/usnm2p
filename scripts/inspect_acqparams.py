@@ -10,7 +10,7 @@ import os
 import logging
 
 from usnm2p.constants import *
-from usnm2p.parsers import resolve_mouseline, parse_acquisition_settings
+from usnm2p.parsers import resolve_mouseline, parse_bruker_acquisition_settings
 from usnm2p.fileops import get_data_root, get_dataset_params, get_data_folders
 from usnm2p.logger import logger
 from usnm2p.nbutils import get_notebook_parser
@@ -53,5 +53,5 @@ if __name__ == '__main__':
         )
 
         # Extract acquisition settings from each run, and outlier runs
-        daq_settings, _ = parse_acquisition_settings(tif_folders)
+        daq_settings, _ = parse_bruker_acquisition_settings(tif_folders)
         # print(daq_settings)

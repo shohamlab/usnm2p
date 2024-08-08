@@ -22,7 +22,6 @@ from natsort import natsorted
 from .parsers import parse_experiment_parameters, P_TIFFILE, parse_date_mouse_region
 from .logger import logger
 from .utils import *
-from .viewers import get_stack_viewer
 from .constants import *
 from .postpro import *
 
@@ -57,7 +56,7 @@ def get_dataset_params(root='.', analysis_type=DEFAULT_ANALYSIS, excludes=None, 
     :return: list of dictionaries representing (line, date, mouse, region) combinations found
         inside the root folder.
     '''
-    logger.info(f'Searching for data folders in {root} ...')
+    logger.info(f'searching for data folders in {root} ...')
     datasets = []
     subroot = os.path.join(root, analysis_type)
     # Loop through lines, dates, mice, and regions, and add data folders to list  
@@ -218,9 +217,9 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     '''
     # Log
     if rec_call:
-        logger.debug(f'Searching through {basedir}')
+        logger.debug(f'searching through {basedir}')
     else:
-        logger.info(f'Searching through {basedir}')
+        logger.info(f'searching through {basedir}')
 
     # Initialize empty folders list
     datafolders = []
@@ -593,19 +592,6 @@ def save_figs(figsroot, figs, ext='png'):
         fname = f'{k}.{ext}'
         logger.info(f'saving "{fname}"')
         v.savefig(os.path.join(figsdir, fname), transparent=True, bbox_inches='tight')
-
-
-def save_stack_to_gif(figsroot, *args, **kwargs):
-    ''' High level function to save stacks to gifs. '''
-    figsdir = get_figdir(figsroot)
-    fps = kwargs.pop('fps', 10)
-    norm = kwargs.pop('norm', True)
-    cmap = kwargs.pop('cmap', 'viridis')
-    bounds = kwargs.pop('bounds', None)
-    ilabels = kwargs.pop('ilabels', None)
-    viewer = get_stack_viewer(*args, **kwargs)
-    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
-    viewer.save_as_gif(figsdir, fps)
 
 
 def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks):

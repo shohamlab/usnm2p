@@ -246,9 +246,9 @@ def simplify_Bruker_settings(settings):
     return curated_settings
     
 
-def parse_acquisition_settings(folders):
+def parse_bruker_acquisition_settings(folders):
     '''
-    Extract data acquisition settings from raw data folders.
+    Extract data acquisition settings from Bruker raw data folders.
     
     :param folders: full list of data folders containing the raw TIF files.
     :return: 2-tuples with:

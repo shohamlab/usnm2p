@@ -401,6 +401,18 @@ def view_stack(*args, **kwargs):
         ilabels=ilabels, playback_speed=playback_speed)
 
 
+def save_stack_to_gif(folder, *args, **kwargs):
+    ''' High level function to save stacks to gifs. '''
+    fps = kwargs.pop('fps', 10)
+    norm = kwargs.pop('norm', True)
+    cmap = kwargs.pop('cmap', 'viridis')
+    bounds = kwargs.pop('bounds', None)
+    ilabels = kwargs.pop('ilabels', None)
+    viewer = get_stack_viewer(*args, **kwargs)
+    viewer.init_render(norm=norm, cmap=cmap, bounds=bounds, ilabels=ilabels)
+    viewer.save_as_gif(folder, fps)
+
+
 
 class InteractivePlotViewer:
     ''' Class to plot figure across range of conditions '''
