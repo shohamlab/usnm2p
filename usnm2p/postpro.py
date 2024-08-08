@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 18:17:48
+# @Last Modified time: 2024-08-07 23:02:34
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4446,10 +4446,10 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, bin_unit=None, gby=None, add
     logger.info(f'binning {ykey} data into {nbins} quantile intervals{suffix}')
     if gby is not None:
         data[bin_key] = (data
-            .groupby(gby)
+            .groupby(gby)  #
             [ykey]
             .apply(fbin)
-            # .droplevel(0)
+            .droplevel(0)
         )
     else:
         data[bin_key] = fbin(data[ykey])
