@@ -251,9 +251,9 @@ def parse_bruker_acquisition_settings(folders):
     Extract data acquisition settings from Bruker raw data folders.
     
     :param folders: full list of data folders containing the raw TIF files.
-    :return: 2-tuples with:
-        - dictionary containing data aquisition settings that are common across all data folders 
-        - list of folders for which acquisition settings vary significantly from reference
+    :return: pandas Series containing data aquisition settings that are common across all data folders. 
+        An additional "outliers" field references the folders that have acquisitions settings that 
+        vary significantly from the reference.
     '''
     logger.info(f'extracting acquisition settings across {len(folders)} folders...')
 
@@ -340,11 +340,14 @@ def parse_bruker_acquisition_settings(folders):
         logger.warning(
             f'found {len(diff_settings)} acquisition setting(s) varying across runs:\n{daq_settings[diff_settings]}')
     
-    # Extract folders for each run in outliers list
-    outliers = [fdict[k] for k in list(set(outliers))]
+    # Add potential outliers to output series
+    if len(outliers) > 0:
+        logger.warning(
+            f'found {len(outliers)} outlier run(s) with significantly different acquisition settings')
+    ref_daq_settings['outliers'] = outliers
 
-    # Return common settings and list of outliers folders
-    return ref_daq_settings, outliers
+    # Return acquisition settings
+    return ref_daq_settings
 
 
 def parse_date_mouse_region(s):

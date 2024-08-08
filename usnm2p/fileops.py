@@ -11,6 +11,7 @@ import abc
 import glob
 import pprint
 import datetime
+import json
 import pandas as pd
 import h5py
 from multiprocessing import Pool
@@ -216,10 +217,11 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     :return: list of data folders
     '''
     # Log
+    s = f'searching through {basedir}'
     if rec_call:
-        logger.debug(f'searching through {basedir}')
+        logger.debug(s)
     else:
-        logger.info(f'searching through {basedir}')
+        logger.info(s)
 
     # Initialize empty folders list
     datafolders = []
@@ -280,20 +282,59 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
     return datafolders
 
 
-def sort_folders_by_runID(datafolders, pdicts):
+def get_input_files(inputdir, sortby=None):
     '''
-    Sort folders by runID
+    Get input TIF files inside a directory.
+
+    :param inputdir: full path to the input directory.
+    :param sortby: sorting key for the input files.
+    :return: list of full paths to constituent TIF files.
+    '''
+    # Get list of TIF files
+    tif_files = get_sorted_filelist(inputdir, pattern=P_TIFFILE)
+    logger.info(f'found {len(tif_files)} TIF files in "{inputdir}"')
     
-    :param datafolders: list of full paths to data folders
-    :param pdicts: list of parsed parameters dictionaries for each datafolder
+    # If sorting key specified, sort output according to it
+    if sortby is not None:
+        params_by_file = [parse_experiment_parameters(os.path.basename(f)) for f in tif_files]
+        if any(sortby not in p for p in params_by_file):
+            raise ValueError(f'"{sortby}" is not a valid input sorting key')
+        logger.info(f'sorting files by {sortby}')
+        vals_by_file = [p[sortby] for p in params_by_file]
+        _, tif_files = zip(*sorted(zip(vals_by_file, tif_files)))
+
+    # Construct full paths to TIF files 
+    tif_fpaths = [os.path.join(inputdir, f) for f in tif_files]
+    
+    # Return
+    return tif_fpaths
+
+
+def save_acquisition_settings(folder, daq_settings):
     '''
-    # Check that all data folders are from the same parent
-    pardirs = [os.path.split(x)[0] for x in datafolders]
-    assert pardirs.count(pardirs[0]) == len(pardirs), 'Data folders have different parrents'
-    # Sort folders once asserted that they belong to the same parent
-    datafolders, pdicts = zip(*sorted(zip(datafolders, pdicts), key=lambda x: x[1]['runID']))
-    logger.info(f'Sorted data folders:\n{pprint.pformat(datafolders)}')
-    return datafolders, pdicts
+    Save acquisition settings to JSON file in specific folder.
+
+    :param folder: full path to the folder where to save the acquisition settings
+    :param daq_settings: acquisition settings pandas Series object
+    '''
+    logger.info(f'saving acquisition settings to "{folder}"')
+    daq_settings_fpath = os.path.join(folder, 'daq_settings.json')
+    with open(daq_settings_fpath, 'w') as f:
+        json.dump(daq_settings.to_dict(), f, indent=4)
+
+
+def load_acquisition_settings(folder):
+    '''
+    Load acquisition settings from JSON file in specific folder.
+
+    :param folder: full path to the folder where acquisition settings are saved
+    :return: acquisition settings pandas Series object
+    '''
+    daq_settings_fpath = os.path.join(folder, 'daq_settings.json')
+    logger.info(f'loading acquisition settings from "{daq_settings_fpath}"')
+    with open(daq_settings_fpath, 'r') as f:
+        daq_settings = pd.Series(json.load(f))
+    return daq_settings
 
 
 def loadtif(fpath, verbose=True, metadata=False):
