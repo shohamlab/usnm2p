@@ -2,7 +2,37 @@
 
 This repository hosts the code base to process and analyze 2-photon calcium imaging data acquired upon stimulation of different cortical regions by ultrasound.
 
-## Installation & usage
+## Acquisition protocols & raw data
+
+### Bruker 2P imaging system
+
+Raw data from the Bruker imaging system consist of individual 16-bit deep, 256-by-256 pixels grayscale TIF images of fluorescence data acquired at a sampling rate of 3.56 Hz and spatial resolution of 1.97 μm / pixel.
+
+Each acquisition protocol (or run) consists of 16 sonication trials with an inter sonication interval of approximately 30s.
+
+Each trial is divided in 2 cycles:
+- The first cycle (indicated by an odd number) consists of 10 frames of the pre-stimulus interval of the trial (ca. 2.8s).
+- The second cycle (indicated by an even number) consists of 90 frames of the peri and post-stimulus intervals of the trial (ca. 25.2s).
+
+The ultrasound stimulus is delivered concurrently with the acquisition of the 10th frame of the first cycle (i.e. ca. at t = 2.8s).
+
+For each acquisition protocol, the data is stored in a folder named after the specimen, stimulation and acquisition parameters:
+
+`foldername = <mouse_line>_<nframes_per_trial>frames_<PRF>Hz_<stim_duration>ms_<sampling_rate>Hz_<stim_amplitude>MPA_<stim_DC>DC-<run_ID>`
+
+Inside this folder, data is stored as single-frame TIF files named after the same pattern, together with unique cycle and frame identifers:
+
+`filename = <foldername>_Cycle<cycle_number>_Ch2_<frame_number>.ome.tif`
+
+This informative nomenclature is used as a way to store metadata associated with each experimental run.
+
+Additionally, a file named `<foldername>.xml`, containing information about the microscope acquisition parameters for the run, is also stored in the data folder.
+
+### Bergamo 2P imaging system
+
+TO COMPLETE
+
+## Analysis code base
 
 ### Prerequisites
 
@@ -53,4 +83,5 @@ To access command line options, type in: `python <script_name> -h`
 
 ## Authors & contributors
 
-Code written and maintained by [Theo Lemaire](mailto:theo.lemaire1@gmail.com)
+- Data acquired by various members of the [Shoham Lab](https://nie-lab.org/) at New York University.
+- Code written and maintained by [Theo Lemaire](mailto:theo.lemaire1@gmail.com)
