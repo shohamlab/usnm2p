@@ -2,10 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2024-01-21 16:20:11
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:35:37
+# @Last Modified time: 2024-08-09 12:47:50
 
+# External packages
 from argparse import ArgumentParser
 
+# Internal modules
 from usnm2p.nbutils import execute_notebook
 from usnm2p.logger import logger
 

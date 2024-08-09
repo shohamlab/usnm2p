@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 10:32:37
+# @Last Modified time: 2024-08-09 12:17:31
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -163,6 +163,7 @@ class DataRoot:
     # Standard pipeline
     FIG = 'figs'
     RAW_BRUKER = 'raw_bruker'
+    RAW_BERGAMO = 'raw_bergamo'
     PREPROCESSED = 'preprocessed'
     MODEL = 'model'
     STACKED = 'stacked'

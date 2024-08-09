@@ -2,20 +2,18 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-27 18:16:01
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:35:03
+# @Last Modified time: 2024-08-09 12:37:07
 
 ''' Utility script to run high-level analysis notebook(s) '''
 
 import os
 from itertools import product
-import logging
 
 from usnm2p.constants import *
 from usnm2p.logger import logger
 from usnm2p.nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser, parse_notebook_exec_args
 from usnm2p.batchutils import get_batch_settings
 
-logger.setLevel(logging.INFO)
 
 if __name__ == '__main__':
 
@@ -37,7 +35,7 @@ if __name__ == '__main__':
     trialavg_dirs = {}
     for mouseline in mouselines:
         trialavg_dirs[mouseline] = get_batch_settings(
-            args['analysis_type'], mouseline, None, GLOBAL_CORRECTION[mouseline], KALMAN_GAIN, 
+            args['analysis'], mouseline, None, GLOBAL_CORRECTION[mouseline], KALMAN_GAIN, 
             NEUROPIL_SCALING_COEFF, BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, 
             TRIAL_AGGFUNC, YKEY_CLASSIFICATION, DIRECTIONAL_DETECTION
         )[1]

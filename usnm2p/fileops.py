@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 10:27:07
+# @Last Modified time: 2024-08-09 12:44:52
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -53,13 +53,13 @@ def get_subfolder_names(dirpath):
     return [f.name for f in os.scandir(dirpath) if f.is_dir()]
 
 
-def get_dataset_params(root='.', analysis_type=DEFAULT_ANALYSIS, excludes=None, includes=['region']):
+def get_dataset_params(root='.', analysis=DEFAULT_ANALYSIS, excludes=None, includes=['region']):
     '''
     Construct a list of (line, date, mouse, region) combinations that contain
     experiment datasets inside a given root directory.
     
     :param root: root directory (typically a mouse line) containing the dataset folders
-    :param analysis_type: string representing the analysis type and determining root sub-directory 
+    :param analysis: string representing the analysis type and determining root sub-directory 
     :param excludes: list of exlusion patterns
     :param includes: list of inclusion patterns
     :return: list of dictionaries representing (line, date, mouse, region) combinations found
@@ -67,7 +67,7 @@ def get_dataset_params(root='.', analysis_type=DEFAULT_ANALYSIS, excludes=None, 
     '''
     logger.info(f'searching for data folders in {root} ...')
     datasets = []
-    subroot = os.path.join(root, analysis_type)
+    subroot = os.path.join(root, analysis)
     # Loop through lines, dates, mice, and regions, and add data folders to list  
     for line in get_subfolder_names(subroot):
         linedir = os.path.join(subroot, line)
@@ -89,8 +89,32 @@ def get_dataset_params(root='.', analysis_type=DEFAULT_ANALYSIS, excludes=None, 
 
     # Return line, date, mouse, region combinations
     return [
-        {'analysis_type': analysis_type, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
+        {'analysis': analysis, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
         for x in datasets]
+
+
+def restrict_datasets(datasets, **kwargs):
+    '''
+    Restrict dataset list to those matching specific parameters.
+
+    :param datasets: list of dictionaries representing (analysis, line, date, mouse, region, layer) combinations
+    :param kwargs: dictionary of parameters to match
+    '''
+    # Restrict parameters to those that are not None
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    # For each specified parameter
+    for k, v in kwargs.items():
+        # For date, apply loose "startswith" matching (e.g. to enable year-month filtering)
+        if k == 'expdate':
+            filtfunc = lambda x: x[k].startswith(v)
+        # For all other arguments, apply strict matching
+        else:
+            filtfunc = lambda x: x[k] == v
+        logger.info(f'restricting datasets to {k} = {v}')
+        datasets = list(filter(filtfunc, datasets))
+    
+    # Return filtered dataset list
+    return datasets
 
 
 def check_for_existence(fpath, overwrite):

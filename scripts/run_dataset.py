@@ -2,20 +2,17 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:25:54
+# @Last Modified time: 2024-08-09 12:46:13
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
 import os
 from itertools import product
-import logging
 
 from usnm2p.constants import *
-from usnm2p.fileops import get_data_root, get_dataset_params
+from usnm2p.fileops import get_data_root, get_dataset_params, restrict_datasets
 from usnm2p.logger import logger
 from usnm2p.nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser, parse_notebook_exec_args
-
-logger.setLevel(logging.INFO)
 
 
 if __name__ == '__main__':
@@ -32,19 +29,10 @@ if __name__ == '__main__':
     input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
     
     # Extract candidate datasets combinations from folder structure
-    datasets = get_dataset_params(root=get_data_root(), analysis_type=args['analysis_type'])
+    datasets = get_dataset_params(root=get_data_root(), analysis=args['analysis'])
 
     # Filter datasets to match related input parameters
-    for k, v in args.items():
-        if v is not None:
-            # For date, apply loose "startswith" matching (e.g. to enable year-month filtering)
-            if k == 'expdate':
-                filtfunc = lambda x: x[k].startswith(v)
-            # For all other arguments, apply strict matching
-            else:
-                filtfunc = lambda x: x[k] == v
-            logger.info(f'restricting datasets to {k} = {v}')
-            datasets = list(filter(filtfunc, datasets))            
+    datasets = restrict_datasets(datasets, **args)     
     
     # Compute number of jobs to run
     njobs = len(datasets) * len(proc_queue)

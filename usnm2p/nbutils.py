@@ -2,20 +2,23 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:29:44
+# @Last Modified time: 2024-08-09 12:28:00
 
 ''' Notebook running utilities '''
 
+# External modules
 import jupyter_slack
 import os
 import papermill as pm
 from nbclient.exceptions import DeadKernelError
 from argparse import ArgumentParser, ArgumentTypeError
 
+# Internal modules
 from .logger import logger
 from .batches import Batch, create_queue
 from .constants import *
 from .utils import as_iterable
+from .parsers import add_dataset_arguments
 
 
 def none_or_float(value):
@@ -67,18 +70,7 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
     parser.set_defaults(slack_notify=True)
 
     # Add specfied dataset arguments
-    if analysis:
-        parser.add_argument('-a', '--analysis_type', default=DEFAULT_ANALYSIS, help='analysis type')
-    if line:
-        parser.add_argument('-l', '--mouseline', help='mouse line')
-    if date:
-        parser.add_argument('-d', '--expdate', help='experiment date')
-    if mouse:
-        parser.add_argument('-m', '--mouseid', help='mouse number')
-    if region:
-        parser.add_argument('-r', '--region', help='brain region')
-    if layer:
-       parser.add_argument('--layer', help='Cortical layer')
+    add_dataset_arguments(parser, analysis=analysis, line=line, date=date, mouse=mouse, region=region, layer=layer)
 
     # Add arguments about other execution parameters
     parser.add_argument(

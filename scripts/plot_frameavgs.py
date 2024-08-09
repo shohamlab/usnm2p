@@ -2,11 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:17:28
+# @Last Modified time: 2024-08-09 12:40:18
 
 ''' Command line script to plot USNM2P frame-average data '''
 
-import logging
 import numpy as np
 from random import sample
 import os
@@ -19,9 +18,7 @@ from usnm2p.logger import logger
 from usnm2p.fileops import get_output_equivalent, get_data_folders, get_sorted_filelist, get_stack_frame_aggregate
 from usnm2p.plotters import plot_frameavg_profiles
 from usnm2p.config import dataroot
-from usnm2p.parsers import P_TIFFILE, group_by_run
-
-logger.setLevel(logging.INFO)
+from usnm2p.parsers import P_TIFFILE, group_by_run, add_dataset_arguments
 
 
 if __name__ == '__main__':
@@ -30,11 +27,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     
     # Add dataset arguments
-    parser.add_argument('-l', '--mouseline', help='mouse line', default='cre_sst')
-    parser.add_argument('-d', '--expdate', help='experiment date')
-    parser.add_argument('-m', '--mouseid', help='mouse number')
-    parser.add_argument('-r', '--region', help='brain region')
-    parser.add_argument('--layer', help='Cortical layer')
+    add_dataset_arguments(parser)
     
     # Add runtime arguments
     parser.add_argument(
