@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 12:27:48
+# @Last Modified time: 2024-08-09 15:14:12
 
 ''' Collection of parsing utilities. '''
 
@@ -242,3 +242,15 @@ def add_dataset_arguments(parser, analysis=True, line=True, date=True, mouse=Tru
         parser.add_argument('-r', '--region', help='brain region')
     if layer:
        parser.add_argument('--layer', help='cortical layer')
+
+
+def find_suffixes(folders):
+    '''
+    Extract suffixes from a list of folder names.
+    
+    :param folders: list of folder names
+    :return: list of suffixes
+    '''
+    pref = os.path.commonprefix(folders)
+    iprefend = pref.rindex('_')
+    return [tf[iprefend + 1:] for tf in folders]

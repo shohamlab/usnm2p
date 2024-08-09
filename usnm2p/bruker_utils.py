@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-09 11:43:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 14:00:58
+# @Last Modified time: 2024-08-09 15:16:59
 
 ''' Utilities for Bruker data pre-processing '''
 
@@ -18,7 +18,7 @@ from xml.dom import minidom
 from usnm2p.constants import *
 from usnm2p.logger import logger
 from usnm2p.fileops import get_subfolder_names, get_data_folders, get_dataset_params, restrict_datasets, save_acquisition_settings
-from usnm2p.parsers import resolve_mouseline
+from usnm2p.parsers import resolve_mouseline, find_suffixes
 from usnm2p.stackers import stack_tifs
 
 
@@ -168,19 +168,12 @@ def parse_bruker_acquisition_settings(folders):
     '''
     logger.info(f'extracting acquisition settings across {len(folders)} folders...')
 
-    # Identify common prefix across folders
-    pref = os.path.commonprefix(folders)
-
-    # Extract index of prefix end
-    iprefend = pref.rindex('_')
-
-    # Assemble dictionary of folder suffix: folder path pairs
-    fdict = {folder[iprefend + 1:]: folder for folder in folders}
+    # Identify unique suffix per folder
+    fsuffixes = find_suffixes(folders)
 
     # Parse aquisition settings of each data folder into common dataframe
     daq_settings = pd.DataFrame()
-    for folder in tqdm(folders):
-        fkey = folder[iprefend + 1:]
+    for fkey, folder in zip(fsuffixes, tqdm(folders)):
         daq_settings[fkey] = pd.Series(
             parse_bruker_XML(get_bruker_XML(folder)))
     daq_settings = daq_settings.transpose()
@@ -196,8 +189,8 @@ def parse_bruker_acquisition_settings(folders):
     logger.info(f'identifying reference value for {daq_settings.shape[1]} settings')
     ref_daq_settings = (
         daq_settings
-        .mode(axis=0)
-        .iloc[0, :]
+        .mode(axis=0)  # most common value across runs
+        .iloc[0, :]  # first row
         .rename('settings')
     )
 
@@ -298,15 +291,36 @@ def preprocess_bruker_dataset(dataroot, analysis, mouseline, expdate, mouseid, r
 
     # Turn off TIF reading warning
     inkey, outkey = DataRoot.RAW_BRUKER, DataRoot.PREPROCESSED
+    fpaths, nframes = [], []
     with io.capture_output() as captured:  
         # Generate stacks for all TIF folders in the input data directory
-        stack_fpaths = [stack_tifs(tf, inkey, outkey, overwrite=False, verbose=False) for tf in tif_folders]
+        for tf in tif_folders:
+            fpath, shape = stack_tifs(
+                tf, inkey, outkey, overwrite=False, verbose=False, full_output=True)
+            fpaths.append(fpath)
+            nframes.append(shape[0])
+
+    # Gather number of frames per acquisition
+    nframes = pd.Series(index=find_suffixes(tif_folders), data=nframes, name='nframes')
+
+    # Identify most common number of frames per acquisition
+    nframes_ref = nframes.mode().iloc[0]
+
+    # Identify acquisitions that differ from reference number of frames
+    nframes_outliers = nframes[nframes != nframes_ref].index.values.tolist()
 
     # Extract acquisition settings from Bruker XML files
     daq_settings = parse_bruker_acquisition_settings(tif_folders)
+
+    # Add number of frames per acquisition to acquisition settings
+    daq_settings['nFramesPerAcq'] = nframes_ref
+
+    # Add potential nframes outliers to pre-existing acquisition settings outliers
+    if len(nframes_outliers) > 0:
+        daq_settings['outliers'] = list(set(daq_settings['outliers'] + nframes_outliers))
     
     # Save acquisition settings as JSON file in the output stacks directory
-    save_acquisition_settings(os.path.dirname(stack_fpaths[0]), daq_settings)
+    save_acquisition_settings(os.path.dirname(fpaths[0]), daq_settings)
 
 
 def preprocess_bruker_datasets(dataroot, analysis=None, **kwargs):
