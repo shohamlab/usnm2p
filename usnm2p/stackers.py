@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 11:59:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 16:00:22
+# @Last Modified time: 2024-08-09 10:07:13
 
 ''' Collection of image stacking utilities. '''
 
@@ -170,20 +170,16 @@ class TifStacker(ImageStacker):
             logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
 
 
-def stack_tifs(inputdir, pattern=P_TIFFILE, input_key=None, output_key=None, verbose=True, **kwargs):
+def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True, **kwargs):
     '''
     High-level function to merge individual TIF files into an TIF stack.
 
     :param inputdir: absolute path to directory containing the input images
+    :param input_key: key from input path(s) to be replaced in output path(s)
+    :param output_key: replacement key for output path(s)
     :param pattern: filename matching pattern 
-    :param input_key: input key for output path replacement
-    :param output_key: replacement key for output path
     :return: filepath to the created tif stack
     '''
-    if input_key is None:
-        input_key = DataRoot.RAW
-    if output_key is None:
-        output_key = DataRoot.STACKED
     # Cast inputdir to absolute path
     inputdir = os.path.abspath(inputdir)
     # Get output file name

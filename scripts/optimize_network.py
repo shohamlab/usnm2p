@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 18:27:54
+# @Last Modified time: 2024-08-09 10:36:22
 
 import numpy as np
 import pandas as pd
@@ -12,12 +12,12 @@ import pandas as pd
 
 from usnm2p.logger import logger
 from usnm2p.network_model import *
-from usnm2p.constants import Label
-from usnm2p.fileops import get_data_root, get_output_equivalent
+from usnm2p.constants import Label, DataRoot
+from usnm2p.fileops import get_data_root
 from usnm2p.model_params import *
 
 # Set up logging folder
-logdir = get_output_equivalent(get_data_root(), 'raw', 'model')
+logdir = get_data_root(kind=DataRoot.MODEL)
 
 # (key: name) sources dictionary for model parameters 
 sources_dict = dict(zip([k.lower().split()[0] for k in tau_dict.keys()], tau_dict.keys()))

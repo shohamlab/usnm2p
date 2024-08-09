@@ -2,10 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 15:56:47
+# @Last Modified time: 2024-08-09 10:40:33
 
 from .constants import *
-from .fileops import get_data_root, get_output_equivalent
+from .fileops import get_data_root
 from .substitutors import StackSubstitutor
 from .filters import KalmanDenoiser
 from .correctors import LinRegCorrector
@@ -165,6 +165,7 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     processing_id = f'agg{trial_aggfunc.__name__}_class{ykey_classification_str}'
     if directional:
         processing_id = f'{processing_id}_directional'
+    
     # Get figures PDF suffix
     prepro_code = []
     if global_correction is not None:
@@ -175,14 +176,14 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
         prepro_code.append(f'k{kalman_gain}')
     prepro_code = '_'.join(prepro_code)
     figs_suffix = f'{analysis_type}_{dataset_group_id}_{prepro_code}_{conditioning_id}_{processing_id}'
+    
     # Get stats input data directory
-    dataroot = get_data_root()
     if mouseline is not None:
-        input_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.PROCESSED)
+        input_root = get_data_root(kind=DataRoot.PROCESSED)
         input_dir = os.path.join(
             input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
     else:    
-        input_root = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.LINESTATS)
+        input_root = get_data_root(kind=DataRoot.LINESTATS)
         if isinstance(prepro_id, dict):
             input_dir = {
                 k: os.path.join(
@@ -192,8 +193,9 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
         else:
             input_dir = os.path.join(
                 input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type)
+    
     # Get figures directory
-    figsdir = get_output_equivalent(dataroot, DataRoot.RAW, DataRoot.FIG)
+    figsdir = get_data_root(kind=DataRoot.FIG)
     return dataset_group_id, input_dir, figsdir, figs_suffix
 
 

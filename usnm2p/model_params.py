@@ -2,20 +2,21 @@
 # @Author: Theo Lemaire
 # @Date:   2024-04-30 17:17:57
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 15:58:47
+# @Last Modified time: 2024-08-09 10:41:23
 
 import os
 import numpy as np
 import pandas as pd
 
-from .fileops import get_data_root, get_output_equivalent
+from .fileops import get_data_root
+from .constants import DataRoot
 
 ''' Collection of model parameters gathered from the literature. '''
 
 # ---------------------------- Load Allen data ----------------------------
 
 # Define input data directory
-datadir = get_output_equivalent(get_data_root(), 'raw', 'model')
+datadir = get_data_root(kind=DataRoot.MODEL)
 
 # Parse ephys features (experimental, cortex V1 layer 2/3)
 Allen_ephys_fpath = os.path.join(datadir, 'Allen_ephys_features.csv')
@@ -27,7 +28,6 @@ Allen_ephys_features = pd.read_csv(Allen_ephys_fpath).rename(columns={
 }).set_index('population')
 
 # Parse coupling strength matrix (experimental, cortex V1 layer 2/3)
-datadir = get_output_equivalent(get_data_root(), 'raw', 'model')
 Wmat_fpath = os.path.join(datadir, 'Allen_Wmat.csv')
 W_AllenInstitute = pd.read_csv(Wmat_fpath, index_col=0)
 pops_mapper = {

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 16:02:56
+# @Last Modified time: 2024-08-09 10:27:07
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -27,8 +27,13 @@ from .constants import *
 from .postpro import *
 
 
-def get_data_root():
-    ''' Get the root directory for the raw data to analyze '''
+def get_data_root(kind=DataRoot.PREPROCESSED):
+    ''' 
+    Get the path to the directory containing a certain type of data
+    
+    :param kind: DataRoot folder type
+    :return: full path to the data root directory
+    '''
     try:
         from .config import dataroot
     except ModuleNotFoundError:
@@ -37,7 +42,10 @@ def get_data_root():
         raise ValueError(f'"dataroot" variable is missing from user-specific "config.py" file')
     if not os.path.isdir(dataroot):
         raise ValueError(f'data root directory "{dataroot}" does not exist')
-    return dataroot
+    subroot = os.path.join(dataroot, kind)
+    if not os.path.isdir(subroot):
+        raise ValueError(f'data root sub-directory "{subroot}" does not exist')
+    return subroot
 
 
 def get_subfolder_names(dirpath):

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 14:03:52
+# @Last Modified time: 2024-08-09 10:32:37
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -162,7 +162,9 @@ class DataRoot:
     
     # Standard pipeline
     FIG = 'figs'
-    RAW = 'raw'
+    RAW_BRUKER = 'raw_bruker'
+    PREPROCESSED = 'preprocessed'
+    MODEL = 'model'
     STACKED = 'stacked'
     SUBSTITUTED = 'substituted'
     NORMALIZED = 'normalized'

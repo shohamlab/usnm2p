@@ -1,5 +1,10 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2024-08-08 18:02:55
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2024-08-09 10:28:37
 
-''' Process (parse and stack) input data from Bruker system '''
+''' Pre-process (parse and stack) input dataset(s) from Bruker system '''
 
 # External packages
 import os
@@ -7,16 +12,16 @@ from argparse import ArgumentParser
 from IPython.utils import io
 
 # Internal modules
-from usnm2p.constants import DEFAULT_LAYER, FOLDER_EXCLUDE_PATTERNS, Label
+from usnm2p.constants import DEFAULT_LAYER, FOLDER_EXCLUDE_PATTERNS, DataRoot, Label
 from usnm2p.logger import logger
-from usnm2p.fileops import get_data_root, get_data_folders, get_dataset_params, save_acquisition_settings
+from usnm2p.fileops import get_data_root, get_subfolder_names, get_data_folders, get_dataset_params, save_acquisition_settings
 from usnm2p.parsers import resolve_mouseline, parse_bruker_acquisition_settings
 from usnm2p.stackers import stack_tifs
 
 
-def process_bruker_input(dataroot, analysis_type, mouseline, expdate, mouseid, region, layer):
+def preprocess_bruker_dataset(dataroot, analysis_type, mouseline, expdate, mouseid, region, layer):
     '''
-    Process input data from Bruker system, i.e.:
+    Pre-process input dataset from Bruker system, i.e.:
         - identify "acquisition" subfolders (i.e., those containing sequences of single-frame TIFs)
         - generate and save multi-frame TIF stacks for all subfolders
         - extract acquisition settings from Bruker XML file for each subfolder
@@ -50,9 +55,10 @@ def process_bruker_input(dataroot, analysis_type, mouseline, expdate, mouseid, r
     )
 
     # Turn off TIF reading warning
+    inkey, outkey = DataRoot.RAW_BRUKER, DataRoot.PREPROCESSED
     with io.capture_output() as captured:  
         # Generate stacks for all TIF folders in the input data directory
-        stack_fpaths = [stack_tifs(tf, overwrite=False, verbose=False) for tf in tif_folders]
+        stack_fpaths = [stack_tifs(tf, inkey, outkey, overwrite=False, verbose=False) for tf in tif_folders]
 
     # Extract acquisition settings from Bruker XML files
     daq_settings = parse_bruker_acquisition_settings(tif_folders)
@@ -61,9 +67,9 @@ def process_bruker_input(dataroot, analysis_type, mouseline, expdate, mouseid, r
     save_acquisition_settings(os.path.dirname(stack_fpaths[0]), daq_settings)
 
 
-def process_bruker_inputs(dataroot, analysis=None, mouseline=None):
+def preprocess_bruker_datasets(dataroot, analysis=None, mouseline=None):
     '''
-    Process a set of input datasets from Bruker system
+    Pre-process a set of input datasets from Bruker system
 
     :param dataroot: root directory for Bruker input data
     :param analysis: analysis type (e.g., 'main', 'offset', 'buzzer')
@@ -72,9 +78,9 @@ def process_bruker_inputs(dataroot, analysis=None, mouseline=None):
     # If analysis type not specified, extract analysis subfolders from input data directory
     # and call function recursively for each analysis type
     if analysis is None:
-        for analysis in os.listdir(dataroot):
+        for analysis in get_subfolder_names(dataroot):
             logger.info(f'processing Bruker inputs for "{analysis}" analysis')
-            process_bruker_inputs(dataroot=dataroot, analysis=analysis, mouseline=mouseline)
+            preprocess_bruker_datasets(dataroot=dataroot, analysis=analysis, mouseline=mouseline)
         return
 
     # List datasets in input data directory, filtered by analysis type
@@ -86,7 +92,7 @@ def process_bruker_inputs(dataroot, analysis=None, mouseline=None):
     
     # Process each dataset
     for dataset in datasets:
-        process_bruker_input(
+        preprocess_bruker_dataset(
             dataroot,
             analysis, 
             dataset['mouseline'], 
@@ -110,5 +116,6 @@ if __name__ == '__main__':
     mouseline = args.mouseline
 
     # Process input datasets from Bruker system
-    process_bruker_inputs(get_data_root(), analysis=analysis, mouseline=mouseline)
+    rawdataroot = get_data_root(kind=DataRoot.RAW_BRUKER)
+    preprocess_bruker_datasets(rawdataroot, analysis=analysis, mouseline=mouseline)
     logger.info('done')
