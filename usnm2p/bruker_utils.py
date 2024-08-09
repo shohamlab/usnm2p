@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-09 11:43:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 15:16:59
+# @Last Modified time: 2024-08-09 16:29:20
 
 ''' Utilities for Bruker data pre-processing '''
 
@@ -317,6 +317,7 @@ def preprocess_bruker_dataset(dataroot, analysis, mouseline, expdate, mouseid, r
 
     # Add potential nframes outliers to pre-existing acquisition settings outliers
     if len(nframes_outliers) > 0:
+        logger.warning(f'found {len(nframes_outliers)} outlier run(s) with significantly different number of frames ({nframes_ref}):\n{nframes[nframes != nframes_ref]}')
         daq_settings['outliers'] = list(set(daq_settings['outliers'] + nframes_outliers))
     
     # Save acquisition settings as JSON file in the output stacks directory
