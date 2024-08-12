@@ -348,11 +348,13 @@ def save_acquisition_settings(folder, daq_settings):
 
     :param folder: full path to the folder where to save the acquisition settings
     :param daq_settings: acquisition settings pandas Series object
+    :return: full path to the saved JSON file
     '''
     logger.info(f'saving acquisition settings to "{folder}"')
     daq_settings_fpath = os.path.join(folder, 'daq_settings.json')
     with open(daq_settings_fpath, 'w') as f:
         json.dump(daq_settings.to_dict(), f, indent=4)
+    return daq_settings_fpath
 
 
 def load_acquisition_settings(folder):
@@ -369,7 +371,7 @@ def load_acquisition_settings(folder):
     return daq_settings
 
 
-def loadtif(fpath, verbose=True, metadata=False):
+def loadtif(fpath, verbose=True, metadata=False, nchannels=1):
     ''' Load stack/image from .tif file '''
     logfunc = logger.info if verbose else logger.debug
     logfunc(f'loading data from {os.path.basename(fpath)}')
@@ -382,10 +384,12 @@ def loadtif(fpath, verbose=True, metadata=False):
             meta = tif.scanimage_metadata
             # Check number of channels and reshape TIF stack if necessary
             nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
-            if stack.ndim < 4 and nchannels > 1:
-                logger.info(f'splitting {nchannels} channels {stack.shape} shaped array')
-                stack = np.reshape(
-                    stack, (stack.shape[0] // nchannels, nchannels, *stack.shape[1:]))
+        else:
+            meta = None
+        if stack.ndim < 4 and nchannels > 1:
+            logger.info(f'splitting {nchannels} channels {stack.shape} shaped array')
+            stack = np.reshape(
+                stack, (stack.shape[0] // nchannels, nchannels, *stack.shape[1:]))
         # Reassign metadata to None if not requested for output 
         if not metadata:
             meta = None
@@ -399,14 +403,26 @@ def loadtif(fpath, verbose=True, metadata=False):
         return stack, meta
 
 
-def savetif(fpath, stack, overwrite=True):
+def load_tif_metadata(fpath):
+    ''' Load metadata from .tif file '''
+    with TiffFile(fpath) as tif:
+        return tif.scanimage_metadata
+    
+
+def load_tif_nframes(fpath):
+    ''' Load number of frames from .tif file '''
+    with TiffFile(fpath) as tif:
+        return len(tif.pages)
+
+
+def savetif(fpath, stack, overwrite=True, metadata=None):
     ''' Save stack/image as .tif file '''
     move_forward = check_for_existence(fpath, overwrite)
     if not move_forward:
         return
     if stack.ndim > 2:
         logger.info(f'saving {stack.shape} {stack.dtype} stack as "{fpath}"...')
-    imsave(fpath, stack)
+    imsave(fpath, stack, metadata=metadata)
 
 
 def get_stack_frame_aggregate(fpath, aggfunc=None):

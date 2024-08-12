@@ -367,7 +367,7 @@ def set_normalizer(cmap, bounds, scale='lin'):
     return norm, sm
 
 
-def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps=None, norm=True,
+def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_per_trial, fps=None, norm=True,
                            cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, 
                            colwrap=5, add_cbar=False, qmin=None, qmax=None, verbose=True, **kwargs):
     '''
@@ -377,8 +377,8 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     :param irun: run index
     :param itrial: trial(s) index
     :param iframes: list of frame indexes to plot
-    :param ntrials_per_run (optional): number of trials per run. If none provided,
-        inferred from REF_NFRAMES.
+    :param ntrials_per_run: number of trials per run.
+    :param nframes_per_trial: number of frames per trial.
     :param fps (optional): frame rate (in Hz) used to infer the time of extracted frames
     :param norm (optional): whether to normalize frames to a common color scale (default = True)
     :param cmap (optional): colormap (default = 'gray')
@@ -402,10 +402,6 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     iframes = np.atleast_1d(np.asarray(iframes))
     nframes = iframes.size
 
-    # Compute number of trials per run if not specified
-    if ntrials_per_run is None:
-        ntrials_per_run = REF_NFRAMES // NFRAMES_PER_TRIAL
-
     # If no trial index provided, gather frames from all trials
     if itrial is None:
         itrial = np.arange(ntrials_per_run)
@@ -419,7 +415,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
 
         for i, it in enumerate(tqdm(itrial)):
             plot_registered_frames(
-                ops, irun, it, iframes, ntrials_per_run=ntrials_per_run, fps=fps, norm=norm,
+                ops, irun, it, iframes, ntrials_per_run, nframes_per_trial, fps=fps, norm=norm,
                 cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label, 
                 qmin=qmin, qmax=qmax, verbose=False, **kwargs)
             axes[i, 0].set_ylabel(f'trial {it}')
@@ -434,7 +430,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run=None, fps
     
     # Extract frames stack
     frames = extract_registered_frames(
-        ops, irun, itrial, iframes, ntrials_per_run=ntrials_per_run, 
+        ops, irun, itrial, iframes, ntrials_per_run, nframes_per_trial, 
         aggtrials=aggtrials, verbose=verbose, **kwargs)
 
     # Assess whether trial-aggregation is specified and adapt title
@@ -681,140 +677,6 @@ def plot_stack_timecourse(*args, **kwargs):
     ax.legend(frameon=False)
     
     # Return figure handle
-    return fig
-
-
-def plot_pixel_timecourse(fpath, irun=None, projfunc=np.mean, q=0.5, nperq=1, fps=None, fc=None, 
-                          add_spectrum=False, cmap='viridis', yout='F', delimiters=None):
-    '''
-    Select pixel based on specific quantile in aggregate intensity,
-    and plot its location and time course (and power spectrum, if specified)
-
-    :param fpath: path to TIF file
-    :param irun: run index (default: None)
-    :param projfunc: projection function (default: np.mean)
-    :param q: quantile(s) of aggregate pixel intensity from which to select pixel (default: 0.5)
-    :param nperq: number of pixels to select per quantile (default: 1)
-    :param fps: frame rate (in Hz) used to infer the time of extracted frames
-    :param fc: cutoff frequency (in Hz) for low-pass filtering (default: None)
-    :param add_spectrum: whether to add power spectrum plot (default: False)
-    :param cmap: colormap for projection image rendering (default: 'viridis')
-    :param yout: output unit for fluorescence vectors (default: 'F')
-    :param delimiters: list of frame indexes to delimitate (default: None)
-    :return: figure handle
-    '''
-    # If dictionary is provided, attempt to extract suite2p output stack from it
-    if isinstance(fpath, dict):
-        # If run index is not specified, raise error
-        if irun is None:
-            raise ValueError('run index must be specified to load stack from suite2p output options dictionary')
-        stack = extract_registered_frames(fpath, irun)
-    # Otherwise, load stack directly from TIF file path
-    else:
-        stack = loadtif(fpath)
-
-    # Compute projection image
-    proj = projfunc(stack, axis=0)
-
-    # Define figure layout
-    width_ratios = [1, 2]
-    if add_spectrum:
-        if fps is None:
-            raise ValueError('frame rate must be specified to compute power spectrum')
-        width_ratios.append(1)
-    
-    # Create figure backbone
-    naxes = len(width_ratios)
-    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 3), width_ratios=width_ratios)
-    ax = axes[1]
-    sns.despine(ax=ax)
-    if fps is not None:
-        ax.set_xlabel('time (s)')
-    else:
-        ax.set_xlabel('frame')
-    ax.set_ylabel({'F': Label.F, 'dFF': Label.DFF, 'Z': Label.ZSCORE}[yout])
-    if delimiters is not None:
-        if fps is not None:
-            delimiters = np.asarray(delimiters) / fps
-        for iframe in delimiters:
-            ax.axvline(iframe, color='k', linestyle='--')
-    if add_spectrum:
-        ax = axes[2]
-        sns.despine(ax=ax)
-        ax.set_xscale('log')
-    
-    # Plot projection image
-    axes[0].imshow(proj, cmap=cmap)
-
-    colors = get_colors('tab10')[1:]
-
-    # Cast quantile(s) to iterable
-    qs = as_iterable(q)
-
-    # Loop through quantiles
-    for q, c in zip(qs, colors):
-        # Compute target value of aggregate pixel intensity corresponding to specified quantile
-        vtarget = np.quantile(proj, q)
-        logger.info(f'target intensity value based on {q * 1e2:.1f}-th percentile: {vtarget:.2f}')
-
-        # Select pixel(s) with aggregate intensity closest to target value
-        dists = np.abs(proj - vtarget)
-        iclose = np.argpartition(dists.ravel(), nperq-1)[:nperq]
-        xpix, ypix = np.unravel_index(iclose, proj.shape)
-        logger.info(f'identified {nperq} pixels with aggregate intensity closest to target')
-
-        # Mark selected pixel on projection image
-        axes[0].scatter(ypix, xpix, s=30, ec=c, fc='none', lw=1)
-
-        # Extract pixel(s) time course
-        ypixs = np.array([stack[:, xp, yp] for xp, yp in zip(xpix, ypix)])
-
-        # Rescale pixel(s) time course to show relative variation, if requested
-        if yout in ('dFF', 'Z'):
-            ybaselines = np.quantile(ypixs, 0.5, axis=1)[:, np.newaxis]
-            ypixs = (ypixs - ybaselines) / ybaselines
-
-        # Normalize pixel(s) time course by their noise level, if requested
-        if yout == 'Z':
-            munoise = np.mean(ypixs, axis=1)[:, np.newaxis]
-            sigmanoise = np.mean(ypixs, axis=1)[:, np.newaxis]
-            ypixs = (ypixs - munoise) / sigmanoise
-        
-        # Average time course across pixels
-        ypix = ypixs.mean(axis=0).astype(float)
-
-        # Plot pixel time course
-        xvec = np.arange(ypix.size)
-        if fps is not None:
-            xvec = xvec / fps
-        axes[1].plot(
-            xvec, ypix, c=c, alpha=0.5 if fc is not None else 1, label=f'q={q:.2f}, raw')
-
-        # Low-pass filter pixel time course, if cutoff frequency specified
-        if fc is not None:
-            if fps is None:
-                raise ValueError('frame rate must be specified to filter pixel time course')
-            order = 2
-            nyq = 0.5 * fps
-            sos = butter(order, fc / nyq, btype='low', output='sos')
-            ypix_filt = sosfiltfilt(sos, ypix)
-            axes[1].plot(xvec, ypix_filt, c=c, alpha=1)
-
-        # Compute and plot power spectrum, if specified
-        if add_spectrum:
-            if np.any(np.isnan(ypix)):
-                logger.warning('cannot compute spectrum: NaNs found in timeseries')
-            else:
-                spectrum = get_power_spectrum(ypix.copy(), fps, normalize=True)
-                sns.lineplot(
-                    data=spectrum.iloc[1:, :], x=Label.FREQ, y=Label.PSPECTRUM_DB, 
-                    ax=axes[2], color=c)
-
-    # Add legend on time course plot if multiple quantiles are specified
-    if len(qs) > 1:
-        axes[1].legend(frameon=False)
-
-    # Return figure
     return fig
 
 
@@ -2602,7 +2464,8 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
             # Correct x-axis label display
             xticks = np.array([float(x.get_text()) for x in ax.get_xticklabels()])
             if col == Label.TRIAL:
-                xticks = (xticks * fps + FrameIndex.STIM + glabel * NFRAMES_PER_TRIAL) / fps
+                nframes_per_trial = gdata.index.get_level_values(Label.FRAME).max() + 1
+                xticks = (xticks * fps + FrameIndex.STIM + glabel * nframes_per_trial) / fps
             ax.set_xticklabels([f'{x:.1f}' for x in xticks])
             if col == Label.TRIAL and is_multi_trial:
                 ax.set_xlabel(None)
@@ -5276,7 +5139,8 @@ def plot_popagg_timecourse(data, ykeys, fps, hue=Label.RUN, normalize_gby=None, 
 
     # Add trial delimiters
     ntrials_per_run = len(data.index.unique(Label.TRIAL))
-    trial_delimiters = np.arange(0, ntrials_per_run * NFRAMES_PER_TRIAL, NFRAMES_PER_TRIAL) / fps
+    nframes_per_trial = data.index.get_level_values(Label.FRAME).max() + 1
+    trial_delimiters = np.arange(0, ntrials_per_run * nframes_per_trial, nframes_per_trial) / fps
     for ax in axes:
         for t in trial_delimiters:
             ax.axvline(t, ls='--', c='k', lw=1.)
@@ -5435,7 +5299,8 @@ def plot_popagg_frequency_spectrum(data, ykeys, fps, normalize_gby=None, fmax=No
             sns.lineplot(ax=ax, **pltkwargs)
 
     # Mark trial repetition frequency on graphs
-    ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
+    nframes_per_trial = data.index.get_level_values(Label.FRAME).max() + 1
+    ISI = (nframes_per_trial - 1) / fps  # inter-sonication interval
     ftrial = 1 / ISI
     if verbose:
         logger.info(f'adding reference lines at trial-repetition frequency ({ftrial:.2f} Hz)') 
@@ -5513,7 +5378,8 @@ def plot_spectrogram(data, ykey, fps, mode='psd', nsegpertrial=10, gby=None, tri
         raise ValueError(f'nsegpertrial must be one of {list(nperseg_dict.keys())}')
 
     # Compute trial repetition frequency
-    ISI = (NFRAMES_PER_TRIAL - 1) / fps  # inter-sonication interval
+    nframes_per_trial = data.index.get_level_values(Label.FRAME).max() + 1
+    ISI = (nframes_per_trial - 1) / fps  # inter-sonication interval
 
     # Define generic title
     title = f'{ykey} {mode} spectrogram'
@@ -5550,10 +5416,10 @@ def plot_spectrogram(data, ykey, fps, mode='psd', nsegpertrial=10, gby=None, tri
         if trialavg:
             # Assert that trial interval is a multiple of inter-segment interval
             delta_iframes = isegs[1] - isegs[0]
-            if NFRAMES_PER_TRIAL % delta_iframes != 0:
+            if nframes_per_trial % delta_iframes != 0:
                 raise ValueError(
                     f'''inter-segment interval ({delta_iframes} frames) is not a divider of
-                    trial interval ({NFRAMES_PER_TRIAL} frames)''')
+                    trial interval ({nframes_per_trial} frames)''')
 
             # Generate dataframe from spectrogram output
             _, F = np.meshgrid(t, f, indexing='ij')

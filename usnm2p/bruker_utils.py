@@ -291,33 +291,45 @@ def preprocess_bruker_dataset(dataroot, analysis, mouseline, expdate, mouseid, r
 
     # Turn off TIF reading warning
     inkey, outkey = DataRoot.RAW_BRUKER, DataRoot.PREPROCESSED
-    fpaths, nframes = [], []
+    fpaths, ntrials, nptertrial = [], [], []
     with io.capture_output() as captured:  
         # Generate stacks for all TIF folders in the input data directory
         for tf in tif_folders:
-            fpath, shape = stack_tifs(
-                tf, inkey, outkey, overwrite=False, verbose=False, full_output=True)
-            fpaths.append(fpath)
-            nframes.append(shape[0])
+            try:
+                fpath, nt, npt = stack_tifs(
+                    tf, inkey, outkey, overwrite=False, verbose=False, full_output=True)
+                fpaths.append(fpath)
+                ntrials.append(nt)
+                nptertrial.append(npt)
+            except ValueError as e:
+                logger.error(f'failed to stack tifs in "{tf}": {e}')
+                fpaths.append(None)
+                ntrials.append(None)
+                nptertrial.append(None)
+                
+    # Gather number of trials and number of frames per trial
+    nframes_stats = pd.DataFrame(
+        index=find_suffixes(tif_folders), 
+        data={'ntrials': ntrials, 'nframes': nptertrial}
+    )
 
-    # Gather number of frames per acquisition
-    nframes = pd.Series(index=find_suffixes(tif_folders), data=nframes, name='nframes')
+    # Identify most common stats
+    nframes_refstats = nframes_stats.mode().iloc[0]
 
-    # Identify most common number of frames per acquisition
-    nframes_ref = nframes.mode().iloc[0]
-
-    # Identify acquisitions that differ from reference number of frames
-    nframes_outliers = nframes[nframes != nframes_ref].index.values.tolist()
+    # Identify acquisitions that differ from reference stats
+    is_match = nframes_stats.eq(nframes_refstats).all(axis=1)
+    nframes_outliers = nframes_stats[~is_match].index.values.tolist()
 
     # Extract acquisition settings from Bruker XML files
     daq_settings = parse_bruker_acquisition_settings(tif_folders)
 
-    # Add number of frames per acquisition to acquisition settings
-    daq_settings['nFramesPerAcq'] = nframes_ref
+    # Add number of trials and number of frames per trials to acquisition settings
+    daq_settings['nTrials'] = nframes_refstats['ntrials']
+    daq_settings['nFramesPerTrial'] = nframes_refstats['nframes']
 
     # Add potential nframes outliers to pre-existing acquisition settings outliers
     if len(nframes_outliers) > 0:
-        logger.warning(f'found {len(nframes_outliers)} outlier run(s) with significantly different number of frames ({nframes_ref}):\n{nframes[nframes != nframes_ref]}')
+        logger.warning(f'found {len(nframes_outliers)} outlier run(s) with frame stats significantly different from reference ({nframes_refstats}):\n{nframes_stats.loc[nframes_outliers]}')
         daq_settings['outliers'] = list(set(daq_settings['outliers'] + nframes_outliers))
     
     # Save acquisition settings as JSON file in the output stacks directory

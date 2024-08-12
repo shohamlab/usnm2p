@@ -10,11 +10,12 @@ import abc
 import os
 import warnings
 import numpy as np
+import pandas as pd
 
 from .constants import *
 from .logger import logger
-from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence, split_path_at
-from .parsers import P_TIFFILE, group_by_run
+from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence, split_path_at, load_acquisition_settings
+from .parsers import P_TIFFILE, parse_experiment_parameters
 
 
 class ImageStacker(metaclass=abc.ABCMeta):
@@ -51,10 +52,6 @@ class ImageStacker(metaclass=abc.ABCMeta):
         ''' Abstract stack saving method. '''
         raise NotImplementedError
     
-    def check_stack_integrity(self, stack):
-        ''' Stack integrity checking method. '''
-        pass
-    
     def align_baselines(self, stacks):
         ''' Offsets stacks to align their baseline fluorescence levels '''
         # Save reference data type
@@ -75,7 +72,7 @@ class ImageStacker(metaclass=abc.ABCMeta):
         baselines = np.array([np.mean(s.astype(np.float64)) for s in stacks])
         return stacks
         
-    def stack(self, input_fpaths, output_fpath, overwrite='?', full_output=False):
+    def stack(self, input_fpaths, output_fpath, overwrite='?', full_output=False, **kwargs):
         '''
         Merge individual image files into an image stack.
 
@@ -130,12 +127,9 @@ class ImageStacker(metaclass=abc.ABCMeta):
         else:
             stack = np.concatenate(stack)
         
-        # Check stack integrity
-        self.check_stack_integrity(stack)
-        
         # Save stack as single file and return output filepath
         logger.info(f'generated {stack.shape[0]}-frames image stack')
-        self.save_stack(output_fpath, stack)
+        self.save_stack(output_fpath, stack, **kwargs)
         
         # Return
         if full_output:
@@ -160,17 +154,11 @@ class TifStacker(ImageStacker):
     def load_stack(self, fpath):
         return loadtif(fpath)
     
-    def save_stack(self, fpath, stack):
-        savetif(fpath, stack)
-
-    def check_stack_integrity(self, stack):
-        # Check that final stack size is correct
-        nframes, *_ = stack.shape
-        if nframes != REF_NFRAMES:
-            logger.warning(f'final stack size = {nframes} frames, seems suspicious...')
+    def save_stack(self, fpath, stack, **kwargs):
+        savetif(fpath, stack, **kwargs)
 
 
-def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True, **kwargs):
+def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True, full_output=False, **kwargs):
     '''
     High-level function to merge individual TIF files into an TIF stack.
 
@@ -178,6 +166,8 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
     :param input_key: key from input path(s) to be replaced in output path(s)
     :param output_key: replacement key for output path(s)
     :param pattern: filename matching pattern 
+    :param verbose: verbosity flag
+    :param full_output: flag to return full output (stack and dimensions) instead of just the filepath
     :return: filepath to the created tif stack
     '''
     # Cast inputdir to absolute path
@@ -191,40 +181,25 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
         fnames = get_sorted_filelist(inputdir, pattern=pattern)
     except ValueError:
         return None
+    if full_output:
+        # Exract parameters from each file
+        pbyfile = pd.DataFrame([pd.Series(parse_experiment_parameters(fname)) for fname in fnames])
+        # Compute trial and frame index from cycle and frame index
+        pbyfile[Label.TRIAL] = (pbyfile[Label.CYCLE] - 1) // 2
+        pbyfile[Label.FRAME] = pbyfile.groupby(Label.TRIAL).cumcount()
+        ntrials, npertrial = pbyfile[Label.TRIAL].nunique(), pbyfile.groupby(Label.TRIAL).size().unique()
+        if npertrial.size > 1:
+            raise ValueError(f'Inconsistent number of frames per trial: {npertrial}')
+        npertrial = npertrial[0]
     fpaths = [os.path.join(inputdir, fname) for fname in fnames]
-    return TifStacker(verbose=verbose).stack(fpaths, output_fpath, **kwargs)
+    out = TifStacker(verbose=verbose).stack(fpaths, output_fpath, **kwargs)
+    if full_output:
+        return output_fpath, ntrials, npertrial
+    else:
+        return out
 
 
-def stack_trial_tifs(input_fpaths, input_key=None, align=True, **kwargs):
-    '''
-    Stack TIFs of consecutive trials together per for each run identified in a file list
-    
-    :param input_fpaths: absolute paths to input stacks
-    :param input_key: input key for output path replacement
-    :return: filepaths to the created tif stacks per run
-    '''
-    if input_key is None:
-        input_key = DataRoot.RESAMPLED
-    # Get TIF stacker object
-    stacker = TifStacker(input_type='stack', align=align)
-    # Get input and output directories
-    input_dir = os.path.split(input_fpaths[0])[0]
-    outdir = get_output_equivalent(input_dir, input_key, stacker.code)
-    # Get file paths by run
-    fpaths_by_run = group_by_run(input_fpaths)
-    # For each run
-    output_fpaths = []
-    for irun, (out_fname, fpaths) in fpaths_by_run.items():
-       # Get output filepath
-        output_fpath = os.path.join(outdir, out_fname)
-        # Stack trial TIFs together
-        TifStacker(input_type='stack', align=True).stack(fpaths, output_fpath, **kwargs)
-        output_fpaths.append(output_fpath)
-    # Return list of output filepaths
-    return output_fpaths
-
-
-def split_multichannel_tifs(input_fpaths, input_key=None, **kwargs):
+def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
     '''
     Split channels for each stack file in a list
     
@@ -232,44 +207,67 @@ def split_multichannel_tifs(input_fpaths, input_key=None, **kwargs):
     :param input_key: input key for output path replacement
     :return: filepaths to the created tif stacks per run
     '''
-    if input_key is None:
-        input_key = DataRoot.STACKED
+    # Initialize list of output filepaths
     output_fpaths = []
-    # For each file
+
+    # Load daq settings from first input file
+    meta = load_acquisition_settings(os.path.dirname(input_fpaths[0]))
+
+    # Extract number of channels from DAQ metadata
+    nchannels = len(meta['SI.hChannels.channelSave'])
+
+    # For each multi-channel stack file
     for input_fpath in input_fpaths:
-        # Check for output files
-        ichannel = 0
-        terminate = False
-        while not terminate:
+        
+        # Initialize output file found flag
+        output_found = False
+
+        # Check iteratively for existing output files
+        for ichannel in range(nchannels):
+            # Derive output key for current channel
             output_key = f'{DataRoot.SPLIT}/channel{ichannel + 1}'
+            # Assemble associated output directory
             channeldir = os.path.join(split_path_at(input_fpath, input_key)[0], output_key)
+            # If directory exists
             if os.path.isdir(channeldir):
+                # Check if output file foir that channel already exists
                 output_fpath_check = get_output_equivalent(
                     input_fpath, input_key, output_key)
+                
+                # If output file exists, append to output list and move to next channel
                 if os.path.isfile(output_fpath_check):
                     logger.warning(f'{output_fpath_check} already exists -> skipping')
+                    output_found = True
                     output_fpaths.append(output_fpath_check)
-                    ichannel += 1
-                else:
-                    terminate = True
-            else:
-                terminate = True
-        output_found = ichannel > 0
-        # If no output output files were found       
+
+        # If no output output files were found, perform the split
         if not output_found:
             # Load input stack
-            stack = loadtif(input_fpath)
+            stack = loadtif(input_fpath, nchannels=nchannels)
             # If stack has more than 3 dimensions (i.e. multi-channel)
             if stack.ndim > 3:
                 # Extract number of channels
                 nchannels = stack.shape[1]
                 # Loop through stack channels
-                for i in range(nchannels):
+                for ichannel in range(nchannels):
                     # Derive channel output filepath
                     output_fpath = get_output_equivalent(
-                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{i + 1}')
+                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{ichannel + 1}')
                     # Save channel data to specific file
-                    savetif(output_fpath, stack[:, i], **kwargs)
+                    savetif(output_fpath, stack[:, ichannel], **kwargs)
+                    # Append output filepath to list
                     output_fpaths.append(output_fpath)
+
+    # If existing, save DAQ metadata to output directory of each channel
+    pardir = os.path.dirname(input_fpaths[0])
+    daq_file = os.path.join(pardir, 'daq_settings.json')
+    if os.path.exists(daq_file):
+        for output_fpath in output_fpaths[-nchannels:]:
+            output_pardir = os.path.dirname(output_fpath)
+            output_daq_file = os.path.join(output_pardir, 'daq_settings.json')
+            if not os.path.exists(output_daq_file):
+                logger.info(f'copying {daq_file} to {output_daq_file}')
+                os.system(f'cp {daq_file} {output_daq_file}')
+
     # Return list of output filepaths
     return output_fpaths

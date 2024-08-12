@@ -31,25 +31,18 @@ if __name__ == '__main__':
     parser.add_argument(
         '-o', '--overwrite', default=False, action='store_true', help='overwrite existing files')
     parser.add_argument(
-        '-c', '--corrupted', default=False, action='store_true', help='corrupted dataset to be detrended')
+        '--detrend', default=False, action='store_true', help='detrend datasets')
     parser.add_argument(
-        '--refsr', help='reference sampling rate (Hz)', default=BERGAMO_SR)
-    parser.add_argument(
-        '--targetsr', help='target sampling rate (Hz)', default=BRUKER_SR)
+        '--fps', help='target sampling rate (Hz)')
 
     # Parse command line arguments
     args = parser.parse_args()
     kwargs = vars(parser.parse_args())
 
-    # Resampling parameters
-    ref_sr = kwargs.pop('refsr')  # Hz
-    target_sr = kwargs.pop('targetsr')  # Hz
-
     # Pre-process Bergamo datasets
     rawdataroot = get_data_root(kind=DataRoot.RAW_BERGAMO)
     preprocess_bergamo_datasets(
         rawdataroot,
-        ref_sr, target_sr, 
         **kwargs,
     )
 

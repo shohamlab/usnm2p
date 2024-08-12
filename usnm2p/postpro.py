@@ -661,7 +661,7 @@ def slide_along_trial(func, data, ref_wslice, iseeds):
     iframes = data.index.unique(Label.FRAME)
     nframes_per_trial = iframes.size
     # Get window length
-    wlen = FrameIndex.NPOST
+    wlen = ref_wslice.stop - ref_wslice.start
     # If not provided, generate vector of starting positions for the analysis window
     if isinstance(iseeds, int):
         iseeds = np.round(np.linspace(0, nframes_per_trial - wlen, iseeds)).astype(int)
@@ -711,47 +711,6 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     # Set time as first column
     cols = data.columns
     data = data.reindex(columns=[cols[-1], *cols[:-1]])
-    return data
-
-
-def add_trial_phase_to_table(data, key=Label.TRIALPHASE, frame_offset=0):
-    '''
-    Add trial interval phase information to info table
-    
-    :param data: dataframe contanining all the info about the experiment.
-    :param key: name of the time column in the new info table
-    :param frame_offset (optional): reference frame by which to offset frame vector prior to computing phase
-    :return: modified info table
-    '''
-    if key in data:
-        logger.warning(f'"{key}" column is already present in dataframe -> ignoring')
-        return data
-    logger.info('adding phase info to table...')
-    # Extract frame indexes
-    iframes = data.index.get_level_values(Label.FRAME)
-    # Compute and add phase column
-    data[key] = (iframes - frame_offset) / NFRAMES_PER_TRIAL * 2 * np.pi
-    # Return dataframe
-    return data
-
-
-def add_inter_trial_interval_to_table(data):
-    '''
-    Add inter-trial interval information to info table
-
-    :param data: dataframe contanining all the info about the experiment.
-    :return: modified info table with an extra "iti" column containing
-        the inter-trial interval index for each frame
-    '''
-    # Extract frame index values
-    iframe = data.index.get_level_values(Label.FRAME).values
-    # Extract trial index values as iti
-    iti = data.index.get_level_values(Label.TRIAL).values
-    # Decrement by one iti of frames preceding stim onset, for each trial
-    iti[iframe < FrameIndex.STIM] -= 1
-    # Add iti column to dataframe
-    data[Label.ITI] = iti
-    # Return dataframe
     return data
 
 
@@ -2545,7 +2504,8 @@ def get_cumulative_frame_index(mux):
     ''' Get cumulative frame index across trials for trial-frame multi-index '''
     itrial = mux.get_level_values(Label.TRIAL)
     iframe = mux.get_level_values(Label.FRAME)
-    return (itrial * NFRAMES_PER_TRIAL) + iframe
+    nframes_per_trial = iframe.max() + 1
+    return (itrial * nframes_per_trial) + iframe
 
 
 def get_quantile_index(s, **kwargs):

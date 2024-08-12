@@ -25,22 +25,20 @@ class NoResamplerFilter(NoProcessor):
 class StackResampler(StackProcessor):
     ''' Generic interface to an stack resampler. '''
 
-    def __init__(self, ref_sr, target_sr, *args, smooth=True, **kwargs):
+    def __init__(self, target_fps, *args, smooth=True, **kwargs):
         '''
         Constructor
         
-        :param ref_sr: reference sampling rate of the input array (Hz)
-        :param target_sr: target sampling rate for the output array (Hz)
+        :param target_fps: target sampling rate for the output array (Hz)
         :param smooth: whether to apply pre-smoothing with moving average 
             to avoid sub-sampling outlier values 
         '''
-        self.ref_sr = ref_sr
-        self.target_sr = target_sr
+        self.target_fps = target_fps
         self.smooth = smooth
         super().__init__(*args, **kwargs)
     
     def __str__(self) -> str:
-        return f'{self.__class__.__name__}(ref_sr={self.ref_sr}Hz, target_sr={self.target_sr}Hz, smooth={self.smooth})'
+        return f'{self.__class__.__name__}(target_fps={self.target_fps}Hz, smooth={self.smooth})'
     
     @property
     def rootcode(self):
@@ -48,7 +46,7 @@ class StackResampler(StackProcessor):
 
     @property
     def code(self):
-        s = f'sr_ref{self.ref_sr}_target{self.target_sr}'
+        s = f'{self.target_fps}Hz'
         if self.smooth:
             s = f'{s}_smooth'
         return s
@@ -64,16 +62,16 @@ class StackResampler(StackProcessor):
         self._ref_sr = value
 
     @property
-    def target_sr(self):
-        return self._target_sr
+    def target_fps(self):
+        return self._target_fps
 
-    @target_sr.setter
-    def target_sr(self, value):
+    @target_fps.setter
+    def target_fps(self, value):
         if value <= 0:
             raise ValueError('Target sampling rate must be strictly positive.')
         if value > self.ref_sr:
             raise ValueError('Target sampling rate must be lower than reference sampling rate.')
-        self._target_sr = value
+        self._target_fps = value
 
     @property
     def smooth(self):
@@ -91,15 +89,15 @@ class StackResampler(StackProcessor):
         
         :param x: n-dimensional array
         :param ref_sr: reference sampling rate of the input array (Hz)
-        :param target_sr: target sampling rate for the output array (Hz)
+        :param target_fps: target sampling rate for the output array (Hz)
         :return: resampled array
         '''
-        s = f'resampling {x.shape} stack from {self.ref_sr} Hz to {self.target_sr} Hz'
+        s = f'resampling {x.shape} stack from {self.ref_sr} Hz to {self.target_fps} Hz'
         if x.ndim > 1:
             s = f'{s} along axis 0'
         logger.info(f'{s} ...')
         # Compute sampling rate ratio
-        sr_ratio = self.target_sr / self.ref_sr
+        sr_ratio = self.target_fps / self.ref_sr
         # Create reference and target time vectors
         tref = np.arange(x.shape[0]) / self.ref_sr  # s
         ntarget = int(np.ceil(tref.size * sr_ratio))
@@ -118,7 +116,7 @@ class StackResampler(StackProcessor):
         # If specified, smooth stack with moving average along time axis
         if self.smooth:
             stack = moving_average(
-                stack, n=int(np.round(self.ref_sr / self.target_sr)))
+                stack, n=int(np.round(self.ref_sr / self.target_fps)))
         # Resample at target sampling rate
         res_stack = self.resample(stack)
         # Round, cast as input integer type and return
@@ -126,7 +124,7 @@ class StackResampler(StackProcessor):
     
     def get_target_nframes(self, nframes):
         ''' Get the target number of frames for an given input stack size '''
-        return int(np.ceil(nframes * self.target_sr / self.ref_sr))
+        return int(np.ceil(nframes * self.target_fps / self.ref_sr))
     
     def get_target_fname(self, fname):
         '''
@@ -143,7 +141,7 @@ class StackResampler(StackProcessor):
         # Replace by new values in file name, and return
         return P_TRIALFILE.sub(
             P_TRIALFILE_SUB.format(nframes=self.get_target_nframes(nframes),
-            sr=self.target_sr), fname)
+            sr=self.target_fps), fname)
     
     def plot_comparative_frameavg(self, ref_stack, res_stack):
         ''' Plot comparative time profiles of frame average '''
@@ -153,26 +151,26 @@ class StackResampler(StackProcessor):
         ax.set_title('Temporal evolution of frame average')
         ax.set_xlabel('time (s)')
         ax.set_ylabel('average frame intensity')
-        s = f'resampled @ {self.target_sr} Hz'
+        s = f'resampled @ {self.target_fps} Hz'
         if self.smooth:
             s = f'smoothed & {s}'
         ax.plot(np.arange(yref.size) / self.ref_sr, yref, label=f'original ({self.ref_sr} Hz)')
-        ax.plot(np.arange(yres.size) / self.target_sr, yres, label=s)
+        ax.plot(np.arange(yres.size) / self.target_fps, yres, label=s)
         ax.legend(frameon=False)
         return fig
 
 
-def resample_tifs(input_fpaths, ref_sr, target_sr, input_root='raw', **kwargs):
+def resample_tifs(input_fpaths, fps, input_root, **kwargs):
     '''
     High-level stack resampling function
 
     :param input_fpaths: list of full paths to input TIF stacks
-    :param ref_sr: reference sampling rate of the input array (Hz)
-    :param target_sr: target sampling rate for the output array (Hz)
+    :param fps: target sampling rate for the output array (Hz)
+    :param input_root: input data root code
     :return: list of resampled TIF stacks
     '''
     # Create stack resampler object
-    sr = StackResampler(ref_sr=ref_sr, target_sr=target_sr)
+    sr = StackResampler(target_fps=fps)
     # Resample each stack file
     resampled_stack_fpaths = process_and_save(
         sr, input_fpaths, input_root, overwrite=False, **kwargs)

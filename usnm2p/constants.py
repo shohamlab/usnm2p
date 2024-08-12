@@ -259,6 +259,7 @@ GLOBAL_CORRECTION = {  # global stack correction method
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
+    'cre_sst': None,
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
@@ -317,7 +318,6 @@ class FrameIndex:
     STIM = 10  # index of the frame coinciding with the US stimulus in each trial
     NPRE = 6  # number of frames in pre-stimulus window (including stimulus frame)
     NPOST = 11  # number of frames in post-stimulus window (starting right after stimulus frame)
-    BASELINE = slice(NFRAMES_PER_TRIAL - 30, None)  # indexes used for baseline calculation (cannot use negative indexing with pandas.loc method)
 
 # Response classification
 YKEY_CLASSIFICATION = Label.ZSCORE  # Reference variable for response classification
@@ -345,7 +345,7 @@ class Pattern:
     TRIAL_LENGTH = '([0-9]+)frames'
     FREQ = '([0-9]+[.]?[0-9]*)Hz'
     DUR = '([0-9]+[.]?[0-9]*)ms'
-    MPA = '([0-9]+[.]?[0-9]*)MPA'
+    MPA = '([0-9]+[.]?[0-9]*)MP[Aa]'
     DC = '([0-9]+)DC'
     OPTIONAL_SUFFIX = '_?(.*)'
     RUN = '([0-9]+)'
@@ -378,7 +378,8 @@ class Palette:
         'line3': 'C0',
         'sarah_line3': 'b',
         'pv': 'C1',
-        'sst': 'r'
+        'sst': 'r',
+        'cre_sst': 'C2',
     }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)

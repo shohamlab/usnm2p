@@ -14,19 +14,20 @@ import pandas as pd
 
 # Internal modules
 from .constants import *
+from .logger import logger
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
 P_DATEMOUSEREGLAYER = re.compile(
     f'{Pattern.DATE}_({Pattern.MOUSE})_({Pattern.REGION})_?({Pattern.LAYER})?')
 P_RAWFOLDER = re.compile(f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}{Pattern.OPTIONAL_SUFFIX}-{Pattern.RUN}$', re.IGNORECASE)
-P_RAWFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
+P_RAWFILE_BRUKER = re.compile(f'{P_RAWFOLDER.pattern[:-1]}_{Pattern.CYCLE}_{Pattern.CHANNEL}_{Pattern.FRAME}.ome.tif$', re.IGNORECASE)
 P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 P_RUNFILE = re.compile(
-    f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}-{Pattern.NAMED_RUN}.tif$', re.IGNORECASE)
+    f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}{Pattern.OPTIONAL_SUFFIX}{Pattern.NAMED_RUN}.tif$', re.IGNORECASE)
 P_TRIALFILE = re.compile(f'{P_RUNFILE.pattern[:-5]}_[0-9]*_?{Pattern.TRIAL}.tif$', re.IGNORECASE)
-P_RUNFILE_SUB = r'\1_\2frames_\3Hz_\4ms_\5Hz_\6MPa_\7DC-run\8.tif'
-P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{sr:.2f}Hz_\6MPa_\7DC-run\8_\9.tif'
+P_RUNFILE_SUB = r'\1_\2frames_\3Hz_\4ms_\5Hz_\6MPa_\7DC_run\8.tif'
+P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{sr:.2f}Hz_\6MPa_\7DC_run\8_\9.tif'
 
 
 def parse_experiment_parameters(name):
@@ -42,7 +43,7 @@ def parse_experiment_parameters(name):
     # If no match detected, try with file pattern
     if mo is None:
         israwfile = True
-        mo = P_RAWFILE.match(name)
+        mo = P_RAWFILE_BRUKER.match(name)
     # If still no match, try with stack file pattern
     if mo is None:
         israwfile = False
@@ -75,9 +76,9 @@ def parse_experiment_parameters(name):
     # If file, add file-level parameters
     if israwfile:
         params.update({
-            Label.CYCLE: int(mo.group(9)),
-            Label.CH: int(mo.group(10)),
-            Label.FRAME: int(mo.group(11))
+            Label.CYCLE: int(mo.group(10)),
+            Label.CH: int(mo.group(11)),
+            Label.FRAME: int(mo.group(12))
         })
     # Return parameters dictionary
     return params
@@ -129,31 +130,61 @@ def parse_date_mouse_region(s):
             f'{s} does not match date-mouse-reg-layer pattern ({P_DATEMOUSEREGLAYER.pattern})')
         
 
-def group_by_run(fpaths):
+def group_by_run(flist, on_mismatch='raise', key_type='index'):
     '''
     Group a large file list into consecutive trial files for each run
     
-    :param fpaths: list of full paths to input files
-    :return: dictionary of filepaths list per run index
+    :param flist: list of file names
+    :param on_mismatch: action to take if a file does not match the trial file naming pattern (raise, warn, or ignore)
+    :param key_type: type of keys to include in the output dictionary ("index" for run index or "fname" run file name)
+    :return: dictionary of sorted file names list per run index
     '''
+    # If full paths provided, extract basenames
+    is_fpath = any('/' in item for item in flist)
+    if is_fpath:
+        pardir = os.path.commonpath(flist)
+        flist = [os.path.basename(item) for item in flist]
+
     # Create output dictionary
     fbyrun = {}
+
     # For each file path
-    for fpath in fpaths:
-        # Split directory and filename
-        fdir, fname = os.path.split(fpath)
+    for fname in flist:
         # Extract run and trial index from file name
         mo = P_TRIALFILE.match(fname)
-        *_, irun, itrial = mo.groups()
-        irun, itrial = int(irun), int(itrial)
+        if mo is None:
+            err = f'"{fname}" does not match the trial file pattern'
+            if on_mismatch == 'raise':
+                raise ValueError(err)
+            elif on_mismatch == 'warn':
+                logger.warning(f'{err} -> ignoring')
+                continue
+            else:
+                continue
+        # If fname key requested, get run file name
+        if key_type == 'fname':
+            outkey = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
+        # If index key requested, get run index
+        else:
+            *_, irun, itrial = mo.groups()
+            irun, itrial = int(irun), int(itrial)
+            outkey = irun
+        
         # Create run list if not already there
-        if irun not in fbyrun:
-            # Get run filename
-            run_fname = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
-            fbyrun[irun] = [run_fname, []]
+        if outkey not in fbyrun:
+            fbyrun[outkey] = []
+        
         # Add filepath to appropriate run list
-        fbyrun[irun][1].append(fpath)
-    # Return dictionary
+        fbyrun[outkey].append(fname)
+    
+    # Sort trial files within each run
+    fbyrun = {k: sorted(v) for k, v in fbyrun.items()}
+
+    # If full paths provided, add them back to the output dictionary
+    if is_fpath:
+        fbyrun = {k: [os.path.join(pardir, fname) for fname in fl] for k, fl in fbyrun.items()}
+    
+    # Return
     return fbyrun
 
 
@@ -244,13 +275,21 @@ def add_dataset_arguments(parser, analysis=True, line=True, date=True, mouse=Tru
        parser.add_argument('--layer', help='cortical layer')
 
 
-def find_suffixes(folders):
+def find_suffixes(l):
     '''
-    Extract suffixes from a list of folder names.
+    Extract suffixes from a list of names.
     
-    :param folders: list of folder names
+    :param l: list of names
     :return: list of suffixes
     '''
-    pref = os.path.commonprefix(folders)
+    # If full paths, extract basenames
+    if any('/' in item for item in l):
+        l = [os.path.basename(item) for item in l]
+    # If extensions, remove them
+    l = [os.path.splitext(item)[0] for item in l]
+    # Find common prefix
+    pref = os.path.commonprefix(l)
+    # Find index of last underscore before suffixes
     iprefend = pref.rindex('_')
-    return [tf[iprefend + 1:] for tf in folders]
+    # Return suffixes
+    return [item[iprefend + 1:] for item in l]
