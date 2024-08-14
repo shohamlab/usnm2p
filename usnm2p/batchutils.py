@@ -21,29 +21,28 @@ def get_dataset_group_id(mouseline, layer=None):
     return dataset_group_id
 
 
-def get_prepro_id(global_correction=None, kalman_gain=KALMAN_GAIN):
+def get_prepro_id(submap=None, global_correction=None, kalman_gain=KALMAN_GAIN):
     '''
     Get code string corresponding to specific pre-processing settings
     
-    :param global_correction: global correction method
-    :param kalman_gain: Kalmain gain (0 - 1)
+    :param submap (optional): stack substitution map
+    :param global_correction (optional): global correction method
+    :param kalman_gain (optional): Kalmain gain (0 - 1)
     :return ID string
     '''
     # If global correction is a dictionary, recursively call this function for each entry
     if isinstance(global_correction, dict):
         return {
-            k: get_prepro_id(global_correction=v, kalman_gain=kalman_gain)
+            k: get_prepro_id(submap=submap, global_correction=v, kalman_gain=kalman_gain)
             for k, v in global_correction.items()
         }
 
     # Create dictionary of applied stack processors
     processors = {}
 
-    # Add stack substitor
-    processors['stack_substitutor'] = StackSubstitutor([
-        (1, 0, None),
-        (FrameIndex.STIM - 1, FrameIndex.STIM, NFRAMES_PER_TRIAL),
-    ])
+    # Add stack substitor, if any
+    if submap is not None:
+        processors['stack_substitutor'] = StackSubstitutor(submap)
     
     # Add global corrector, if any
     if global_correction is not None:
@@ -60,8 +59,7 @@ def get_prepro_id(global_correction=None, kalman_gain=KALMAN_GAIN):
     return os.path.join(*codes[::-1])
 
 
-def get_s2p_id(tau=TAU_GCAMP6S_DECAY, fs=BRUKER_SR, do_registration=1,
-                 reg_tif=True, nonrigid=True, denoise=False):
+def get_s2p_id(tau, fs=BRUKER_SR, do_registration=1, reg_tif=True, nonrigid=True, denoise=False):
     ''' 
     Get code string corresponding to suite2p execution options
     
@@ -131,7 +129,7 @@ def get_stats_id(ykey_classification):
     return f'class{ykey_classification.replace("/", "")}'
 
 
-def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalman_gain, 
+def get_batch_settings(analysis_type, mouseline, layer, submap, global_correction, kalman_gain, 
                        neuropil_scaling_coeff, baseline_quantile, baseline_wquantile, 
                        baseline_wsmoothing, trial_aggfunc, ykey_classification, directional):
     '''
@@ -140,6 +138,7 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     :param analysis_type: type of analysis
     :param mouseline: mouse line
     :param layer: cortical layer
+    :param submap: stack substitution map
     :param global_correction: global correction method
     :param kalman_gain: Kalman gain
     :param neuropil_scaling_coeff: neuropil scaling coefficient
@@ -158,7 +157,7 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
         dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
 
     # Construct processing IDs
-    prepro_id = get_prepro_id(global_correction=global_correction, kalman_gain=kalman_gain)
+    prepro_id = get_prepro_id(submap=submap, global_correction=global_correction, kalman_gain=kalman_gain)
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
     conditioning_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
     ykey_classification_str = {Label.DFF: 'dff', Label.ZSCORE: 'zscore'}[ykey_classification]
@@ -176,23 +175,27 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
         prepro_code.append(f'k{kalman_gain}')
     prepro_code = '_'.join(prepro_code)
     figs_suffix = f'{analysis_type}_{dataset_group_id}_{prepro_code}_{conditioning_id}_{processing_id}'
+
+    # Infer GCaMP decay time from mouseline
+    gcamp_key = '7f' if mouseline == 'cre_sst' else '6s'
+    tau = GCAMP_DECAY_TAU[gcamp_key]
     
     # Get stats input data directory
     if mouseline is not None:
         input_root = get_data_root(kind=DataRoot.PROCESSED)
         input_dir = os.path.join(
-            input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type, mouseline)
+            input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type, mouseline)
     else:    
         input_root = get_data_root(kind=DataRoot.LINESTATS)
         if isinstance(prepro_id, dict):
             input_dir = {
                 k: os.path.join(
-                    input_root, processing_id, conditioning_id, get_s2p_id(), v, analysis_type)
+                    input_root, processing_id, conditioning_id, get_s2p_id(tau), v, analysis_type)
                 for k, v in prepro_id.items()
             }
         else:
             input_dir = os.path.join(
-                input_root, processing_id, conditioning_id, get_s2p_id(), prepro_id, analysis_type)
+                input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type)
     
     # Get figures directory
     figsdir = get_data_root(kind=DataRoot.FIG)

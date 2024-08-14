@@ -35,7 +35,7 @@ if __name__ == '__main__':
     trialavg_dirs = {}
     for mouseline in mouselines:
         trialavg_dirs[mouseline] = get_batch_settings(
-            args['analysis'], mouseline, None, GLOBAL_CORRECTION[mouseline], KALMAN_GAIN, 
+            args['analysis'], mouseline, None, submap, GLOBAL_CORRECTION[mouseline], KALMAN_GAIN, 
             NEUROPIL_SCALING_COEFF, BASELINE_QUANTILE, BASELINE_WQUANTILE, BASELINE_WSMOOTHING, 
             TRIAL_AGGFUNC, YKEY_CLASSIFICATION, DIRECTIONAL_DETECTION
         )[1]

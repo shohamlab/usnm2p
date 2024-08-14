@@ -403,6 +403,13 @@ def loadtif(fpath, verbose=True, metadata=False, nchannels=1):
         return stack, meta
 
 
+def get_tif_dtype(fpath):
+    ''' Get data type of a TIF file '''
+    with TiffFile(fpath) as t:
+        dtype = t.pages[0].dtype
+    return dtype
+
+
 def load_tif_metadata(fpath):
     ''' Load metadata from .tif file '''
     with TiffFile(fpath) as tif:
@@ -444,9 +451,10 @@ def get_stack_frame_aggregate(fpath, aggfunc=None):
 class StackProcessor(metaclass=abc.ABCMeta):
     ''' Generic intrface for processor objects '''
 
-    def __init__(self, overwrite=False, warn_if_exists=True):
+    def __init__(self, overwrite=False, warn_if_exists=True, nchannels=1):
         self.overwrite = overwrite
         self.warn_if_exists = warn_if_exists
+        self.nchannels = nchannels
 
     @abc.abstractmethod
     def run(self, stack: np.array) -> np.ndarray:
@@ -478,6 +486,14 @@ class StackProcessor(metaclass=abc.ABCMeta):
         fdir, fname = os.path.split(fpath)
         return os.path.join(fdir, self.get_target_fname(fname))
     
+    def load_stack(self, fpath):
+        ''' Load stack from TIF file '''
+        return loadtif(fpath, nchannels=self.nchannels)
+   
+    def save_stack(self, fpath, stack, **kwargs):
+        ''' Save stack to TIF file. '''
+        savetif(fpath, stack, **kwargs)
+    
     def load_run_save(self, input_fpath):
         '''
         Load input stack file, apply processing function and save output stack in specific directory.
@@ -503,9 +519,9 @@ class StackProcessor(metaclass=abc.ABCMeta):
         else:
             overwrite = self.overwrite
         # Load input, process stack, and save output
-        input_stack = loadtif(input_fpath)
+        input_stack = self.load_stack(input_fpath)
         output_stack = self.run(input_stack)
-        savetif(output_fpath, output_stack, overwrite=overwrite)
+        self.save_stack(output_fpath, output_stack, overwrite=overwrite)
         # Return output filepath
         return output_fpath
     

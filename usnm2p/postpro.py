@@ -687,13 +687,13 @@ def slide_along_trial(func, data, ref_wslice, iseeds):
     return df, iseeds
     
 
-def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=None):
+def add_time_to_table(data, key=Label.TIME, fidx=None, fps=None):
     '''
     Add time information to info table
     
     :param data: dataframe contanining all the info about the experiment.
     :param key: name of the time column in the new info table
-    :param frame_offset (optional): reference frame by which to offset frame vector prior to computing time 
+    :param fidx (optional): frame indexer object 
     :return: modified info table
     '''
     if key in data:
@@ -704,6 +704,10 @@ def add_time_to_table(data, key=Label.TIME, frame_offset=FrameIndex.STIM, fps=No
     if fps is None:
         fps = get_singleton(data, Label.FPS)
         del data[Label.FPS]
+    if fidx is not None:
+        frame_offset = fidx.iref
+    else:
+        frame_offset = 0.
     # Extract frame indexes
     iframes = data.index.get_level_values(Label.FRAME)
     # Add time column
@@ -1251,21 +1255,22 @@ def get_zscore_maximum(pthr, w):
     return pvalue_to_zscore(get_pvalue_per_sample(pthr, w), directional=True)
 
 
-def pre_post_ttest(s, wpre=None, wpost=None, directional=False):
+def pre_post_ttest(s, fidx, wpre=None, wpost=None, directional=False):
     '''
     Select samples from pre- and post-stimulus windows and perform a t-test
     to test for their statistical significance
     
     :param s: input pandas Series
+    :param frame indexer object
     :param wpre: pre-stimulus window slice
     :param wpost: post-stimulus window slice
     :param directional (default: False): whether to expect a directional effect
     :return tuple with t-statistics and associated p-value
     '''
     if wpre is None:
-        wpre = get_window_slice(kind='pre')
+        wpre = fidx.get_window_slice('pre')
     if wpost is None:
-        wpost = get_window_slice(kind='post')
+        wpost = fidx.get_window_slice('post')
     xpre = s.loc[slice_last_dim(s.index, wpost)].values
     xpost = s.loc[slice_last_dim(s.index, wpre)].values
     tstat, pval = ttest_ind(
@@ -1556,96 +1561,25 @@ def get_change_key(y, full_output=False):
     return y_change
 
 
-def get_window_slice(kind='pre', iref=None, n=None):
-    '''
-    Get a window slice centered around a reference index
-
-    :param kind: window kind ('pre' or 'post')
-    :param iref: reference index (if None, use default reference index)
-    :param n: window size (if None, use default window size for kind)
-    :return: window slice
-    '''
-    # Check that window kind is valid
-    if kind not in ['pre', 'post']:
-        raise ValueError(f'unknown window kind "{kind}"') 
-    
-    # If reference index is not specified, use default
-    if iref is None:
-        iref = FrameIndex.STIM
-    # Otherwise, check that reference index is valid 
-    else:
-        if not isinstance(iref, (int, np.int64)):
-            raise TypeError(f'reference index must be an integer (got {type(iref)})')
-    
-    # If window size is not specified, use default window size for kind
-    if n is None:
-        if kind == 'pre':
-            n = FrameIndex.NPRE
-        else:
-            n = FrameIndex.NPOST
-    # Otherwise, check that window size is valid
-    else:    
-        if not isinstance(n, int):
-            raise TypeError(f'window size must be an integer (got {type(n)})')   
-        if n < 1:
-            raise ValueError(f'{kind} window size must be >= 1')
-
-    # Preceding window: n elements, finishing on (including) index
-    if kind == 'pre':
-        return slice(iref - n + 1, iref + 1)
-    
-    # Postceding window: n elements, starting at index + 1
-    else:
-        return slice(iref + 1, iref + n + 1)
-
-
-
-def compute_evoked_change(data, ykey, spre=None, spost=None, npre=None, npost=None, 
-                          iref=FrameIndex.STIM, verbose=True, full_output=False):
+def compute_evoked_change(data, ykey, fidx, verbose=True, full_output=False):
     ''' 
     Compute stimulus-evoked change in specific variable
     
     :param data: timeseries dataframe
     :param ykey: evaluation variable name
-    :param spre: pre-stimulus window slice
-    :param spost: post-stimulus window slice
-    :param npre: number of pre-stimulus samples (if spre is not specified)
-    :param npost: number of post-stimulus samples (if spost is not specified)
+    :param fidx: frame indexer object
     :param iref: reference frame index (default: stimulus frame)
     :param verbose: whether to print out results
     :param full_output: whether to return pre and post metrics as well
     :return: evoked change series, or stats dataframe if full_output is True
-    '''
-    # Check that only one of window slice and window size is specified
-    # for pre- and post-stimulus windows
-    if spre is not None and npre is not None:
-        raise ValueError('cannot specify both pre-stimulus window slice and size')
-    if spost is not None and npost is not None:
-        raise ValueError('cannot specify both post-stimulus window slice and size')
-
-    # If pre-stimulus window slice is not specified
-    if spre is None:
-        # If pre-stimulus window size is not specified, use default
-        if npre is None:
-            npre = FrameIndex.NPRE
-        # Compute pre-stimulus window slice from reference frame index
-        spre = get_window_slice(kind='pre', iref=iref, n=npre)
-    
-    # If post-stimulus window slice is not specified
-    if spost is None:
-        # If post-stimulus window size is not specified, use default
-        if npost is None:
-            npost = FrameIndex.NPOST
-        # Compute post-stimulus window slice from reference frame index
-        spost = get_window_slice(kind='post', iref=iref, n=npost)
-    
+    '''    
     # Extract keys for pre- and post-stimulus averages and change
     y_prestim_avg, y_poststim_avg, y_change = get_change_key(ykey, full_output=True)
     
     # Define prefix:slice dictionary
     sdict = {
-        y_prestim_avg: spre,
-        y_poststim_avg: spost
+        y_prestim_avg: fidx.get_window_slice('pre'),
+        y_poststim_avg: fidx.get_window_slice('post')
     }
 
     # Compute metrics average in pre- and post-stimulus windows for each ROI & run
@@ -2053,7 +1987,7 @@ def get_detailed_responder_counts(data, normalize=False):
     return counts
 
 
-def get_plot_data(timeseries, stats, keys=None):
+def get_plot_data(timeseries, stats, fidx, keys=None):
     '''
     Get ready-to-plot dataframe by merging timeseries and stats dataframes
     and adding time information.
@@ -2085,7 +2019,7 @@ def get_plot_data(timeseries, stats, keys=None):
     expand_and_add(stats, plt_data)
 
     # Add time information
-    add_time_to_table(plt_data)
+    add_time_to_table(plt_data, fidx=fidx)
 
     # Return
     return plt_data
@@ -3331,16 +3265,17 @@ def circ_rtest(alpha):
     return r, z, pval
 
 
-def get_frames_indexes(irelstart=-2, irelend=12, every=1):
+def get_frames_indexes(iref, irelstart=-2, irelend=12, every=1):
     '''
     Get indexes of frames relative to stimulus onset
     
+    :param iref: reference index of stimulus onset
     :param irelstart: relative index of first frame w.r.t. stimulus onset (default = -2)
     :param irelend: relative index of last frame w.r.t. stimulus onset (default = 12)
     :param every: frame sampling rate (default = 1, i.e. every frame)
     :return: array of frame indexes
     '''
-    return (np.arange(irelend - irelstart + 1) + irelstart + FrameIndex.STIM)[::every]
+    return (np.arange(irelend - irelstart + 1) + irelstart + iref)[::every]
 
 
 def phase_clustering(phi, aggby):

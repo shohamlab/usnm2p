@@ -109,8 +109,11 @@ def get_singleton(df, key, delete=False):
         return [get_singleton(df, k) for k in key]
     try:
         values = df[key]
-    except KeyError as e:
-        values = df.index.get_level_values(key)
+    except KeyError:
+        try:
+            values = df.index.get_level_values(key)
+        except KeyError:
+            raise KeyError(f'could not find "{key}" in dataframe columns or index levels')
     uniques = list(set(values))
     if len(uniques) > 1:
         raise ValueError(f'multiple "{key}" values: {uniques}')
@@ -1237,7 +1240,7 @@ def get_fit_functions(kind):
 def bounds(x):
     ''' Extract minimum and maximum of array simultaneously '''
     if isinstance(x, slice):
-        return np.array([x.start, x.stop - 1])    
+        return np.array([x.start, x.stop - 1])
     return np.array([min(x), max(x)])
 
 

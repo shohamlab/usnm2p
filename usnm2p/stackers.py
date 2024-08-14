@@ -14,7 +14,7 @@ import pandas as pd
 
 from .constants import *
 from .logger import logger
-from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence, split_path_at, load_acquisition_settings
+from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence
 from .parsers import P_TIFFILE, parse_experiment_parameters
 
 
@@ -197,77 +197,3 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
         return output_fpath, ntrials, npertrial
     else:
         return out
-
-
-def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
-    '''
-    Split channels for each stack file in a list
-    
-    :param input_fpaths: list of absolute paths to input stack files 
-    :param input_key: input key for output path replacement
-    :return: filepaths to the created tif stacks per run
-    '''
-    # Initialize list of output filepaths
-    output_fpaths = []
-
-    # Load daq settings from first input file
-    meta = load_acquisition_settings(os.path.dirname(input_fpaths[0]))
-
-    # Extract number of channels from DAQ metadata
-    nchannels = len(meta['SI.hChannels.channelSave'])
-
-    # For each multi-channel stack file
-    for input_fpath in input_fpaths:
-        
-        # Initialize output file found flag
-        output_found = False
-
-        # Check iteratively for existing output files
-        for ichannel in range(nchannels):
-            # Derive output key for current channel
-            output_key = f'{DataRoot.SPLIT}/channel{ichannel + 1}'
-            # Assemble associated output directory
-            channeldir = os.path.join(split_path_at(input_fpath, input_key)[0], output_key)
-            # If directory exists
-            if os.path.isdir(channeldir):
-                # Check if output file foir that channel already exists
-                output_fpath_check = get_output_equivalent(
-                    input_fpath, input_key, output_key)
-                
-                # If output file exists, append to output list and move to next channel
-                if os.path.isfile(output_fpath_check):
-                    logger.warning(f'{output_fpath_check} already exists -> skipping')
-                    output_found = True
-                    output_fpaths.append(output_fpath_check)
-
-        # If no output output files were found, perform the split
-        if not output_found:
-            # Load input stack
-            stack = loadtif(input_fpath, nchannels=nchannels)
-            # If stack has more than 3 dimensions (i.e. multi-channel)
-            if stack.ndim > 3:
-                # Extract number of channels
-                nchannels = stack.shape[1]
-                # Loop through stack channels
-                for ichannel in range(nchannels):
-                    # Derive channel output filepath
-                    output_fpath = get_output_equivalent(
-                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{ichannel + 1}')
-                    # Save channel data to specific file
-                    savetif(output_fpath, stack[:, ichannel], **kwargs)
-                    # Append output filepath to list
-                    output_fpaths.append(output_fpath)
-
-    # If existing, save DAQ metadata to output directory of each channel
-    pardir = os.path.dirname(input_fpaths[0])
-    daq_file = os.path.join(pardir, 'daq_settings.json')
-    if os.path.exists(daq_file):
-        for output_fpath in output_fpaths[-nchannels:]:
-            output_pardir = os.path.dirname(output_fpath)
-            output_daq_file = os.path.join(output_pardir, 'daq_settings.json')
-            if not os.path.exists(output_daq_file):
-                logger.info(f'copying {daq_file} to {output_daq_file}')
-                os.system(f'cp {daq_file} {output_daq_file}')
-
-    # Return list of output filepaths
-    return output_fpaths

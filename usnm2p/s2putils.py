@@ -292,7 +292,7 @@ def extract_s2p_background(ops, stat):
     return mask, np.array(v)
 
 
-def get_s2p_stack(ops, bounds=None, factor=S2P_UINT16_NORM_FACTOR):
+def get_s2p_stack(ops, bounds=None, factor=1):
     '''
     Get the stack resulting from suite2p processing
     

@@ -20,7 +20,6 @@ import imageio as iio
 
 from .logger import logger
 from .utils import float_to_uint8, is_iterable, idx_format
-from .constants import S2P_UINT16_NORM_FACTOR
 from .imlabel import add_label_to_image
 
 
@@ -33,7 +32,7 @@ class StackViewer:
     npix_label = 10 # number of pixels used for upper-right labeling
     
     def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, 
-                 scaling_factor=S2P_UINT16_NORM_FACTOR, verbose=True):
+                 verbose=True):
         '''
         Initialization.
 
@@ -45,7 +44,6 @@ class StackViewer:
         '''
         logfunc = logger.info if verbose else logger.debug
         self.fpaths = fpaths
-        self.scaling_factor = scaling_factor
         logfunc('initializing stack viewer')
         self.fobjs = [self.get_fileobj(fp) for fp in self.fpaths]
         self.headers = headers
@@ -94,12 +92,12 @@ class StackViewer:
     def get_frame(self, fobj, i):
         '''Get a particular frame in the stack '''
         if isinstance(fobj, BinaryFile):
-            return fobj[i][0] * self.scaling_factor
+            return fobj[i][0]
         elif isinstance(fobj, np.ndarray):
             return fobj[i]
         else:
             return fobj.pages[i].asarray()
-
+    
     # def __del__(self):
     #     ''' Making sure to close all open binary file objects upon deletion. '''
     #     for sobj in self.fobjs:
@@ -199,7 +197,7 @@ class StackViewer:
                         refindex = index
                     real_index = index - refindex
                     if real_index >= frange.start and real_index < frange.stop:
-                        out.append(func(real_index, frame[0] * self.scaling_factor))
+                        out.append(func(real_index, frame[0]))
                         pbar.update()
             # FIX: reload binary file object to reset internal index and make sure
             # next iter_frames works correctly

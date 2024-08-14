@@ -367,7 +367,7 @@ def set_normalizer(cmap, bounds, scale='lin'):
     return norm, sm
 
 
-def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_per_trial, fps=None, norm=True,
+def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_per_trial, fidx=None, fps=None, norm=True,
                            cmap='viridis', fs=15, height=3, axes=None, overlay_label=True, aggtrials=False, 
                            colwrap=5, add_cbar=False, qmin=None, qmax=None, verbose=True, **kwargs):
     '''
@@ -379,6 +379,7 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_
     :param iframes: list of frame indexes to plot
     :param ntrials_per_run: number of trials per run.
     :param nframes_per_trial: number of frames per trial.
+    :param fidx (optional): frame indexer object
     :param fps (optional): frame rate (in Hz) used to infer the time of extracted frames
     :param norm (optional): whether to normalize frames to a common color scale (default = True)
     :param cmap (optional): colormap (default = 'gray')
@@ -415,8 +416,8 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_
 
         for i, it in enumerate(tqdm(itrial)):
             plot_registered_frames(
-                ops, irun, it, iframes, ntrials_per_run, nframes_per_trial, fps=fps, norm=norm,
-                cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label, 
+                ops, irun, it, iframes, ntrials_per_run, nframes_per_trial, fidx=fidx, 
+                fps=fps, norm=norm, cmap=cmap, fs=fs, height=height, axes=axes[i], overlay_label=overlay_label, 
                 qmin=qmin, qmax=qmax, verbose=False, **kwargs)
             axes[i, 0].set_ylabel(f'trial {it}')
 
@@ -471,15 +472,20 @@ def plot_registered_frames(ops, irun, itrial, iframes, ntrials_per_run, nframes_
         sns.despine(ax=ax, bottom=True, left=True)
         ax.tick_params(
             left=False, labelleft=False, bottom=False, labelbottom=False)
-        iframe_diff = iframe - FrameIndex.STIM
+        if fidx is not None:
+            iframe_diff = iframe - fidx.iref
+            suffix = ' stim '
+        else:
+            iframe_diff = iframe
+            suffix = ''
         if fps is None:
-            title = 'frame = stim'
+            title = f'frame ={suffix}'
             if iframe_diff < 0:
                 title = f'{title} - {-iframe_diff}'
             elif iframe_diff > 0:
                 title = f'{title} + {iframe_diff}'
         else:
-            title = 't = stim'
+            title = f't ={suffix}'
             if iframe_diff < 0:
                 title = f'{title} - {-iframe_diff / fps:.2f} s'
             elif iframe_diff > 0:
@@ -680,7 +686,7 @@ def plot_stack_timecourse(*args, **kwargs):
     return fig
 
 
-def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=None,
+def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, fidx, title=None, tbounds=None,
                                   cmap=['tab10', 'Dark2', 'Accent'], iref=None, itrial=None):
     '''
     Plot trial-averaged, pixel-averaged intensity traces from a list of run stacks
@@ -721,7 +727,7 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, title=None, tbounds=N
         # Extract run label and movide stack
         label = f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)'
         fpath = fpaths[irun]
-        tplt = (iframes - FrameIndex.STIM) / run_info[Label.FPS]
+        tplt = (iframes - fidx.iref) / run_info[Label.FPS]
         stack = loadtif(fpath, verbose=False)
         
         # Average across pixels and reshape as trials x frames
@@ -1445,13 +1451,14 @@ def plot_ROI_traces(data, key=Label.F, xdelimiters=None, ydelimiters=None,
     return fig
 
 
-def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
+def plot_aggregate_traces(data, fidx, fps, ykey, aggfunc='mean', yref=None, hue=None, irun=None,
                           itrial=None, tbounds=None, icorrect=None, cmap='viridis',
                           groupbyROI=False, errorbar=None, ax=None, legend='auto', **kwargs):
     '''
     Plot ROI-aggregated traces across runs/trials or all dataset
     
     :param data: multi-indexed timeseries dataframe
+    :param fidx: frame indexer object
     :param fps: sampling rate (frames / second) 
     :param ykey: name of column containing variable of interest
     :param aggfunc: aggregation function(s) (default: mean)
@@ -1519,7 +1526,7 @@ def plot_aggregate_traces(data, fps, ykey, aggfunc='mean', yref=None, hue=None, 
 
     # Add time column to dataframe
     plt_data[Label.FPS] = fps
-    add_time_to_table(plt_data)
+    add_time_to_table(plt_data, fidx=fidx)
     
     # Initialize or retrieve figure
     if ax is not None:
@@ -1770,7 +1777,7 @@ def mark_trials(ax, mask, iROI, irun, npertrial, color='C1'):
     for (_, _, itrial) in mask[mask == 1].index:
 
         # Get trial start and end indexes in the run trace
-        istart = npertrial * itrial + FrameIndex.STIM
+        istart = npertrial * itrial
         iend = istart + npertrial
 
         # Plot shaded area over trial interval 
@@ -2207,7 +2214,7 @@ def plot_response_map(ROI_masks, Fstats, ops, hue='positive', title=None, um_per
     return fig
 
 
-def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, col=None,
+def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=None, col=None,
                           colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                           quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
                           col_order=None, col_labels=None, row_order=None,
@@ -2217,6 +2224,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
     
     :param data: multi-indexed timeseries dataframe.
     :param key: name of column containing variable of interest
+    :param fidx: frame indexer object
     :param fps: sampling frequency (frames / second)
     :param irun (optional): run(s) subset
     :param itrial (optional): trial(s) subset
@@ -2420,7 +2428,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
             if sort_ROIs:
                 # Compute stim-evoked change in metrics for each ROI
                 ydiff = compute_evoked_change(
-                    gdata, key, verbose=False, **kwargs).rename('val')
+                    gdata, key, fidx, verbose=False, **kwargs).rename('val')
                 # Remove column sorter from index, if present
                 if col is not None and col in ydiff.index.names:
                     ydiff = ydiff.droplevel(col)
@@ -2465,7 +2473,7 @@ def plot_activity_heatmap(data, key, fps, irun=None, itrial=None, title=None, co
             xticks = np.array([float(x.get_text()) for x in ax.get_xticklabels()])
             if col == Label.TRIAL:
                 nframes_per_trial = gdata.index.get_level_values(Label.FRAME).max() + 1
-                xticks = (xticks * fps + FrameIndex.STIM + glabel * nframes_per_trial) / fps
+                xticks = (xticks * fps + fidx.iref + glabel * nframes_per_trial) / fps
             ax.set_xticklabels([f'{x:.1f}' for x in xticks])
             if col == Label.TRIAL and is_multi_trial:
                 ax.set_xlabel(None)
@@ -2958,8 +2966,7 @@ def mark_response_peak(ax, trace, tbounds=None, color='k', alpha=1.):
 
 
 def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True, 
-                   wpre=None, wpost=None, wcolor='k', mark_peaks=False, 
-                   yref=None, ax=None, **kwargs):
+                   fidx=None, wcolor='k', mark_peaks=False, yref=None, ax=None, **kwargs):
     '''
     Plot trial responses of specific sub-datasets.
     
@@ -2967,8 +2974,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
     :param tbounds (optional): time limits for plot
     :param ykey (optional): key indicating the specific signals to plot on the y-axis
     :param mark_stim (optional): whether to add a stimulus mark on the plot
-    :param wpre (optional): index slice of the pre-stimulus window to materialize
-    :param wpost (optional): index slice of the post-stimulus window to materialize
+    :param fidx (optional): frame indexer object used to materialize pre and post windows
     :param wcolor (optional): color of the materialized windows
     :param mark_peaks: whether to mark the peaks of each identified response
     :param yref (optional): vertical value at which to plot a horizontal reference line
@@ -2976,23 +2982,16 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
     :param kwargs: keyword parameters that are passed to the generic plot_from_data function
     :return: figure handle
     '''
-    # By default, no marker funtion is needed
+    # By default, no marker funtion or time bounds is needed
     markerfunc = None
-
-    # If analysis windows are specified as integers, convert to windows
     tpre, tpost = None, None
-    if wpre is not None:
-        if isinstance(wpre, int):
-            wpre = get_window_slice(kind='pre', n=wpre)
-        tpre = data[Label.TIME].values[bounds(wpre)]
-    if wpost is not None:
-        if isinstance(wpost, int):
-            wpost = get_window_slice(kind='post', n=wpost)
-        tpost = data[Label.TIME].values[bounds(wpost)]
-
-    # Extract post-stimulus response interval (from unfiltered data) if requested 
-    if wpost is not None:
-        tpost = data[Label.TIME].values[bounds(wpost)]
+    
+    # If frame indexer provided
+    if fidx is not None:
+        # Extract pre and post windows time bounds
+        tpre = data[Label.TIME].values[fidx.get_window_bounds('pre')]
+        tpost = data[Label.TIME].values[fidx.get_window_bounds('post')]
+    
         # Define marker function if mark_peaks is set to True
         if mark_peaks:
             markerfunc = lambda *args, **kwargs: mark_response_peak(
@@ -3018,7 +3017,7 @@ def plot_responses(data, tbounds=None, ykey=Label.DFF, mark_stim=True,
         # Plot noise threshold level if key is z-score
         if yref is not None:
             ax.axhline(yref, ls='--', c='k', lw=1.)
-        # Plot intervals for each specificed window
+        # Plot intervals for each specified window
         for twindow, alpha in zip([tpre, tpost], [0.5, 1]):
             if twindow is not None:
                 xwindow = data_to_axis(ax, np.vstack((twindow, np.zeros(2))).T)[:, 0]

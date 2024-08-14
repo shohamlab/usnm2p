@@ -26,8 +26,8 @@ P_STACKFILE = re.compile(f'{P_RAWFOLDER.pattern[:-1]}.tif$', re.IGNORECASE)
 P_RUNFILE = re.compile(
     f'^{Pattern.LINE}_{Pattern.TRIAL_LENGTH}_{Pattern.FREQ}_{Pattern.DUR}_{Pattern.FREQ}_{Pattern.MPA}_{Pattern.DC}{Pattern.OPTIONAL_SUFFIX}{Pattern.NAMED_RUN}.tif$', re.IGNORECASE)
 P_TRIALFILE = re.compile(f'{P_RUNFILE.pattern[:-5]}_[0-9]*_?{Pattern.TRIAL}.tif$', re.IGNORECASE)
-P_RUNFILE_SUB = r'\1_\2frames_\3Hz_\4ms_\5Hz_\6MPa_\7DC_run\8.tif'
-P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{sr:.2f}Hz_\6MPa_\7DC_run\8_\9.tif'
+P_RUNFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{fps}Hz_\6MPa_\7DC_run\8\9.tif'
+P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{fps}Hz_\6MPa_\7DC_run\8_\9.tif'
 
 
 def parse_experiment_parameters(name):
@@ -161,9 +161,17 @@ def group_by_run(flist, on_mismatch='raise', key_type='index'):
                 continue
             else:
                 continue
+
         # If fname key requested, get run file name
         if key_type == 'fname':
-            outkey = P_TRIALFILE.sub(P_RUNFILE_SUB, fname)
+            nframes = int(mo.group(2))
+            fps = float(mo.group(5))
+            outkey = P_TRIALFILE.sub(
+                P_RUNFILE_SUB.format(
+                    nframes=nframes,
+                    fps=int(fps)
+                ), fname)
+
         # If index key requested, get run index
         else:
             *_, irun, itrial = mo.groups()

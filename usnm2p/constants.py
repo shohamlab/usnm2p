@@ -39,6 +39,7 @@ class Label:
     CYCLE = 'cycle'
     SUFFIX = 'suffix'
     FRAME = 'frame'
+    STIMFRAME = 'stimulus frame'
     CH = 'channel'
     DATASET = 'dataset'
     LAYER = 'layer'
@@ -265,7 +266,6 @@ KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
 ################################## FUNCTIONAL SEGMENTATION ##################################
 
-S2P_UINT16_NORM_FACTOR = 2  # normalization factor applied by suite2p to input uint16 TIF files
 REWRITTEN_S2P_KEYS = {  # suite2p options keys that are rewritten upon suite2p processing
     'fast_disk',
     'save_path0',
@@ -273,8 +273,10 @@ REWRITTEN_S2P_KEYS = {  # suite2p options keys that are rewritten upon suite2p p
     'bidi_corrected',
     # 'block_size'
 }  
-TAU_GCAMP6S_DECAY = 1.25  # GCaMP6s exponential decay time constant (s) 
-TAU_GCAMP7F_DECAY = 0.7  # GCaMP7f exponential decay time constant (s)
+GCAMP_DECAY_TAU = {  # GCaMP sensors exponential decay time constants (s)
+    '6s': 1.25,  # GCaMP6s
+    '7f': 0.7,  # GCaMP7f
+}
 
 ###################################### SIGNAL CONDITIONING ######################################
 
@@ -312,6 +314,21 @@ PTHR_REJECTION = 0.01  # significance threshold probability for signal rejection
 
 # Trial aggregation
 TRIAL_AGGFUNC = np.median   # trial aggregation function
+
+# Stimulation onset time (line specific)
+STIM_ONSET_DICT = {
+    'cre_sst': 5.0,  # s
+    'default': 2.81,  # s
+}
+
+def get_stim_onset_time(line):
+    ''' Get stimulation onset time for a given line '''
+    return STIM_ONSET_DICT.get(line, STIM_ONSET_DICT['default'])
+
+
+# Analysis windows
+TPRE = 1.4  # default size of the pre-stimulus window (s)
+TPOST = 2.8  # default size of the post-stimulus window (s)
 
 # Frame indexes
 class FrameIndex:

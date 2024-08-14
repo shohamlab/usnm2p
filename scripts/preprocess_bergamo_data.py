@@ -33,7 +33,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '--detrend', default=False, action='store_true', help='detrend datasets')
     parser.add_argument(
-        '--fps', help='target sampling rate (Hz)')
+        '--fps', type=float, help='target sampling rate (Hz)')
+    parser.add_argument(
+        '--smooth', default=False, action='store_true', help='smooth upon resampling')
 
     # Parse command line arguments
     args = parser.parse_args()
