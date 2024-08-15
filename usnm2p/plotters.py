@@ -6429,13 +6429,14 @@ def plot_pct_excluded(stats, keys=None, gby=None, ax=None):
     return fig
 
 
-def plot_traces_vs_exclusion(timeseries, stats, ykey, keys=None, add_combs=False, ax=None):
+def plot_traces_vs_exclusion(timeseries, stats, ykey, fidx=None, keys=None, add_combs=False, ax=None):
     ''' 
     Plot average time traces vs. exclusion criteria
     
     :param timeseries: timeseries dataframe
     :param stats: experiment stats dataframe
     :param ykey: output variable
+    :param fidx: frame indexer object
     :param keys: list of exclusion keys (optional)
     :param add_combs (optional): whether to add combination of exclusion keys
     :param ax: axis handle (optional)
@@ -6454,7 +6455,7 @@ def plot_traces_vs_exclusion(timeseries, stats, ykey, keys=None, add_combs=False
 
     # Add time column to timeseries, if not present
     if Label.TIME not in timeseries.columns:
-        add_time_to_table(timeseries, fps=get_singleton(stats, Label.FPS))
+        add_time_to_table(timeseries, fidx=fidx, fps=get_singleton(stats, Label.FPS))
 
     # Compute combinations of any of these validity keys
     combrange = range(1, len(keys) + 1) if add_combs else [1]

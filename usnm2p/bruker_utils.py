@@ -290,7 +290,7 @@ def preprocess_bruker_dataset(dataroot, analysis, mouseline, expdate, mouseid, r
     )
 
     # Turn off TIF reading warning
-    inkey, outkey = DataRoot.RAW_BRUKER, DataRoot.PREPROCESSED
+    inkey, outkey = DataRoot.RAW_BRUKER, DataRoot.STACKED
     fpaths, ntrials, nptertrial = [], [], []
     with io.capture_output() as captured:  
         # Generate stacks for all TIF folders in the input data directory

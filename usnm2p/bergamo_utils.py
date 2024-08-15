@@ -9,35 +9,22 @@
 # External packages
 import os
 import numpy as np
+import json
 
 # Internal modules
 from .constants import *
-from .utils import get_singleton
 from .logger import logger
-from .parsers import get_info_table, find_suffixes, group_by_run
-from .correctors import correct_tifs
-from .resamplers import resample_tifs
-from .substitutors import StackSubstitutor
-from .fileops import load_tif_metadata, process_and_save, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif
+from .parsers import find_suffixes, group_by_run
+from .fileops import load_tif_metadata, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif, get_output_equivalent, save_acquisition_settings
 from .stackers import TifStacker
-from .fileops import get_output_equivalent, save_acquisition_settings
+from .resamplers import resample_tifs
+from .substitutors import substitute_tifs
+from .correctors import correct_tifs
+from .indexers import FrameIndexer
 
 
-def parse_scanimage_meta(fpath):
-    '''
-    Parse ScanImage metadata from TIF file
-
-    :param fpath: full path to TIF file
-    :return: metadata dictionary
-    '''
-    # Load metadata from TIF file
-    meta = load_tif_metadata(fpath)
-
-    # Restrict to FrameData information
-    meta = meta['FrameData']
-
-    # Remove unnecessary keys
-    delkeys = [
+# Fields from ScanImage metadata to remove
+SI_DELKEYS = [
         'SI.LINE_FORMAT_VERSION',
         'SI.TIFF_FORMAT_VERSION',
         'SI.VERSION_COMMIT',
@@ -77,19 +64,35 @@ def parse_scanimage_meta(fpath):
         'SI.hStackManager.zPowerReference',
         'SI.hStackManager.zs',
     ]
-    for k in delkeys:
+
+
+def parse_scanimage_meta(fpath):
+    '''
+    Parse ScanImage metadata from TIF file
+
+    :param fpath: full path to TIF file
+    :return: metadata dictionary
+    '''
+    # Load metadata from TIF file
+    meta = load_tif_metadata(fpath)
+
+    # Restrict to FrameData information
+    meta = meta['FrameData']
+
+    # Remove unnecessary keys   
+    for k in SI_DELKEYS:
         del meta[k]
 
-    # Extract coordinates of the corners of the imaging field of view in microns
-    xyfov_um = dict(zip(['ll', 'lr', 'tr', 'ul'], np.array(meta['SI.hRoiManager.imagingFovUm'])))
+    # # Extract coordinates of the corners of the imaging field of view in microns
+    # xyfov_um = dict(zip(['ll', 'lr', 'tr', 'ul'], np.array(meta['SI.hRoiManager.imagingFovUm'])))
 
-    # Compute size of field of view in microns, and add to metadata dictionary
-    fovdims_um = xyfov_um['tr'] - xyfov_um['ll']
-    assert fovdims_um[0] == fovdims_um[1]
-    meta['imagingFovUm'] = fovdims_um[0]
+    # # Compute size of field of view in microns, and add to metadata dictionary
+    # fovdims_um = xyfov_um['tr'] - xyfov_um['ll']
+    # assert fovdims_um[0] == fovdims_um[1]
+    # meta['imagingFovUm'] = fovdims_um[0]
     
-    # Add micronsPerPixel key, calculated from objective resolution and scan zoom factor
-    meta['micronsPerPixel'] = meta['SI.objectiveResolution'] / meta['SI.hRoiManager.scanZoomFactor'] 
+    # # Add micronsPerPixel key, calculated from objective resolution and scan zoom factor
+    # meta['micronsPerPixel'] = meta['SI.objectiveResolution'] / meta['SI.hRoiManager.scanZoomFactor'] 
 
     # Add explicit key for frame period
     meta['framePeriod'] = 1. / meta['SI.hRoiManager.scanFrameRate']  # in seconds
@@ -178,12 +181,19 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
     # Concatenate metadata by run
     meta_by_run = pd.concat(meta_by_run, axis=1, names='run')
 
-    # Compare metadata across runs
+    # Compare metadata across runs and establish reference metadata
     ref_meta = meta_by_run.mode(axis=1).iloc[:, 0].rename('reference')
     ismatch = meta_by_run.eq(ref_meta, axis=0).all(axis=1)
     nonmatching_settings = ismatch[~ismatch].index.values
     if len(nonmatching_settings) > 0:
         raise ValueError(f'Inconsistent metadata across runs for the following settings: {nonmatching_settings}: \n{meta_by_run.loc[nonmatching_settings, :]}')
+    
+    # If "extra acquisition settings" JSON file exists, load extra settings and add them to metadata
+    extra_settings_fpath = os.path.join(input_dir, 'extra_settings.json')
+    if os.path.exists(extra_settings_fpath):
+        with open(extra_settings_fpath, 'r') as f:
+            extra_settings = pd.Series(json.load(f))
+        ref_meta = pd.concat([ref_meta, extra_settings], axis=0)
 
     # Save metadata to JSON file, if requested
     if save_meta:
@@ -207,8 +217,10 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
     # Load daq settings from first input file
     meta = load_acquisition_settings(os.path.dirname(input_fpaths[0]))
 
-    # Extract number of channels from DAQ metadata
-    nchannels = len(meta['SI.hChannels.channelSave'])
+    # Extract indexes of saved channels from DAQ metadata
+    ichannels = meta['SI.hChannels.channelSave']
+    ichannels = [x[0] if len(x) == 1 else x for x in ichannels]
+    nchannels = len(ichannels)
 
     # For each multi-channel stack file
     for input_fpath in input_fpaths:
@@ -216,15 +228,17 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
         # Initialize output file found flag
         output_found = False
 
-        # Check iteratively for existing output files
-        for ichannel in range(nchannels):
+        # Loop through channels
+        for ich in ichannels:
             # Derive output key for current channel
-            output_key = f'{DataRoot.SPLIT}/channel{ichannel + 1}'
+            output_key = f'{DataRoot.SPLIT}/channel{ich}'
+
             # Assemble associated output directory
             channeldir = os.path.join(split_path_at(input_fpath, input_key)[0], output_key)
+
             # If directory exists
             if os.path.isdir(channeldir):
-                # Check if output file foir that channel already exists
+                # Check if output file for that channel already exists
                 output_fpath_check = get_output_equivalent(
                     input_fpath, input_key, output_key)
                 
@@ -238,43 +252,60 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
         if not output_found:
             # Load input stack
             stack = loadtif(input_fpath, nchannels=nchannels)
+            
             # If stack has more than 3 dimensions (i.e. multi-channel)
             if stack.ndim > 3:
-                # Extract number of channels
-                nchannels = stack.shape[1]
+                # Extract number of channels and check consistency with DAQ settings
+                nchannels_tif = stack.shape[1]
+                if nchannels_tif != nchannels:
+                    raise ValueError(f'number of channels in TIF file ({nchannels_tif}) does not match DAQ settings ({nchannels})')
+
                 # Loop through stack channels
-                for ichannel in range(nchannels):
+                for i, ich in enumerate(ich):
                     # Derive channel output filepath
                     output_fpath = get_output_equivalent(
-                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{ichannel + 1}')
+                        input_fpath, input_key, f'{DataRoot.SPLIT}/channel{ich}')
+                    
                     # Save channel data to specific file
-                    savetif(output_fpath, stack[:, ichannel], **kwargs)
+                    savetif(output_fpath, stack[:, i], **kwargs)
+                    
                     # Append output filepath to list
                     output_fpaths.append(output_fpath)
 
-    # If existing, save DAQ metadata to output directory of each channel
+    # Attempt to load DAQ settings from input directory 
     pardir = os.path.dirname(input_fpaths[0])
-    daq_file = os.path.join(pardir, 'daq_settings.json')
-    if os.path.exists(daq_file):
-        for output_fpath in output_fpaths[-nchannels:]:
-            output_pardir = os.path.dirname(output_fpath)
-            output_daq_file = os.path.join(output_pardir, 'daq_settings.json')
-            if not os.path.exists(output_daq_file):
-                logger.info(f'copying {daq_file} to {output_daq_file}')
-                os.system(f'cp {daq_file} {output_daq_file}')
+    try:
+        daq_settings = load_acquisition_settings(pardir)
+    except FileNotFoundError:
+        logger.warning(f'no DAQ settings file found in {pardir}')
+        daq_settings = None
+    
+    # If DAQ settings were found
+    if daq_settings is not None:
+        # Extract 1 output file for each channel and get their parent directories
+        fdict = {ich: next(fp for fp in output_fpaths if f'channel{ich}' in fp) for ich in ichannels}
+        fdict = {ich: os.path.dirname(fp) for ich, fp in fdict.items()}
+
+        # For each channel - directory pair
+        for ich, outdir in fdict.items():
+            # Update DAQ settings channels info to reflect current channel only 
+            daq_settings['SI.hChannels.channelSave'] = [[ich]]
+
+            # Save updated DAQ settings to output directory
+            save_acquisition_settings(outdir, daq_settings)
 
     # Return list of output filepaths
     return output_fpaths
 
 
-def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, detrend=False, mpi=False, overwrite=False, **kwargs):
+def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, mpi=False, overwrite=False, **kwargs):
     ''' 
     Pre-process Bergamo dataset
     
     :param fpaths: filepaths to input (raw) stack files
     :param fps (optional): target sampling rate for the output array, if resampling is requested (Hz)
     :param smooth (default=False): whether to smooth stacks upon resampling or not
-    :param detrend (default=False): boolean indicating whether to detrend dataset or not
+    :param correct (optional): code string for global correction method
     :param mpi: whether to use multiprocessing or not
     :param overwrite: whether to overwrite input files if they exist
     :return: 2-tuple with:
@@ -284,15 +315,9 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, detrend=False, mp
     # Set input root code
     input_root = DataRoot.RAW_BERGAMO
 
-    # # If dataset is corrupted, detrend TIF stacks using linear regression 
-    # if detrend:
-    #     fpaths = correct_tifs(
-    #         fpaths, input_root=input_root, overwrite=overwrite, mpi=mpi, **kwargs)
-    #     input_root = 'corrected'
-    
     # Stack trial TIFs of every run in the stack list
     fpaths = stack_trial_tifs_across_runs(
-        fpaths, input_root, align=detrend, overwrite=overwrite)
+        fpaths, input_root, overwrite=overwrite)
     input_root = DataRoot.STACKED
 
     # Resample TIF stacks
@@ -309,6 +334,23 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, detrend=False, mp
     # Keep only files from functional channel
     channel_key = f'channel{FUNC_CHANNEL}'
     fpaths = list(filter(lambda x: channel_key in x, fpaths))
+
+    # Apply stack substitution
+    daq_settings = load_acquisition_settings(os.path.dirname(fpaths[0]))
+    nframes_per_trial = daq_settings['nFramesPerTrial']
+    mouseline = 'cre_sst'
+    submap = get_submap(mouseline)
+    tref = get_stim_onset_time(mouseline)
+    fidx = FrameIndexer.from_time(tref, TPRE, TPOST, 1 / fps, npertrial=nframes_per_trial)
+    fpaths = substitute_tifs(
+        fpaths, input_root, submap, overwrite=overwrite)
+    input_root = DataRoot.SUBSTITUTED
+
+    # Apply global correction, if any
+    if correct is not None:
+        fpaths = correct_tifs(
+            fpaths, input_root, correct, overwrite=overwrite, mpi=mpi)
+        input_root = DataRoot.CORRECTED
 
     # Return list of pre-processed stack files 
     return fpaths

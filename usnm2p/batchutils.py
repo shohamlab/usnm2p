@@ -129,7 +129,7 @@ def get_stats_id(ykey_classification):
     return f'class{ykey_classification.replace("/", "")}'
 
 
-def get_batch_settings(analysis_type, mouseline, layer, submap, global_correction, kalman_gain, 
+def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalman_gain, 
                        neuropil_scaling_coeff, baseline_quantile, baseline_wquantile, 
                        baseline_wsmoothing, trial_aggfunc, ykey_classification, directional):
     '''
@@ -138,7 +138,6 @@ def get_batch_settings(analysis_type, mouseline, layer, submap, global_correctio
     :param analysis_type: type of analysis
     :param mouseline: mouse line
     :param layer: cortical layer
-    :param submap: stack substitution map
     :param global_correction: global correction method
     :param kalman_gain: Kalman gain
     :param neuropil_scaling_coeff: neuropil scaling coefficient
@@ -155,6 +154,9 @@ def get_batch_settings(analysis_type, mouseline, layer, submap, global_correctio
         dataset_group_id = 'all'
     else:
         dataset_group_id = get_dataset_group_id(mouseline, layer=layer)
+
+    # Get mouse-specific substitution map
+    submap = get_submap(mouseline)
 
     # Construct processing IDs
     prepro_id = get_prepro_id(submap=submap, global_correction=global_correction, kalman_gain=kalman_gain)
@@ -186,13 +188,14 @@ def get_batch_settings(analysis_type, mouseline, layer, submap, global_correctio
         input_dir = os.path.join(
             input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type, mouseline)
     else:    
-        input_root = get_data_root(kind=DataRoot.LINESTATS)
+        input_root = get_data_root(kind=DataRoot.LINEAGG)
         if isinstance(prepro_id, dict):
             input_dir = {
                 k: os.path.join(
                     input_root, processing_id, conditioning_id, get_s2p_id(tau), v, analysis_type)
                 for k, v in prepro_id.items()
             }
+            intput_dir = {k: v for k, v in input_dir.items() if os.path.exists(v)}
         else:
             input_dir = os.path.join(
                 input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type)

@@ -3,20 +3,22 @@ import numpy as np
 class FrameIndexer:
     ''' Frame indexer class for window slicing '''
 
-    def __init__(self, iref, npre, npost):
+    def __init__(self, iref, npre, npost, npertrial=None):
         ''' 
         Constructor
 
         :param iref: reference index
         :param npre: number of pre-reference samples
         :param npost: number of post-reference samples
+        :param npertrial (optional): number of indexes per trial (i.e., "repetition unit"), if any
         '''
         self.iref = iref
         self.npre = npre
         self.npost = npost
+        self.npertrial = npertrial
 
     @staticmethod    
-    def from_time(tref, tpre, tpost, dt):
+    def from_time(tref, tpre, tpost, dt, **kwargs):
         '''
         Construct a FrameIndexer from time bounds
 
@@ -27,7 +29,7 @@ class FrameIndexer:
         :return: FrameIndexer instance
         '''
         iref, npre, npost = [int(np.round(t / dt)) for t in [tref, tpre, tpost]]
-        return FrameIndexer(iref, npre + 1, npost + 1)
+        return FrameIndexer(iref, npre + 1, npost + 1, **kwargs)
     
     def __repr__(self):
         return f'{self.__class__.__name__}(iref={self.iref}, npre={self.npre}, npost={self.npost})'
@@ -73,6 +75,18 @@ class FrameIndexer:
         self.check_dtype(key, value)
         self.check_window_size(key, value)
         self._npost = value
+    
+    @property
+    def npertrial(self):
+        return self._npertrial
+    
+    @npertrial.setter
+    def npertrial(self, value):
+        key = 'indexes per trial'
+        if value is not None:
+            self.check_dtype(key, value)
+            self.check_window_size(key, value)
+        self._npertrial = value
     
     def get_window_slice(self, kind):
         '''

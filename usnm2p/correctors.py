@@ -801,50 +801,50 @@ class LinRegCorrector(Corrector):
         return corrected_stack
 
 
-# class MedianCorrector(Corrector):
+class MedianCorrector(Corrector):
         
-#     def __str__(self) -> str:        
-#         return self.__class__.__name__
+    def __str__(self) -> str:        
+        return self.__class__.__name__
         
-#     @property
-#     def code(self):
-#         return 'median'
+    @property
+    def code(self):
+        return 'median'
         
-#     def correct(self, stack):
-#         '''
-#         Correct image stack for with median-subtraction.
+    def correct(self, stack):
+        '''
+        Correct image stack for with median-subtraction.
 
-#         :param stack: input image stack
-#         :return: processed image stack
-#         '''
-#         logger.info(f'applying median correction to {stack.shape[0]}-frames stack...')
-#         # Compute frame median over time
-#         ymed = np.median(stack, axis=(1, 2))
-#         # Subtract median-corrected fit from each pixel to detrend stack
-#         return self.subtract_vector(stack, ymed)
+        :param stack: input image stack
+        :return: processed image stack
+        '''
+        logger.info(f'applying median correction to {stack.shape[0]}-frames stack...')
+        # Compute frame median over time
+        ymed = np.median(stack, axis=(1, 2))
+        # Subtract median-corrected fit from each pixel to detrend stack
+        return self.subtract_vector(stack, ymed)
     
 
-# class MeanCorrector(Corrector):
+class MeanCorrector(Corrector):
         
-#     def __str__(self) -> str:        
-#         return self.__class__.__name__
+    def __str__(self) -> str:        
+        return self.__class__.__name__
         
-#     @property
-#     def code(self):
-#         return 'mean'
+    @property
+    def code(self):
+        return 'mean'
         
-#     def correct(self, stack):
-#         '''
-#         Correct image stack for with mean-subtraction.
+    def correct(self, stack):
+        '''
+        Correct image stack for with mean-subtraction.
 
-#         :param stack: input image stack
-#         :return: processed image stack
-#         '''
-#         logger.info(f'applying mean correction to {stack.shape[0]}-frames stack...')
-#         # Compute frame mean over time
-#         ymean = np.mean(stack, axis=(1, 2))
-#         # Subtract mean-corrected fit from each pixel to detrend stack
-#         return self.subtract_vector(stack, ymean)
+        :param stack: input image stack
+        :return: processed image stack
+        '''
+        logger.info(f'applying mean correction to {stack.shape[0]}-frames stack...')
+        # Compute frame mean over time
+        ymean = np.mean(stack, axis=(1, 2))
+        # Subtract mean-corrected fit from each pixel to detrend stack
+        return self.subtract_vector(stack, ymean)
 
 
 # class ExponentialCorrector(Corrector):
@@ -984,25 +984,32 @@ class LinRegCorrector(Corrector):
 #         return stack
 
 
-def correct_tifs(input_fpaths, input_root='raw', **kwargs):
+def correct_tifs(input_fpaths, input_key, method, **kwargs):
     '''
     High-level stack detrending function
 
     :param input_fpaths: list of full paths to input TIF stacks
+    :param input_key: input key for output path replacement
+    :param method: correction method to apply
     :return: list of detrended TIF stacks
     '''
-    # Apply linear regression correction     
-    lrc = LinRegCorrector(IREF_FRAMES_BERGAMO)
-    corrected_stack_fpaths = process_and_save(
-        lrc, input_fpaths, input_root, **kwargs)
-    # # Apply median correction
-    # mc = MedianCorrector()
-    # median_corrected_stack_fpaths = process_and_save(
-    #     mc, input_fpaths, input_root, overwrite=False, **kwargs)
+    # If 'linreg' in method, instantiate corrector from string
+    if 'linreg' in method:
+        corrector = LinRegCorrector.from_string(method)
+    # Otherwise, instantiate corrector from method name
+    elif method == 'median':
+        corrector = MedianCorrector()
+    elif method == 'mean':
+        corrector = MeanCorrector()
+    else:
+        raise ValueError(f'unknown correction method: {method}')
     # # Apply exponential detrending
-    # ec = ExponentialCorrector(
+    # corrector = ExponentialCorrector(
     #     nexps=NEXPS_DECAY_DETREND, nfit=NSAMPLES_DECAY_DETREND, ncorrupted=NCORRUPTED_BERGAMO)
-    # corrected_stack_fpaths = process_and_save(
-    #     ec, median_corrected_stack_fpaths, 'corrected', overwrite=False, **kwargs)
-    # Return output filepaths     
+    
+    # Correct all input TIFs     
+    corrected_stack_fpaths = process_and_save(
+        corrector, input_fpaths, input_key, **kwargs)
+
+    # Return list of output filepaths     
     return corrected_stack_fpaths

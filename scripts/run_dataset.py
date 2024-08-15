@@ -29,7 +29,8 @@ if __name__ == '__main__':
     input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
     
     # Extract candidate datasets combinations from folder structure
-    datasets = get_dataset_params(root=get_data_root(), analysis=args['analysis'])
+    dataroot = get_data_root(kind=DataRoot.STACKED)
+    datasets = get_dataset_params(root=dataroot, analysis=args['analysis'])
 
     # Filter datasets to match related input parameters
     datasets = restrict_datasets(datasets, **args)     

@@ -199,7 +199,7 @@ class StackResampler(StackProcessor):
         return fig
 
 
-def resample_tifs(input_fpaths, input_root, fps_out, smooth=False, **kwargs):
+def resample_tifs(input_fpaths, input_key, fps_out, smooth=False, **kwargs):
     '''
     High-level stack resampling function
 
@@ -232,8 +232,7 @@ def resample_tifs(input_fpaths, input_root, fps_out, smooth=False, **kwargs):
     sr = StackResampler(fps_in, fps_out, smooth=smooth, nchannels=nchannels)
 
     # Resample each stack file
-    output_fpaths = process_and_save(
-        sr, input_fpaths, input_root, overwrite=False, **kwargs)
+    output_fpaths = process_and_save(sr, input_fpaths, input_key, **kwargs)
     
     # Load DAQ metadata
     try:

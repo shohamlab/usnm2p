@@ -161,24 +161,19 @@ class Label:
 # Names used for intermediate data directories along the analysis pipeline
 class DataRoot:
     
-    # Standard pipeline
     FIG = 'figs'
     RAW_BRUKER = 'raw_bruker'
     RAW_BERGAMO = 'raw_bergamo'
-    PREPROCESSED = 'preprocessed'
-    MODEL = 'model'
     STACKED = 'stacked'
+    RESAMPLED = 'resampled'
+    SPLIT = 'split'
+    MODEL = 'model'
     SUBSTITUTED = 'substituted'
-    NORMALIZED = 'normalized'
     FILTERED = 'filtered'
     SEGMENTED = 'segmented'
     CONDITIONED = 'conditioned'
     PROCESSED = 'processed'
-    LINESTATS = 'lineagg'
-
-    # Bergamo pipeline
-    RESAMPLED = 'resampled'
-    SPLIT = 'split'
+    LINEAGG = 'lineagg'
 
 
 # Response and responders type
@@ -250,17 +245,30 @@ MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value
 ####################################### PRE-PROCESSING ######################################
 
 FOLDER_EXCLUDE_PATTERNS = ['MIP', 'References', 'incomplete', 'duplicated', 'excluded']  # folders exclusion patterns for raw TIF data
+
 IREF_FRAMES_BERGAMO = slice(-200, None)  # index range of reference frames for detrending on corrupted Bergamo acquisitions 
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
-NCORRUPTED_BERGAMO = 2  # number of corrupted initial frames to substitute after detrending on Bergamo acquisitions
-GLOBAL_CORRECTION = {  # global stack correction method
+
+# Substitution maps
+STIMSUB = ('stim-1', 'stim', 'trial')  # stimulus frames, every trial
+FIRST_SUB = (1, 0, None)  # first run frame
+SUBMAP_DICT = {  # line-specific substitution maps
+    'cre_sst': [STIMSUB],
+    'default': [FIRST_SUB, STIMSUB],
+}
+def get_submap(line):
+    ''' Get line-specific substitution map '''
+    return SUBMAP_DICT.get(line, SUBMAP_DICT['default'])
+
+# Global stack correction methods
+GLOBAL_CORRECTION = {
     'line3': None,
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
-    'cre_sst': None,
+    'cre_sst': None, #'linreg_robust'
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
@@ -277,6 +285,13 @@ GCAMP_DECAY_TAU = {  # GCaMP sensors exponential decay time constants (s)
     '6s': 1.25,  # GCaMP6s
     '7f': 0.7,  # GCaMP7f
 }
+
+def get_gcamp_key(line):
+    ''' Get GCaMP key for a given line '''
+    if line == 'cre_sst':
+        return '7f'
+    else:
+        return '6s'
 
 ###################################### SIGNAL CONDITIONING ######################################
 
@@ -330,12 +345,6 @@ def get_stim_onset_time(line):
 TPRE = 1.4  # default size of the pre-stimulus window (s)
 TPOST = 2.8  # default size of the post-stimulus window (s)
 
-# Frame indexes
-class FrameIndex:
-    STIM = 10  # index of the frame coinciding with the US stimulus in each trial
-    NPRE = 6  # number of frames in pre-stimulus window (including stimulus frame)
-    NPOST = 11  # number of frames in post-stimulus window (starting right after stimulus frame)
-
 # Response classification
 YKEY_CLASSIFICATION = Label.ZSCORE  # Reference variable for response classification
 PTHR_DETECTION = 0.05  # significance threshold probability for activity detection in fluorescence signals
@@ -348,7 +357,6 @@ OFFSET_MIN_PROP_POS = 0.33  # minimum proportion of positive responses in "best"
 
 # Baseline fluorescence
 MAX_F0_REL_DEV = .5  # max relative deviation of baseline fluorescence from its mean allowed during experiment
-PTHR_STATIONARITY = .05  # Significance threshold for response non-stationarity across trials
 
 ###################################### PARSING ######################################
 

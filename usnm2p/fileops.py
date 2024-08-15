@@ -27,24 +27,35 @@ from .constants import *
 from .postpro import *
 
 
-def get_data_root(kind=DataRoot.PREPROCESSED):
+def get_data_root(kind=None):
     ''' 
-    Get the path to the directory containing a certain type of data
+    Get the path to the data root directory (or sub-directory containing a certain type of data)
     
-    :param kind: DataRoot folder type
+    :param kind (optional): DataRoot folder type
     :return: full path to the data root directory
     '''
+    # Get user-specific data root directory from config file
     try:
         from .config import dataroot
     except ModuleNotFoundError:
         raise ValueError(f'user-specific "config.py" file is missing')
     except ImportError:
         raise ValueError(f'"dataroot" variable is missing from user-specific "config.py" file')
+
+    # If data root directory does not exist, raise error
     if not os.path.isdir(dataroot):
         raise ValueError(f'data root directory "{dataroot}" does not exist')
+
+    # If no sub-directory type specified, return root directory
+    if kind is None:
+        return dataroot
+    
+    # If sub-directory type specified, check its existence
     subroot = os.path.join(dataroot, kind)
     if not os.path.isdir(subroot):
         raise ValueError(f'data root sub-directory "{subroot}" does not exist')
+    
+    # Return sub-directory
     return subroot
 
 
@@ -1020,7 +1031,7 @@ def load_lineagg_data(dirpath, errprop='intra'):
 
         # Unpack data
         stats, counts = data['stats'], data['counts']
-
+    
     # Create stats multi-index
     muxcols = [Label.LINE, Label.ROI_RESP_TYPE, Label.RUN]
     stats.index = pd.MultiIndex.from_arrays([stats.pop(k) for k in muxcols])
@@ -1032,8 +1043,9 @@ def load_lineagg_data(dirpath, errprop='intra'):
 
     # Check that all datasets have the same number of runs
     lines = stats.index.unique(level=Label.LINE)
-    if not lines.equals(counts.index.unique(level=Label.LINE)):
-        raise ValueError('inconsistent mouse lines between stats and counts data')
+    countlines = counts.index.unique(level=Label.LINE)
+    if not lines.equals(countlines):
+        raise ValueError(f'inconsistent mouse lines between stats ({lines}) and counts data ({countlines})')
 
     # Return stats and counts
     logger.info(f'line-aggregated data successfully loaded for lines {lines.values}')
