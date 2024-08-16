@@ -240,7 +240,7 @@ NFRAMES_PER_TRIAL = 100  # default number of frames per trial
 DC_REF = 50.  # reference duty cycle value (in %) used to perform pressure amplitude sweeps
 P_REF = .8  # reference pressure amplitude (in MPa) used to perform DC sweeps
 OFFSET_DIRECTIONS = ('backward', 'left', 'right') # Potential lateral offset directions
-MAX_LASER_POWER_REL_DEV = .05  # maximum allowed relative deviation from reference value for laser power (larger than other values because it typically warms up during experiment)
+MAX_LASER_POWER_REL_DEV = .15  # maximum allowed relative deviation from reference value for laser power (larger than other values because it typically warms up during experiment)
 MAX_DAQ_REL_DEV = .01  # maximum allowed relative deviation from reference value for acquisition settings
 
 ####################################### PRE-PROCESSING ######################################
@@ -269,7 +269,7 @@ GLOBAL_CORRECTION = {
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
-    'cre_sst': 'linreg_robust',
+    'cre_sst': None, #'linreg_robust',
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 

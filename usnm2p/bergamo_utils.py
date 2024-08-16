@@ -15,8 +15,9 @@ import json
 from .constants import *
 from .logger import logger
 from .parsers import find_suffixes, group_by_run
-from .fileops import load_tif_metadata, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif, get_output_equivalent, save_acquisition_settings
+from .fileops import load_tif_metadata, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif, get_output_equivalent, save_acquisition_settings, process_and_save
 from .stackers import TifStacker
+from .filters import KalmanDenoiser
 from .resamplers import resample_tifs
 from .substitutors import substitute_tifs
 from .correctors import correct_tifs
@@ -81,7 +82,8 @@ def parse_scanimage_meta(fpath):
 
     # Remove unnecessary keys   
     for k in SI_DELKEYS:
-        del meta[k]
+        if k in meta.keys():
+            del meta[k]
 
     # # Extract coordinates of the corners of the imaging field of view in microns
     # xyfov_um = dict(zip(['ll', 'lr', 'tr', 'ul'], np.array(meta['SI.hRoiManager.imagingFovUm'])))
@@ -117,15 +119,21 @@ def stack_trial_tifs(stacker, in_fpaths, out_fpath, **kwargs):
     for fpath, code in zip(in_fpaths, codes):
         meta_by_trial[code] = pd.Series(parse_scanimage_meta(fpath))
     meta_by_trial = pd.concat(meta_by_trial, axis=1, names='trial')
+    meta_by_trial = meta_by_trial.transpose()
 
     # Check that metadata is consistent across all TIF files
-    ref_meta = meta_by_trial.mode(axis=1).iloc[:, 0].rename('settings')
+    ref_meta = (
+        meta_by_trial
+        .mode(axis=0)
+        .iloc[0, :]
+        .rename('settings')
+    )
 
     # If some settings vary across runs, raise an error
-    ismatch = meta_by_trial.eq(ref_meta, axis=0).all(axis=1)
-    nonmatching_settings = ismatch[~ismatch].index.values
+    ismatch = meta_by_trial.eq(ref_meta, axis=1).all(axis=0)
+    nonmatching_settings = ismatch[~ismatch]
     if len(nonmatching_settings) > 0:
-        raise ValueError(f'Inconsistent metadata across trials for the following settings: {nonmatching_settings}: \n{meta_by_trial.loc[nonmatching_settings, :]}')
+        raise ValueError(f'Inconsistent metadata across trials for the following settings:\n{meta_by_trial[nonmatching_settings]}')
 
     # Add number of trial files to reference metadata
     ref_meta['nTrials'] = len(in_fpaths)
@@ -178,15 +186,60 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
         # Append output filepath to list
         output_fpaths.append(out_fpath)
     
-    # Concatenate metadata by run
+    # Concatenate metadata by run and transpose
     meta_by_run = pd.concat(meta_by_run, axis=1, names='run')
+    meta_by_run = meta_by_run.transpose()
 
-    # Compare metadata across runs and establish reference metadata
-    ref_meta = meta_by_run.mode(axis=1).iloc[:, 0].rename('reference')
-    ismatch = meta_by_run.eq(ref_meta, axis=0).all(axis=1)
+    # Establish reference metadata across run from mode of metadata values
+    ref_meta = (
+        meta_by_run
+        .mode(axis=0)  # most common value across runs
+        .iloc[0, :]  # first row
+        .rename('reference')
+    )
+
+    # Initialize empty lists of outlier runs and "truly differing" settings
+    outliers = []
+    diff_settings = []
+
+    # Check that metadata is consistent across all runs, and extract potential non-matching settings
+    logger.info('checking for settings consistency across runs...')
+    ismatch = meta_by_run.eq(ref_meta, axis=1).all(axis=0)
     nonmatching_settings = ismatch[~ismatch].index.values
-    if len(nonmatching_settings) > 0:
-        raise ValueError(f'Inconsistent metadata across runs for the following settings: {nonmatching_settings}: \n{meta_by_run.loc[nonmatching_settings, :]}')
+
+    # For each differing setting
+    for k in nonmatching_settings:
+        # Extract values across runs, and reference value
+        vals = meta_by_run[k]
+        ref_val = ref_meta[k]
+
+        # If numeric setting
+        # if vals.dtype == 'float64':
+        if isinstance(ref_val, (int, float, np.int16, np.int32, np.int64, np.float64)):
+            # Compute absolute relative deviations from reference value
+            rel_devs = ((vals - ref_val) / ref_val).abs()
+            logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
+
+            # Identify runs with significant relative deviations
+            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'SI.hBeams.powers' else MAX_DAQ_REL_DEV  # for input laser power: allow 15% dev
+            current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
+        
+        # Otherwise
+        else:
+            # Identify runs that differ from ref value 
+            current_outliers = vals[vals != ref_val].index.values.tolist()
+
+        # If outliers were detected, store differing setting
+        if len(current_outliers) > 0:
+            diff_settings.append(k)
+
+        # Add outliers runs to global list
+        outliers += current_outliers
+    
+    # If truly differing settings were found, log warning message
+    if len(diff_settings) > 0:
+        raise ValueError(
+            f'found {len(diff_settings)} acquisition setting(s) varying across runs:\n{meta_by_run[diff_settings]}')
     
     # If "extra acquisition settings" JSON file exists, load extra settings and add them to metadata
     extra_settings_fpath = os.path.join(input_dir, 'extra_settings.json')
@@ -261,7 +314,7 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
                     raise ValueError(f'number of channels in TIF file ({nchannels_tif}) does not match DAQ settings ({nchannels})')
 
                 # Loop through stack channels
-                for i, ich in enumerate(ich):
+                for i, ich in enumerate(ichannels):
                     # Derive channel output filepath
                     output_fpath = get_output_equivalent(
                         input_fpath, input_key, f'{DataRoot.SPLIT}/channel{ich}')
@@ -298,7 +351,7 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
     return output_fpaths
 
 
-def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, mpi=False, overwrite=False, **kwargs):
+def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kalman_gain=None, mpi=False, overwrite=False, **kwargs):
     ''' 
     Pre-process Bergamo dataset
     
@@ -306,6 +359,7 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, mpi
     :param fps (optional): target sampling rate for the output array, if resampling is requested (Hz)
     :param smooth (default=False): whether to smooth stacks upon resampling or not
     :param correct (optional): code string for global correction method
+    :param kalman_gain (optional): Kalman filter gain
     :param mpi: whether to use multiprocessing or not
     :param overwrite: whether to overwrite input files if they exist
     :return: 2-tuple with:
@@ -343,7 +397,7 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, mpi
     tref = get_stim_onset_time(mouseline)
     fidx = FrameIndexer.from_time(tref, TPRE, TPOST, 1 / fps, npertrial=nframes_per_trial)
     fpaths = substitute_tifs(
-        fpaths, input_root, submap, overwrite=overwrite)
+        fpaths, input_root, submap, fidx=fidx, overwrite=overwrite)
     input_root = DataRoot.SUBSTITUTED
 
     # Apply global correction, if any
@@ -351,7 +405,13 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, mpi
         fpaths = correct_tifs(
             fpaths, input_root, correct, overwrite=overwrite, mpi=mpi)
         input_root = DataRoot.CORRECTED
-
+    
+    # Apply Kalmann filtering, if requested
+    if kalman_gain is not None and kalman_gain > 0:
+        kd = KalmanDenoiser(G=kalman_gain, V=0.05, npad=10)
+        fpaths = process_and_save(kd, fpaths, input_root, overwrite=overwrite)
+        input_root = DataRoot.FILTERED
+     
     # Return list of pre-processed stack files 
     return fpaths
 

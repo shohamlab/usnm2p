@@ -36,6 +36,8 @@ if __name__ == '__main__':
         '--smooth', default=False, action='store_true', help='smooth upon resampling')
     parser.add_argument(
         '-c-', '--correct', type=str, help='global correction method')
+    parser.add_argument(
+        '-k', '--kalman-gain', type=float, default=0, help='Kalman filter gain')
 
     # Parse command line arguments
     args = parser.parse_args()

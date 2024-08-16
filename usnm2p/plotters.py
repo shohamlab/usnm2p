@@ -2347,7 +2347,7 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
         vmax = vmax_est
 
     # Add time column to dataframe
-    data = add_time_to_table(data.copy(), fps=fps)
+    data = add_time_to_table(data.copy(), fidx=fidx, fps=fps)
     
     # Group data according to col and/or row parameter(s)
     if col is not None:

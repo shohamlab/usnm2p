@@ -217,7 +217,7 @@ def parse_bruker_acquisition_settings(folders):
             logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
 
             # Identify runs with significant relative deviations
-            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'twophotonLaserPower' else MAX_DAQ_REL_DEV  # for input laser power: allow 5% dev
+            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'twophotonLaserPower' else MAX_DAQ_REL_DEV  # for input laser power: allow 15% dev
             current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
         
         # Otherwise
@@ -232,7 +232,7 @@ def parse_bruker_acquisition_settings(folders):
         # If not XYZ position, add outliers runs to global list. The reason for
         # this exception is that DAQ position changes are not necessarily related
         # to changes in physical location (e.g. the position vector can be "zeroed" 
-        # halfway through the expeirments without any actual translation). Hence, 
+        # halfway through the experiments without any actual translation). Hence, 
         # no automatic checks are performed for position vectors, but movies and
         # registration metrics should be inspected to check for potential drifts.
         # A warning message will still be issued though.
