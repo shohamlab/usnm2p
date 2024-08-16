@@ -169,6 +169,7 @@ class DataRoot:
     SPLIT = 'split'
     MODEL = 'model'
     SUBSTITUTED = 'substituted'
+    CORRECTED = 'corrected'
     FILTERED = 'filtered'
     SEGMENTED = 'segmented'
     CONDITIONED = 'conditioned'
@@ -268,7 +269,7 @@ GLOBAL_CORRECTION = {
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
-    'cre_sst': None, #'linreg_robust'
+    'cre_sst': 'linreg_robust',
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
