@@ -9,6 +9,7 @@ from .fileops import get_data_root
 from .substitutors import StackSubstitutor
 from .filters import KalmanDenoiser
 from .correctors import LinRegCorrector
+from .resamplers import StackResampler
 from .s2putils import *
 from .logger import logger
 
@@ -59,12 +60,12 @@ def get_prepro_id(submap=None, global_correction=None, kalman_gain=KALMAN_GAIN):
     return os.path.join(*codes[::-1])
 
 
-def get_s2p_id(tau, fs=BRUKER_SR, do_registration=1, reg_tif=True, nonrigid=True, denoise=False):
+def get_s2p_id(fs, tau, do_registration=1, reg_tif=True, nonrigid=True, denoise=False):
     ''' 
     Get code string corresponding to suite2p execution options
     
-    :param tau: timescale of the sensor
     :param fs: sampling rate (per plane)
+    :param tau: timescale of the sensor
     :param do_registration: whether or not to perform image registration
     :param reg_tif: whether or not to write the registered binary to tiff files
     :param nonrigid: whether or not to perform non-rigid registration, which splits the
@@ -160,6 +161,11 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
 
     # Construct processing IDs
     prepro_id = get_prepro_id(submap=submap, global_correction=global_correction, kalman_gain=kalman_gain)
+    if mouseline == 'cre_sst':
+        channel_id = f'channel{FUNC_CHANNEL}'
+        resampling_id = StackResampler(BERGAMO_SR, BERGAMO_RESAMPLED_SR, smooth=True).code
+        prepro_id = os.path.join(prepro_id, channel_id, resampling_id)
+
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
     conditioning_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
     ykey_classification_str = {Label.DFF: 'dff', Label.ZSCORE: 'zscore'}[ykey_classification]
@@ -181,24 +187,25 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     # Infer GCaMP decay time from mouseline
     gcamp_key = '7f' if mouseline == 'cre_sst' else '6s'
     tau = GCAMP_DECAY_TAU[gcamp_key]
+    fs = BERGAMO_RESAMPLED_SR if mouseline == 'cre_sst' else BRUKER_SR
     
     # Get stats input data directory
     if mouseline is not None:
         input_root = get_data_root(kind=DataRoot.PROCESSED)
         input_dir = os.path.join(
-            input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type, mouseline)
+            input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), prepro_id, analysis_type, mouseline)
     else:    
         input_root = get_data_root(kind=DataRoot.LINEAGG)
         if isinstance(prepro_id, dict):
             input_dir = {
                 k: os.path.join(
-                    input_root, processing_id, conditioning_id, get_s2p_id(tau), v, analysis_type)
+                    input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), v, analysis_type)
                 for k, v in prepro_id.items()
             }
             intput_dir = {k: v for k, v in input_dir.items() if os.path.exists(v)}
         else:
             input_dir = os.path.join(
-                input_root, processing_id, conditioning_id, get_s2p_id(tau), prepro_id, analysis_type)
+                input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), prepro_id, analysis_type)
     
     # Get figures directory
     figsdir = get_data_root(kind=DataRoot.FIG)

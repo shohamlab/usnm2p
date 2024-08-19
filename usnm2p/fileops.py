@@ -913,10 +913,10 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
             # Otherwise, issue warning
             else:
                 logger.warning(dupstr)
-                # If specified, drop first of these runs (assuming that if run was duplicated, 
-                # it is because something went wrong with the first acquisition)
-                if on_duplicate_runs == 'drop':
-                    idrop = dup_table.index[0]
+                # If specified, drop one first of these runs
+                if on_duplicate_runs.startswith('drop'):
+                    # Drop first or last run according to specified mode
+                    idrop = dup_table.index[0] if on_duplicate_runs == 'drop_first' else dup_table.index[-1]
                     logger.warning(f'dropping run {idrop} from dataset...')
                     for k, v in datasets[i].items():
                         if isinstance(v, (pd.DataFrame, pd.Series)) and Label.RUN in v.index.names:

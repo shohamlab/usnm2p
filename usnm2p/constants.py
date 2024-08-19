@@ -233,6 +233,7 @@ DEFAULT_ANALYSIS = 'main'
 DEFAULT_LINE = 'line3'
 DEFAULT_LAYER = 'layer2-3'
 BERGAMO_SR = 30.00  # data sampling rate on Bergamo resonant scanning system (Hz)
+BERGAMO_RESAMPLED_SR = 5.0  # data sampling rate on Bergamo system after resampling (Hz)
 BRUKER_SR = 3.56    # data sampling rate on Bruker galvo scanning system (Hz)
 FUNC_CHANNEL = 1  # index of functional channel in multi-channel Bergamo recordings
 REF_NFRAMES = 1600  # reference number of frames in any given experimental run (used to check integrity of input stacks)
@@ -428,6 +429,7 @@ MIN_CELL_DENSITY = {
     'sarah_line3': None,
     'sst': None,
     'pv': None,
+    'cre_sst': None,
 }
 
 
