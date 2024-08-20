@@ -3194,7 +3194,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
                 data = data.copy()
                 data[ykey] = offset_per_dataset(data[ykey])
     # Set plotting parameters
-    hue_order = None
+    hue_order = kwargs.pop('hue_order', None)
     hueplt = False
     hueerr_style = err_style
     if hue is None:
