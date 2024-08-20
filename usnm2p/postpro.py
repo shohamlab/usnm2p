@@ -1533,9 +1533,12 @@ def correlations_to_rcode(corrtypes, j=', '):
     return pd.concat(codes, axis=1).agg(j.join, axis=1)
 
 
-def get_default_rtypes():
+def get_default_rtypes(directional=False):
     ''' Get default response type codes '''
-    return RTYPE.categories.values.tolist()
+    rtypes = RTYPE.categories.values.tolist()
+    if directional:
+        del rtypes[rtypes.index('negative')]
+    return rtypes
 
 
 def get_change_key(y, full_output=False):
@@ -2771,32 +2774,39 @@ def apply_test(data, groupby, testfunc, pthr=0.05):
     return testres
 
 
-def get_rtype_fractions_per_ROI(data):
+def get_rtype_fractions_per_ROI(data, return_nconds=False):
     ''' 
     Get the fraction of response type over all relevant conditions, per ROI
     
     :param data: multi-index (ROI, run) stats dataframe
+    :param return_nconds (default=False): whether to return the number of conditions used for classification
     :return: ROI stats dataframe 
     '''
+    # Determine grouping variable(s) based on input index dimensions
     if Label.DATASET in data.index.names:
         gby = [Label.DATASET, Label.ROI]
     else:
         gby = Label.ROI
+    
     # Save original ROIs list
     org_ROIs = data.groupby(gby).first().index.unique()
+
     # Filter data to only conditions with ISPTA values above certain threshold
-    class_data = data.loc[data[Label.ISPTA] > ISPTA_THR, :]
+    classification_data = data.loc[data[Label.ISPTA] > ISPTA_THR, :]
+
     # Compute number of conditions used for classification
-    nconds = len(class_data.index.unique(Label.RUN))
+    nconds = len(classification_data.index.unique(Label.RUN))
+
     # Compute response type fractions
     logger.info(f'computing fraction of response occurence per ROI over {nconds} "strong ISPTA" conditions...')
     roistats = (
-        class_data[Label.RESP_TYPE]
+        classification_data[Label.RESP_TYPE]
         .groupby(gby)
         .value_counts(normalize=True)
         .unstack()
         .fillna(0.)
     )
+
     # Extract ROIs list after filtering and conditioning
     filt_ROIs = roistats.index.unique()
 
@@ -2808,7 +2818,11 @@ def get_rtype_fractions_per_ROI(data):
         for ROI in missing_ROIs:
             roistats.loc[ROI, :] = 0.
     
-    return roistats
+    # Return output(s)
+    if return_nconds:
+        return roistats, nconds
+    else:
+        return roistats
 
 
 def mylinregress(x, y, robust=False, intercept=True, return_model=False):
@@ -2906,27 +2920,50 @@ def assess_significance(data, pthr, pval_key='pval', sign_key=None):
     return sig
 
 
-def classify_ROIs(data):
+def classify_ROIs(data, directional=False, return_nconds=False):
     ''' 
     Classify ROIs based on fraction of each response type across experiment
     
     :param data: trial-aggragated stats dataframe
+    :param directional: whether to use uni-directional (i.e., weak vs. positive) classification 
+        of tertiary (weak, positive, negative) classification
+    :param return_nconds: whether to return the number of conditions used for classification
     :return: ROI classification stats dataframe
     '''
     # Compute fraction of response occurence in "strong" ISPTA conditions, for each ROI
-    roistats = get_rtype_fractions_per_ROI(data)
-
-    # Extract type and proportion of maximum non-weak proportion, per ROI
-    nonweakresps = roistats.drop('weak', axis=1).agg(['idxmax', 'max'], axis=1)
+    roistats, nconds = get_rtype_fractions_per_ROI(data, return_nconds=True)
 
     # Classify ROIs based on proportion of conditions in each response type
     logger.info('classiying ROIs as a function of their response occurence fractions...')
-    roistats[Label.ROI_RESP_TYPE] = 'weak'
-    cond = nonweakresps['max'] >= PROP_CONDS_THR
-    roistats.loc[cond, Label.ROI_RESP_TYPE] = nonweakresps.loc[cond, 'idxmax']
 
-    # Return
-    return roistats
+    # Add missing type columns filled with zeros 
+    if 'weak' not in roistats.columns:
+        roistats['weak'] = 0.
+    if 'positive' not in roistats.columns:
+        logger.warning('no positive responses found')
+        roistats['positive'] = 0.
+    if not directional and 'negative' not in roistats.columns:
+        logger.warning('no negative responses found')
+        roistats['negative'] = 0.
+
+    # Extract non-weak response type with highest occurence frequency, for each ROI
+    nonweakresps = (roistats
+        .drop('weak', axis=1)
+        .agg(['idxmax', 'max'], axis=1)
+    )
+
+    # Assess whether these occurence frequencies are above defined threshold
+    isbignonweakfrac = nonweakresps['max'] >= PROP_CONDS_THR
+
+    # Classify ROIs based on their response fractions
+    roistats[Label.ROI_RESP_TYPE] = 'weak'
+    roistats.loc[isbignonweakfrac, Label.ROI_RESP_TYPE] = nonweakresps.loc[isbignonweakfrac, 'idxmax']
+
+    # Return output(s)
+    if return_nconds:
+        return roistats, nconds
+    else:
+        return roistats
 
 
 def get_params_by_run(data, extra_dims=None):

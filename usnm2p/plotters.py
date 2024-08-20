@@ -2218,7 +2218,7 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
                           colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                           quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
                           col_order=None, col_labels=None, row_order=None,
-                          rect_markers=None, rasterized=False, axes=None, **kwargs):
+                          rect_markers=None, rasterized=False, axes=None, height_factor=1, **kwargs):
     '''
     Plot heatmap of population activity over over time.
     
@@ -2320,7 +2320,7 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
 
     # Determine number of rows per map, and resulting aspect ratio
     nrowspermap = len(data.groupby(pivot_index_keys).first())
-    aspect_ratio = nrowspermap / 200
+    aspect_ratio = nrowspermap / 200 * height_factor
 
     # Rectilinearize dataframe to make sure all ROIs are present in each group
     data = rectilinearize(data[key]).to_frame()
@@ -3738,8 +3738,11 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None, deta
 
     # Derive title components
     datasets = list(celltypes.groupby(Label.DATASET).groups.keys())
-    mice = sorted(list(set([x.split('_')[1] for x in datasets])))
-    countsstr = f'{len(mice)} mice, {len(datasets)} regions, {ntot} ROIs'
+    try:
+        mice = sorted(list(set([x.split('_')[1] for x in datasets])))
+        countsstr = f'{len(mice)} mice, {len(datasets)} regions, {ntot} ROIs'
+    except IndexError:
+        countsstr = f'{len(datasets)} regions, {ntot} ROIs'
     avgcount_str = f'{nROIs_per_dataset.mean():.0f} +/- {nROIs_per_dataset.std():.0f}'
     stitle = f'{countsstr}, avg = {avgcount_str}'
     if title is not None:

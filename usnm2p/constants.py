@@ -179,7 +179,7 @@ class DataRoot:
 
 # Response and responders type
 RTYPE_MAP = {
-    # -1: 'negative',
+    -1: 'negative',
     0: 'weak',
     1: 'positive'
 }
