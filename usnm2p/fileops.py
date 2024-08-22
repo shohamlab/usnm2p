@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 12:44:52
+# @Last Modified time: 2024-08-22 16:01:38
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -675,7 +675,7 @@ def parse_overwrite(overwrite):
 
 def get_figdir(figsroot):
     figsroot = os.path.abspath(figsroot)
-    today = datetime.date.today().strftime('%Y-%m-%d')
+    today = datetime.date.today().strftime('%Y.%m.%d')
     figsdir = os.path.join(figsroot, today)
     if not os.path.isdir(figsdir):
         os.makedirs(figsdir)
