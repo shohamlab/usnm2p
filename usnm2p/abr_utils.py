@@ -2,9 +2,10 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-22 12:16:31
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-22 15:53:15
+# @Last Modified time: 2024-08-22 18:34:25
 
 # External packages
+import re
 import pyabf
 import numpy as np
 import pandas as pd
@@ -13,6 +14,40 @@ from scipy.signal import hilbert
 # Internal modules
 from .logger import logger
 from .constants import Label
+
+
+# Regexp pattern for parsing filenames
+ABR_pattern = re.compile('^(pre|post)deafening_(left|right|x)ear_(\d+)kHz_(\d+|x)dB_(\d+)$')  
+
+
+def parse_ABR_parameters(fcode):
+    ''' 
+    Parse ABR parameters from file code (file name without extension)
+    
+    :param fcode: file code
+    :return: dictionary with parsed parameters
+    '''
+    # If input is a list, tuple, numpy array or pandas index, parse each element
+    # and return a DataFrame with the results
+    if isinstance(fcode, (list, tuple, np.ndarray, pd.Index)):
+        return pd.concat({k: pd.Series(parse_ABR_parameters(k)) for k in fcode}, names=['dataset']).unstack()
+
+    # Parse file code
+    match = ABR_pattern.match(fcode)
+
+    # Check if pattern matched
+    if match is None:
+        raise ValueError(f'file code {fcode} does not match ABR pattern')
+    
+    # Extract parameters and return
+    condition, side, freq, level, acq = match.groups()
+    return {
+        'condition': condition,
+        'ear': side,
+        'freq (kHz)': int(freq),
+        'level (dB)': int(level) if level != 'x' else np.nan,
+        'acq': int(acq)
+    }
 
 
 def load_abf_file(fpath):
