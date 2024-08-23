@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-22 12:16:31
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-22 18:34:25
+# @Last Modified time: 2024-08-23 11:11:39
 
 # External packages
 import re
@@ -13,11 +13,11 @@ from scipy.signal import hilbert
 
 # Internal modules
 from .logger import logger
-from .constants import Label
+from .constants import Label, Pattern
 
 
 # Regexp pattern for parsing filenames
-ABR_pattern = re.compile('^(pre|post)deafening_(left|right|x)ear_(\d+)kHz_(\d+|x)dB_(\d+)$')  
+ABR_pattern = re.compile(f'^{Pattern.DATE}_(pre|post)deafening_(left|right|x)ear_(\d+)kHz_(\d+|x)dB_(\d+)$')  
 
 
 def parse_ABR_parameters(fcode):
@@ -40,8 +40,9 @@ def parse_ABR_parameters(fcode):
         raise ValueError(f'file code {fcode} does not match ABR pattern')
     
     # Extract parameters and return
-    condition, side, freq, level, acq = match.groups()
+    year, month, day, condition, side, freq, level, acq = match.groups()
     return {
+        'date': f'{year}-{month}-{day}',
         'condition': condition,
         'ear': side,
         'freq (kHz)': int(freq),
@@ -129,30 +130,6 @@ def load_abr_data(fpath, yunit='mV'):
 
     # Return DataFrame
     return data
-
-
-def extract_stim_frequency(y, dt, roundto=10):
-    '''
-    Extract stimulus frequency from stimulus waveform
-    
-    :param y: stimulus waveform vector
-    :param dt: time step (s)
-    :param roundto: rounding frequency unit (Hz)
-    :return: stimulus frequency (Hz)
-    '''
-    # Compute FFT
-    f = np.fft.rfftfreq(y.size, d=dt)
-    Y = np.fft.rfft(y)
-    
-    # Extract frequency with highest power amplitude
-    fcarrier = f[np.argmax(np.abs(Y))]
-
-    # If rounding unit specified, round to nearest unit
-    if roundto is not None:
-        fcarrier = np.round(fcarrier / roundto) * roundto
-
-    # Return result
-    return fcarrier
 
 
 def extract_stim_window(y, rel_thr=0.05):
