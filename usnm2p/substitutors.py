@@ -284,7 +284,7 @@ class StackSubstitutor(StackProcessor):
         return stack
     
 
-def substitute_tifs(input_fpaths, input_key, submap, fidx=None, **kwargs):
+def substitute_tifs(input_fpaths, input_key, submap, fidx=None, nchannels=1, **kwargs):
     '''
     High-level stack frame substitution function
 
@@ -292,10 +292,11 @@ def substitute_tifs(input_fpaths, input_key, submap, fidx=None, **kwargs):
     :param input_key: input key for output path replacement
     :param submap: substituion map to apply
     :param fidx (optional): frame indexer object
+    :param nchannels (optional): number of channels in the input stacks
     :return: list of substituted TIF stacks
     '''
     # Define substitutor object
-    ss = StackSubstitutor(submap, fidx=fidx)
+    ss = StackSubstitutor(submap, fidx=fidx, nchannels=nchannels)
 
     # Substitute frames in all input TIFs 
     substituted_stack_fpaths = process_and_save(

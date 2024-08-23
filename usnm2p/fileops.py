@@ -398,7 +398,7 @@ def loadtif(fpath, verbose=True, metadata=False, nchannels=1):
         else:
             meta = None
         if stack.ndim < 4 and nchannels > 1:
-            logger.info(f'splitting {nchannels} channels {stack.shape} shaped array')
+            logfunc(f'splitting {nchannels} channels {stack.shape} shaped array')
             stack = np.reshape(
                 stack, (stack.shape[0] // nchannels, nchannels, *stack.shape[1:]))
         # Reassign metadata to None if not requested for output 
@@ -427,10 +427,17 @@ def load_tif_metadata(fpath):
         return tif.scanimage_metadata
     
 
-def load_tif_nframes(fpath):
-    ''' Load number of frames from .tif file '''
+def load_tif_nframes(fpath, nchannels=1):
+    ''' 
+    Load number of frames from .tif file
+    
+    :param fpath: full path to input TIF file
+    :param nchannels: number of channels in the TIF file
+    :return: number of frames per channel in the TIF file
+    '''
     with TiffFile(fpath) as tif:
-        return len(tif.pages)
+        npages = len(tif.pages)
+    return npages // nchannels
 
 
 def savetif(fpath, stack, overwrite=True, metadata=None):
@@ -515,11 +522,14 @@ class StackProcessor(metaclass=abc.ABCMeta):
         # Check that input root is indeed found in input filepath
         if self.input_root not in input_fpath:
             raise ValueError(f'input root "{self.input_root}" not found in input file path "{input_fpath}"')
+        
         # If NoProcessor object provided -> do nothing and return input file path
         if isinstance(self, NoProcessor):
             return input_fpath
+        
         # Get post-processing output filepath
         output_fpath = self.get_target_fpath(input_fpath)
+        
         # If already existing, act according to overwrite parameter
         if os.path.isfile(output_fpath):
             if self.warn_if_exists:
@@ -529,10 +539,27 @@ class StackProcessor(metaclass=abc.ABCMeta):
                 return output_fpath
         else:
             overwrite = self.overwrite
-        # Load input, process stack, and save output
+        
+        # Load input
         input_stack = self.load_stack(input_fpath)
-        output_stack = self.run(input_stack)
+        
+        # If stack is 3D, simply process it 
+        if input_stack.ndim == 3:
+            output_stack = self.run(input_stack)
+        # If stack is 4D (i.e., multi-channel), process each channel (2nd dimension) 
+        # separately and recombine
+        elif input_stack.ndim == 4:
+            channelax = 1
+            nchannels = input_stack.shape[channelax]
+            output_stack = np.stack([
+                self.run(input_stack[:, i]) for i in range(nchannels)], axis=channelax)
+        # Otherwise, raise error
+        else:
+            raise ValueError(f'input stack has unsupported shape: {input_stack.shape}')
+
+        # Save output
         self.save_stack(output_fpath, output_stack, overwrite=overwrite)
+        
         # Return output filepath
         return output_fpath
     

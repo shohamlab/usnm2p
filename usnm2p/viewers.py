@@ -17,10 +17,22 @@ from IPython.display import display
 from suite2p.io import BinaryFile
 from tifffile import TiffFile
 import imageio as iio
+import matplotlib.colors as mcolors
 
 from .logger import logger
-from .utils import float_to_uint8, is_iterable, idx_format
+from .utils import float_to_uint8, is_iterable, idx_format, as_iterable
 from .imlabel import add_label_to_image
+
+# RGB colormaps for the stack viewer
+RGB_COLORS = {
+    'green': (0, 1, 0),
+    'red': (1, 0, 0),
+    'blue': (0, 0, 1),
+}
+VIEWER_CMAPS = {
+    k: mcolors.LinearSegmentedColormap.from_list(k, [(0, 0, 0), c])
+    for k, c in RGB_COLORS.items()
+}
 
 
 class StackViewer:
@@ -32,7 +44,7 @@ class StackViewer:
     npix_label = 10 # number of pixels used for upper-right labeling
     
     def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, 
-                 verbose=True):
+                 nchannels=1, verbose=True):
         '''
         Initialization.
 
@@ -42,12 +54,13 @@ class StackViewer:
         :param continuous_update: update the image while dragging the mouse (default: True)
         :param display_size: size of the render (in pixels per axis)
         '''
-        logfunc = logger.info if verbose else logger.debug
+        self.logfunc = logger.info if verbose else logger.debug
         self.fpaths = fpaths
-        logfunc('initializing stack viewer')
+        self.logfunc('initializing stack viewer')
         self.fobjs = [self.get_fileobj(fp) for fp in self.fpaths]
         self.headers = headers
         self.title = title
+        self.nchannels = nchannels
         nframes = [self.get_nframes(x) for x in self.fobjs]
         shapes = [self.get_frame_shape(x) for x in self.fobjs]
         if not len(list(set(nframes))) == 1:
@@ -56,16 +69,30 @@ class StackViewer:
             raise ValueError(f'Inconsistent frame shapes: {shapes}')
         self.nframes = nframes[0]
         self.shape = shapes[0]
-        logfunc(f'stack size: {(self.nframes, *self.shape)}')
+        self.logfunc(f'stack size: {(self.nframes, *self.shape)}')
 
         # Initialize other attributes
         self.display_width = self.display_height = display_size
         self.continuous_update = continuous_update
+    
+    def __repr__(self):
+        dims = {
+            'stack': len(self.fpaths), 
+            'channel': self.nchannels,
+            'frame': self.nframes, 
+        }
+        l = [f'{v} {k}{"s" if v > 1 else ""}' for k, v in dims.items()]
+        l.append(f'{self.shape[1]}-by-{self.shape[0]} pixels')
+        return f'{self.__class__.__name__}({", ".join(l)})'
 
     def get_fileobj(self, fpath):
         ''' Get the binary file object corresponding to a file path '''
         if isinstance(fpath, dict):
-            return BinaryFile(Ly=fpath['Ly'], Lx=fpath['Lx'], read_filename=fpath['reg_file'])
+            return BinaryFile(
+                Ly=fpath['Ly'], 
+                Lx=fpath['Lx'], 
+                read_filename=fpath['reg_file']
+            )
         elif isinstance(fpath, np.ndarray):
             return fpath
         else:
@@ -78,25 +105,36 @@ class StackViewer:
         elif isinstance(fobj, np.ndarray):
             return fobj.shape[0]
         else:
-            return len(fobj.pages)
+            return len(fobj.pages) // self.nchannels
+    
+    def pageidx(self, i, ichannel=0):
+        ''' Get "page" (i.e., serialized) index from frame index and channel index '''
+        return i * self.nchannels + ichannel
 
-    def get_frame_shape(self, fobj, i=0):
+    def get_frame_shape(self, fobj, i=0, **kwargs):
         ''' Get the shape of a frame in a stack '''
         if isinstance(fobj, BinaryFile):
             return fobj[i][0].shape
         elif isinstance(fobj, np.ndarray):
-            return fobj.shape[1:]
+            return fobj[i].shape[-2:]
         else:
-            return fobj.pages[i].shape
+            return fobj.pages[self.pageidx(i, **kwargs)].shape
 
-    def get_frame(self, fobj, i):
-        '''Get a particular frame in the stack '''
+    def get_frame(self, fobj, i, ichannel=0):
+        ''' 
+        Get a particular frame in the stack
+        
+        :param fobj: file object
+        :param i: frame index
+        :param ichannel (optional): channel index (default: 0)
+        :return: frame array
+        '''
         if isinstance(fobj, BinaryFile):
             return fobj[i][0]
         elif isinstance(fobj, np.ndarray):
-            return fobj[i]
+            return fobj[i, ichannel]
         else:
-            return fobj.pages[i].asarray()
+            return fobj.pages[self.pageidx(i, ichannel=ichannel)].asarray()
     
     # def __del__(self):
     #     ''' Making sure to close all open binary file objects upon deletion. '''
@@ -108,10 +146,10 @@ class StackViewer:
         if fbounds is None:
             fbounds = [0, self.nframes - 1]
         else:
-            logger.info(f'frame frange: {fbounds}')
+            self.logfunc(f'frame frange: {fbounds}')
         return range(fbounds[0], fbounds[1] + 1)
     
-    def get_dynamic_range(self, i, frange):
+    def get_dynamic_range(self, i, frange, **kwargs):
         ''' 
         Get dynamic range of pixel values across a stack.
         
@@ -119,14 +157,14 @@ class StackViewer:
         :param frange: frame index range
         :return: lower and upper bounds of pixel values across the stack
         '''
-        logger.info(f'computing stack dynamic range across frames {frange.start} - {frange.stop -1}...')
+        self.logfunc(f'computing stack dynamic range across frames {frange.start} - {frange.stop -1}...')
         # Get vectors of min and max intensity values across frames
         Imin, Imax = self.get_frame_metric_evolution(
-            self.fobjs[i], frange, func=lambda x: (x.min(), x.max())).T
+            self.fobjs[i], frange, func=lambda x: (x.min(), x.max()), **kwargs).T
         # Get min and max values across the stack
         Imin, Imax = np.min(Imin), np.max(Imax)
         # Log and return
-        logger.info(f'stack dynamic range range: {Imin} - {Imax}')
+        self.logfunc(f'stack dynamic range range: {Imin} - {Imax}')
         return (Imin, Imax)
     
     def slider_format(self, val):
@@ -178,7 +216,7 @@ class StackViewer:
         fobj.close()
         self.fobjs[findex] = BinaryFile(Ly=Ly, Lx=Lx, read_filename=fpath)
 
-    def iter_frames(self, fobj, frange, func=None):
+    def iter_frames(self, fobj, frange, func=None, **kwargs):
         '''
         Iterate through frames and apply func
 
@@ -204,21 +242,29 @@ class StackViewer:
             self.reload_binary_file(fobj)
         else:
             for k in tqdm(list(frange)):
-                frame = self.get_frame(fobj, k)
+                frame = self.get_frame(fobj, k, **kwargs)
                 out.append(func(k, frame))
         return out
 
-    def get_frame_metric_evolution(self, fobj, frange, func=None):
+    def get_frame_metric_evolution(self, fobj, frange, func=None, **kwargs):
         ''' Compute the time course of a given frame metrics across a specific range of frames. '''
         if func is None:
             func = lambda x: x.mean()
-        xlist = self.iter_frames(fobj, frange, func=lambda _, x: func(x))
+        self.logfunc(f'computing frame-average metrics across frames {frange.start} - {frange.stop - 1}...')
+        xlist = self.iter_frames(fobj, frange, func=lambda _, x: func(x), **kwargs)
         return np.array(xlist)
 
-    def transform(self, arr):
-        ''' Transform a grayscale intensity image to a colored image using a specific colormap '''
+    def transform(self, arr, cmap):
+        ''' 
+        Transform an grayscale image to a colored image using a specific colormap
+        
+        :param arr: 2D pixel-by-pixel array of grayscale values
+        :param cmap: colormap object(s)
+        :return: 3D pixel-by-pixel-by-color array
+        '''
         # Transform array through colormap to get a (0, 1) float RGB image
-        img = self.cmap(arr)[:, :, :-1]
+        img = cmap(arr)[:, :, :-1]
+
         # Convert to uint8 and return
         return float_to_uint8(img)
     
@@ -226,24 +272,43 @@ class StackViewer:
         ''' Add label to top-right corner of a frame. '''
         return add_label_to_image(img, label, color='red')
 
-    def process_frame(self, arr, norm, i):
+    def process_frame(self, arr, norm, cmap, label):
         '''
         Process frame.
         
-        :param arr: frame array
+        :param arr: frame array(s)
         :param norm: normalizer object
+        :param cmap: colormap object(s)
+        :param label: label to add to the frame
         :return: processed frame (i.e. normalized, transformed and labeled) 
         '''
+        # If arr is a list, process each frame independently and sum outputs
+        if isinstance(arr, list):
+            outarr = np.zeros((*arr[0].shape, 3))
+            for x, n, c in zip(arr, norm, cmap):
+                outarr += self.process_frame(x, n, c, None)
+            if label:
+                outarr = self.label(outarr, label)
+            return outarr
+        
+        # If norm is not None, normalize the frame
         if norm is not None:
             arr = norm(arr)
-        arr = self.transform(arr)
-        if self.labels[i]:
-            arr = self.label(arr, self.labels[i])
+
+        # Transform the frame with colormap
+        arr = self.transform(arr, cmap)
+
+        # Add label to top-right corner of the frame, if any
+        if label:
+            arr = self.label(arr, label)
+
+        # Return processed frame
         return arr
 
     def init_view(self):
         ''' Initialize view with random data.'''
-        view = niw.NumpyImage(self.transform(np.random.rand(*self.shape)))
+        view = niw.NumpyImage(
+            self.transform(np.random.rand(*self.shape), self.cmaps[0]))
         if self.display_width is not None:
             view.width_display = self.display_width
         if self.display_height is not None:
@@ -254,12 +319,39 @@ class StackViewer:
         ''' Event handler: update view(s) upon change in slider index. '''
         # Get current frame index from slider value
         iframe = self.frame_slider.value
+
+        # Get potential label for current frame
+        label = self.labels[iframe]
+
         # Update slider readout
         self.frame_slider_label.value = self.slider_format(iframe - self.frange.start)
-        # Update view(s) with current frame
-        for i in range(len(self.fpaths)):
-            arr = self.get_frame(self.fobjs[i], iframe)
-            self.views[i].data = self.process_frame(arr, self.norms[i], iframe)
+
+        # Loop through files
+        for ifile in range(len(self.fpaths)):
+            arrs = []
+            # Loop through channels
+            for ichannel in range(self.nchannels):
+                # Get frame array
+                arr = self.get_frame(self.fobjs[ifile], iframe, ichannel=ichannel)
+                
+                # Append to list if merge is ON
+                if self.merge_channels:
+                    arrs.append(arr)
+                
+                # Otherwise, update view with processed frame
+                else:
+                    img = self.process_frame(
+                        arr, self.norms[ifile][ichannel], self.cmaps[0], label)
+                    if self.nrows > 1:
+                        self.views[ifile][ichannel].data = img
+                    else:
+                        iview = ifile if self.nchannels == 1 else ichannel
+                        self.views[iview].data = img
+            
+            # If merge is ON, update view with processed frame
+            if self.merge_channels:
+                img = self.process_frame(arrs, self.norms[ifile], self.cmaps, label)
+                self.views[ifile].data = img
     
     def get_vbounds(self, x, rel_vbounds):
         ''' Get value bounds from relative value bounds. '''
@@ -268,7 +360,7 @@ class StackViewer:
         ub = x[0] + rel_vbounds[1] * vrange
         return (lb, ub)
 
-    def init_render(self, fps=None, norm='stack', rel_vbounds=None, cmap='viridis', fbounds=None, ilabels=None, playback_speed=1.):
+    def init_render(self, fps=None, norm='stack', rel_vbounds=None, cmap=None, fbounds=None, ilabels=None, playback_speed=1.):
         '''
         Initialize stacks rendering.
         
@@ -286,60 +378,130 @@ class StackViewer:
         # Initialize fps and playback speed
         self.fps = fps
         self.playback_speed = playback_speed
+
         # Get frame range
         self.frange = self.get_frame_index_range(fbounds)
-        # Initialize label arrray
+        
+        # Initialize label arrray (e.g., to dynamically label stim frames)
         self.labels = [''] * self.nframes
         if ilabels is not None:
             for label, iframes in ilabels.items():
                 for iframe in iframes:
                     self.labels[iframe] = label
         self.labels = np.array(self.labels)
-        # Initialize colormap
+        
+        # Initialize colormap(s)
         if cmap is None:
-            cmap = 'gray'
-        self.cmap = plt.get_cmap(cmap)
+            if self.nchannels == 1 or not self.merge_channels:
+                cmap = 'gray'  # 'viridis'
+            else:
+                cmap = list(VIEWER_CMAPS.values())[:self.nchannels]
+        cmaps = as_iterable(cmap)
+        self.cmaps = [plt.get_cmap(cmap) for cmap in cmaps]
+
         # Initialize normalizers
         if norm in ('stack', 'all'):
-            # Get limits for each stack
-            lims = [self.get_dynamic_range(i, self.frange) for i in range(len(self.fobjs))]
+            # Get limits for each channel of each stack
+            lims = [
+                [self.get_dynamic_range(i, self.frange, ichannel=ich) for ich in range(self.nchannels)] 
+                 for i in range(len(self.fobjs))
+            ]
+
             # Adapt limits to relative value bounds if provided
             if rel_vbounds is not None:
-                lims = [self.get_vbounds(x, rel_vbounds) for x in lims]
-            # If norm is 'stack', use different limits for each stack
-            if norm == 'stack':
-                self.norms = [plt.Normalize(vmin=x[0], vmax=x[1]) for x in lims]
-            # If norm is 'all', use the same limits for all stacks 
-            else:
-                vmin, vmax = np.min([x[0] for x in lims]), np.max([x[1] for x in lims])
-                self.norms = [plt.Normalize(vmin=vmin, vmax=vmax)] * len(self.fobjs)
-        else:
-            self.norms = [None] * len(self.fobjs)
+                lims = [
+                    [self.get_vbounds(xx, rel_vbounds) for xx in x]
+                    for x in lims
+                ]
             
-    def render(self, *args, **kwargs):
+            # If norm is 'all', use the same limits for all stacks, per channel
+            if norm == 'all':
+                lims_per_channel = []
+                for ich in range(self.nchannels):
+                    vmin = np.min([x[ich][0] for x in lims])
+                    vmax = np.max([x[ich][1] for x in lims])
+                    lims_per_channel.append((vmin, vmax))
+                lims = [lims_per_channel for i in range(len(self.fobjs))]
+
+            self.norms = [
+                [plt.Normalize(vmin=vmin, vmax=vmax) for vmin, vmax in x]
+                for x in lims
+            ]
+            
+        else:
+            self.norms = [[None] * self.nchannels for i in range(len(self.fobjs))]
+            
+    def render(self, *args, merge_channels=True, **kwargs):
         '''
         Render stacks
         
         :param args: positional arguments passed on to init_render method
+        :param merge_channels: boolean stating whether or not to merge all channels in a single view
         :param kwargs: keyword arguments passed on to init_render method
         :return: VBox ipywidget to render the stacks interactively
         '''
+        self.merge_channels = merge_channels
         self.init_render(*args, **kwargs)
-        logger.info('rendering stack view...')
-        # Initialize views - DO NOT USE LIST COMPREHENSION HERE TO PRESERVE CLOSURE!!!
-        self.views = [] 
+        self.logfunc('rendering stack view...')
+
+        # Initialize views
+        # DO NOT USE LIST COMPREHENSION HERE TO PRESERVE CLOSURE!!!
+        if self.merge_channels:
+            self.nrows = 1
+        else:
+            self.nrows = self.nchannels if len(self.fpaths) > 1 else 1
+        self.views = []
         for i in range(len(self.fpaths)):
-            self.views.append(self.init_view())
+            if self.nrows > 1:
+                    fviews = []
+                    for j in range(self.nrows):
+                        fviews.append(self.init_view())
+                    self.views.append(fviews)
+            else:
+                for j in range(1 if self.merge_channels else self.nchannels):
+                    self.views.append(self.init_view())
+        
         # Set up slider control to change frame
         self.set_frame_slider(self.frange)
+        
         # Connect slider to image view and update view with first frame in range
         self.frame_slider.observe(self.update)
         self.update(None)
-        # Return ipywidget
-        container = HBox([VBox([self.get_header(h), v]) for h, v in zip(self.headers, self.views)])
+
+        # If 1 row only, pack all views in single HBox, and 
+        # add channel suffix to headers only if multiple channels
+        if self.nrows == 1:
+            headers = [h for h in self.headers]
+            if self.nchannels > 1 and not self.merge_channels:
+                headers = [f'{headers[0]} (channel {ich + 1})' for ich in range(self.nchannels)]
+            headers = [self.get_header(h) for h in headers]
+            rows = [HBox([VBox([h, v]) for h, v in zip(headers, self.views)])]
+        
+        # If multiple rows (i.e. multiple channels), pack each channel row in an HBox
+        else:           
+            rows = []
+            for ich in range(self.nchannels):
+                headers = [h for h in self.headers]
+                if self.nchannels > 1:
+                    headers = [f'{h} (channel {ich + 1})' for h in headers]
+                headers = [self.get_header(h) for h in headers]
+                rows.append(HBox([
+                    VBox([h, v[ich]]) for h, v in zip(headers, self.views)]))
+        
+        # Pack all rows (and potential title) in a VBox
         if self.title is not None:
-            container = HBox([VBox([self.get_header(self.title), container])])
-        return VBox([container, HBox([self.play, self.frame_slider, self.frame_slider_label])])
+            container = VBox([self.get_header(self.title), *rows])
+        else:
+            container = VBox(rows)
+        
+        # # Pack container in an 
+        # container = HBox([container])
+
+        # Pack all controls in a HBox
+        controls = HBox([self.play, self.frame_slider, self.frame_slider_label])
+
+        # Return VBox with container and controls
+        return VBox([container, controls])
 
     def save_as_gif(self, outdir, fps):
         ''' Save stack(s) as GIF(s) '''
@@ -372,7 +534,7 @@ def get_stack_viewer(fpaths, *args, **kwargs):
         headers, fpaths = zip(*fpaths.items())
         # Get title from input arguments
         title = kwargs.pop('title', None)
-        kwargs['display_size'] = 600 / len(fpaths)
+        kwargs['display_size'] = 300
     # If fpaths is a single file instance or a suite2p output options dictionary
     else:
         # Extract header from title and populate single filepaths list
@@ -387,16 +549,25 @@ def view_stack(*args, **kwargs):
     ''' Interface function to view stacks '''
     if args[0] is None:
         return
-    cmap = kwargs.pop('cmap', 'viridis')
     norm = kwargs.pop('norm', 'stack')
     rel_vbounds = kwargs.pop('rel_vbounds', None)
     fbounds = kwargs.pop('fbounds', None)
     fps = kwargs.pop('fps', None)
     ilabels = kwargs.pop('ilabels', None)
     playback_speed = kwargs.pop('playback_speed', 1.)
-    return get_stack_viewer(*args, **kwargs).render(
-        fps=fps, norm=norm, rel_vbounds=rel_vbounds, cmap=cmap, fbounds=fbounds, 
-        ilabels=ilabels, playback_speed=playback_speed)
+    merge_channels = kwargs.pop('merge_channels', True)
+    viewer = get_stack_viewer(*args, **kwargs)
+    cmap = kwargs.pop('cmap', None)
+    return viewer.render(
+        fps=fps, 
+        norm=norm, 
+        rel_vbounds=rel_vbounds, 
+        cmap=cmap,
+        fbounds=fbounds, 
+        ilabels=ilabels, 
+        playback_speed=playback_speed,
+        merge_channels=merge_channels
+    )
 
 
 def save_stack_to_gif(folder, *args, **kwargs):

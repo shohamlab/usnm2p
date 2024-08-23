@@ -612,14 +612,13 @@ def plot_stack_timecourse(*args, **kwargs):
     Plot the evolution of the average frame intensity over time, with shaded areas
     showing its standard deviation
 
-    :param correct (optional): whether to mean-correct the signal before plotting it  
-    :param ci (optional): confidence interval for shaded area (default = 95%)
+    :param correct (optional): whether to mean-correct the signal before plotting it
     '''
     # Extract args of interest 
     ax = kwargs.pop('ax', None)  # axis
     correct = kwargs.pop('correct', False)  # whether to mean-correct the signal before plotting it
-    ci = kwargs.pop('ci', .95)  # confidence interval for shaded area (default = 95%)
     title = kwargs.get('title', None)  # title
+    nchannels = kwargs.get('nchannels', 1)  # number of channels in each stack
     
     # Extract viewer rendering args
     ilabels = kwargs.pop('ilabels', None)   # index of stimulation frames 
@@ -632,67 +631,87 @@ def plot_stack_timecourse(*args, **kwargs):
     viewer.init_render(norm=norm, cmap=cmap, fbounds=fbounds, ilabels=None)
 
     # Initialize figure if not provided
+    naxes = nchannels
     if ax is None:
-        fig, ax = plt.subplots(figsize=(12, 4))
-        sns.despine()
+        fig, axes = plt.subplots(naxes, 1, figsize=(12, 3 * nchannels), sharex=True)
+        axes = np.atleast_1d(axes)
+        sns.despine(fig=fig)
         if title is None:
             title = ''
-        ax.set_title(f'{title} spatial average time course')
-        ax.set_xlabel('frames')
+        stitle = f'{title} spatial average time course'
+        if naxes == 1:
+            axes[0].set_title(stitle)
+        else:
+            fig.suptitle(stitle)
+        axes[-1].set_xlabel('frames')
         ylabel = 'average frame intensity'
         if correct:
             ylabel = f'mean corrected {ylabel}'
-        ax.set_ylabel(ylabel)
+        if naxes == 1:
+            axes[0].set_ylabel(ylabel)
+        else:
+            fig.supylabel(ylabel, x=0.05)
+            for i, ax in enumerate(axes):
+                ax.set_ylabel(f'channel {i + 1}')
         # Plot delimiters, if any
         if ilabels is not None:
             logger.info(f'adding {len(ilabels)} delimiters')
             for iframe in ilabels:
-                ax.axvline(iframe, color='k', linestyle='--')
+                for ax in axes:
+                    ax.axvline(iframe, color='k', linestyle='--')
     else:
-        fig = ax.get_figure()
+        axes = as_iterable(ax)
+        if len(axes) != nchannels:
+            raise ValueError(f'number of axes ({len(axes)}) does not match number of channels ({nchannels})')
+        fig = axes[0].get_figure()
 
-    # Determine critical z-score for specified confidence interval
-    zcrit = pvalue_to_zscore(1 - ci, directional=False)
-    
-    # For each stack file-object provided
-    for i, header in enumerate(viewer.headers):
-        
-        # Get evolution of frame average intensity and its standard deviation
-        mu, sigma = viewer.get_frame_metric_evolution(
-            viewer.fobjs[i], viewer.frange, func=lambda x: (x.mean(), x.std())).T
-        
-        # Mean-correct the signal if needed
-        if correct:
-            mu -= mu.mean()
-        
-        # Get number of pixels per frame
-        nx, ny = viewer.get_frame_shape(viewer.fobjs[i])
-        npix = nx * ny
+    # Loop through channels - axes
+    for ich, ax in enumerate(axes):
+        if nchannels > 1:
+            logger.info(f'extracting channel {ich + 1} metrics...')
 
-        # Determine standard error of the mean
-        sem = sigma / np.sqrt(npix)
-        
-        # Plot the signal with the correct label
-        inds = np.arange(mu.size)
-        ax.plot(inds, mu, label=header)
+        # For each stack file-object provided
+        for i, header in enumerate(viewer.headers):
+            
+            # Get evolution of frame average intensity and its standard deviation
+            mu, sigma = viewer.get_frame_metric_evolution(
+                viewer.fobjs[i], viewer.frange, ichannel=ich, 
+                func=lambda x: (x.mean(), x.std())).T
+            
+            # Mean-correct the signal if needed
+            if correct:
+                mu -= mu.mean()
+            
+            # Get number of pixels per frame
+            nx, ny = viewer.get_frame_shape(viewer.fobjs[i])
+            npix = nx * ny
 
-        # Plot shaded area corresponding to the defined confidence interval
-        ax.fill_between(inds, mu - zcrit * sem, mu + zcrit * sem, alpha=0.2)
-    
-    # Add/update legend
-    ax.legend(frameon=False)
+            # Determine standard error of the mean
+            sem = sigma / np.sqrt(npix)
+            
+            # Plot the signal with the correct label
+            inds = np.arange(mu.size)
+            ax.plot(inds, mu, label=header)
+
+            # Plot +/-SEM shaded area
+            ax.fill_between(inds, mu - sem, mu + sem, alpha=0.2)
+        
+        # Add/update legend
+        ax.legend(frameon=False)
     
     # Return figure handle
     return fig
 
 
-def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, fidx, title=None, tbounds=None,
+def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, fidx, nchannels=1, title=None, tbounds=None,
                                   cmap=['tab10', 'Dark2', 'Accent'], iref=None, itrial=None):
     '''
     Plot trial-averaged, pixel-averaged intensity traces from a list of run stacks
     
     :param fpaths: list of paths to TIF stacks for the different runs
     :param ntrials_per_run: number of trials per run (used for trial-averaging)
+    :param fidx: frame indexer object
+    :param nchannels (optional): number of channels in each stack
     :param title (optional): figure title
     :param tbounds (optional): time (x) axis bounds
     :param cmap (optional): colormap from which to samples traces colors
@@ -709,53 +728,79 @@ def plot_trialavg_stackavg_traces(fpaths, ntrials_per_run, fidx, title=None, tbo
     df = df.sort_values(by=Label.ISPTA)
 
     # Create figure backbone
-    fig, ax = plt.subplots()
-    sns.despine(ax=ax)
-    ax.set_xlabel(Label.TIME)
-    ax.set_ylabel(Label.DFF)
+    naxes = nchannels
+    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
+    axes = np.atleast_1d(axes)
+    sns.despine(fig=fig)
+    axes[-1].set_xlabel(Label.TIME)
+    for ax in axes:
+        ax.set_ylabel(Label.DFF)
     if tbounds is not None:
-        ax.set_xlim(*tbounds)
+        for ax in axes:
+            ax.set_xlim(*tbounds)
     if title is not None:
-        ax.set_title(title)
+        if naxes == 1:
+            axes[0].set_title(title)
+        else:
+            fig.suptitle(title)
     iframes = np.arange(npertrial)
-    ax.axvline(0., c='k', ls='--')
-    cycler = get_color_cycle(cmap, len(df))
+    for ax in axes:
+        ax.axvline(0., c='k', ls='--')
+    cycler = get_color_cycle(cmap, len(df))[:len(fpaths)]
+
+    if naxes > 1:
+        for i, ax in enumerate(axes):
+            ax.set_title(f'channel {i + 1}')
+
+    logger.info(f'plotting trial-averaged, pixel-averaged intensity traces across {len(fpaths)} stacks...')
 
     # Loop through runs of increasing intensity
-    for c, (irun, run_info) in zip(cycler, df.iterrows()):
+    for c, (irun, run_info) in zip(tqdm(cycler), df.iterrows()):
         
-        # Extract run label and movide stack
+        # Extract run label and TIF stack
         label = f'run {irun} ({run_info[Label.P]:.2f} MPa, {run_info[Label.DC]:.0f} % DC)'
         fpath = fpaths[irun]
         tplt = (iframes - fidx.iref) / run_info[Label.FPS]
-        stack = loadtif(fpath, verbose=False)
-        
-        # Average across pixels and reshape as trials x frames
-        stackavg_trace = stack.mean(axis=(-2, -1))
-        stackavg_mat = stackavg_trace.reshape((-1, npertrial))
-        
-        # Remove specific trials if specified
-        if itrial is not None:
-            stackavg_mat = stackavg_mat[itrial, :]
-        
-        # Average across trials to get mean trace
-        x = stackavg_mat.mean(axis=0)
-        
-        # Find baseline signal value 
-        if isinstance(iref, int):
-            xref = x[iref]  # specific index, if provided
-        elif isinstance(iref, str) and iref.startswith('q'):
-            q = parse_quantile(iref)
-            xref = np.quantile(x, q)  # otherwise, low quantile
+        stack = loadtif(fpath, verbose=False, nchannels=nchannels)
+
+        # Split stack into channels if needed
+        if nchannels == 1:
+            stacks = [stack]
         else:
-            raise ValueError(f'invalid reference index: {iref}')
+            stacks = [stack[:, i] for i in range(stack.shape[1])]
         
-        # Plot normalized mean trace
-        ax.plot(tplt, (x - xref) / xref, c=c['color'], label=label)
+        # For each stack
+        for ax, stack in zip(axes, stacks):
+            
+            # Average across pixels and reshape as trials x frames
+            stackavg_trace = stack.mean(axis=(-2, -1))
+            stackavg_mat = stackavg_trace.reshape((-1, npertrial))
+            
+            # Remove specific trials if specified
+            if itrial is not None:
+                stackavg_mat = stackavg_mat[itrial, :]
+            
+            # Average across trials to get mean trace
+            x = stackavg_mat.mean(axis=0)
+            
+            # Find baseline signal value 
+            if isinstance(iref, int):
+                xref = x[iref]  # specific index, if provided
+            elif isinstance(iref, str) and iref.startswith('q'):
+                q = parse_quantile(iref)
+                xref = np.quantile(x, q)  # otherwise, low quantile
+            else:
+                raise ValueError(f'invalid reference index: {iref}')
+            
+            # Plot normalized mean trace
+            ax.plot(tplt, (x - xref) / xref, c=c['color'], label=label)
     
     # Add legend
-    ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
-    
+    axes[-1].legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5))
+
+    if naxes > 1:
+        fig.subplots_adjust(wspace=0.3)
+
     # Return figure handle
     return fig
 

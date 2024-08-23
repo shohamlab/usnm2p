@@ -227,7 +227,13 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
         # Otherwise
         else:
             # Identify runs that differ from ref value 
-            current_outliers = vals[vals != ref_val].index.values.tolist()
+            try:
+                current_outliers = vals[vals != ref_val].index.values.tolist()
+            except ValueError as e:
+                logger.error(f'error when comparing {k} values:')
+                logger.error(f'vals: {vals}')
+                logger.error(f'ref_val: {ref_val}')
+                raise e
 
         # If outliers were detected, store differing setting
         if len(current_outliers) > 0:
@@ -351,7 +357,8 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
     return output_fpaths
 
 
-def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kalman_gain=None, mpi=False, overwrite=False, **kwargs):
+def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kalman_gain=None, ich=None,
+                               mpi=False, overwrite=False, **kwargs):
     ''' 
     Pre-process Bergamo dataset
     
@@ -360,6 +367,7 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kal
     :param smooth (default=False): whether to smooth stacks upon resampling or not
     :param correct (optional): code string for global correction method
     :param kalman_gain (optional): Kalman filter gain
+    :param ich (optional): channel index to keep from multi-channel stacks
     :param mpi: whether to use multiprocessing or not
     :param overwrite: whether to overwrite input files if they exist
     :return: 2-tuple with:
@@ -374,20 +382,31 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kal
         fpaths, input_root, overwrite=overwrite)
     input_root = DataRoot.STACKED
 
+    # Load daq settings from first input file
+    meta = load_acquisition_settings(os.path.dirname(fpaths[0]))
+
+    # Extract indexes of saved channels from DAQ metadata
+    ichannels = meta['SI.hChannels.channelSave']
+    ichannels = [x[0] if len(x) == 1 else x for x in ichannels]
+    nchannels = len(ichannels)
+
     # Resample TIF stacks
     if fps is not None:
         fpaths = resample_tifs(
             fpaths, input_root, fps, smooth=smooth, mpi=mpi, **kwargs)
         input_root = DataRoot.RESAMPLED
-    
-    # Split channels from run stacks
-    fpaths = split_multichannel_tifs(
-        fpaths, input_root, overwrite=overwrite)
-    input_root = DataRoot.SPLIT
 
-    # Keep only files from functional channel
-    channel_key = f'channel{FUNC_CHANNEL}'
-    fpaths = list(filter(lambda x: channel_key in x, fpaths))
+    # If channel index is specified, split TIFs by channel and keep only 
+    # specified channel for further processing
+    if ich is not None:
+        if ich not in ichannels:
+            raise ValueError(f'channel index {ich} not found in DAQ settings')
+        fpaths = split_multichannel_tifs(
+            fpaths, input_root, overwrite=overwrite)
+        input_root = DataRoot.SPLIT
+        channel_key = f'channel{ich}'
+        fpaths = list(filter(lambda x: channel_key in x, fpaths))
+        nchannels = 1
 
     # Apply stack substitution
     daq_settings = load_acquisition_settings(os.path.dirname(fpaths[0]))
@@ -397,18 +416,18 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kal
     tref = get_stim_onset_time(mouseline)
     fidx = FrameIndexer.from_time(tref, TPRE, TPOST, 1 / fps, npertrial=nframes_per_trial)
     fpaths = substitute_tifs(
-        fpaths, input_root, submap, fidx=fidx, overwrite=overwrite)
+        fpaths, input_root, submap, fidx=fidx, nchannels=nchannels, overwrite=overwrite)
     input_root = DataRoot.SUBSTITUTED
 
     # Apply global correction, if any
     if correct is not None:
         fpaths = correct_tifs(
-            fpaths, input_root, correct, overwrite=overwrite, mpi=mpi)
+            fpaths, input_root, correct, overwrite=overwrite, nchannels=nchannels, mpi=mpi)
         input_root = DataRoot.CORRECTED
     
     # Apply Kalmann filtering, if requested
     if kalman_gain is not None and kalman_gain > 0:
-        kd = KalmanDenoiser(G=kalman_gain, V=0.05, npad=10)
+        kd = KalmanDenoiser(G=kalman_gain, V=0.05, npad=10, nchannels=nchannels)
         fpaths = process_and_save(kd, fpaths, input_root, overwrite=overwrite)
         input_root = DataRoot.FILTERED
      

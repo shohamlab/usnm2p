@@ -38,6 +38,8 @@ if __name__ == '__main__':
         '-c-', '--correct', type=str, help='global correction method')
     parser.add_argument(
         '-k', '--kalman-gain', type=float, default=0, help='Kalman filter gain')
+    parser.add_argument(
+        '--ich', type=int, help='channel index')
 
     # Parse command line arguments
     args = parser.parse_args()

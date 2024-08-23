@@ -23,7 +23,9 @@ from .fileops import get_output_equivalent, parse_overwrite
 from .utils import itemize
 
 default_output_files = ['ops.npy', 'data.bin']
+chan2_output_files = ['data_chan2.bin']
 roidetect_output_files = [f'{k}.npy' for k in ['iscell', 'stat', 'F', 'Fneu', 'spks']]
+roidetect_chan2_output_files = ['F_chan2.npy', 'Fneu_chan2.npy']
 
 
 def get_normalized_options(ops, defops):
@@ -142,8 +144,12 @@ def run_s2p_and_rename(ops=None, db=None, overwrite=True, input_key='filtered'):
 
     # List expected output files from run options
     s2p_output_files = default_output_files.copy()
+    if ops['nchannels'] == 2:
+        s2p_output_files = s2p_output_files + chan2_output_files.copy()
     if ops.get('roidetect', True):
         s2p_output_files = s2p_output_files + roidetect_output_files.copy()
+        if ops['nchannels'] == 2:
+            s2p_output_files = s2p_output_files + roidetect_chan2_output_files.copy()
 
     # For each input directory
     excluded_dirs = []
@@ -238,19 +244,35 @@ def get_suite2p_data(dirpath, cells_only=False, withops=False, **kwargs):
     :param withops: whether include a dictionary of options and intermediate outputs.
     :return: suite2p output dictionary with extra "roi" and "is_valid" column
     '''
+    # Check that directory exists
     if not os.path.isdir(dirpath):
         raise ValueError(f'"{dirpath}" directory does not exist')
-    data = {os.path.splitext(k)[0]: np.load(os.path.join(dirpath, k), allow_pickle=True)
-            for k in roidetect_output_files} 
+
+    # Determine which files to load (based on presence of channel 2 data)
+    fnames = roidetect_output_files.copy()
+    if os.path.isfile(os.path.join(dirpath, 'F_chan2.npy')):
+        fnames = fnames + roidetect_chan2_output_files.copy()
+    
+    # Load suite2p output files
+    data = {
+        os.path.splitext(k)[0]: np.load(os.path.join(dirpath, k), allow_pickle=True)
+            for k in fnames} 
+
     # If specified, restrict dataset to cells only
     if cells_only:
         iscell = data.pop('iscell')[:, 0]  # the full "iscell" has a second column with the probability of being a cell
         cell_idx = np.array(iscell.nonzero()).reshape(-1)
         data = {k : v[cell_idx] for k, v in data.items()}
+    
+    # Add output options if requested
     if withops:
         data['ops'] = get_suite2p_options(dirpath, **kwargs)
+    
+    # Log number of ROIs
     nROIs = len(data['stat'])
     logger.info(f'extracted data contains {nROIs} ROIs')
+
+    # Return data dictionary
     return data
 
 
@@ -259,9 +281,13 @@ def filter_s2p_data(data, ivalids):
     return {k: v[ivalids] if isinstance(v, np.ndarray) else v for k, v in data.items()}
 
 
-def open_binary_file(ops):
+def open_binary_file(ops, key='reg_file'):
     ''' Open binary file linked to options dictionary '''
-    return BinaryFile(Ly=ops['Ly'], Lx=ops['Lx'], read_filename=ops['reg_file'])
+    return BinaryFile(
+        Ly=ops['Ly'],
+        Lx=ops['Lx'], 
+        read_filename=ops[key]
+    )
 
 
 def extract_s2p_background(ops, stat):
@@ -302,13 +328,24 @@ def get_s2p_stack(ops, bounds=None, factor=1):
     for suite2p input normalization)
     :return: (nframes, ny, nx) data array
     '''
+    logger.info('loading suite2p binary stack...')
     with open_binary_file(ops) as fobj:
-        logger.info('loading suite2p binary stack...')
         data = fobj.data
+    data_chan2 = None
+    if 'reg_file_chan2' in ops:
+        with open_binary_file(ops, key='reg_file_chan2'):
+            data_chan2 = fobj.data
     if bounds is not None:
         logger.info(f'extracting {bounds} stack slice...')
         data = data[bounds[0]:bounds[1] + 1]
-    return data * factor
+        if data_chan2 is not None:
+            data_chan2 = data_chan2[bounds[0]:bounds[1] + 1]
+    data = data * factor
+    if data_chan2 is not None:
+        data_chan2 = data_chan2 * factor
+        return data, data_chan2
+    else:
+        return data
 
 
 def get_s2p_stack_label(ops):

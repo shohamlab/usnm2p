@@ -104,7 +104,7 @@ class LinRegCorrector(Corrector):
         super().__init__(**kwargs)
     
     @classmethod
-    def from_string(cls, s):
+    def from_string(cls, s, nchannels=1):
         ''' Instantiate class from string code '''
 
         # Check if string code is compatible with class
@@ -139,7 +139,7 @@ class LinRegCorrector(Corrector):
                 raise ValueError(f'unknown parameter: "{item}"')
         
         # Instantiate class with extracted parameters
-        return cls(**params)
+        return cls(**params, nchannels=nchannels)
         
     @property
     def robust(self):
@@ -984,23 +984,24 @@ class MeanCorrector(Corrector):
 #         return stack
 
 
-def correct_tifs(input_fpaths, input_key, method, **kwargs):
+def correct_tifs(input_fpaths, input_key, method, nchannels=1, **kwargs):
     '''
     High-level stack detrending function
 
     :param input_fpaths: list of full paths to input TIF stacks
     :param input_key: input key for output path replacement
     :param method: correction method to apply
+    :param nchannels: number of channels in input TIFs
     :return: list of detrended TIF stacks
     '''
     # If 'linreg' in method, instantiate corrector from string
     if 'linreg' in method:
-        corrector = LinRegCorrector.from_string(method)
+        corrector = LinRegCorrector.from_string(method, nchannels=nchannels)
     # Otherwise, instantiate corrector from method name
     elif method == 'median':
-        corrector = MedianCorrector()
+        corrector = MedianCorrector(nchannels=nchannels)
     elif method == 'mean':
-        corrector = MeanCorrector()
+        corrector = MeanCorrector(nchannels=nchannels)
     else:
         raise ValueError(f'unknown correction method: {method}')
     # # Apply exponential detrending
