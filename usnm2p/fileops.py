@@ -737,7 +737,7 @@ def save_figs(figsroot, figs, ext='png'):
         v.savefig(os.path.join(figsdir, fname), transparent=True, bbox_inches='tight')
 
 
-def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks):
+def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks, isch2ROI=None):
     '''
     Save conditioned dataset into HDF5 file. 
     
@@ -746,6 +746,7 @@ def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, R
     :param popagg_timeseries: multi-indexed (run, trial, frame) population-average timeseries dataframe
     :param info_table: dataframe containing the information about experimental parameters for each run
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
+    :param isch2ROI (optional): ROI-indexed series defining whether each ROI is also detected on channel 2 (for 2-channel data only)
     '''
     # Remove output file if it exists
     if os.path.isfile(fpath):
@@ -764,6 +765,10 @@ def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, R
         # Save ROI masks
         logger.info('saving ROI masks...')
         store['ROI_masks'] = ROI_masks
+        # Save isch2ROI mapping if provided
+        if isch2ROI is not None:
+            logger.info('saving isch2ROI mapping...')
+            store['isch2ROI'] = isch2ROI
     logger.info('data successfully saved')
 
 
@@ -792,8 +797,13 @@ def load_conditioned_dataset(fpath):
         # Load ROI masks
         logger.info('loading ROI masks...')
         ROI_masks = store['ROI_masks']
+        # Load isch2ROI mapping if present
+        isch2ROI = None
+        if 'isch2ROI' in store:
+            logger.info('loading isch2ROI mapping...')
+            isch2ROI = store['isch2ROI']
     logger.info('data successfully loaded')
-    return timeseries, popagg_timeseries, info_table, ROI_masks
+    return timeseries, popagg_timeseries, info_table, ROI_masks, isch2ROI
 
 
 def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats, triagg_stats, ROI_masks, map_ops):

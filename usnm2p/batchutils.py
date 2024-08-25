@@ -60,7 +60,7 @@ def get_prepro_id(submap=None, global_correction=None, kalman_gain=KALMAN_GAIN):
     return os.path.join(*codes[::-1])
 
 
-def get_s2p_id(fs, tau, do_registration=1, reg_tif=True, nonrigid=True, denoise=False):
+def get_s2p_id(fs, tau, do_registration=1, reg_tif=True, nonrigid=True, denoise=False, nchannels=1, reg_tif_chan2=True):
     ''' 
     Get code string corresponding to suite2p execution options
     
@@ -71,6 +71,8 @@ def get_s2p_id(fs, tau, do_registration=1, reg_tif=True, nonrigid=True, denoise=
     :param nonrigid: whether or not to perform non-rigid registration, which splits the
       field of view into blocks and computes registration offsets in each block separately.
     :param denoise: perform PCA denoising of the registered stack prior to ROI detection
+    :param nchannels: number of functional channels (default: 1)
+    :param reg_tif_chan2: whether or not to write the registered binary to tiff files for channel 2 (only for 2-channel data)
     :return ID string
     '''
     s2p_ops = {
@@ -81,6 +83,9 @@ def get_s2p_id(fs, tau, do_registration=1, reg_tif=True, nonrigid=True, denoise=
         'nonrigid': nonrigid,
         'denoise': denoise,
     }
+    if nchannels == 2:
+        s2p_ops['nchannels'] = nchannels
+        s2p_ops['reg_tif_chan2'] = reg_tif_chan2
     defops = default_ops()
     s2p_ops = get_normalized_options(s2p_ops, defops)            
     diff_from_default_ops = compare_options(s2p_ops, defops)['input'].to_dict()
@@ -132,7 +137,8 @@ def get_stats_id(ykey_classification):
 
 def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalman_gain, 
                        neuropil_scaling_coeff, baseline_quantile, baseline_wquantile, 
-                       baseline_wsmoothing, trial_aggfunc, ykey_classification, directional):
+                       baseline_wsmoothing, trial_aggfunc, ykey_classification, directional,
+                       func_channel=None):
     '''
     Get batch analysis settings
 
@@ -148,6 +154,7 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     :param trial_aggfunc: trial aggregation function
     :param ykey_classification: name of variable used for response classification
     :param directional: whether or not to perform directional analysis
+    :param func_channel: functional channel (only for 2-channel data)
     '''
     logger.info('assembling batch analysis settings...')
     # Construct dataset group ID
@@ -160,11 +167,16 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     submap = get_submap(mouseline)
 
     # Construct processing IDs
+    nchannels = 1
     prepro_id = get_prepro_id(submap=submap, global_correction=global_correction, kalman_gain=kalman_gain)
     if mouseline == 'cre_sst':
-        channel_id = f'channel{FUNC_CHANNEL}'
         resampling_id = StackResampler(BERGAMO_SR, BERGAMO_RESAMPLED_SR, smooth=True).code
-        prepro_id = os.path.join(prepro_id, channel_id, resampling_id)
+        if func_channel is not None:
+            channel_id = f'channel{func_channel}'
+            prepro_id = os.path.join(prepro_id, channel_id, resampling_id)
+        else:
+            prepro_id = os.path.join(prepro_id, resampling_id)
+            nchannels = 2
 
     baseline_id = get_baseline_id(baseline_quantile, baseline_wquantile, baseline_wsmoothing)
     conditioning_id = f'alpha{neuropil_scaling_coeff}_{baseline_id}'
@@ -188,24 +200,27 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     gcamp_key = '7f' if mouseline == 'cre_sst' else '6s'
     tau = GCAMP_DECAY_TAU[gcamp_key]
     fs = BERGAMO_RESAMPLED_SR if mouseline == 'cre_sst' else BRUKER_SR
-    
+
+    # Get suite2p ID
+    s2pid = get_s2p_id(fs, tau, nchannels=nchannels)
+
     # Get stats input data directory
     if mouseline is not None:
         input_root = get_data_root(kind=DataRoot.PROCESSED)
         input_dir = os.path.join(
-            input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), prepro_id, analysis_type, mouseline)
+            input_root, processing_id, conditioning_id, s2pid, prepro_id, analysis_type, mouseline)
     else:    
         input_root = get_data_root(kind=DataRoot.LINEAGG)
         if isinstance(prepro_id, dict):
             input_dir = {
                 k: os.path.join(
-                    input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), v, analysis_type)
+                    input_root, processing_id, conditioning_id, s2pid, v, analysis_type)
                 for k, v in prepro_id.items()
             }
             intput_dir = {k: v for k, v in input_dir.items() if os.path.exists(v)}
         else:
             input_dir = os.path.join(
-                input_root, processing_id, conditioning_id, get_s2p_id(fs, tau), prepro_id, analysis_type)
+                input_root, processing_id, conditioning_id, s2pid, prepro_id, analysis_type)
     
     # Get figures directory
     figsdir = get_data_root(kind=DataRoot.FIG)
