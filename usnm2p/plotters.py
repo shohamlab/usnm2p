@@ -1226,7 +1226,7 @@ def plot_suite2p_sparse_maps(ops, um_per_px=None):
     return fig
 
 
-def get_image_and_cmap(ops, key, cmap, pad=True):
+def get_image_and_cmap(ops, key, cmap, pad=True, pad_value=np.nan):
     '''
     Extract a reference image from the suite2p options dictionary, pad it if needed
     
@@ -1234,28 +1234,59 @@ def get_image_and_cmap(ops, key, cmap, pad=True):
     :param key: key used to access image in options dictionary
     :param cmap: colormap (string) used to render image
     :param pad: whether to pad image boundaries truncated by registration (default = True)
+    :param pad_value: value used to pad image (default = np.nan)
     :return: image array and colormap used to render it
     '''
-    # Get colormap
-    cmap = plt.get_cmap(cmap).copy()
-    cmap.set_bad(color='silver')
+    # If multiple keys are provided
+    if is_iterable(key):
+        # Extract reference images
+        refimgs = [ops[k] for k in key]
 
-    # Extract reference image
-    refimg = ops[key]
+        # Check that all images have the same shape
+        dims = [r.shape for r in refimgs]
+        if not all([d == dims[0] for d in dims]):
+            raise ValueError(f'extracted reference images do not have the same shape: {dims}')
     
-    # If required, apply NaN padding to match original frame dimensions
-    Lyc, Lxc = refimg.shape
+        # Normalize images to [0, 1]
+        refimgs = [r - r.min() for r in refimgs]
+        refimgs = [r / r.max() for r in refimgs]
+
+        # Merge them into RGB image
+        if len(refimgs) > 3:
+            raise ValueError(f'too many images ({len(refimgs)}) to merge into RGB image')
+
+        Lyc, Lxc = dims[0]
+        refimg = np.zeros((*dims[0], 3))
+        refimgs = [r for _, r in sorted(zip([1, 0, 2], refimgs))]
+        for i, r in enumerate(refimgs):
+            refimg[..., i] = r
+        
+        # Set colormap to None and pad value to RGB gray (0.5, 0.5, 0.5)
+        cmap = None
+        pad_value = (0.5, 0.5, 0.5)
+    
+    # If single key is provided
+    else:
+        # Get colormap
+        cmap = plt.get_cmap(cmap).copy()
+        cmap.set_bad(color='silver')
+
+        # Extract reference image
+        refimg = ops[key]
+        Lyc, Lxc = refimg.shape
+    
+    # If required, apply pad value padding to match original frame dimensions
     Ly, Lx = ops['Ly'], ops['Lx']
     if (Lxc < Lx) or (Lyc < Ly) and pad:
         dy, dx = (Ly - Lyc) // 2, (Lx - Lxc) // 2
-        refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=np.nan)
+        refimg = np.pad(refimg, ((dy, dy), (dx, dx)), constant_values=pad_value)
     
     # Return reference image and colormap as a tuple
     return refimg, cmap
 
 
 def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
-                      superimpose=True, mode='contour', refkey='Vcorr', alpha_ROIs=1.,
+                      superimpose=True, mode='contour', refkey=None, alpha_ROIs=1.,
                       cmap='viridis'):
     ''' Plot regions of interest identified by suite2p.
 
@@ -1266,7 +1297,7 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
         :param norm_mask (default: True): whether to normalize mask values for each ROI
         :param superimpose (default: True): whether to superimpose ROIs on reference image
         :param mode (default: contour): ROIs render mode ('fill' or 'contour')
-        :param refkey: key of reference image to fetch from options dictionary
+        :param refkey: key of reference image to fetch from options dictionary. If None, it is inferred from the options dictionary
         :param alpha_ROIs (default: 1): opacity value for ROIs rendering (only in 'fill' mode)
         :param cmap (default: viridis): colormap used to render reference image 
         :return: figure handle
@@ -1275,18 +1306,27 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
     
     # Fetch parameters from data
     iscell = data['iscell'][:, 0].astype(int)
+    isredcell = None
+    if 'redcell' in data:
+        isredcell = data['redcell'][:, 0].astype(int)
     stats = data['stat']
     Ly, Lx = ops['Ly'], ops['Lx']
 
-    # Initialize pixel matrices
+    # Initialize 1 global mask per axis
     Z = np.zeros((2, iscell.size, Ly, Lx), dtype=np.float32)
+
+    # Fill mode: assign random hues to each ROI
     if mode in ['fill', 'both']:
-        # nROIs random hues
         hues = np.random.rand(len(iscell))
         hsvs = np.zeros((2, Ly, Lx, 3), dtype=np.float32)
+    
+    # Contour mode: create meshgrid for contour plotting
     if mode in ['contour', 'both']:
         X, Y = np.meshgrid(np.arange(Lx), np.arange(Ly))
-        contour_color = {0: 'tab:red', 1: 'tab:orange'}
+        contour_color = {0: ['tab:red'], 1: ['tab:orange']}
+        if isredcell is not None:
+            contour_color[0].append('tab:pink')
+            contour_color[1].append('tab:purple')
     
     # Loop through each ROI coordinates
     for i, stat in enumerate(stats):
@@ -1294,8 +1334,11 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
         # Get x, y pixels and associated mask values of ROI
         ypix, xpix, lam = stat['ypix'], stat['xpix'], stat['lam']
         
-        # Set Z to ROI 1
+        # Set Z to ROI 1 (or 2 if redcell) at ROI pixels
         Z[iscell[i], i, ypix, xpix] = 1
+        if isredcell is not None and isredcell[i]:
+            Z[iscell[i], i, ypix, xpix] += 1
+
         if mode in ['fill', 'both']:
             
             # Normalize mask values if specified
@@ -1325,8 +1368,13 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
     fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 5))
     if title is not None:
         fig.suptitle(title)
-    
-    # Plot reference image 
+
+    # Plot reference image(s)
+    if refkey is None:
+        if 'meanImg_chan2_corrected' in ops:
+            refkey = ['meanImg', 'meanImg_chan2_corrected']
+        else:
+            refkey = 'Vcorr'
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=superimpose)
     for ax in axes[iref]:
         if not superimpose:
@@ -1336,14 +1384,26 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
     # Plot cell and non-cell ROIs
     for iax, iscell_bool, label in zip([icell, inoncell], [1, 0], ['Cell', 'Non-cell']):
         ax = axes[iax]
-        ax.set_title(f'{label} ROIs ({np.sum(iscell == iscell_bool)})')
-        if mode in ['contour', 'both']:  # "contour" mode
+        nrois = np.sum(iscell == iscell_bool)
+        axtitle = f'{nrois} {label} ROI'
+        if nrois > 1:
+            axtitle += 's'
+        if isredcell is not None:
+            nredcells = np.sum(isredcell & (iscell == iscell_bool))
+            axtitle += f' ({nredcells} overlapped w. ch2)'
+        ax.set_title(axtitle)
+
+        # "contour" mode: plot contours of ROIs
+        if mode in ['contour', 'both']:
             for z in Z[iscell_bool]:
                 if z.max() > 0:
-                    ax.contour(X, Y, z, levels=[.5], colors=[contour_color[iscell_bool]])
+                    ax.contour(
+                        X, Y, z, levels=[.5, 1.5], colors=contour_color[iscell_bool])
             if not superimpose:
                 ax.set_aspect(1.)
-        if mode in ['fill', 'both']:  # "fill" mode
+
+        # "fill" mode: plot filled ROIs as imshow
+        if mode in ['fill', 'both']:
             ax.imshow(rgbs[iscell_bool])
 
     # Add scale bar if scale provided
@@ -1358,7 +1418,7 @@ def plot_suite2p_ROIs(data, ops, title=None, um_per_px=None, norm_mask=True,
     return fig
 
 
-def plot_suite2p_ROI_probs(iscell):
+def plot_suite2p_ROI_probs(iscell, label='cell'):
     '''
     Plot the histogram distribution of posterior probabilities of each ROIdistribution
     
@@ -1375,7 +1435,7 @@ def plot_suite2p_ROI_probs(iscell):
     
     # Create figure
     fig, ax = plt.subplots()
-    ax.set_title('posterior cell probability distributions')
+    ax.set_title(f'posterior {label} probability distributions')
     sns.despine(ax=ax)
     
     # Plot histogram distribution of both classes 
@@ -1947,7 +2007,7 @@ def get_cells_mplobjs(ROI_masks, Fstats, dims, mode='contour', hue=None, verbose
 
 
 def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=None,
-                       refkey='Vcorr', mode='contour', cmap='viridis', 
+                       refkey=None, mode='contour', cmap='viridis', 
                        hue=None, legend=True, alpha_ROIs=0.7, ax=None, 
                        verbose=True, qmin=None, qmax=None):
     '''
@@ -1981,13 +2041,18 @@ def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=N
         ax.set_title(title, fontsize=10)
     
     # Plot reference image with optional color bounding
+    if refkey is None:
+        if 'meanImg_chan2_corrected' in ops:
+            refkey = ['meanImg', 'meanImg_chan2_corrected']
+        else:
+            refkey = 'Vcorr'
     refimg, cmap = get_image_and_cmap(ops, refkey, cmap, pad=True)
     vmin, vmax = None, None
     if qmin is not None:
         vmin = np.nanquantile(refimg, qmin)
     if qmax is not None:
         vmax = np.nanquantile(refimg, qmax)
-    ax.imshow(refimg, cmap=cmap, origin='lower', vmin=vmin, vmax=vmax)
+    ax.imshow(refimg, cmap=cmap, vmin=vmin, vmax=vmax)
 
     # Add scale bar if scale provided
     if um_per_px is not None:
@@ -2013,7 +2078,7 @@ def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=N
                 ))
             # "fill" mode: add mask of ROIs union
             else:
-                ax.imshow(pp, origin='lower')
+                ax.imshow(pp)
 
         # Add legend
         if legend:

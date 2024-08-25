@@ -111,6 +111,7 @@ class Label:
     POS_COND = 'positive condition?'
 
     # ROI classification 
+    CH2_ROI = 'CH2 ROI'
     ROI_COUNT = '# ROIs'
     ROI_DENSITY = 'cells / mm2'
     NPOS_CONDS = f'# {POS_COND[:-1]}s'

@@ -44,7 +44,7 @@ class StackViewer:
     npix_label = 10 # number of pixels used for upper-right labeling
     
     def __init__(self, fpaths, headers, title=None, continuous_update=True, display_size=350, 
-                 nchannels=1, verbose=True):
+                 nchannels=1, verbose=True, **kwargs):
         '''
         Initialization.
 
@@ -57,7 +57,7 @@ class StackViewer:
         self.logfunc = logger.info if verbose else logger.debug
         self.fpaths = fpaths
         self.logfunc('initializing stack viewer')
-        self.fobjs = [self.get_fileobj(fp) for fp in self.fpaths]
+        self.fobjs = [self.get_fileobj(fp, **kwargs) for fp in self.fpaths]
         self.headers = headers
         self.title = title
         self.nchannels = nchannels
@@ -85,13 +85,13 @@ class StackViewer:
         l.append(f'{self.shape[1]}-by-{self.shape[0]} pixels')
         return f'{self.__class__.__name__}({", ".join(l)})'
 
-    def get_fileobj(self, fpath):
+    def get_fileobj(self, fpath, s2pkey='reg_file'):
         ''' Get the binary file object corresponding to a file path '''
         if isinstance(fpath, dict):
             return BinaryFile(
                 Ly=fpath['Ly'], 
                 Lx=fpath['Lx'], 
-                read_filename=fpath['reg_file']
+                read_filename=fpath[s2pkey]
             )
         elif isinstance(fpath, np.ndarray):
             return fpath

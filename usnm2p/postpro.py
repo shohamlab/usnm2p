@@ -831,6 +831,10 @@ def get_trial_aggregated(data, aggfunc=None, full_output=False):
     # Remove time column if present
     if Label.TIME in agg_data:
         del agg_data[Label.TIME]
+
+    # If channel2 ROI is present, re-cast to boolean
+    if Label.CH2_ROI in agg_data:
+        agg_data[Label.CH2_ROI] = agg_data[Label.CH2_ROI].astype(bool)
     
     # Rename relevant input columns to their trial-aggregated meaning
     # from constants import Label

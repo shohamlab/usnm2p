@@ -25,7 +25,7 @@ from .utils import itemize
 default_output_files = ['ops.npy', 'data.bin']
 chan2_output_files = ['data_chan2.bin']
 roidetect_output_files = [f'{k}.npy' for k in ['iscell', 'stat', 'F', 'Fneu', 'spks']]
-roidetect_chan2_output_files = ['F_chan2.npy', 'Fneu_chan2.npy']
+roidetect_chan2_output_files = ['F_chan2.npy', 'Fneu_chan2.npy', 'redcell.npy']
 
 
 def get_normalized_options(ops, defops):
@@ -232,6 +232,8 @@ def get_suite2p_options(dirpath, s2p_outdir=None):
             ops[k] = s2p_outdir
         ops['ops_path'] = os.path.join(s2p_outdir, 'ops.npy')
         ops['reg_file'] = os.path.join(s2p_outdir, 'data.bin')
+        if ops['nchannels'] == 2:
+            ops['reg_file_chan2'] = os.path.join(s2p_outdir, 'data_chan2.bin')
     return ops
 
 
@@ -333,8 +335,8 @@ def get_s2p_stack(ops, bounds=None, factor=1):
         data = fobj.data
     data_chan2 = None
     if 'reg_file_chan2' in ops:
-        with open_binary_file(ops, key='reg_file_chan2'):
-            data_chan2 = fobj.data
+        with open_binary_file(ops, key='reg_file_chan2') as fobj2:
+            data_chan2 = fobj2.data
     if bounds is not None:
         logger.info(f'extracting {bounds} stack slice...')
         data = data[bounds[0]:bounds[1] + 1]
