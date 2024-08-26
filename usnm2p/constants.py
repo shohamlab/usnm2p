@@ -111,7 +111,8 @@ class Label:
     POS_COND = 'positive condition?'
 
     # ROI classification 
-    CH2_ROI = 'CH2 ROI'
+    CH2_ROI_PROB = 'CH2 ROI prob.'
+    CH2_ROI = 'CH2 ROI?'
     ROI_COUNT = '# ROIs'
     ROI_DENSITY = 'cells / mm2'
     NPOS_CONDS = f'# {POS_COND[:-1]}s'
@@ -271,7 +272,7 @@ GLOBAL_CORRECTION = {
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
-    'cre_sst': None, #'linreg_robust',
+    'cre_sst': None, #'linreg_robust', 'linreg_nointercept_refch2'
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
@@ -415,6 +416,14 @@ class Palette:
         start=.5, rot=-.5, reverse=True, as_cmap=True)
     GREEN = sns.dark_palette(  # For green-scale images
         'green', as_cmap=True)
+    CH2_ROI = {  # CH2 ROI
+        False: 'silver',
+        True: 'tab:orange'
+    }
+    DEAFENING = {  # colors for pre- and post-deafening data
+        'pre-deafening': 'C2', 
+        'post-deafening': 'C5'
+    }
 
 # Sweep markers
 sweep_markers = {

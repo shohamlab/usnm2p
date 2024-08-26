@@ -511,6 +511,31 @@ class StackProcessor(metaclass=abc.ABCMeta):
     def save_stack(self, fpath, stack, **kwargs):
         ''' Save stack to TIF file. '''
         savetif(fpath, stack, **kwargs)
+
+    def _run(self, stack):
+        '''
+        Wrapper around run method to handle multi-channel stacks
+
+        :param stack: input stack array
+        :return: output stack array (s)
+        '''
+        # If stack is 3D, simply process it 
+        if stack.ndim == 3:
+            return self.run(stack)
+        
+        # If stack is 4D (i.e., multi-channel), process each channel (2nd dimension) 
+        # separately and recombine
+        elif stack.ndim == 4:
+            chax = 1  # channel axis
+            outstack = []
+            for i in range(stack.shape[chax]):
+                logger.info(f'working on channel {i + 1}...')
+                outstack.append(self.run(stack[:, i]))
+            return np.stack(outstack, axis=chax)
+        
+        # Otherwise, raise error
+        else:
+            raise ValueError(f'input stack has unsupported shape: {stack.shape}')
     
     def load_run_save(self, input_fpath):
         '''
@@ -542,20 +567,9 @@ class StackProcessor(metaclass=abc.ABCMeta):
         
         # Load input
         input_stack = self.load_stack(input_fpath)
-        
-        # If stack is 3D, simply process it 
-        if input_stack.ndim == 3:
-            output_stack = self.run(input_stack)
-        # If stack is 4D (i.e., multi-channel), process each channel (2nd dimension) 
-        # separately and recombine
-        elif input_stack.ndim == 4:
-            channelax = 1
-            nchannels = input_stack.shape[channelax]
-            output_stack = np.stack([
-                self.run(input_stack[:, i]) for i in range(nchannels)], axis=channelax)
-        # Otherwise, raise error
-        else:
-            raise ValueError(f'input stack has unsupported shape: {input_stack.shape}')
+
+        # Process stack
+        output_stack = self._run(input_stack)
 
         # Save output
         self.save_stack(output_fpath, output_stack, overwrite=overwrite)

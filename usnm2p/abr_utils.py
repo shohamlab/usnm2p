@@ -43,7 +43,7 @@ def parse_ABR_parameters(fcode):
     year, month, day, condition, side, freq, level, acq = match.groups()
     return {
         'date': f'{year}-{month}-{day}',
-        'condition': condition,
+        'condition': f'{condition}-deafening',
         'ear': side,
         'freq (kHz)': int(freq),
         'level (dB)': int(level) if level != 'x' else np.nan,

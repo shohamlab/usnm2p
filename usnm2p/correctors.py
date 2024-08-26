@@ -31,6 +31,28 @@ class NoCorrector(NoProcessor):
 
 class Corrector(StackProcessor):
 
+    def __init__(self, refch=None, **kwargs):
+        ''' 
+        Initialization
+        
+        :param refch (optional): reference channel index (1-based) to use for correction (for multi-channel stacks only)
+        '''
+        super().__init__(**kwargs)
+        self.refch = refch
+    
+    @property
+    def refch(self):
+        return self._refch
+
+    @refch.setter
+    def refch(self, value):
+        if value is not None:
+            if not isinstance(value, int):
+                raise ValueError('reference channel must be an integer')
+            if value not in range(1, self.nchannels + 1):
+                raise ValueError(f'reference channel must be between 1 and {self.nchannels}')        
+        self._refch = value
+
     @property
     def rootcode(self):
         return 'corrected'
@@ -42,15 +64,6 @@ class Corrector(StackProcessor):
         :param stack: input image stack
         :return: processed image stack
         '''
-        # For multi-channel stack, process each channel separately
-        if stack.ndim > 3:
-            outstack = []
-            for i in range(stack.shape[1]):
-                logger.info(f'working on channel {i + 1}...')
-                outstack.append(self.run(stack[:, i]))
-            outstack = np.stack(outstack)
-            return np.swapaxes(outstack, 0, 1)
-        
         # Apply correction function, and return
         return self.correct(stack)
     
@@ -135,6 +148,8 @@ class LinRegCorrector(Corrector):
                 params['custom'] = True
             elif item.startswith('wc'):
                 params['wc'] = float(item[2:])
+            elif item.startswith('refch'):
+                params['refch'] = int(item[5:])
             else:
                 raise ValueError(f'unknown parameter: "{item}"')
         
@@ -233,6 +248,8 @@ class LinRegCorrector(Corrector):
             plist.append('custom')
         if self.wc is not None:
             plist.append(f'wc={self.wc}')
+        if self.refch is not None:
+            plist.append(f'refch={self.refch}')
         pstr = ', '.join(plist)
         return f'{self.__class__.__name__}({pstr})'
         
@@ -255,6 +272,8 @@ class LinRegCorrector(Corrector):
             clist.append('custom')
         if self.wc is not None:
             clist.append(f'wc{self.wc:.2f}')
+        if self.refch is not None:
+            clist.append(f'refch{self.refch}')
         s = 'linreg'
         if len(clist) > 0:
             cstr = '_'.join(clist)
@@ -323,6 +342,12 @@ class LinRegCorrector(Corrector):
         '''
         # Compute bounding values corresponding to input quantiles 
         qmax = self.get_qmax(img)
+
+        # If entire image is selected, return full mask
+        if self.qmin == 0 and qmax == 1:
+            return np.ones(img.shape, dtype=bool)
+
+        # Compute quantile bounds
         vbounds = np.quantile(img, [self.qmin, qmax])
         
         # Create boolean mask of pixels within quantile range
@@ -756,6 +781,31 @@ class LinRegCorrector(Corrector):
         # Return figure handle
         return fig
     
+    def _run(self, stack):
+        '''
+        Overwrite parent method to allow for processing of multi-channel stack
+        with reference channel
+        '''
+        # If stack is 3D or no reference channel is given, call parent method 
+        if stack.ndim == 3 or self.refch is None:
+            return self.run(stack)
+        
+        # Verify that stack is 4D
+        if stack.ndim != 4:
+            raise ValueError(f'input stack has unsupported shape: {stack.shape}')
+        
+        # Run correction fit for reference channel
+        logger.info(f'extracting fit parameters from channel {self.refch}...')
+        params = self.fit(stack[:, self.refch - 1])
+
+        # Process each channel separately and recombine
+        chax = 1  # channel axis
+        outstack = []
+        for i in range(stack.shape[chax]):
+            logger.info(f'correcting channel {i + 1} with extracted fit parameters...')
+            outstack.append(self.correct(stack[:, i], regparams=params))
+        return np.stack(outstack, axis=chax)
+    
     def correct(self, stack, regparams=None):
         ''' Correct image stack with linear regresion to reference frame '''
         # Save input data type and cast as float64 for increased precision
@@ -779,8 +829,8 @@ class LinRegCorrector(Corrector):
         corrected_stack = (stack - intercepts) / slopes
 
         # If negative values are found, offset stack to obtain only positive values
-        if corrected_stack.min() < 0:
-            logger.warning('negative values found in corrected stack -> offseting to 1')
+        if stack.min() >=0 and corrected_stack.min() < 0:
+            logger.warning('correction produced negative values -> offseting output stack to 1')
             corrected_stack = corrected_stack - corrected_stack.min() + 1
 
         # Adapt stack range to fit within input data type numerical bounds

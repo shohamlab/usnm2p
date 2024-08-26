@@ -133,8 +133,10 @@ class StackViewer:
             return fobj[i][0]
         elif isinstance(fobj, np.ndarray):
             return fobj[i, ichannel]
-        else:
+        elif isinstance(fobj, TiffFile):
             return fobj.pages[self.pageidx(i, ichannel=ichannel)].asarray()
+        else:
+            raise ValueError(f'Unsupported file object type: {type(fobj)}')
     
     # def __del__(self):
     #     ''' Making sure to close all open binary file objects upon deletion. '''
@@ -251,6 +253,9 @@ class StackViewer:
         if func is None:
             func = lambda x: x.mean()
         self.logfunc(f'computing frame-average metrics across frames {frange.start} - {frange.stop - 1}...')
+        # if isinstance(fobj, TiffFile):
+        #     fidx = np.arange(frange.start, frange.stop)
+        #     print(np.array(fobj.pages[self.pageidx(fidx, **kwargs)]).shape)
         xlist = self.iter_frames(fobj, frange, func=lambda _, x: func(x), **kwargs)
         return np.array(xlist)
 
@@ -284,11 +289,12 @@ class StackViewer:
         '''
         # If arr is a list, process each frame independently and sum outputs
         if isinstance(arr, list):
-            outarr = np.zeros((*arr[0].shape, 3))
+            outarr = np.zeros((*arr[0].shape, 3), dtype=np.uint8)
             for x, n, c in zip(arr, norm, cmap):
                 outarr += self.process_frame(x, n, c, None)
             if label:
                 outarr = self.label(outarr, label)
+
             return outarr
         
         # If norm is not None, normalize the frame

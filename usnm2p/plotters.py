@@ -1924,6 +1924,13 @@ def get_hue_per_ROI(Fstats, hue, verbose=False):
         colors = {x: ROI_cmap(x) for x in hues}
         log_suffix = ' color-coded by fraction of positive responses'
     
+    # If hue is ch2 overlap, use discrete color-coding
+    elif hue == Label.CH2_ROI:
+        hue_per_ROI = Fstats[Label.CH2_ROI].groupby(Label.ROI).first()
+        hues = [False, True]
+        colors = Palette.CH2_ROI
+        log_suffix = ' color-coded by ch2 overlap'
+    
     # If hue is not recognized, raise error
     else:
         raise ValueError(f'invalid hue parameter: "{hue}"')
@@ -2094,7 +2101,7 @@ def plot_field_of_view(ops, ROI_masks=None, Fstats=None, title=None, um_per_px=N
     return fig
 
 
-def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4, 
+def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4, height=3,
                         mode='contour', hue=None, outliers=None, **kwargs):
     '''
     Plot field of view (with optional overlaid cells) for each dataset in the options dictionary.
@@ -2116,9 +2123,8 @@ def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4,
     # Create figure
     ncols = min(ndatasets, colwrap)
     nrows = int(np.ceil(ndatasets / colwrap))
-    factor = 3
     fig, axes = plt.subplots(
-        nrows, ncols, figsize=(ncols * factor, nrows * factor),
+        nrows, ncols, figsize=(ncols * height, nrows * height),
         facecolor='w')
     axes = axes.ravel()
 
@@ -2163,6 +2169,8 @@ def plot_fields_of_view(ops, ROI_masks=None, Fstats=None, title=None, colwrap=4,
             hues = np.linspace(0, 1, 5)
             ROI_cmap = sns.color_palette('rocket', as_cmap=True)
             leg_palette = {f'{x:.2f}': ROI_cmap(x) for x in hues}
+        elif hue == Label.CH2_ROI:
+            leg_palette = dict(zip(['non-ch2', 'ch2'], Palette.CH2_ROI.values()))
         leg_items = [Line2D([0], [0], label=l, ms=10, **legfunc(c)) for l, c in leg_palette.items()]
         axes[ndatasets - 1].legend(
             handles=leg_items, bbox_to_anchor=(1, 1), loc='upper left', frameon=False)
@@ -3917,8 +3925,10 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None, deta
                 pltkwargs['palette'] = Palette.RTYPE
 
         # Plot stacked count bars
+        height = max(2.5, len(barvals.unique()) / 2)
+        width = 6
         fg = sns.displot(
-            data=celltypes, multiple='stack', hue=hue, **pltkwargs)
+            data=celltypes, multiple='stack', hue=hue, height=height, aspect=width / height, **pltkwargs)
         sns.despine()
 
         # Extract figure, axis and legend
