@@ -259,12 +259,15 @@ DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detr
 STIMSUB = ('stim-1', 'stim', 'trial')  # stimulus frames, every trial
 FIRST_SUB = (1, 0, None)  # first run frame
 SUBMAP_DICT = {  # line-specific substitution maps
-    'cre_sst': [STIMSUB],
+    'cre': [STIMSUB],
     'default': [FIRST_SUB, STIMSUB],
 }
 def get_submap(line):
     ''' Get line-specific substitution map '''
-    return SUBMAP_DICT.get(line, SUBMAP_DICT['default'])
+    if line.startswith('cre'):
+        return SUBMAP_DICT['cre']
+    else:
+        return SUBMAP_DICT['default']
 
 # Global stack correction methods
 GLOBAL_CORRECTION = {
@@ -273,6 +276,7 @@ GLOBAL_CORRECTION = {
     'pv': 'linreg_robust',
     'sarah_line3': None,
     'cre_sst': None, #'linreg_robust', 'linreg_nointercept_refch2'
+    'cre_ndnf': None,
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
@@ -292,7 +296,7 @@ GCAMP_DECAY_TAU = {  # GCaMP sensors exponential decay time constants (s)
 
 def get_gcamp_key(line):
     ''' Get GCaMP key for a given line '''
-    if line == 'cre_sst':
+    if line.startswith('cre'):
         return '7f'
     else:
         return '6s'
@@ -336,13 +340,16 @@ TRIAL_AGGFUNC = np.median   # trial aggregation function
 
 # Stimulation onset time (line specific)
 STIM_ONSET_DICT = {
-    'cre_sst': 5.0,  # s
+    'cre': 5.0,  # s
     'default': 2.81,  # s
 }
 
 def get_stim_onset_time(line):
     ''' Get stimulation onset time for a given line '''
-    return STIM_ONSET_DICT.get(line, STIM_ONSET_DICT['default'])
+    if line.startswith('cre'):
+        return STIM_ONSET_DICT['cre']
+    else:
+        return STIM_ONSET_DICT['default']
 
 
 # Analysis windows
@@ -409,6 +416,7 @@ class Palette:
         'pv': 'C1',
         'sst': 'r',
         'cre_sst': 'C2',
+        'cre_ndnf': 'C2',
     }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)
@@ -440,6 +448,7 @@ MIN_CELL_DENSITY = {
     'sst': None,
     'pv': None,
     'cre_sst': None,
+    'cre_ndnf': None,
 }
 
 

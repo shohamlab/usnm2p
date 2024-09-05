@@ -411,9 +411,9 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kal
     # Apply stack substitution
     daq_settings = load_acquisition_settings(os.path.dirname(fpaths[0]))
     nframes_per_trial = daq_settings['nFramesPerTrial']
-    mouseline = 'cre_sst'
-    submap = get_submap(mouseline)
-    tref = get_stim_onset_time(mouseline)
+    mouseline_type = 'cre'
+    submap = get_submap(mouseline_type)
+    tref = get_stim_onset_time(mouseline_type)
     fidx = FrameIndexer.from_time(tref, TPRE, TPOST, 1 / fps, npertrial=nframes_per_trial)
     fpaths = substitute_tifs(
         fpaths, input_root, submap, fidx=fidx, nchannels=nchannels, overwrite=overwrite)

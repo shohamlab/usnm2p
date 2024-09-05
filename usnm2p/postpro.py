@@ -3775,6 +3775,7 @@ def get_fit_table(Pfit='poly2', exclude=None):
         'sst': 'corrected_sigmoid_decay',
         'pv':  'threshold_linear',  # 'sigmoid',
         'cre_sst': 'corrected_sigmoid',
+        'cre_ndnf': 'corrected_sigmoid',
     }
 
     # Create empty 2D dataFframe

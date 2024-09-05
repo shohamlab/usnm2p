@@ -169,7 +169,7 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     # Construct processing IDs
     nchannels = 1
     prepro_id = get_prepro_id(submap=submap, global_correction=global_correction, kalman_gain=kalman_gain)
-    if mouseline == 'cre_sst':
+    if mouseline.startswith('cre'):
         resampling_id = StackResampler(BERGAMO_SR, BERGAMO_RESAMPLED_SR, smooth=True).code
         if func_channel is not None:
             channel_id = f'channel{func_channel}'
@@ -197,9 +197,9 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     figs_suffix = f'{analysis_type}_{dataset_group_id}_{prepro_code}_{conditioning_id}_{processing_id}'
 
     # Infer GCaMP decay time from mouseline
-    gcamp_key = '7f' if mouseline == 'cre_sst' else '6s'
+    gcamp_key = get_gcamp_key(mouseline)
     tau = GCAMP_DECAY_TAU[gcamp_key]
-    fs = BERGAMO_RESAMPLED_SR if mouseline == 'cre_sst' else BRUKER_SR
+    fs = BERGAMO_RESAMPLED_SR if mouseline.startswith('cre') else BRUKER_SR
 
     # Get suite2p ID
     s2pid = get_s2p_id(fs, tau, nchannels=nchannels)
