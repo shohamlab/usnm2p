@@ -264,7 +264,7 @@ SUBMAP_DICT = {  # line-specific substitution maps
 }
 def get_submap(line):
     ''' Get line-specific substitution map '''
-    if line.startswith('cre'):
+    if isinstance(line, str) and line.startswith('cre'):
         return SUBMAP_DICT['cre']
     else:
         return SUBMAP_DICT['default']
@@ -296,7 +296,7 @@ GCAMP_DECAY_TAU = {  # GCaMP sensors exponential decay time constants (s)
 
 def get_gcamp_key(line):
     ''' Get GCaMP key for a given line '''
-    if line.startswith('cre'):
+    if isinstance(line, str) and line.startswith('cre'):
         return '7f'
     else:
         return '6s'
@@ -346,7 +346,7 @@ STIM_ONSET_DICT = {
 
 def get_stim_onset_time(line):
     ''' Get stimulation onset time for a given line '''
-    if line.startswith('cre'):
+    if isinstance(line, str) and line.startswith('cre'):
         return STIM_ONSET_DICT['cre']
     else:
         return STIM_ONSET_DICT['default']
