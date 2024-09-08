@@ -37,24 +37,25 @@ def parse_experiment_parameters(name):
     :param name: file / folder name from which parameters must be extracted
     :return: dictionary of extracted parameters
     '''
-    # Try first with folder pattern
-    israwfile = False
-    mo = P_RAWFOLDER.match(name)
-    # If no match detected, try with file pattern
+    # Dictionary of patterns to try and match
+    patterns = {
+        'raw folder': P_RAWFOLDER, 
+        'raw bruker file': P_RAWFILE_BRUKER, 
+        'stack file': P_STACKFILE, 
+        'run file': P_RUNFILE, 
+        'trial file': P_TRIALFILE,
+    }
+
+    # Attempt to match name with each pattern until a match is found
+    for k, p in patterns.items():
+        mo = p.match(name)
+        if mo is not None:
+            break
+    
+    # If no match detected, throw error
     if mo is None:
-        israwfile = True
-        mo = P_RAWFILE_BRUKER.match(name)
-    # If still no match, try with stack file pattern
-    if mo is None:
-        israwfile = False
-        mo = P_STACKFILE.match(name)
-    # If still not match, try with run file pattern:
-    if mo is None:
-        israwfile = False
-        mo = P_RUNFILE.match(name)
-    # If still no match, throw error
-    if mo is None:
-        raise ValueError(f'"{name}" does not match the experiment naming pattern')
+        raise ValueError(f'"{name}" does not match any of the experiment naming patterns')
+
     # Extract and parse folder-level parameters
     params = {
         Label.LINE: mo.group(1),  # line name
@@ -66,20 +67,26 @@ def parse_experiment_parameters(name):
         Label.DC: float(mo.group(7)),  # % 
         Label.RUNID: int(mo.group(9))
     }
+
     # Fix for folders with suffix
     if len(mo.group(8)) > 0:
         params[Label.SUFFIX] = mo.group(8)
+
     # Fix for pressure (replacing first zero by decimal dot)
     if '.' not in params[Label.P]:
         params[Label.P] = f'.{params[Label.P][1:]}'
     params[Label.P] = float(params[Label.P])
-    # If file, add file-level parameters
-    if israwfile:
+
+    # If file pattern detected, add file-level parameters
+    if k == 'trial file':
+        params[Label.TRIAL] = int(mo.group(10))
+    elif k == 'raw bruker file':
         params.update({
             Label.CYCLE: int(mo.group(10)),
             Label.CH: int(mo.group(11)),
             Label.FRAME: int(mo.group(12))
         })
+    
     # Return parameters dictionary
     return params
 

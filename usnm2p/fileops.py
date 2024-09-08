@@ -336,21 +336,31 @@ def get_input_files(inputdir, sortby=None):
     # Get list of TIF files
     tif_files = get_sorted_filelist(inputdir, pattern=P_TIFFILE)
     logger.info(f'found {len(tif_files)} TIF files in "{inputdir}"')
+
+    # Check validity of each input file name by attempting to parse experiment parameters from it,
+    # and keep only those that are valid
+    valid_tif_files, params_by_file = [], []
+    for f in tif_files:
+        try:
+            params = parse_experiment_parameters(os.path.basename(f))
+            params_by_file.append(params)
+            valid_tif_files.append(f)
+        except ValueError as err:
+            logger.warning(f'{err} -> excluding')
     
     # If sorting key specified, sort output according to it
     if sortby is not None:
-        params_by_file = [parse_experiment_parameters(os.path.basename(f)) for f in tif_files]
         if any(sortby not in p for p in params_by_file):
             raise ValueError(f'"{sortby}" is not a valid input sorting key')
         logger.info(f'sorting files by {sortby}')
         vals_by_file = [p[sortby] for p in params_by_file]
-        _, tif_files = zip(*sorted(zip(vals_by_file, tif_files)))
+        _, valid_tif_files = zip(*sorted(zip(vals_by_file, valid_tif_files)))
 
     # Construct full paths to TIF files 
-    tif_fpaths = [os.path.join(inputdir, f) for f in tif_files]
+    valid_tif_fpaths = [os.path.join(inputdir, f) for f in valid_tif_files]
     
     # Return
-    return tif_fpaths
+    return valid_tif_fpaths
 
 
 def save_acquisition_settings(folder, daq_settings):
