@@ -15,6 +15,7 @@ import pandas as pd
 # Internal modules
 from .constants import *
 from .logger import logger
+from .utils import is_iterable
 
 # General tif file pattern
 P_TIFFILE = re.compile('.*tif')
@@ -125,17 +126,35 @@ def parse_date_mouse_region(s):
     :param s: concatenated string
     :return: 3-tuple with (date, mouse, region)
     '''
+    # If input is a list of strings, parse each element separately and return as dataframe
+    if is_iterable(s):
+        keys = 'date', 'mouse', 'region', 'layer'
+        outs = [parse_date_mouse_region(x) for x in s]
+        return pd.DataFrame(
+            outs, 
+            columns=keys, 
+            index=pd.Index(s, name=Label.DATASET)
+        )
+
+    # Parse input
     mo = P_DATEMOUSEREGLAYER.match(s)
-    if mo:
-        year, month, day, mouse, region, layer = mo.groups()
-        date = f'{year}{month}{day}'
-        if layer is None:
-            layer = DEFAULT_LAYER
-        return date, mouse, region, layer
-    else:
+
+    # If no match, throw error
+    if mo is None:
         raise ValueError(
             f'{s} does not match date-mouse-reg-layer pattern ({P_DATEMOUSEREGLAYER.pattern})')
-        
+    
+    # Extract date, mouse and region
+    year, month, day, mouse, region, layer = mo.groups()
+    date = f'{year}{month}{day}'
+
+    # If layer is not provided, set to default
+    if layer is None:
+        layer = DEFAULT_LAYER
+    
+    # Return
+    return date, mouse, region, layer
+    
 
 def group_by_run(flist, on_mismatch='raise', key_type='index'):
     '''

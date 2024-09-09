@@ -1605,30 +1605,32 @@ def compute_evoked_change(data, ykey, fidx, verbose=True, full_output=False):
         return ystats[y_change]
 
 
-def get_xdep_data(data, xkey, add_DC0=False):
+def get_xdep_data(data, xkey, add_DC0=False, dc_ref=DC_REF, p_ref=P_REF):
     '''
     Restrict data to relevant subset to estimate parameter dependency.
     
     :param data: multi-indexed experiment dataframe
     :param xkey: input parameter of interest (pressure or duty cycle)
     :param add_DC0: for DC sweeps, whether to add (DC = 0) data taken from P = 0
+    :param dc_ref: reference duty cycle (defaults to DC_REF)
+    :param p_ref: reference pressure (defaults to P_REF)
     :return: multi-indexed experiment dataframe containing only the row entries
         necessary to evaluate the dependency on the input parameter
     '''
     # If pressure sweep
     if xkey == Label.P:
         # Restrict data to pressures at reference duty cycle
-        return data[data[Label.DC] == DC_REF]
+        return data[data[Label.DC] == dc_ref]
 
     # If duty cycle sweep
     elif xkey == Label.DC:
         # Restrict data to duty cycles at reference pressure
-        subdata = data[data[Label.P] == P_REF]
+        subdata = data[data[Label.P] == p_ref]
         # If DC = 0 values is required
         if add_DC0:
-            # Extract (P = 0, DC = DCref) data, and re-format it as (P = Pref, DC = 0)
+            # Extract (P = 0, DC = dc_ref) data, and re-format it as (P = Pref, DC = 0)
             data0 = data[data[Label.P] == 0.].copy()
-            data0[Label.P] = P_REF
+            data0[Label.P] = p_ref
             data0[Label.DC] = 0
             # Add to sub-data and sort index
             subdata = pd.concat([data0, subdata]).sort_index()
