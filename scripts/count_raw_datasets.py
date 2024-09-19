@@ -20,17 +20,30 @@ if __name__ == '__main__':
 
     # Initialize count dictionary
     counts = {}
-    # For each analysis type
-    for analysis_type in get_subdirs(dataroot):
-        # For each mouse line
-        for line in get_subdirs(os.path.join(dataroot, analysis_type)):
-            # Count number of datasets
-            ndatasets = len(get_subdirs(os.path.join(dataroot, analysis_type, line)))
-            # Add to count dictionary with appropriate code 
-            counts[f'{analysis_type}_{line}'] = ndatasets
+
+    # For each data directory
+    for datadir in get_subdirs(dataroot):
+        # Skip non-raw directories
+        if not datadir.startswith('raw'):
+            continue
+        raw_dirpath = os.path.join(dataroot, datadir)
+
+        # For each analysis type
+        for analysis_type in get_subdirs(raw_dirpath):
+            analysis_dirpath = os.path.join(raw_dirpath, analysis_type)
+
+            # For each mouse line
+            for line in get_subdirs(analysis_dirpath):
+                # Count number of datasets
+                line_dirpath = os.path.join(analysis_dirpath, line)
+                ndatasets = len(get_subdirs(line_dirpath))
+            
+                # Add to count dictionary with appropriate code 
+                counts[f'{analysis_type}_{line}'] = ndatasets
 
     # Transform to pandas Series 
     counts = pd.Series(counts, name='counts')
 
     # Print output
     print(f'detailed datasets count:\n{counts}')
+    print(f'TOTAL: {counts.sum()}')
