@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 16:00:36
+# @Last Modified time: 2025-05-29 00:17:21
 
 ''' Collection of generic utilities. '''
 
@@ -622,6 +622,26 @@ def intensity_to_pressure(I, rho=1046.0, c=1546.3):
     :return: pressure amplitude (Pa)
     '''
     return np.sqrt(I * 2 * rho * c)
+
+
+def dB_to_amplitude(dB):
+    '''
+    Convert a sound pressure level (SPL) in dB to an amplitude ratio.
+    
+    :param dB: sound pressure level (SPL) in dB
+    :return: amplitude ratio (dimensionless)
+    '''
+    return np.power(10., dB / 20.)
+
+
+def dB_to_intensity(dB):
+    '''
+    Convert a sound pressure level (SPL) in dB to an intensity ratio.
+    
+    :param dB: sound pressure level (SPL) in dB
+    :return: intensity ratio (dimensionless)
+    '''
+    return np.power(10., dB / 10.)
 
 
 def compute_attenuation_coefficient(f, alpha0=6.8032, b=1.3):
@@ -1529,3 +1549,22 @@ def randomize_phase(signal):
         surrogate = pd.Series(surrogate, index=signal.index, name=signal.name)
     # Return surrogate signal
     return surrogate
+
+
+def resample(x, y, dx):
+    '''
+    Resample x and y vectors to a new x vector with specified step size dx.
+    
+    :param x: input x vector
+    :param y: input y vector
+    :param dx: new step size for x vector
+    :return: resampled x and y vectors
+    '''
+    dx_old = x[1] - x[0]
+    assert x.size == y.size, 'x and y vectors must have the same size'
+    logger.debug(f'resampling {x.size}-sized vector from {dx_old} to {dx} step size')
+    # Compute new x vector with specified step size
+    x_new = np.arange(x.min(), x.max() + dx, dx)
+    # Interpolate y values at new x points
+    y_new = np.interp(x_new, x, y)
+    return x_new, y_new

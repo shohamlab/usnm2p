@@ -2,7 +2,9 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-22 12:16:31
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-23 11:11:39
+# @Last Modified time: 2025-06-03 10:14:36
+
+''' Utilities for the anlysis of ABR data and the prediciton of ABR responses to US '''
 
 # External packages
 import re
@@ -10,10 +12,13 @@ import pyabf
 import numpy as np
 import pandas as pd
 from scipy.signal import hilbert
+import seaborn as sns
 
 # Internal modules
 from .logger import logger
-from .constants import Label, Pattern
+from .constants import Label, Pattern, HZ_TO_KHZ, S_TO_MS
+from .utils import is_within, dB_to_amplitude, resample
+from .wfutils import get_waveform, get_spectrogram
 
 
 # Regexp pattern for parsing filenames
@@ -151,3 +156,124 @@ def extract_stim_window(y, rel_thr=0.05):
 
     # Return
     return ibounds
+
+
+def compute_predicted_ABR(ABR_thresholds, impulse_ABR, *args, fbounds=(2e3, 90e3), norm_factor=None, **kwargs):
+    '''
+    Compute predicted ABR signal evoked by specific US waveform
+
+    :param ABR_thresholds: frequency-indexed ABR threshold (dB SPL) as pandas Series
+    :param impulse_ABR: time-indexed impulse ABR signal (uV) as pandas Series
+    :param args: arguments for get_waveform function
+    :param fbounds: frequency bounds for ABR signal (default = mouse hreading range [2 - 90 kHz])
+    :param norm_factor: normalization factor for final ABR response signal (default = None) 
+    :param kwargs: arguments for get_spectrogram function
+    :return: time-indexed evoked ABR signal (uV) as pandas Series
+    '''
+    # Construct US waveform
+    t, P_t, _ = get_waveform(*args, **kwargs)
+
+    # Compute waveform spectrogram
+    freqs, times, I_ft = get_spectrogram(t, P_t)
+
+    # Derive spectrogram over time and restrict to frequency range of interest
+    dI_ft = np.abs(np.diff(I_ft) / np.diff(times))
+    fmask = is_within(freqs, fbounds)
+    freqs = freqs[fmask]  # Hz
+    dI_ft = dI_ft[fmask]  # yunit * Hz
+
+    # Extract hearing threshold over frequency range of interest
+    h_dB = np.interp(
+        freqs,  # Hz
+        ABR_thresholds.index / HZ_TO_KHZ,  # Hz 
+        ABR_thresholds.values   # dB SPL
+    )
+    h = dB_to_amplitude(h_dB)  # convert dB SPL to amplitude scale
+    
+    # Scale by ABR sensitivity (1 / threshold) over frequency range of interest
+    weighted_dI_ft = (dI_ft.T / h).T
+
+    # Sum over frequencies
+    s_t = np.sum(weighted_dI_ft, axis=0)
+
+    # Resample s_t to match higher impulse_ABR sampling rate
+    dt_impulse_ms = impulse_ABR.index.values[1] - impulse_ABR.index.values[0]  # ms
+    dt_impulse = dt_impulse_ms / S_TO_MS  # s
+    tdense, s_t_dense = resample(times[:-1], s_t, dt_impulse)
+
+    # Convolve with impulse ABR to get evoked ABR signal
+    a_t = np.convolve(s_t_dense, impulse_ABR.values, mode='full')[:s_t_dense.size]
+
+    # Normalize ABR signal if requested
+    if norm_factor is not None:
+        a_t /= norm_factor
+        out_unit = 'a.u.'
+    else:
+        out_unit = 'uV'
+    
+    # Return as time-indexed pandas Series
+    return pd.Series(
+        a_t,  # uV
+        index=pd.Index(tdense * S_TO_MS, name='time (ms)'),
+        name=f'ABR ({out_unit})'
+    )
+
+
+def plot_ABR_vs_parameter(s, pname, punit, stim_tbounds=None):
+    '''
+    Plot ABR response signal vs. input parameter
+    
+    :param s: (parameter, time)-indexed series of ABR response signal (a.u.)
+    :param pname: name of the input parameter
+    :param punit: unit of the input parameter
+    :param stim_tbounds: optional tuple of (start, stop) of stimulus (ms)
+    :return: figure handle
+    '''
+    # Extract parameter index name and values
+    pkey = s.index.names[0]
+    pvals = s.index.get_level_values(pkey).drop_duplicates().values
+
+    # Plot evoked ABR for different input parameter values 
+    logger.info(f'plotting evoked ABR vs. {pname}...')
+    g = sns.relplot(
+        data=s.reset_index(),
+        kind='line',
+        x='time (ms)',
+        y='ABR (a.u.)',
+        row=pkey,
+        row_order=pvals,
+        height=1, aspect=5, 
+    )
+    fig = g.fig
+    axes = g.axes.flatten()
+    for ax, pval in zip(axes, pvals):
+        ax.set_title('')
+        ax.set_ylabel(pval, rotation=0, ha='right', va='center')
+        ax.tick_params(left=False, labelleft=False)
+        sns.despine(ax=ax, left=True)
+    for ax in axes[:-1]:
+        ax.tick_params(bottom=False)
+        sns.despine(ax=ax, left=True, bottom=True)
+
+    # Add unit vertical scale bar on right of top axis
+    xlims = axes[0].get_xlim()
+    xpos = xlims[1] - 0.05 * (xlims[1] - xlims[0])  # 5% from right edge
+    ylims = axes[0].get_ylim()
+    ycenter = (ylims[1] + ylims[0]) / 2
+    axes[0].plot([xpos, xpos], [ycenter - .5, ycenter + .5], color='k', lw=2)
+    axes[0].text(
+        xpos + 0.01 * (xlims[1] - xlims[0]), ycenter, '1 a.u.', 
+        rotation=90, va='center', ha='left', fontsize=10, color='k')
+
+    # Materialize stimulus span, if time bounds are specified
+    if stim_tbounds is not None:
+        tstart, tstop = stim_tbounds
+        for ax in axes:
+            ax.axvspan(tstart, tstop, color='silver', alpha=0.5, lw=0)
+
+    # Adjust layout and title
+    fig.supylabel(f'{pname} ({punit})', x=0)
+    fig.tight_layout()
+
+    # Return figure handle
+    return fig

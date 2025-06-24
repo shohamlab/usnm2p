@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 17:59:37
+# @Last Modified time: 2025-05-29 13:50:30
 
 ''' Collection of plotting utilities. '''
 
@@ -350,10 +350,10 @@ def data_to_axis(ax, p):
     :param p: (x, y) point in data coordinates
     :return: (x, y) point in axis coordinates
     '''
-    # Transform from data to absolute coordinates
-    trans = ax.transData.transform(p)
+    # Transform from data to absolute display coordinates
+    display_coords = ax.transData.transform(p)
     # Transfrom from absolute to axis coordinates and return
-    return ax.transAxes.inverted().transform(trans)
+    return ax.transAxes.inverted().transform(display_coords)
 
 
 def set_normalizer(cmap, bounds, scale='lin'):

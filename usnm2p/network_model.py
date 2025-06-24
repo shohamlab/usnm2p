@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 15:59:02
+# @Last Modified time: 2025-06-24 11:06:32
 
 import time
 import glob
@@ -100,7 +100,8 @@ class NetworkModel:
     palette = {
         'E': 'C0',
         'PV': 'C1',
-        'SST': 'r'
+        'SST': 'r',
+        'VIP': 'C2',
     }
 
     # Max allowed activity value
@@ -260,9 +261,24 @@ class NetworkModel:
         # Set connectivity matrix
         self._W = W
     
-    def disconnect(self):
-        ''' Disconnect all populations '''
-        self.W = self.get_empty_W().fillna(0.)
+    def disconnect(self, presyn_key=None):
+        '''
+        Disconnect population(s)
+        
+        :param presyn_key (optional): pre-synaptic population key to disconnect. 
+            If None (or "all"), disconnect all populations
+        :return: model instance with updated connectivity matrix
+        '''
+        if presyn_key == 'all':
+            presyn_key = None
+        if presyn_key is not None:
+            if presyn_key not in self.keys:
+                raise ModelError(f'"{presyn_key}" population not found in model keys')
+            W = self.W.copy()
+            W.loc[presyn_key] = 0.
+        else:
+            W = self.get_empty_W().fillna(0.)
+        self.W = W
         return self
     
     @property
@@ -565,7 +581,7 @@ class NetworkModel:
                 writer.writerow([iteration, *params, cost])
 
     @classmethod
-    def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height=2.5, 
+    def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height=3, 
                                  vmin=None, vmax=None, title=None, colwrap=4, 
                                  agg=False, clabel=None):
         '''
@@ -909,14 +925,14 @@ class NetworkModel:
             Defaults to True (i.e. signed drives)
         :return: total input drive vector
         '''
-        # If input activity is a dataframe, apply function on each row and 
+        # If input activity is a dataframe, apply function on each row and
         # return as dataframe
         if isinstance(r, pd.DataFrame):
             self.check_keys(r.columns)
             d = np.array([self.compute_drive(rr, x=x, signed=signed) for rr in r.values])
             if x is not None:
                 d += x
-            return pd.DataFrame(d, columns=self.keys, index=r.index)
+            return pd.DataFrame(d, columns=self.idx, index=r.index)
         
         # Extract connectivity matrix, and take absolute values if signed=False
         W = self.Wmat.copy()
@@ -933,6 +949,8 @@ class NetworkModel:
         # Add stimulus-driven input, if present
         if x is not None:
             drive += x * self.srel_vec
+
+        # Return total drive
         return drive
     
     def compute_gain_output(self, drive):
@@ -1465,7 +1483,9 @@ class NetworkModel:
         sweep_data = pd.concat(sweep_data, axis=0, names=['amplitude'])
         return sweep_data
 
-    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=None, hue='population', style=None, style_order=None, col=None, row=None, title=None):
+    def plot_sweep_results(self, data, ax=None, xkey='amplitude', norm=None, hue='population', 
+                           style=None, style_order=None, col=None, row=None, title=None, 
+                           height=2, aspect=1, legend=True):
         '''
         Plot results of stimulus amplitude sweep
 
@@ -1482,6 +1502,8 @@ class NetworkModel:
         :param col (optional): extra grouping dimension to use for columns
         :param row (optional): extra grouping dimension to use for rows
         :param title (optional): axis title
+        :param height (optional): figure height (for facet grid only)
+        :param aspect (optional): aspect ratio (for facet grid only)
         :return: figure handle
         '''
         if xkey not in data.index.names:
@@ -1514,7 +1536,7 @@ class NetworkModel:
             col, row, style = params
             
             # Determine whether multi-axis grid is needed
-            grid_gby = [gby[i] for i in [col, row] if i is not None]
+            grid_gby = [k for k in [col, row] if k is not None]
 
             # If grid is needed, create it and loop through axes
             if len(grid_gby) > 0:
@@ -1531,9 +1553,10 @@ class NetworkModel:
                 
                 # Adapt axis title template
                 templates = []
-                if col is not None:
+                idx_dtypes = data.index.dtypes 
+                if col is not None and isinstance(idx_dtypes.loc[col], np.float64):
                     templates.append(f'{col}={{col_name:.2g}}')
-                if row is not None:
+                if row is not None and isinstance(idx_dtypes.loc[row], np.float64):
                     templates.append(f'{row}={{row_name:.2g}}')
                 template = ', '.join(templates)
                 
@@ -1542,17 +1565,26 @@ class NetworkModel:
                     data=data.reset_index(), 
                     col=col,
                     row=row,
-                    aspect=1,
-                    height=2,
+                    aspect=aspect,
+                    height=height,
                 )
-                fg.set_titles(template=template)
+                if template:
+                    fg.set_titles(template=template)
                 fig = fg.figure
+
+                # Add title to figure, if provided
+                if title is not None:
+                    fig.suptitle(title, y=1.05)
                 
                 # Loop through axes and plot
-                for ax, (_, v) in zip(fig.axes, data.groupby(grid_gby)):
+                for ax, (k, v) in zip(fig.axes, data.groupby(grid_gby, sort=False)):
+                    legend = ax is fig.axes[-1]
                     self.plot_sweep_results(
                         v.droplevel(grid_gby), ax=ax, xkey=xkey, norm=norm, hue=hue,
-                        style=style, style_order=style_order)
+                        style=style, style_order=style_order, legend=legend)                
+                    if legend:
+                        sns.move_legend(ax, bbox_to_anchor=(1, .5), loc='center left', frameon=False)
+
                 return fig
 
         # Define y-axis label
@@ -1561,7 +1593,7 @@ class NetworkModel:
         # If normalization requested, normalize activity vectors for each population
         if style is not None:
             if norm == 'style':
-                data = data.groupby(style).apply(normfunc).droplevel(0)
+                data = data.groupby(style, sort=False).apply(normfunc).droplevel(0)
             elif norm == 'ax':
                 data = normfunc(data)
         else:
@@ -1591,6 +1623,7 @@ class NetworkModel:
             palette=self.palette,
             style=style,
             style_order=style_order,
+            legend=legend,
         )
 
         # Return figure handle
@@ -1645,7 +1678,7 @@ class NetworkModel:
     def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, disparity_cost_factor=0., invalid_cost=np.inf):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
-        reference acivtation profile, and (3) computing cost metric
+        reference acivtation profiles, and (3) computing cost metric
 
         :param ref_profiles: reference activation profiles per population, provided as dataframe
         :param sweep_data: stimulus amplitude sweep output dataframe
@@ -1771,7 +1804,9 @@ class NetworkModel:
         :param xvec: vector of optimum output parameters
         :return: dictonary of corresponding model parameter objects
         '''
+        print(xvec)
         Wvec, srelvec = self.parse_input_vector(xvec)
+        print(Wvec, srelvec)
         opt = {}
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
@@ -1796,7 +1831,7 @@ class NetworkModel:
         :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
         :param kwargs: additional keyword arguments to pass to run_stim_sweep
         :return: evaluated cost
-        '''        
+        '''
         # Parse input parameters
         Wvec, srelvec = self.parse_input_vector(xvec)
 
@@ -1823,7 +1858,7 @@ class NetworkModel:
         )
 
         # If requested, add cost for relative deviation from reference network connectivity matrix
-        if Wdev_cost_factor > 0:
+        if Wdev_cost_factor > 0 and Wvec is not None:
             Wreldiff = (self.W - Wref) / Wref
             cost += Wdev_cost_factor * Wreldiff.abs().sum().sum()
 
@@ -1989,9 +2024,12 @@ class ModelOptimizer:
         elif len(cost) == 1:
             return cost.index[0]
         elif cost.index.names[0] == 'run':
-            return cost.groupby('run').agg(lambda x: x.droplevel('run').idxmin())
+            return cost.groupby('run').agg(lambda x: ModelOptimizer.extract_optimum(x.droplevel('run')))
         else:
-            return cost.idxmin()
+            out = cost.idxmin()
+            if isinstance(out, float):
+                out = [out]
+            return out
 
     @classmethod
     def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method='diffev', mpi=False, **kwargs):
@@ -2135,6 +2173,7 @@ class ModelOptimizer:
 
         :param model: model instance
         :param fpath: path to log file
+        :return: series of exploration cost, indexed by exploration parameters
         '''
         logger.info(f'loading optimization results from {fpath}')
         # Parse log file
@@ -2176,7 +2215,7 @@ class ModelOptimizer:
         else:
             fpath = None
         
-        # If log file exists,
+        # If log file exists
         if fpath is not None and os.path.isfile(fpath): 
             # If force_rerun flag not set, load optimization results 
             # and return appropriate output

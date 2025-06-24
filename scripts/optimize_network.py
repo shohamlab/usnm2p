@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 10:36:22
+# @Last Modified time: 2025-06-24 10:14:02
 
 import numpy as np
 import pandas as pd
@@ -38,7 +38,7 @@ if __name__ == '__main__':
         '--source', type=str, choices=list(sources_dict.keys()), default='allen',
         help='Source of model parameters')
     parser.add_argument(
-        '--npops', type=int, choices=(2, 3), default=3, 
+        '--npops', type=int, choices=(2, 3, 4), default=3, 
         help='Number of populations')
     parser.add_argument(
         '--wmax', type=float, default=None, help='Maximum absolute coupling weight value (for exploration')
@@ -102,6 +102,12 @@ if __name__ == '__main__':
     tau = tau_dict[source_key].copy()
     fparams = fparams_dict[source_key].copy()
     W = W_dict[source_key].copy()
+
+    # If less than 4 populations selected, remove VIP related parameters
+    if npops < 4:
+        tau = tau.drop('VIP')
+        fparams = fparams.drop('VIP')
+        W = W.drop('VIP', axis=0).drop('VIP', axis=1)
 
     # If 2 populations selected, remove PV related parameters
     if npops == 2:

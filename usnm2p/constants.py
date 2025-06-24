@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 12:17:31
+# @Last Modified time: 2025-06-24 10:21:55
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -228,6 +228,8 @@ SI_POWERS = {
 PA_TO_MPA = 1e-6
 M2_TO_CM2 = 1e4
 UM2_TO_MM2 = 1e-6
+S_TO_MS = 1e3
+HZ_TO_KHZ = 1e-3
 
 ###################################### DATA ACQUISITION ######################################
 
@@ -460,3 +462,13 @@ NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try ex
     "Kernel died",  # Caused by OOM error
     "Kernel didn't respond in 60 seconds", # ???
 ]
+
+
+########################################## MODEL OPTIMIZATION ######################################
+
+# Default optimization parameters
+DISPARITY_COST_FACTOR = 1e-3  # cost factor for activity profiles disparity
+WDEV_COST_FACTOR = .1  # cost factor for connectivity matrix relative deviation from reference
+SRELMAX = 5.0  # maximum relative stimulus sensitivity value
+WMAX = 20.0  # maximum absolute value of coupling weights
+NORM_BEFORE_COMP = True  # whether to normalize activity profiles before optimization

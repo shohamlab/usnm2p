@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-04-30 17:17:57
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 10:41:23
+# @Last Modified time: 2025-06-22 10:51:54
 
 import os
 import numpy as np
@@ -34,12 +34,13 @@ pops_mapper = {
     'L2/3 Pyr': 'E',
     'L2/3 Pv': 'PV',
     'L2/3 Sst': 'SST',
+    'L2/3 Vip': 'VIP',
 }
 W_AllenInstitute.index = W_AllenInstitute.index.map(pops_mapper)
 W_AllenInstitute.columns = W_AllenInstitute.columns.map(pops_mapper).rename('post-synaptic')
 
 # -------------------------------- Populations -------------------------------   
-POPULATIONS = ['E', 'PV', 'SST'] 
+POPULATIONS = ['E', 'PV', 'SST', 'VIP'] 
 
 # ------------------------------ Time constants ------------------------------
 
@@ -51,6 +52,7 @@ tau_RomeroSosa = pd.Series(
         'E': 10., 
         'PV': 4., 
         'SST': 6.,
+        'VIP': np.nan  # VIP not measured
     },
     name=tau_key
 )
@@ -71,8 +73,8 @@ fparams_idx = pd.Index(POPULATIONS, name='population')
 
 # Romero-Sosa et al. 2020, (experimental, cortex)
 fparams_RomeroSosa = pd.DataFrame(data={
-    'x0': [5, 30, 15],  # E, PV, SST
-    'A': [1, 2.7, 1.6], # E, PV, SST
+    'x0': [5, 30, 15, np.nan],  # E, PV, SST, VIP
+    'A': [1, 2.7, 1.6, np.nan], # E, PV, SST, VIP
 }, index=fparams_idx)
 
 # Allen Institute database (experimental, cortex V1 layer 2/3)
@@ -92,44 +94,50 @@ Wkwargs = dict(index=presyn_idx, columns=postsyn_idx)
 
 # Pfeffer et al. 2013 (experimental, cortex V1, no E -> x data)
 W_Pfeffer = pd.DataFrame(data=[
-    [np.nan, np.nan, np.nan], # E -> E, PV, SST 
-    [-1, -1.01, -0.03],  # PV -> E, PV, SST
-    [-0.54, -0.33, -0.02]  # SST -> E, PV, SST
+    [np.nan, np.nan, np.nan, np.nan], # E -> E, PV, SST, VIP 
+    [-1, -1.01, -0.03, np.nan],  # PV -> E, PV, SST, VIP
+    [-0.54, -0.33, -0.02, np.nan],  # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]  # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Plaksin et al. 2016 (modeling, based on cortex S1 data, [RS, FS LTS] in lieu of [E, PV, SST])
 W_Plaksin = pd.DataFrame(data=[
-    [0.002, 0.04, 0.09],      # E -> E, PV, SST 
-    [-0.015, -0.135, -0.86],  # PV -> E, PV, SST
-    [-0.135, -0.02, 0]        # SST -> E, PV, SST
+    [0.002, 0.04, 0.09, np.nan],      # E -> E, PV, SST, VIP 
+    [-0.015, -0.135, -0.86, np.nan],  # PV -> E, PV, SST, VIP
+    [-0.135, -0.02, 0, np.nan],        # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]   # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Park et al. 2020 (auditory cortex, based on Pfeffer 2013 with additional E -> x data)
 W_Park = pd.DataFrame(data=[
-    [1.1, 1, 6],  # E -> E, PV, SST 
-    [-2, -2, 0],  # PV -> E, PV, SST
-    [-1, -2, 0]   # SST -> E, PV, SST
+    [1.1, 1, 6, np.nan],  # E -> E, PV, SST, VIP 
+    [-2, -2, 0, np.nan],  # PV -> E, PV, SST, VIP
+    [-1, -2, 0, np.nan],   # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]  # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Antonoudiou et al. 2020 (modeling, hippocampus)
 W_Antonoudiou = pd.DataFrame(data=[
-    [10, 30, 10],   # E -> E, PV, SST 
-    [-15, -10, 0],  # PV -> E, PV, SST
-    [-15, 0, -10]   # SST -> E, PV, SST
+    [10, 30, 10, np.nan],   # E -> E, PV, SST, VIP
+    [-15, -10, 0, np.nan],  # PV -> E, PV, SST, VIP
+    [-15, 0, -10, np.nan],   # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]  # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Romero-Sosa et al. 2020, Figure 6A,B (modeling, cortex)
 W_RomeroSosa = pd.DataFrame(data=[
-    [7, 14, 12],   # E -> E, PV, SST 
-    [-1.5, -1.5, -1],  # PV -> E, PV, SST
-    [-0.5, -1, -2]   # SST -> E, PV, SST
+    [7, 14, 12, np.nan],   # E -> E, PV, SST, VIP 
+    [-1.5, -1.5, -1, np.nan],  # PV -> E, PV, SST, VIP
+    [-0.5, -1, -2, np.nan],   # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]  # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Richter et al. 2022 (modeling, cortex S1, with uniform gain and external inputs)
 W_Richter = pd.DataFrame(data=[
-    [0.1, 0.1, 0.1],   # E -> E, PV, SST 
-    [-0.8, -0.8, 0],  # PV -> E, PV, SST
-    [-1.6, -1.6, 0]   # SST -> E, PV, SST
+    [0.1, 0.1, 0.1, np.nan],   # E -> E, PV, SST, VIP 
+    [-0.8, -0.8, 0, np.nan],  # PV -> E, PV, SST, VIP
+    [-1.6, -1.6, 0, np.nan],   # SST -> E, PV, SST, VIP
+    [np.nan, np.nan, np.nan, np.nan]  # VIP -> E, PV, SST, VIP
 ], **Wkwargs)
 
 # Assemble into dictionary
