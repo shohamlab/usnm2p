@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-24 10:14:02
+# @Last Modified time: 2025-06-25 23:01:24
 
 import numpy as np
 import pandas as pd
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     sweep_data = model.run_stim_sweep(amps)
 
     # Compare results to reference profiles
-    rmse = model.evaluate_stim_sweep(
+    costs = model.evaluate_stim_sweep(
         ref_profiles, sweep_data, norm=norm, 
         disparity_cost_factor=disparity_cost_factor)
-    logger.info(f'RMSE = {rmse:.2f}')
+    logger.info(f'prediction error = {costs["prediction error"]:.2f}')

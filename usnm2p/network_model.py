@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-24 11:06:32
+# @Last Modified time: 2025-06-26 15:01:42
 
 import time
 import glob
@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 import seaborn as sns
 from scipy import optimize
+from skopt import gp_minimize
 from tqdm import tqdm
 import os
 import csv
@@ -27,6 +28,7 @@ from .logger import logger
 from .utils import expconv, expconv_reciprocal, threshold_linear, as_iterable
 from .postpro import mylinregress
 from .batches import get_cpu_count
+from .constants import *
 
 
 def generate_unique_id(obj, max_length=None):
@@ -210,6 +212,35 @@ class NetworkModel:
         else:
             self.check_keys(keys)
     
+    def remove_population(self, key):
+        ''' Remove population from model '''
+        if not self.has_keys():
+            raise ModelError('model keys have not been set')
+        if key not in self.keys:
+            raise ModelError(f'population "{key}" not found in model keys')
+        logger.info(f'removing {key} population from model')
+        # Remove population from keys
+        self.keys = np.asarray([k for k in self.keys if k != key])
+        # Remove population from connectivity matrix
+        if self.W is not None:
+            self.W = self.W.drop(key, axis=0).drop(key, axis=1)
+        # Remove population from time constants
+        if self.tau is not None:
+            self.tau = self.tau.drop(key)
+        # Remove population from gain function parameters
+        if self.fparams is not None:
+            if isinstance(self.fparams, pd.DataFrame):
+                self.fparams = self.fparams.drop(key, axis=0)
+            elif isinstance(self.fparams, pd.Series):
+                self.fparams = self.fparams.drop(key)
+        # Remove population from baseline inputs
+        if self.b is not None:
+            self.b = self.b.drop(key)
+        # Remove population from relative stimulus sensitivities
+        if self.srel is not None:
+            self.srel = self.srel.drop(key)
+        logger.info(f'resulting model: {self}')
+    
     def get_empty_W(self):
         ''' Return model-sized empty connectivity matrix '''
         return pd.DataFrame(
@@ -352,7 +383,7 @@ class NetworkModel:
     
     @classmethod
     def rescale_W(cls, W):
-        ''' Rescale connectivity matrix to match reference coupling strength '''
+        ''' Rescale connectivity matrix to match reference E-SST coupling strength '''
         Wval = W.loc[cls.WREF[0], cls.WREF[1]]
         return W * cls.WREF[2] / Wval
     
@@ -1182,7 +1213,7 @@ class NetworkModel:
         t0 = time.perf_counter()
         sol = solver(*solver_args)
         tcomp = time.perf_counter() - t0
-        flog(f'simulation completed in {tcomp:.3f} s')
+        flog(f'simulation completed in {tcomp * 1e3:.1f} ms')
 
         # If solution diverged, raise error
         if sol[self.keys].max().max() > self.MAX_RATE:
@@ -1495,6 +1526,7 @@ class NetworkModel:
         :param norm (optional): dimension(s) along which to normalize results per population before plotting, one of:
             - None: no normalization
             - 'style': normalize per style
+            - 'hue': normalize per hue
             - 'ax': normalize per axis
             - 'grid': normalize across entire grid
         :param hue (optional): extra grouping dimension to use for coloring (default = 'population')
@@ -1508,6 +1540,16 @@ class NetworkModel:
         '''
         if xkey not in data.index.names:
             raise ModelError(f'level {xkey} not found in index')
+    
+        # Check validity of norm setting
+        if norm not in (None, 'style', 'hue', 'ax', 'grid'):
+            if norm == True:
+                if row is not None or col is not None:
+                    norm = 'grid'
+                else:
+                    norm = 'ax'
+            else:
+                raise ModelError(f'unknown normalization type: {norm}')
         
         # Define normalization function
         def normfunc(x):
@@ -1590,14 +1632,36 @@ class NetworkModel:
         # Define y-axis label
         ykey = 'activity'
 
-        # If normalization requested, normalize activity vectors for each population
-        if style is not None:
-            if norm == 'style':
-                data = data.groupby(style, sort=False).apply(normfunc).droplevel(0)
-            elif norm == 'ax':
-                data = normfunc(data)
-        else:
-            if norm:
+        # If normalization requested
+        if norm is not None:
+            # If requested, normalize by hue
+            if norm == 'hue':
+                if hue is None:
+                    logger.warning('normalization by hue requested but no hue grouping provided, skipping normalization')
+                elif hue not in data.index.names:
+                    if data.columns.name == hue:
+                        logger.info(f'{hue} hue level is the columns dimension -> normalizing across columns')
+                        norm = 'ax'
+                    else:
+                        raise ModelError(f'level {hue} not found in index')
+                else:
+                    data = data.groupby(hue, sort=False).apply(normfunc).droplevel(0)
+    
+            # If requested, normalize by style
+            elif norm == 'style':
+                if style is None:
+                    logger.warning('normalization by style requested but no style grouping provided, skipping normalization')
+                elif style not in data.index.names:
+                    if data.columns.name == style:
+                        logger.info(f'{style} sytle level is the columns dimension -> normalizing across columns')
+                        norm = 'ax'
+                    else:
+                        raise ModelError(f'level {style} not found in index')
+                else:
+                    data = data.groupby(style, sort=False).apply(normfunc).droplevel(0)
+            
+            # If requested, normalize across entire axis
+            if norm == 'ax':
                 data = normfunc(data)
         
         # Create/retrieve figure and axis
@@ -1675,18 +1739,18 @@ class NetworkModel:
         if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
             raise ModelError('all Wbounds values must be tuples')
 
-    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, disparity_cost_factor=0., invalid_cost=np.inf):
+    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, disparity_cost_factor=0., invalid_cost=INVALID_COST):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
-        reference acivtation profiles, and (3) computing cost metric
+        reference acivtation profiles, and (3) computing cost metrics
 
         :param ref_profiles: reference activation profiles per population, provided as dataframe
         :param sweep_data: stimulus amplitude sweep output dataframe
         :param norm (optional): whether to normalize reference and output activation profiles before comparison
-        :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
+        :param invalid_cost (optional): return value in case of "invalid" sweep output
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels
             (i.e., max ratio between max activation levels) across populations. If None, no disparity penalty is applied.
-        :return: evaluated cost
+        :return: dictionary of evaluated costs
         '''
         if 't' not in sweep_data.index.names:
             raise ModelError('sweep_data must contain a time index')
@@ -1698,25 +1762,29 @@ class NetworkModel:
         out_amps = sweep_data.index.unique('amplitude').values
         if len(out_amps) < len(amps):
             logger.warning('simulation divergence detected')
-            return invalid_cost
+            return {'divergent sim': invalid_cost}
         
         # Extract stimulus-evoked steady-states from sweep output
         stim_ss = self.extract_response_magnitude(sweep_data, window='stim', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if stim_ss.isna().any().any():
             logger.warning('unstable stimulus-evoked steady-states detected')
-            return invalid_cost
+            return {'unstable evoked ss': invalid_cost}
         
         # Extract final steady-states from sweep output
         final_ss = self.extract_response_magnitude(sweep_data, window='post', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if final_ss.isna().any().any():
             logger.warning('unstable final steady-states detected')
-            return invalid_cost
+            return {'unstable final ss': invalid_cost}
+
         # If some final steady-states did not return to baseline, return invalidity cost
         if (final_ss > 1e-1).any().any():
             logger.warning('non-zero final steady-states detected')
-            return invalid_cost
+            return {'non-zero final ss': invalid_cost}
+
+        # Initialize cost dictionary
+        costs = {}
 
         # Create copies of reference and output activation profiles for comparison
         yref, ypred = ref_profiles.copy(), stim_ss.copy()
@@ -1733,7 +1801,7 @@ class NetworkModel:
         rmse = np.sqrt((err**2).mean())
 
         # Sum root mean squared errors across populations
-        cost = rmse.sum()
+        costs['prediction error'] = rmse.sum()
 
         # If requested, add penalty for disparity in activity levels across populations
         if disparity_cost_factor > 0:
@@ -1750,11 +1818,11 @@ class NetworkModel:
             ratios = ratios.where(ratios > 1, other=1 / ratios)
             # Compute max ratio
             maxratio = ratios.max()
-            # Add max ratio to cost, with appropriate scaling factor
-            cost += maxratio * disparity_cost_factor
+            # Convert max ratio to cost with appropriate scaling factor
+            costs['disparity'] = maxratio * disparity_cost_factor
 
-        # Return cost
-        return cost
+        # Return cost dictionary
+        return costs
     
     def set_coupling_from_vec(self, Wvec):
         '''
@@ -1804,9 +1872,7 @@ class NetworkModel:
         :param xvec: vector of optimum output parameters
         :return: dictonary of corresponding model parameter objects
         '''
-        print(xvec)
         Wvec, srelvec = self.parse_input_vector(xvec)
-        print(Wvec, srelvec)
         opt = {}
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
@@ -1816,21 +1882,16 @@ class NetworkModel:
             opt['srel'] = pd.Series(srelvec, index=self.idx, name='stimulus sensitivity')
         return opt
     
-    def set_run_and_evaluate(self, xvec, ref_profiles, norm=False, 
-                             disparity_cost_factor=0., Wdev_cost_factor=0.,
-                             invalid_cost=np.inf, **kwargs):
+    def set_run_and_evaluate(self, xvec, ref_profiles, Wdev_cost_factor=0., **kwargs):
         '''
         Adjust specific model parameters, run stimulation sweep, 
-        evaluate cost, and reset parameters to original values
+        evaluate costs, and reset parameters to original values
 
         :param xvec: vector of input parameters
         :param ref_profiles: reference activation profiles per population, provided as dataframe
-        :param norm (optional): whether to normalize reference and output activation profiles before comparison
-        :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
         :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
-        :param invalid_cost (optional): return value in case of "invalid" sweep output (default: np.inf)
-        :param kwargs: additional keyword arguments to pass to run_stim_sweep
-        :return: evaluated cost
+        :param kwargs: additional keyword arguments to pass to run_stim_sweep and evaluate_stim_sweep methods (unpacked internally)
+        :return: sum of evaluated costs
         '''
         # Parse input parameters
         Wvec, srelvec = self.parse_input_vector(xvec)
@@ -1847,26 +1908,36 @@ class NetworkModel:
             srel_ref = self.srel.copy()
             self.srel = pd.Series(srelvec, index=self.idx)
 
+        # Extract keywork arguments for sweep evaluation
+        eval_keys = ['norm', 'disparity_cost_factor', 'invalid_cost']
+        eval_kwargs = {k: kwargs.pop(k) for k in eval_keys if k in kwargs}
+        
         # Run stimulation sweep and evaluate cost
         amps = ref_profiles.index.values
         sweep_data = self.run_stim_sweep(amps, verbose=False, **kwargs)
-        cost = self.evaluate_stim_sweep(
-            ref_profiles, sweep_data, 
-            norm=norm, 
-            disparity_cost_factor=disparity_cost_factor, 
-            invalid_cost=invalid_cost
-        )
+        costs = self.evaluate_stim_sweep(ref_profiles, sweep_data, **eval_kwargs)
 
         # If requested, add cost for relative deviation from reference network connectivity matrix
         if Wdev_cost_factor > 0 and Wvec is not None:
             Wreldiff = (self.W - Wref) / Wref
-            cost += Wdev_cost_factor * Wreldiff.abs().sum().sum()
+            costs['connectivity'] = Wdev_cost_factor * Wreldiff.abs().sum().sum()
+
+        # Log costs
+        cost_str = ', '.join([f'{k} = {v:.3f}' for k, v in costs.items()])
+        logger.info(f'costs: {cost_str}')
+
+        # Compute total cost
+        cost = np.nansum(list(costs.values()))
 
         # Reset model parameters that have been modified
         if Wvec is not None:
             self.W = Wref
         if srelvec is not None:
             self.srel = srel_ref
+
+        # Bound cost to avoid errors in optimization algorithms
+        if np.isnan(cost) or cost > MAX_COST:
+            cost = MAX_COST
 
         # Return cost
         return cost
@@ -1956,7 +2027,7 @@ class NetworkModel:
 class ModelOptimizer:
 
     # Allowed global optimization methods
-    GLOBAL_OPT_METHODS = ('diffev', 'annealing', 'shg', 'direct')
+    GLOBAL_OPT_METHODS = ('diffev', 'annealing', 'shg', 'direct', 'BO')
 
     @staticmethod
     def get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=False):
@@ -2049,6 +2120,10 @@ class ModelOptimizer:
         :param mpi (optional): whether to use multiprocessing (default: False)
         :return: optimized network connectivity matrix
         '''
+        # Initialize empty dictionary for optimization keyword arguments
+        optkwargs = {}
+
+        # Extract optimization method and add extra keyword arguments if needed 
         if method == 'diffev':
             optfunc = optimize.differential_evolution
         elif method == 'annealing':
@@ -2057,26 +2132,39 @@ class ModelOptimizer:
             optfunc = optimize.shgo
         elif method == 'direct':
             optfunc = optimize.direct
+        elif method == 'BO':
+            optfunc = gp_minimize
+            optkwargs.update({
+                'acq_func': 'EI',  # Expected Improvement acquisition function
+                'n_initial_points': 1000,  # Number of initial random points
+                'n_calls': 1100,  # Total number of calls to the objective function
+            })
         else:
             raise OptimizationError(f'unknown optimization algorithm: {method}')
         
-        # Initialize empty dictionary for optimization keyword arguments
-        optkwargs = {}
+        # If optimization method is not compatible with multiprocessing, turn it off
+        if mpi and method not in ('diffev', 'BO'):
+            logger.warning('multiprocessing only supported for differential evolution algorithm -> turning off')
+            mpi = False
 
         # If multiprocessing requested
         if mpi:
-            # If optimization method is not compatible with multiprocessing, raise error
-            if method != 'diffev':
-                raise OptimizationError('multiprocessing only supported for differential evolution algorithm')
             # Get the number of available CPUs
             ncpus = get_cpu_count()
-            # If more than 1 CPU available, update keyword arguments
+            logger.info(f'parallelizing {method} optimization on {ncpus} CPUs')
+            # If more than 1 CPU available, update keyword arguments to use as 
+            # many workers as there are cores
             if ncpus > 1:
-                # Use as many workers as there are cores
-                optkwargs.update({
-                    'workers': ncpus,
-                    'updating': 'deferred'
-                })
+                if method == 'diffev':
+                    optkwargs.update({
+                        'workers': ncpus,
+                        'updating': 'deferred'
+                    })
+                elif method == 'BO':
+                    optkwargs.update({
+                        'n_jobs': ncpus,
+                        'acq_optimizer': 'lbfgs',
+                    })
         
         # Extract exploration bounds per parameter
         xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=uniform_srel)
@@ -2091,8 +2179,8 @@ class ModelOptimizer:
         model.cleanup_eval()
 
         # If optimization failed, raise error
-        if not optres.success:
-            raise OptimizationError(f'optimization failed: {optres.message}')
+        if hasattr(optres, 'success') and not optres.success:
+                raise OptimizationError(f'optimization failed: {optres.message}')
 
         # Extract solution array
         sol = optres.x

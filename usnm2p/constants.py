@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-24 10:21:55
+# @Last Modified time: 2025-06-25 17:09:10
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -467,6 +467,8 @@ NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try ex
 ########################################## MODEL OPTIMIZATION ######################################
 
 # Default optimization parameters
+INVALID_COST = np.inf  # cost value for invalid optimization results
+MAX_COST = 1e12  # maximum cost value for optimization results
 DISPARITY_COST_FACTOR = 1e-3  # cost factor for activity profiles disparity
 WDEV_COST_FACTOR = .1  # cost factor for connectivity matrix relative deviation from reference
 SRELMAX = 5.0  # maximum relative stimulus sensitivity value
