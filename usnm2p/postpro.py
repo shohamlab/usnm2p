@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-30 18:06:11
+# @Last Modified time: 2025-07-01 09:36:40
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -38,17 +38,19 @@ from .surrogates import generate_surrogate
 tqdm.pandas()
 
 
-def extract_average_dFF_profile(F, qbase, avgkey='row'):
+def extract_dFF_profile(F, qbase, avgkey=None, nsplit=None):
     '''
     Extract relative change in fluorescence profile from a stack,
     by averaging across a specific dimension.
 
     :param F: 3D (single channel) or 4D (multi-channel) fluorescence stack
     :param q: quantile for baseline extraction
-    :param avgkey: key specifying which dimension to average across, one of:
+    :param avgkey (optional): key specifying dimension to average across, if any. One of:
+        - None: no aggregation, stack is fully expanded into 1D vector
         - 'frame': average across entire frame
-        - 'row': average across column for each frame row 
-    :return: row-average dFF profile
+        - 'row': average across column for each frame row
+    :param nsplit (optional): number of segments to split the output profile into
+    :return: 1D (if linear) or 2D (if split) frame-average or row-average dFF profile
     '''
     # Check valididty of averaging key
     if avgkey not in ('frame', 'row'):
@@ -57,30 +59,36 @@ def extract_average_dFF_profile(F, qbase, avgkey='row'):
     # Check input dimensionality
     nd = F.ndim
     if nd > 4 or nd < 3:
-        raise ValueError(f'cannot extract row-average profile from {nd}-dimensional input')
+        raise ValueError(f'cannot extract dFF profile from {nd}-dimensional input')
     
     # If multi-channel, run indepdnently on each channel
     if nd == 4:
-        return np.array([extract_average_dFF_profile(x, qbase, avgkey=avgkey) for x in F])
+        return np.array([extract_dFF_profile(x, qbase, avgkey=avgkey, nsplit=nsplit) for x in F])
 
-    # Determine average axi(e)s
-    avgax = {'frame': (1, 2), 'row': 2}
+    # Determine average axi(e)s, if any
+    if avgkey is not None:
+        avgax = {'frame': (1, 2), 'row': 2}
 
-    # Average across relevant axes to get temporal profile(s)
-    logger.info(f'extracting {avgkey}-average profile')
-    Fbar = np.mean(F, axis=avgax[avgkey])
+        # Average across relevant axes to get temporal profile(s)
+        logger.info(f'extracting {avgkey}-average profile')
+        F = np.mean(F, axis=avgax[avgkey])
 
     # Compute baseline per profile
-    F0 = np.quantile(Fbar, qbase, axis=0)
+    F0 = np.quantile(F, qbase, axis=0)
 
     # Compute relative change in fluorescence profile(s)
-    dFF = (Fbar - F0) / F0
+    dFF = (F - F0) / F0
 
     # If needed, serialize to convert to single time-varying profile
     if dFF.ndim > 1:
-        logger.info(f'serializing across {dFF.shape[1]} {avgkey}s to yield single time-varying vector')
+        logger.info(f'serializing across {dFF.shape[1:]} {avgkey if avgkey is not None else "pixel"}s to yield single time-varying vector')
         dFF = dFF.ravel()
-
+    
+    # Split by trials
+    if nsplit is not None:
+        logger.info(f'splitting dFF profile into {nsplit} equal segments')
+        dFF = dFF.reshape((nsplit, -1))
+    
     # Return time-varying dFF profile
     return dFF
 
