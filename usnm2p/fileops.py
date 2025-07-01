@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-22 16:01:38
+# @Last Modified time: 2025-07-01 00:42:22
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -759,6 +759,44 @@ def save_figs(figsroot, figs, ext='png'):
         fname = f'{k}.{ext}'
         logger.info(f'saving "{fname}"')
         v.savefig(os.path.join(figsdir, fname), transparent=True, bbox_inches='tight')
+
+
+def save_rowavg_dataset(fpath, dFF):
+    '''
+    Save row-average dFF dataset into HDF5 file.
+
+    :param fpath: absolute path to data file
+    :param dFF: (run, trial, time) row-average dFF series
+    :return: None
+    '''
+    # Remove output file if it exists
+    if os.path.isfile(fpath):
+        os.remove(fpath)
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Save row-average dFF data
+        logger.info('saving row-average dFF data...')
+        store['rowavg_dFF'] = dFF
+    logger.info('data successfully saved')
+
+
+def load_rowavg_dataset(fpath):
+    '''
+    Load row-average dFF dataset from HDF5 file.
+
+    :param fpath: absolute path to data file
+    :return: (run, trial, time) row-average dFF series
+    '''
+    # Check that output file is present in directory
+    if not os.path.isfile(fpath):
+        raise FileNotFoundError('row-average dFF data file not found in directory')
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Load row-average dFF data
+        logger.info('loading row-average dFF data...')
+        dFF = store['rowavg_dFF']
+    logger.info('data successfully loaded')
+    return dFF
 
 
 def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks, isch2ROI=None):

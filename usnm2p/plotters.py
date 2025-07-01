@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-05-29 13:50:30
+# @Last Modified time: 2025-06-27 23:55:08
 
 ''' Collection of plotting utilities. '''
 
@@ -14,6 +14,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import re
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
@@ -549,6 +550,62 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     ax.legend()
 
     # Return figure handle
+    return fig
+
+
+def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfunc=None):    
+    ''' 
+    Plot frame with optional row and column average profiles on marginal axes
+
+    :param frame: 2D frame
+    :param cmap: colormap to use (default = viridis)
+    :param add_marginals: whether to add marginal axes for row and column average profiles
+    :param um_per_px: conversion factor from pixels to micrometers (optional)
+    :param aggfunc: aggregation function for marginal profiles (default = mean)
+    :return: figure object
+    '''
+    # Create figure
+    figsize = np.array([4, 4])
+    if add_marginals:
+        figsize = figsize * 1.25
+        fig = plt.figure(figsize=tuple(figsize))
+        gs = GridSpec(2, 2, width_ratios=[5, 1], height_ratios=[1, 5],
+                    wspace=0.05, hspace=0.05)
+        ax = fig.add_subplot(gs[1, 0])
+    else:
+        fig, ax = plt.subplots(figsize=figsize)
+
+    # Main image plot
+    ax.imshow(frame, cmap=cmap, aspect='auto')
+    ax.axis('off')
+    if um_per_px is not None:
+        npx = frame.shape[-1]
+        add_scale_bar(ax, npx, um_per_px, color='w')
+
+    # If marginals requested
+    if add_marginals:
+        # Extract aggregation function
+        if aggfunc is None:
+            aggfunc = np.mean
+
+        # For each aggregation axis
+        for iax in [0, 1]:
+            # Apply aggregation function on specified axis
+            yagg = aggfunc(frame, axis=iax)
+
+            # Create matplotlib maginal axis 
+            ax = fig.add_subplot(gs[iax, iax])
+
+            # Plot aggregate profile
+            xagg = np.arange(yagg.size)
+            if iax == 0:
+                ax.plot(xagg, yagg, c='k')
+                ax.set_xlim(0, yagg.size)
+            else:
+                ax.plot(yagg, xagg, c='k')
+                ax.set_ylim(yagg.size, 0)  # Invert y-axis to match image
+            ax.axis('off')
+    
     return fig
 
 

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 23:02:34
+# @Last Modified time: 2025-06-30 18:06:11
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -36,6 +36,53 @@ from .surrogates import generate_surrogate
 
 # Register tqdm progress functionality to pandas
 tqdm.pandas()
+
+
+def extract_average_dFF_profile(F, qbase, avgkey='row'):
+    '''
+    Extract relative change in fluorescence profile from a stack,
+    by averaging across a specific dimension.
+
+    :param F: 3D (single channel) or 4D (multi-channel) fluorescence stack
+    :param q: quantile for baseline extraction
+    :param avgkey: key specifying which dimension to average across, one of:
+        - 'frame': average across entire frame
+        - 'row': average across column for each frame row 
+    :return: row-average dFF profile
+    '''
+    # Check valididty of averaging key
+    if avgkey not in ('frame', 'row'):
+        raise ValueError(f'cannot compute "{avgkey}"-average')
+
+    # Check input dimensionality
+    nd = F.ndim
+    if nd > 4 or nd < 3:
+        raise ValueError(f'cannot extract row-average profile from {nd}-dimensional input')
+    
+    # If multi-channel, run indepdnently on each channel
+    if nd == 4:
+        return np.array([extract_average_dFF_profile(x, qbase, avgkey=avgkey) for x in F])
+
+    # Determine average axi(e)s
+    avgax = {'frame': (1, 2), 'row': 2}
+
+    # Average across relevant axes to get temporal profile(s)
+    logger.info(f'extracting {avgkey}-average profile')
+    Fbar = np.mean(F, axis=avgax[avgkey])
+
+    # Compute baseline per profile
+    F0 = np.quantile(Fbar, qbase, axis=0)
+
+    # Compute relative change in fluorescence profile(s)
+    dFF = (Fbar - F0) / F0
+
+    # If needed, serialize to convert to single time-varying profile
+    if dFF.ndim > 1:
+        logger.info(f'serializing across {dFF.shape[1]} {avgkey}s to yield single time-varying vector')
+        dFF = dFF.ravel()
+
+    # Return time-varying dFF profile
+    return dFF
 
 
 def separate_runs(data, nruns):

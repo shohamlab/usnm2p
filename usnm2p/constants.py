@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-25 17:09:10
+# @Last Modified time: 2025-06-30 23:22:47
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -167,6 +167,7 @@ class DataRoot:
     RAW_BRUKER = 'raw_bruker'
     RAW_BERGAMO = 'raw_bergamo'
     STACKED = 'stacked'
+    ROWAVG = 'rowavg'
     RESAMPLED = 'resampled'
     SPLIT = 'split'
     MODEL = 'model'
