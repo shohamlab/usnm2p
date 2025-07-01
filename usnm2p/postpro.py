@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 09:36:40
+# @Last Modified time: 2025-07-01 16:07:25
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 

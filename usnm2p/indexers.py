@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2024-08-15 17:32:10
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2025-07-01 16:34:35
 import numpy as np
 
 class FrameIndexer:
@@ -136,3 +141,37 @@ class FrameIndexer:
         '''
         bounds = self.get_window_bounds(kind)
         return bounds[1] - bounds[0]
+
+    def get_time_vector(self, idx, dt):
+        '''
+        Transform indexes vector into time vector
+        
+        :param idx: indexes to transform
+        :param dt: time step (s)
+        :return: stimulus-aligned time vector as numpy array
+        '''
+        if self.npertrial is None or self.npertrial <= 0:
+            raise ValueError('npertrial must be set to integer > 0 to get time vector')
+        if dt <= 0:
+            raise ValueError('dt must be > 0')
+        if not isinstance(idx, np.ndarray):
+            raise TypeError('idx must be a numpy array')
+        if idx.ndim != 1:
+            raise ValueError('idx must be a 1D numpy array')
+        if not np.issubdtype(idx.dtype, np.integer):
+            raise TypeError('idx must be an array of integers')
+        return (idx - self.iref) * dt
+    
+    def resample(self, factor):
+        ''' 
+        Resample the indexer by a specific factor
+
+        :param factor: resampling factor (must be an integer)
+        :return: new FrameIndexer instance with resampled parameters
+        '''
+        return FrameIndexer(
+            iref=self.iref * factor,
+            npre=self.npre * factor,
+            npost=self.npost * factor,
+            npertrial=None if self.npertrial is None else self.npertrial * factor
+        )
