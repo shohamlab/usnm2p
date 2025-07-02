@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 16:07:25
+# @Last Modified time: 2025-07-01 17:24:54
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -764,9 +764,12 @@ def add_time_to_table(data, key=Label.TIME, fidx=None, fps=None):
     else:
         frame_offset = 0.
     # Extract frame indexes
-    iframes = data.index.get_level_values(Label.FRAME)
+    try:
+        idxs = data.index.get_level_values(Label.FRAME)
+    except KeyError:
+        idxs = data.index.get_level_values(Label.FRAMEROW)
     # Add time column
-    data[key] = (iframes - frame_offset) / fps
+    data[key] = (idxs - frame_offset) / fps
     # Set time as first column
     cols = data.columns
     data = data.reindex(columns=[cols[-1], *cols[:-1]])
@@ -805,17 +808,21 @@ def get_index_along_experiment(mux, reset_every=None, runid_map=None):
     return frame_idxs
 
 
-def add_intensity_to_table(table):
+def add_intensity_to_table(table, precision=None):
     '''
     Add information about pulse and time average acoustic intensity to a table
     
     :param table: dataframe with pressure and duty cycle columns
+    :param precision (optional): precision of the intensity values
     :return: dtaframe with extra intensity columns
     '''
     if Label.ISPTA not in table:
         logger.info('deriving acoustic intensity information...')
         table[Label.ISPPA] = pressure_to_intensity(table[Label.P] * 1e6) * 1e-4  # W/cm2
         table[Label.ISPTA] = table[Label.ISPPA] * table[Label.DC] * 1e-2   # W/cm2
+        if precision is not None:
+            table[Label.ISPTA] = table[Label.ISPTA].round(precision)
+            table[Label.ISPPA] = table[Label.ISPPA].round(precision)
     return table
 
 

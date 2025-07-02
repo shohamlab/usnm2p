@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 16:29:04
+# @Last Modified time: 2025-07-01 17:40:59
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -32,6 +32,7 @@ class Label:
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
     FPS = 'fps'
+    LPF = 'lpf'  # lines per frame
     RUNID = 'run ID'
     LINE = 'line'
     NPERTRIAL = 'trial_length'
@@ -347,6 +348,7 @@ STIM_ONSET_DICT = {
     'cre': 5.0,  # s
     'default': 2.81,  # s
 }
+STIM_TRIG_DELAY = 1e-2  # Stimulus trigger delay in seconds
 
 def get_stim_onset_time(line):
     ''' Get stimulation onset time for a given line '''

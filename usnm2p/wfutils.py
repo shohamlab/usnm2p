@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 09:29:37
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-03 10:48:12
+# @Last Modified time: 2025-07-01 17:44:38
 
 import numpy as np
 import seaborn as sns
@@ -15,6 +15,22 @@ from .constants import S_TO_MS, HZ_TO_KHZ
 from .utils import is_within
 from .logger import logger
 from .plotters import data_to_axis
+
+
+def get_onoff_times(dur, PRF, DC, onset=0):
+    '''
+    Get on and off time in a pulse train
+
+    :param dur: total duration of the pulse train (s)
+    :param PRF: pulse repetition frequency (Hz)
+    :param DC: duty cycle (%)
+    :param onset: onset time of the pulse train (s). Defaults to 0.
+    :return: 2D array of ON and OFF time on and time off vectors (s)
+    '''
+    npulses = int(np.round(dur * PRF))  # number of pulses in the burst
+    ton = np.arange(npulses) / PRF + onset  # pulse onset times
+    toff = ton + (DC * 1e-2) / PRF  # pulse offset times
+    return np.array([ton, toff]).T
 
 
 def get_pulse_envelope(n, xramp=0, xprepad=0, xpostpad=0, rms_norm=True, nreps=1):
