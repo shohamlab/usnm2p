@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-12-29 12:43:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 12:46:13
+# @Last Modified time: 2025-07-04 16:06:43
 
 ''' Utility script to run low-level (single dataset) analysis notebook(s) '''
 
@@ -33,7 +33,13 @@ if __name__ == '__main__':
     datasets = get_dataset_params(root=dataroot, analysis=args['analysis'])
 
     # Filter datasets to match related input parameters
-    datasets = restrict_datasets(datasets, **args)     
+    datasets = restrict_datasets(datasets, **args)
+
+    # Rename "analysis" to "analysis_type" for consistency with notebook execution
+    for dataset in datasets:
+        dataset['analysis_type'] = dataset.pop('analysis', args['analysis'])
+    
+    print(datasets)
     
     # Compute number of jobs to run
     njobs = len(datasets) * len(proc_queue)

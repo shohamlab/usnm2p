@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-04 16:00:24
+# @Last Modified time: 2025-07-04 16:04:38
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -100,7 +100,7 @@ def get_dataset_params(root='.', analysis=DEFAULT_ANALYSIS, excludes=None, inclu
 
     # Return line, date, mouse, region combinations
     return [
-        {'analysis_type': analysis, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
+        {'analysis': analysis, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
         for x in datasets]
 
 
@@ -108,7 +108,7 @@ def restrict_datasets(datasets, **kwargs):
     '''
     Restrict dataset list to those matching specific parameters.
 
-    :param datasets: list of dictionaries representing (analysis, line, date, mouse, region, layer) combinations
+    :param datasets: list of dictionaries representing (analysis type, line, date, mouse, region, layer) combinations
     :param kwargs: dictionary of parameters to match
     '''
     # Restrict parameters to those that are not None
