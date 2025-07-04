@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-15 17:32:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 16:34:35
+# @Last Modified time: 2025-07-02 11:47:19
 import numpy as np
 
 class FrameIndexer:
@@ -142,7 +142,7 @@ class FrameIndexer:
         bounds = self.get_window_bounds(kind)
         return bounds[1] - bounds[0]
 
-    def get_time_vector(self, idx, dt):
+    def index_to_time(self, idx, dt):
         '''
         Transform indexes vector into time vector
         

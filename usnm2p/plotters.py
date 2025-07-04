@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-27 23:55:08
+# @Last Modified time: 2025-07-04 10:51:22
 
 ''' Collection of plotting utilities. '''
 
@@ -18,6 +18,7 @@ from matplotlib.gridspec import GridSpec
 import re
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
+import matplotlib.colors as mcolors
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
@@ -59,6 +60,29 @@ nan_viridis.set_bad('silver')
 rtype_cmap = LinearSegmentedColormap.from_list(
     'rtype', colors=list(Palette.RTYPE.values()))
 
+
+def desaturate_color(color, saturation_factor=.3):
+    '''
+    Desaturate a color by a given factor.
+    
+    :param color: Color to desaturate, can be a string (e.g., 'C0') or an RGB tuple
+    :param saturation_factor: Factor to desaturate the color (0 = grayscale, 1 = original color)
+    :return: Desaturated RGB color as a tuple
+    '''
+    # If input is string, convert to RGB
+    if isinstance(color, str):
+        color = mcolors.to_rgb(color)  # returns float RGB in [0,1]
+    
+    # Convert RGB to HSV
+    h, s, v = rgb_to_hsv(*color)
+
+    if s == 0:
+        v = .7
+    else:
+        s = min(s * saturation_factor, 1)
+
+    # Convert back to RGB
+    return hsv_to_rgb(h, s, v)
 
 
 def get_colors(cmap, N=None, use_index='auto'):
@@ -6725,4 +6749,118 @@ def add_regression_line(add_text=False, ytxt=.9, robust=False, ls='-', **kwargs)
     if add_text:
         regstr = f's = {s:.2g} (p = {p:.3f})'
         ax.text(.5, ytxt, regstr, color=color, transform=ax.transAxes, ha='center', va='top')
+
+
+def get_onoff_times(dur, PRF, DC, onset=0):
+    '''
+    Get on and off time in a pulse train
+
+    :param dur: total duration of the pulse train (s)
+    :param PRF: pulse repetition frequency (Hz)
+    :param DC: duty cycle (%)
+    :param onset: onset time of the pulse train (s). Defaults to 0.
+    :return: 2D array of ON and OFF time on and time off vectors (s)
+    '''
+    npulses = int(np.round(dur * PRF))  # number of pulses in the burst
+    ton = np.arange(npulses) / PRF + onset  # pulse onset times
+    toff = ton + (DC * 1e-2) / PRF  # pulse offset times
+    return np.array([ton, toff]).T
+
+
+def plot_profile_vs_ispta(data, ykey=Label.DFF, marker=None, tbounds=None, fps=None, ispta_DC_map=None, 
+                          stimdur=None, stimPRF=None, stimdelay=0, units=None, errorbar='se'):
+    ''' 
+    Plot time-varying profile, per ISPTA.
+
+    :param data: (ISPTA, framerow) indexed DataFrame containing profiles to plot
+    :param ykey: key(s) for the y-axis data (defaults to Label.DFF). If several keys are provided,
+    they will be plotted with distinct colors.
+    :param tbounds (optional): tuple of time bounds (start, end) to restrict the data for plotting
+    :return: matplotlib figure object
+    '''
+    s = f'plotting {ykey} time-varying profile per ISPTA'
+    if tbounds is not None:
+        s += f' between {tbounds[0]} and {tbounds[1]} s'
+    logger.info(s)
+
+    # If specified, restrict time bounds
+    if tbounds is not None:
+        data = data[data[Label.TIME].between(*tbounds)]
+
+    # Create a FacetGrid to plot dFF profile per ISPTA
+    g = sns.FacetGrid(
+        data=data.reset_index(),
+        col=Label.ISPTA,
+        col_wrap=3,
+        height=2,
+        aspect=2,
+    )
+
+    colors = plt.get_cmap('tab10').colors  # Get colors for the line plots
+
+    # For each profile type
+    ykeys = as_iterable(ykey)
+    for c, ykey in zip(colors, ykeys):
+
+        # Plot across datasets
+        if units is not None:
+            if units not in data.index.names and units not in data.columns:
+                raise ValueError(f'invalid unit key "{units}": not found in data')
+            errorbar = None
+            g.map_dataframe(
+                sns.lineplot,
+                x=Label.TIME,
+                y=ykey,
+                units=units,
+                estimator=None,
+                color=desaturate_color(c),
+                alpha=0.5,
+                lw=0.5,
+                legend=False,
+            )
+
+        # Plot global average
+        g.map_dataframe(
+            sns.lineplot,
+            x=Label.TIME,
+            y=ykey,
+            errorbar=errorbar,
+            lw=1.5,
+            color=c,
+            marker=marker,
+            label=ykey
+        )
+
+    # Reset y axes labels to standard DFF
+    g.set_axis_labels(Label.TIME, Label.DFF)
     
+    # If multiple ykeys
+    if len(ykeys) > 1:
+        # Add legend
+        g.add_legend(title='profile type', bbox_to_anchor=(.9, .5), loc='center left')
+
+    # If time interval is narrow, add vertical spans for stimulus trigger and individual pulses
+    if np.ptp(data[Label.TIME]) < 1:
+        for ispta, ax in g.axes_dict.items():
+            tdict = {'stim trigger frame': 0}
+            if fps is not None:
+                tdict['next frame'] = 1 / fps
+            for label, t in tdict.items():
+                if is_within(t, tbounds):
+                    ax.axvline(t, c='k', ls='--', label=label)
+            if ispta > 0 and ispta_DC_map is not None and stimdur is not None and stimPRF is not None:
+                tpulses = get_onoff_times(
+                    stimdur, stimPRF, ispta_DC_map.loc[ispta], onset=stimdelay
+                )
+                for tp in tpulses:
+                    if is_within(tp[0], tbounds):
+                        ax.axvspan(*tp, fc='brown', alpha=0.5)
+
+    # Otherwise, add single vertical spans for stimulus
+    else:
+        if stimdur is not None:
+            for ax in g.axes:
+                ax.axvspan(0, stimdur, fc='brown', alpha=0.5, label='stimulus')
+
+    # Return figure object
+    return g.figure

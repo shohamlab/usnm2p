@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 17:24:54
+# @Last Modified time: 2025-07-03 01:02:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -38,19 +38,19 @@ from .surrogates import generate_surrogate
 tqdm.pandas()
 
 
-def extract_dFF_profile(F, qbase, avgkey=None, nsplit=None):
+def extract_fluorescence_profile(F, qbase=None, avgkey=None, nsplit=None):
     '''
-    Extract relative change in fluorescence profile from a stack,
+    Extract fluorescence profile (either absolute or relative change) from a stack,
     by averaging across a specific dimension.
 
     :param F: 3D (single channel) or 4D (multi-channel) fluorescence stack
-    :param q: quantile for baseline extraction
+    :param qbase (optional): quantile for baseline extraction, if relative change is required
     :param avgkey (optional): key specifying dimension to average across, if any. One of:
         - None: no aggregation, stack is fully expanded into 1D vector
         - 'frame': average across entire frame
         - 'row': average across column for each frame row
     :param nsplit (optional): number of segments to split the output profile into
-    :return: 1D (if linear) or 2D (if split) frame-average or row-average dFF profile
+    :return: 1D (if linear) or 2D (if split) frame-average or row-average fluoresence profile
     '''
     # Check valididty of averaging key
     if avgkey not in ('frame', 'row'):
@@ -59,11 +59,11 @@ def extract_dFF_profile(F, qbase, avgkey=None, nsplit=None):
     # Check input dimensionality
     nd = F.ndim
     if nd > 4 or nd < 3:
-        raise ValueError(f'cannot extract dFF profile from {nd}-dimensional input')
+        raise ValueError(f'cannot extract fluorescence profile from {nd}-dimensional input')
     
     # If multi-channel, run indepdnently on each channel
     if nd == 4:
-        return np.array([extract_dFF_profile(x, qbase, avgkey=avgkey, nsplit=nsplit) for x in F])
+        return np.array([extract_fluorescence_profile(x, qbase, avgkey=avgkey, nsplit=nsplit) for x in F])
 
     # Determine average axi(e)s, if any
     if avgkey is not None:
@@ -73,24 +73,23 @@ def extract_dFF_profile(F, qbase, avgkey=None, nsplit=None):
         logger.info(f'extracting {avgkey}-average profile')
         F = np.mean(F, axis=avgax[avgkey])
 
-    # Compute baseline per profile
-    F0 = np.quantile(F, qbase, axis=0)
-
-    # Compute relative change in fluorescence profile(s)
-    dFF = (F - F0) / F0
+    # If baseline quantile is provided, compute relative change in fluorescence
+    if qbase is not None:
+        F0 = np.quantile(F, qbase, axis=0)
+        F = (F - F0) / F0
 
     # If needed, serialize to convert to single time-varying profile
-    if dFF.ndim > 1:
-        logger.info(f'serializing across {dFF.shape[1:]} {avgkey if avgkey is not None else "pixel"}s to yield single time-varying vector')
-        dFF = dFF.ravel()
+    if F.ndim > 1:
+        logger.info(f'serializing across {F.shape[1:]} {avgkey if avgkey is not None else "pixel"}s to yield single time-varying vector')
+        F = F.ravel()
     
     # Split by trials
     if nsplit is not None:
-        logger.info(f'splitting dFF profile into {nsplit} equal segments')
-        dFF = dFF.reshape((nsplit, -1))
+        logger.info(f'splitting profile into {nsplit} equal segments')
+        F = F.reshape((nsplit, -1))
     
-    # Return time-varying dFF profile
-    return dFF
+    # Return time-varying profile
+    return F
 
 
 def separate_runs(data, nruns):
@@ -4362,7 +4361,7 @@ def autoreg_predict(y, wbounds, order=None, surrogate=False):
 
     # Predict post-stim values from pre-stim values
     ypred = y.copy()
-    extradims = [k for k in y.index.names if k != Label.FRAME]
+    extradims = [k for k in y.index.names if k not in (Label.FRAME, Label.FRAMEROW)]
     iref = 0
     for _, yseg in ypred.groupby(extradims):
         ibounds = iref + wbounds

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 15:35:32
+# @Last Modified time: 2025-07-04 15:31:54
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -152,7 +152,7 @@ def get_sorted_filelist(dir, pattern=None):
     '''
     # Throw error if directory does not exist
     if not os.path.isdir(dir):
-        raise ValueError('"{dir}" is not a directory')
+        raise ValueError(f'"{dir}" is not a directory')
     # List directory files in alphabetical order
     fnames = sorted(os.listdir(dir))
     if len(fnames) == 0:
