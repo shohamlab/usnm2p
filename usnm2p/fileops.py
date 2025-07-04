@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-04 15:31:54
+# @Last Modified time: 2025-07-04 16:00:24
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -66,7 +66,7 @@ def get_subfolder_names(dirpath):
 
 def get_dataset_params(root='.', analysis=DEFAULT_ANALYSIS, excludes=None, includes=['region']):
     '''
-    Construct a list of (line, date, mouse, region) combinations that contain
+    Construct a list of (analysis type, line, date, mouse, region) combinations that contain
     experiment datasets inside a given root directory.
     
     :param root: root directory (typically a mouse line) containing the dataset folders
@@ -100,7 +100,7 @@ def get_dataset_params(root='.', analysis=DEFAULT_ANALYSIS, excludes=None, inclu
 
     # Return line, date, mouse, region combinations
     return [
-        {'analysis': analysis, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
+        {'analysis_type': analysis, 'mouseline': x[0], 'expdate': x[1], 'mouseid': x[2], 'region': x[3], 'layer': x[4]}
         for x in datasets]
 
 
