@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 12:09:36
+# @Last Modified time: 2025-07-09 15:29:52
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -38,7 +38,40 @@ from .surrogates import generate_surrogate
 tqdm.pandas()
 
 
-def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, nsplit=None):
+def split_first_dim(arr, npersplit, verbose=False):
+    '''
+    Split the first dimension of an array into two dimensions.
+
+    :param arr: input array
+    :param npersplit: number of elements per split (must be an integer divider of first dimension)
+    :verbose (optional): whether to log process (defaults to False)
+    :return: reshaped array with first dimension split into two dimensions
+    '''
+    shape = arr.shape
+    if shape[0] % npersplit != 0:
+        raise ValueError(f'cannot split first dimension length ({shape[0]}) into {npersplit}-long segments')
+    nsplits = shape[0] // npersplit
+    new_shape = (nsplits, npersplit) + shape[1:]
+    if verbose:
+        logger.info(f'splitting input array first dimension into {nsplits} {npersplit}-long segments')
+    return arr.reshape(new_shape)
+
+
+def ravel_first_two_dims(arr):
+    '''
+    Ravel the first two dimensions of an array into a single dimension.
+
+    :param arr: input array (at least 2D)
+    :return: reshaped array with first two dimensions raveled into a single dimension
+    '''
+    if arr.ndim < 2:
+        raise ValueError(f'cannot ravel {arr.ndim}D array')
+    shape = arr.shape
+    new_shape = (shape[0] * shape[1],) + shape[2:]
+    return arr.reshape(new_shape)
+
+
+def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, serialize=False, nsplit=None):
     '''
     Extract fluorescence profile (either absolute or relative change) from a stack,
     by averaging across a specific dimension.
@@ -49,6 +82,7 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, nspli
         - None: no aggregation, stack is fully expanded into 1D vector
         - 'frame': average across entire frame
         - 'row': average across column for each frame row
+    :param serialize (optional): whether to serialize data if not already frame-averaged (defaults to False)
     :param nsplit (optional): number of segments to split the output profile into
     :return: 1D (if linear) or 2D (if split) frame-average or row-average fluoresence profile
     '''
@@ -60,8 +94,8 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, nspli
     nd = F.ndim
     if nd > 4 or nd < 3:
         raise ValueError(f'cannot extract fluorescence profile from {nd}-dimensional input')
-    
-    # If multi-channel, run indepdnently on each channel
+
+    # If multi-channel, run independently on each channel
     if nd == 4:
         return np.array([extract_fluorescence_profile(x, qbase, avgkey=avgkey, nsplit=nsplit) for x in F])
 
@@ -83,17 +117,16 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, nspli
         logger.info('z-scoring fluorescence profile')
         F = (F - np.mean(F, axis=0)) / np.std(F, axis=0)
 
-    # If needed, serialize to convert to single time-varying profile
-    if F.ndim > 1:
+    # If requested, serialize to convert to single time-varying profile
+    if serialize and F.ndim > 1:
         logger.info(f'serializing across {F.shape[1:]} {avgkey if avgkey is not None else "pixel"}s to yield single time-varying vector')
         F = F.ravel()
-    
-    # Split by trials
+
+    # If nsplit provided, apply
     if nsplit is not None:
-        logger.info(f'splitting profile into {nsplit} equal segments')
-        F = F.reshape((nsplit, -1))
+        F = split_first_dim(F, nsplit)
     
-    # Return time-varying profile
+    # Return profile
     return F
 
 
