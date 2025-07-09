@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-03 16:23:04
+# @Last Modified time: 2025-07-08 16:18:44
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -40,6 +40,7 @@ class Label:
     CYCLE = 'cycle'
     SUFFIX = 'suffix'
     FRAME = 'frame'
+    ROW = 'row'
     FRAMEROW = 'frame row'
     STIMFRAME = 'stimulus frame'
     CH = 'channel'

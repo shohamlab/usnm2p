@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-03 01:02:43
+# @Last Modified time: 2025-07-09 12:09:36
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -38,7 +38,7 @@ from .surrogates import generate_surrogate
 tqdm.pandas()
 
 
-def extract_fluorescence_profile(F, qbase=None, avgkey=None, nsplit=None):
+def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, nsplit=None):
     '''
     Extract fluorescence profile (either absolute or relative change) from a stack,
     by averaging across a specific dimension.
@@ -77,6 +77,11 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, nsplit=None):
     if qbase is not None:
         F0 = np.quantile(F, qbase, axis=0)
         F = (F - F0) / F0
+
+    # If specified, zscore the fluorescence profile
+    if zscore:
+        logger.info('z-scoring fluorescence profile')
+        F = (F - np.mean(F, axis=0)) / np.std(F, axis=0)
 
     # If needed, serialize to convert to single time-varying profile
     if F.ndim > 1:
@@ -282,7 +287,7 @@ def skew_to_quantile(s, qthr=0.05, sigma=1.):
     return sigmoid(-s, sigma=sigma, A=1 - 2 * qthr, y0=qthr)
 
 
-def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None, smooth=True):
+def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None):
     '''
     Construct a quantile-based baseline computation function
     

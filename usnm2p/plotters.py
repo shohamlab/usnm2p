@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-04 10:51:22
+# @Last Modified time: 2025-07-09 14:29:01
 
 ''' Collection of plotting utilities. '''
 
@@ -6767,18 +6767,29 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     return np.array([ton, toff]).T
 
 
-def plot_profile_vs_ispta(data, ykey=Label.DFF, marker=None, tbounds=None, fps=None, ispta_DC_map=None, 
-                          stimdur=None, stimPRF=None, stimdelay=0, units=None, errorbar='se'):
+def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, marker=None, color=None, tbounds=None, fps=None,
+                         col_DC_mapper=None, stimdur=None, stimPRF=None, stimdelay=0, 
+                         errorbar='se'):
     ''' 
-    Plot time-varying profile, per ISPTA.
+    Plot time-varying row-aggregate profiles
 
-    :param data: (ISPTA, framerow) indexed DataFrame containing profiles to plot
+    :param data: multi-index indexed DataFrame containing profiles to plot
     :param ykey: key(s) for the y-axis data (defaults to Label.DFF). If several keys are provided,
-    they will be plotted with distinct colors.
+        they will be plotted with distinct colors.
+    :param col: column key to split data by (defaults to Label.ISPTA)
+    :param units (optional): data grouping level used to plot individual curves (e.g. "dataset")  
+    :param marker (optional): marker type for line plotting
+    :param color (optional): color to use for the plot (defaults to None)
     :param tbounds (optional): tuple of time bounds (start, end) to restrict the data for plotting
+    :param fps: temporal resolution (in frames per second) to use for plotting frame limits
+    :param col_DC_mapper: dictionary used to map column values to corresponding duty cycle values,
+        in order to plot detailed pulse patterns
+    :param stimdur: stimulus duration (used to plot stimulus/pulses spans)
+    :param stimPRF: stimulus PRF (used to plot detailed pulse patterns)
+    :param stimdelay: stimulus onset delay (used to plot detailed pulse patterns)
     :return: matplotlib figure object
     '''
-    s = f'plotting {ykey} time-varying profile per ISPTA'
+    s = f'plotting {ykey} time-varying profile per {col}'
     if tbounds is not None:
         s += f' between {tbounds[0]} and {tbounds[1]} s'
     logger.info(s)
@@ -6787,19 +6798,27 @@ def plot_profile_vs_ispta(data, ykey=Label.DFF, marker=None, tbounds=None, fps=N
     if tbounds is not None:
         data = data[data[Label.TIME].between(*tbounds)]
 
-    # Create a FacetGrid to plot dFF profile per ISPTA
+    # Create a FacetGrid to plot dFF profile per column
     g = sns.FacetGrid(
         data=data.reset_index(),
-        col=Label.ISPTA,
+        col=col,
         col_wrap=3,
         height=2,
         aspect=2,
     )
 
-    colors = plt.get_cmap('tab10').colors  # Get colors for the line plots
+    # Cast input key(s) as iterable
+    ykeys = as_iterable(ykey)
+
+    # Generate/retrieve associated colors
+    if color is None:
+        colors = plt.get_cmap('tab10').colors[:len(ykeys)]
+    else:
+        colors = as_iterable(color)
+        if len(colors) != len(ykeys):
+            raise ValueError('color input must be of the same length as number of input keys')
 
     # For each profile type
-    ykeys = as_iterable(ykey)
     for c, ykey in zip(colors, ykeys):
 
         # Plot across datasets
@@ -6816,7 +6835,6 @@ def plot_profile_vs_ispta(data, ykey=Label.DFF, marker=None, tbounds=None, fps=N
                 color=desaturate_color(c),
                 alpha=0.5,
                 lw=0.5,
-                legend=False,
             )
 
         # Plot global average
@@ -6837,30 +6855,34 @@ def plot_profile_vs_ispta(data, ykey=Label.DFF, marker=None, tbounds=None, fps=N
     # If multiple ykeys
     if len(ykeys) > 1:
         # Add legend
-        g.add_legend(title='profile type', bbox_to_anchor=(.9, .5), loc='center left')
+        g.add_legend(title='profile type')
 
     # If time interval is narrow, add vertical spans for stimulus trigger and individual pulses
     if np.ptp(data[Label.TIME]) < 1:
-        for ispta, ax in g.axes_dict.items():
+        for col_val, ax in g.axes_dict.items():
             tdict = {'stim trigger frame': 0}
             if fps is not None:
                 tdict['next frame'] = 1 / fps
             for label, t in tdict.items():
                 if is_within(t, tbounds):
                     ax.axvline(t, c='k', ls='--', label=label)
-            if ispta > 0 and ispta_DC_map is not None and stimdur is not None and stimPRF is not None:
+            if col_DC_mapper is not None:
+                DC = col_DC_mapper.loc[col_val]
+            else:
+                DC = None
+            if DC is not None and stimdur is not None and stimPRF is not None:
                 tpulses = get_onoff_times(
-                    stimdur, stimPRF, ispta_DC_map.loc[ispta], onset=stimdelay
+                    stimdur, stimPRF, DC, onset=stimdelay
                 )
                 for tp in tpulses:
                     if is_within(tp[0], tbounds):
-                        ax.axvspan(*tp, fc='brown', alpha=0.5)
+                        ax.axvspan(*tp, fc='tab:brown', alpha=0.5)
 
     # Otherwise, add single vertical spans for stimulus
     else:
         if stimdur is not None:
             for ax in g.axes:
-                ax.axvspan(0, stimdur, fc='brown', alpha=0.5, label='stimulus')
+                ax.axvspan(0, stimdur, fc='tab:brown', alpha=0.5, label='stimulus')
 
     # Return figure object
     return g.figure
