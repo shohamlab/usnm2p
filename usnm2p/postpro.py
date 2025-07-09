@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 15:29:52
+# @Last Modified time: 2025-07-09 16:25:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -779,13 +779,14 @@ def slide_along_trial(func, data, ref_wslice, iseeds):
     return df, iseeds
     
 
-def add_time_to_table(data, key=Label.TIME, fidx=None, fps=None):
+def add_time_to_table(data, key=Label.TIME, idxkey=Label.FRAME, fidx=None, fps=None):
     '''
     Add time information to info table
     
     :param data: dataframe contanining all the info about the experiment.
     :param key: name of the time column in the new info table
-    :param fidx (optional): frame indexer object 
+    :param idxkey: name of the index level containing reference indexes
+    :param fidx (optional): frame indexer object
     :return: modified info table
     '''
     if key in data:
@@ -802,9 +803,9 @@ def add_time_to_table(data, key=Label.TIME, fidx=None, fps=None):
         frame_offset = 0.
     # Extract frame indexes
     try:
-        idxs = data.index.get_level_values(Label.FRAME)
+        idxs = data.index.get_level_values(idxkey)
     except KeyError:
-        idxs = data.index.get_level_values(Label.FRAMEROW)
+        idxs = data[idxkey]
     # Add time column
     data[key] = (idxs - frame_offset) / fps
     # Set time as first column

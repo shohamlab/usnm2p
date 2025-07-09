@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 14:42:23
+# @Last Modified time: 2025-07-09 18:10:50
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -33,7 +33,7 @@ class Label:
     DUR = 'duration (s)'
     FPS = 'fps'
     LPF = 'lpf'  # lines per frame
-    IPULSE = '# pulse'
+    PULSE = 'pulse'
     PULSERELTIME = 'time w.r.t pulse onset (ms)'
     RUNID = 'run ID'
     LINE = 'line'
