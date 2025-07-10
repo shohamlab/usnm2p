@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 16:25:43
+# @Last Modified time: 2025-07-10 13:53:21
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -128,6 +128,165 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
     
     # Return profile
     return F
+
+
+def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=True):
+    '''
+    Process intraframe fluorescence signal.
+
+    :param y: multi-indexed (*:, frame, row) series containing fluorescence data
+    :param fidx: FrameIndexer object
+    :param fps: frame sampling frequency (frame per second)
+    :param npre: number of pre-stimulus frames to average from to get predictive
+        scanning-induced intraframe variation profile
+    :param wt: size of rolling window (in seconds) for "rolling max" computation
+    :param verbose: whether to log different process steps
+    :return: pandas dataframe with pulse-evoked dips
+    '''
+    # Check that data contains frame and row indexes
+    idxdims = y.index.names
+    for k in [Label.FRAME, Label.ROW]:
+        if k not in idxdims:
+            raise ValueError(f'"{k}" dimension not found in data index')
+    
+    # If data contains extra dims, call function recursively for each extra dims group
+    extradims = [k for k in idxdims if k not in [Label.FRAME, Label.ROW]]
+    if extradims:
+        logger.info(f'processing intraframe fluorescence signal across {extradims} combinations')
+        yout = (y
+            .groupby(extradims)
+            .progress_apply(lambda yy: process_intraframe_fluorescence(
+                yy.droplevel(extradims), fidx, fps, npre=npre, wroll=wroll, 
+                verbose=False))
+        )
+        if isinstance(yout, pd.DataFrame):
+            yout = yout.stack(level=[Label.FRAME, Label.ROW])
+        return yout
+
+    # Store series name, and temporarily replace it
+    name = y.name
+    y.name = 'tmp'
+    
+    # Subtract pre-stimulus baseline level
+    y = y - y.loc[:fidx.iref].median()
+
+    # Extract number of rows per frame
+    lpf = y.index.get_level_values(Label.ROW).max() + 1
+
+    # Interpolate values between the last row of each frame to extract "physiological response trend"
+    if verbose:
+        logger.info('interpolating slow physiological response trend')
+    yresp = y.copy()
+    yresp.loc[pd.IndexSlice[:, :lpf - 1]] = np.nan
+    yresp.loc[pd.IndexSlice[0, 0]] = y.loc[pd.IndexSlice[0, 0]]
+    yresp = yresp.interpolate(method='linear')
+
+    # Subtract interpolated response trend from original profile
+    if verbose:
+        logger.info('subtracting interpolated response trend')
+    y = y - yresp
+
+    # Compute average intra-frame variation (scanning artifact) profile from n preceding frames
+    if verbose:
+        logger.info(f'computing average scanning-induced intra-frame variation profile from {npre} baseline frames')
+    ypreavg = y.loc[pd.IndexSlice[fidx.iref - npre:fidx.iref - 1]].groupby(Label.ROW).mean()
+
+    # Expand average profile across frames, and subtract
+    if verbose:
+        logger.info('subtracting baseline intra-frame variation profile')
+    yscan = expand_to_match(ypreavg, y.index)
+    yscan = yscan.swaplevel(0, 1).sort_index()
+    y = y - yscan
+
+    # Apply frame-by-frame rolling filter to extract baseline
+    if verbose:
+        logger.info('applying frame-by-frame rolling filter to extract remaining intra-frame LF baseline')
+    w = int(np.round(wroll * fps * lpf))  # Rolling window size (in frames)
+    if w % 2 == 0:  # Ensure odd window size
+        w += 1
+    ybaseline = (y
+        .groupby(Label.FRAME)
+        .transform(lambda x: gaussian_filter1d(quantile_filter(x.values, w, 1), w // 2))
+    )
+
+    # Subtract frame-by-frame baseline fit from baseline corrected profile
+    if verbose:
+        logger.info('subtracting frame-by-frame baseline fit')
+    y = y - ybaseline
+
+    # Reset series name and return
+    return y.rename(name)
+
+
+def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
+    '''
+    Split continous fluorescence profile by pulse 
+
+    :param y: (:, frame, row) indexed series containing fluorescence data
+    :param fidx: FrameIndexer object
+    :param fps: frame sampling frequency (frames per second)
+    :param dur: stimulus duration (s)
+    :param PRF: stimulus PRF (Hz)
+    :param onset: stimulus onset (s)
+    :param verbose: whether to log process (default to True, unless in recursive call)
+    :param name (optional): name to give to procesed fluorescence data. If None, the original name is used
+    :return: (:, pulse, row) indexed dataframe with 2 columns:
+        fluorescence data and relative tim w.r.t. pulse onset
+    '''
+    # Check that data contains frame and row indexes
+    idxdims = y.index.names
+    for k in [Label.FRAME, Label.ROW]:
+        if k not in idxdims:
+            raise ValueError(f'"{k}" dimension not found in data index')
+    
+    # If data contains extra dims, call function recursively for each extra dims group
+    extradims = [k for k in idxdims if k not in [Label.FRAME, Label.ROW]]
+    if extradims:
+        logger.info(f'processing intraframe fluorescence signal across {extradims} combinations')
+        name = y.name
+        return (y
+            .groupby(extradims)
+            .progress_apply(lambda yy: split_by_pulse(
+                yy.droplevel(extradims), fidx, fps, dur, PRF, onset=onset, verbose=False, name=name))
+        )
+
+    # Extract number of rows per frame and row sampling frequency and time step
+    lpf = y.index.get_level_values(Label.ROW).max() + 1
+    fs = fps * lpf
+    dt = 1 / fs
+
+    # Extract profile during stim window
+    tbounds = np.array([onset, onset + dur - dt])
+    if verbose:
+        logger.info(f'extracting profile within [{tbounds[0]:.3f} - {tbounds[1]:.3f}] s stim window')
+    ibounds = np.ceil(tbounds * fs).astype(int)
+    ystim = y.loc[pd.IndexSlice[fidx.iref, ibounds[0]:ibounds[1]]].droplevel(Label.FRAME)
+
+    # If name provided, rename series
+    if name is not None:
+        ystim = ystim.rename(name)
+    
+    # Extract series name, and cast as dataframe
+    name = ystim.name
+    df = ystim.to_frame()
+
+    # Compute pulse index and relative time w.r.t pulse onset
+    if verbose:
+        logger.info('computing pulse index and relative time w.r.t pulse onset')
+    tvec = np.arange(ystim.size) / fs + dt - onset % dt
+    df[Label.PULSE] = (tvec // (1 / PRF)).astype(int)
+    df[Label.PULSERELTIME] = ((tvec % (1 / PRF)) - 1 / fs) * 1e3  # ms
+
+    # Re-index bybpulse and rel time, and extract series of interest
+    y = df.reset_index().set_index([Label.PULSE, Label.PULSERELTIME])[name]
+
+    # Max-rectify within-pulse profiles
+    if verbose:
+        logger.info('max-rectifying pulse profiles')
+    y = y.groupby(Label.PULSE).transform(lambda x: x- x.max())
+
+    # Return dataframe
+    return y
 
 
 def separate_runs(data, nruns):
@@ -4486,7 +4645,7 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, bin_unit=None, gby=None, add
     logger.info(f'binning {ykey} data into {nbins} quantile intervals{suffix}')
     if gby is not None:
         data[bin_key] = (data
-            .groupby(gby)  #
+            .groupby(gby)
             [ykey]
             .apply(fbin)
             .droplevel(0)

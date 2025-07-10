@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 14:29:01
+# @Last Modified time: 2025-07-10 11:58:48
 
 ''' Collection of plotting utilities. '''
 
@@ -6767,7 +6767,7 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     return np.array([ton, toff]).T
 
 
-def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, marker=None, color=None, tbounds=None, fps=None,
+def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, marker=None, color=None, ls='-', tbounds=None, fps=None,
                          col_DC_mapper=None, stimdur=None, stimPRF=None, stimdelay=0, 
                          errorbar='se'):
     ''' 
@@ -6816,10 +6816,11 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
     else:
         colors = as_iterable(color)
         if len(colors) != len(ykeys):
-            raise ValueError('color input must be of the same length as number of input keys')
+            raise ValueError('color input must be of the same length as number of input keys')    
+    styles = as_iterable(ls)
 
     # For each profile type
-    for c, ykey in zip(colors, ykeys):
+    for c, ykey, ls in zip(colors, ykeys, styles):
 
         # Plot across datasets
         if units is not None:
@@ -6833,7 +6834,7 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
                 units=units,
                 estimator=None,
                 color=desaturate_color(c),
-                alpha=0.5,
+                ls=ls,
                 lw=0.5,
             )
 
@@ -6845,6 +6846,7 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
             errorbar=errorbar,
             lw=1.5,
             color=c,
+            ls=ls,
             marker=marker,
             label=ykey
         )
