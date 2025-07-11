@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 18:10:50
+# @Last Modified time: 2025-07-11 13:33:48
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -49,6 +49,8 @@ class Label:
     DATASET = 'dataset'
     LAYER = 'layer'
     OFFSET = 'offset (mm)'
+    TRIG = 'trigger'
+    DELAY = 'delay'
 
     # Frequency analysis
     FREQ = 'frequency (Hz)'

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-10 13:53:21
+# @Last Modified time: 2025-07-10 17:57:23
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -242,7 +242,7 @@ def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
     # If data contains extra dims, call function recursively for each extra dims group
     extradims = [k for k in idxdims if k not in [Label.FRAME, Label.ROW]]
     if extradims:
-        logger.info(f'processing intraframe fluorescence signal across {extradims} combinations')
+        logger.info(f'splitting fluorescence signal by pulse across {extradims} combinations')
         name = y.name
         return (y
             .groupby(extradims)
@@ -256,11 +256,12 @@ def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
     dt = 1 / fs
 
     # Extract profile during stim window
-    tbounds = np.array([onset, onset + dur - dt])
+    tbounds = np.array([onset, onset + dur])
     if verbose:
         logger.info(f'extracting profile within [{tbounds[0]:.3f} - {tbounds[1]:.3f}] s stim window')
-    ibounds = np.ceil(tbounds * fs).astype(int)
-    ystim = y.loc[pd.IndexSlice[fidx.iref, ibounds[0]:ibounds[1]]].droplevel(Label.FRAME)
+    istart = int(np.ceil(onset * fs)) # start index = index following stim onset
+    n = int(np.floor(dur * fs)) # ensure consistent number of indexes 
+    ystim = y.loc[pd.IndexSlice[fidx.iref, istart:istart + n - 1]].droplevel(Label.FRAME)
 
     # If name provided, rename series
     if name is not None:

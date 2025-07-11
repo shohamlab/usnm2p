@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-10 11:58:48
+# @Last Modified time: 2025-07-10 18:36:02
 
 ''' Collection of plotting utilities. '''
 
@@ -6767,9 +6767,8 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     return np.array([ton, toff]).T
 
 
-def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, marker=None, color=None, ls='-', tbounds=None, fps=None,
-                         col_DC_mapper=None, stimdur=None, stimPRF=None, stimdelay=0, 
-                         errorbar='se'):
+def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker=None, color=None, ls='-', tbounds=None, fps=None,
+                         col_DC_mapper=None, stimdur=None, stimPRF=None, stimdelay=0, col_wrap=2, height=2, aspect=3, errorbar='se'):
     ''' 
     Plot time-varying row-aggregate profiles
 
@@ -6777,7 +6776,7 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
     :param ykey: key(s) for the y-axis data (defaults to Label.DFF). If several keys are provided,
         they will be plotted with distinct colors.
     :param col: column key to split data by (defaults to Label.ISPTA)
-    :param units (optional): data grouping level used to plot individual curves (e.g. "dataset")  
+    :param hue (optional): hue grouping level (e.g. "dataset")  
     :param marker (optional): marker type for line plotting
     :param color (optional): color to use for the plot (defaults to None)
     :param tbounds (optional): tuple of time bounds (start, end) to restrict the data for plotting
@@ -6802,13 +6801,15 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
     g = sns.FacetGrid(
         data=data.reset_index(),
         col=col,
-        col_wrap=3,
-        height=2,
-        aspect=2,
+        col_wrap=col_wrap,
+        height=height,
+        aspect=aspect,
     )
 
     # Cast input key(s) as iterable
     ykeys = as_iterable(ykey)
+    if len(ykeys) > 1 and hue is not None:
+        raise ValueError('cannot specify hue grouping if more than 1 ykey is provided')
 
     # Generate/retrieve associated colors
     if color is None:
@@ -6817,23 +6818,29 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
         colors = as_iterable(color)
         if len(colors) != len(ykeys):
             raise ValueError('color input must be of the same length as number of input keys')    
-    styles = as_iterable(ls)
+    if is_iterable(ls):
+        if len(ls) < len(ykeys):
+            raise ValueError(f'not enough style formats for number of input ykeys ({len(ykeys)})')
+        styles = as_iterable(ls)
+    else:
+        styles = [ls] * len(ykeys)
 
     # For each profile type
     for c, ykey, ls in zip(colors, ykeys, styles):
 
         # Plot across datasets
-        if units is not None:
-            if units not in data.index.names and units not in data.columns:
-                raise ValueError(f'invalid unit key "{units}": not found in data')
+        if hue is not None:
+            if hue not in data.index.names and hue not in data.columns:
+                raise ValueError(f'invalid hue key "{hue}": not found in data')
             errorbar = None
             g.map_dataframe(
                 sns.lineplot,
                 x=Label.TIME,
                 y=ykey,
-                units=units,
-                estimator=None,
-                color=desaturate_color(c),
+                hue=hue,
+                errorbar=None,
+                # alpha=0.5,
+                # color=desaturate_color(c),
                 ls=ls,
                 lw=0.5,
             )
@@ -6854,10 +6861,9 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, units=None, mark
     # Reset y axes labels to standard DFF
     g.set_axis_labels(Label.TIME, Label.DFF)
     
-    # If multiple ykeys
-    if len(ykeys) > 1:
-        # Add legend
-        g.add_legend(title='profile type')
+    # If multiple ykeys or hue specified, add legend
+    if len(ykeys) > 1 or hue is not None:
+        g.add_legend()
 
     # If time interval is narrow, add vertical spans for stimulus trigger and individual pulses
     if np.ptp(data[Label.TIME]) < 1:

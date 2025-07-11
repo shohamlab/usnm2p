@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-07-09 17:20:08
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 17:49:15
+# @Last Modified time: 2025-07-10 18:18:44
 
 ''' Utility script to run intraframe analysis notebook '''
 
@@ -23,7 +23,6 @@ if __name__ == '__main__':
 
     # Parse command line arguments
     args = vars(parser.parse_args())
-    print(args)
 
     # Extract general execution parameters
     input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)

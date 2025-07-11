@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-09 11:43:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 16:29:20
+# @Last Modified time: 2025-07-11 13:47:12
 
 ''' Utilities for Bruker data pre-processing '''
 
@@ -13,6 +13,7 @@ import pandas as pd
 from tqdm import tqdm
 from IPython.utils import io
 from xml.dom import minidom
+from datetime import datetime
 
 # Internal modules
 from usnm2p.constants import *
@@ -31,6 +32,7 @@ def parse_bruker_element(elem):
     '''
     # Fetch element type 
     elem_type = elem.nodeName
+
     # Determine element key type from element type
     key_key = {
         'PVStateValue': 'key',
@@ -38,8 +40,10 @@ def parse_bruker_element(elem):
         'SubindexedValues': 'index',
         'SubindexedValue': 'subindex'
     }[elem_type]
+    
     # Fetch element key
     key = elem.attributes[key_key].value
+    
     # Try to fetch element value
     try:
         val = elem.attributes['value'].value
@@ -59,6 +63,7 @@ def parse_bruker_element(elem):
             val = (val, desc)
         except:
             pass
+    
     # If element has no "value", then it must have children -> loop through them
     except KeyError:
         # Define values dictionary
@@ -89,6 +94,64 @@ def parse_bruker_element(elem):
     return key, val
 
 
+def parse_bruker_frame(frame):
+    ''' Parse Bruker Frame XML node '''
+    d = {}
+    for k, v in frame.attributes.items():
+        if k == 'index':
+            v = int(v)
+        elif 'Time' in k:
+            v = float(v)
+        d[k] = v
+    return d
+
+
+def parse_bruker_sequence(seq):
+    ''' Parse Bruker Sequence XML node '''
+
+    # Parse sequence attributes
+    attrs = {}
+    for item in seq.attributes.values():
+        k, v = item.nodeName, item.value
+        if v in ('True', 'False'):
+            v = bool(v)
+        elif k == 'time':
+            v = datetime.strptime(v[:15], '%H:%M:%S.%f').time()
+        else:
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:
+                    pass
+        if k != 'type':
+            attrs[k] = v
+
+    # Parse children (especially frames)
+    frames, voltage_output = [], None
+    for child in seq.childNodes:
+        if isinstance(child, minidom.Element):
+            if child.nodeName == 'Frame':
+                frames.append(parse_bruker_frame(child))
+            elif child.nodeName == 'VoltageOutput':
+                voltage_output = {}
+                for k, v in child.attributes.items():
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+                    voltage_output[k] = v
+            else:
+                items = child.attributes.items()
+                if len(items) > 0:
+                    print(child.nodeName, items)
+    frames = pd.DataFrame(frames).set_index('index')
+
+    return attrs, frames, voltage_output
+
+
+
 def get_bruker_XML(folder):
     '''
     Get the path to a Bruker XML settings file associated to a specific data folder
@@ -105,18 +168,31 @@ def parse_bruker_XML(fpath, simplify=True):
     Extract data aquisition settings from Bruker XML file.
     
     :param fpath: full path to the XML file
+    :param
     :return: data aquisition settings dictionary
     '''
     # Parse XML file
     xmltree = minidom.parse(fpath)
-    # Extract relevant nodes from DOM
+
+    # Parse acquisition settings from relevant DOM nodes an info dictionary 
     PVStateShard = xmltree.getElementsByTagName('PVStateShard')[0]
     PVStateValues = PVStateShard.getElementsByTagName('PVStateValue')
-    # Parse all these nodes into a info dictionary 
-    settings = dict([parse_bruker_element(item) for item in PVStateValues])
+    acq_settings = dict([parse_bruker_element(item) for item in PVStateValues])
     if simplify:
-        settings = simplify_bruker_settings(settings)
-    return settings
+        acq_settings = simplify_bruker_settings(acq_settings)
+
+    # Parse acquisition sequences data into sequence-indexed dataframes
+    seqs = xmltree.getElementsByTagName('Sequence')
+    seq_key = 'sequence'
+    seq_info, seq_frames, seq_voutputs = list(zip(*[parse_bruker_sequence(seq) for seq in seqs]))
+    seq_info = pd.DataFrame(seq_info)
+    seq_info.index.name = seq_key
+    seq_frames = pd.concat(seq_frames, axis=0, keys=np.arange(len(seq_frames)), names=[seq_key])
+    seq_voutputs = pd.DataFrame({i: v for i, v in enumerate(seq_voutputs) if v is not None}).T
+    seq_voutputs.index.name = seq_key
+
+    # Return
+    return acq_settings, seq_info, seq_frames, seq_voutputs
 
 
 def simplify_bruker_settings(settings):
@@ -175,7 +251,7 @@ def parse_bruker_acquisition_settings(folders):
     daq_settings = pd.DataFrame()
     for fkey, folder in zip(fsuffixes, tqdm(folders)):
         daq_settings[fkey] = pd.Series(
-            parse_bruker_XML(get_bruker_XML(folder)))
+            parse_bruker_XML(get_bruker_XML(folder))[0])
     daq_settings = daq_settings.transpose()
 
     # Convert all possible settings to float
