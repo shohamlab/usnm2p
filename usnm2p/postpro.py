@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 18:24:58
+# @Last Modified time: 2025-07-13 19:56:36
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -278,7 +278,7 @@ def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
         # Apply function recursively and return
         return (y
             .groupby(extradims)
-            .progress_apply(lambda yy: split_by_pulse(
+            .apply(lambda yy: split_by_pulse(
                 yy.droplevel(extradims), fidx, fps, dur, PRF, onset=onset_func(yy.name), 
                 verbose=False, name=name))
         )
