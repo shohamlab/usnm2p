@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-10 17:57:23
+# @Last Modified time: 2025-07-13 18:24:58
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -218,6 +218,26 @@ def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=T
     return y.rename(name)
 
 
+def interp_over_smooth_pulse_relative_time(y, npts=50):
+    ''' 
+    Harmonize pulse-relative relative vectors across pulses and other dimensions
+    '''
+    logger.info(f'interpolating {y.name} values over smooth {npts}-points pulse-relative time vector...')
+    trel = y.index.get_level_values(Label.PULSERELTIME)
+    smooth_trel = np.linspace(trel.min(), trel.max(), npts)
+
+    def interpfunc(x):
+        return pd.Series(
+            np.interp(
+                smooth_trel, x.index.get_level_values(Label.PULSERELTIME), x, left=np.nan, right=np.nan), 
+            index=pd.Index(smooth_trel, name=Label.PULSERELTIME), name=x.name)
+
+    return (y
+        .groupby([k for k in y.index.names if k != Label.PULSERELTIME])
+        .apply(interpfunc)
+    )
+
+
 def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
     '''
     Split continous fluorescence profile by pulse 
@@ -244,10 +264,23 @@ def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
     if extradims:
         logger.info(f'splitting fluorescence signal by pulse across {extradims} combinations')
         name = y.name
+        # If "auto" onset extraction requested, set up appropriate function
+        if onset == 'auto':
+            if Label.DATASET not in extradims:
+                raise ValueError('automatic onset extraction only works on dataset-indexed inputs')
+            idataset = extradims.index(Label.DATASET)
+            def onset_func(gkey):
+                return DATASET_STIM_TRIG_DELAY.get(gkey[idataset], DEFAULT_STIM_TRIG_DELAY)
+        # Otherwise, set up generic placeholder
+        else:
+            def onset_func(_):
+                return onset
+        # Apply function recursively and return
         return (y
             .groupby(extradims)
             .progress_apply(lambda yy: split_by_pulse(
-                yy.droplevel(extradims), fidx, fps, dur, PRF, onset=onset, verbose=False, name=name))
+                yy.droplevel(extradims), fidx, fps, dur, PRF, onset=onset_func(yy.name), 
+                verbose=False, name=name))
         )
 
     # Extract number of rows per frame and row sampling frequency and time step

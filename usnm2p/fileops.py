@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 15:52:00
+# @Last Modified time: 2025-07-13 19:05:29
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -804,6 +804,51 @@ def load_rowavg_dataset(fpath):
         logger.info('loading experiment info table...')
         info_table = store['info_table']
     return dFF, info_table
+
+
+def save_pulse_evoked_dip(fpath, evoked_dFF_dip, info_table):
+    '''
+    Save pulse-evoked dip stats into HDF5 file.
+
+    :param fpath: absolute path to data file
+    :param evoked_dFF_dip: (run, trial, pulse) evoked dFF dip series
+    :param info_table: dataframe containing information about each acquisition run
+    :return: None
+    '''
+    # Remove output file if it exists
+    if os.path.isfile(fpath):
+        os.remove(fpath)
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Save row-average dFF data
+        logger.info('saving pulse-evoked dFF dip stats...')
+        store['evoked_dFF_dip'] = evoked_dFF_dip
+        # Save experiment info table
+        logger.info('saving experiment info table...')
+        store['info_table'] = info_table
+    # Log success
+    logger.info('data successfully saved')
+
+
+def load_pulse_evoked_dip(fpath):
+    '''
+    Load pulse-evoked dip stats from HDF5 file.
+
+    :param fpath: absolute path to data file
+    :return: (run, trial, pulse) evoked dFF dip series, and run-indexed info table
+    '''
+    # Check that output file is present in directory
+    if not os.path.isfile(fpath):
+        raise FileNotFoundError('row-average dFF data file not found in directory')
+    # Create HDF store object
+    with pd.HDFStore(fpath) as store:
+        # Load row-average dFF data
+        logger.info(f'loading pulse-evoked dFF dip stats from {os.path.basename(fpath)}')
+        evoked_dFF_dip = store['evoked_dFF_dip']
+        # Load experiment info table
+        logger.info('loading experiment info table...')
+        info_table = store['info_table']
+    return evoked_dFF_dip, info_table
 
 
 def save_conditioned_dataset(fpath, timeseries, popagg_timeseries, info_table, ROI_masks, isch2ROI=None):

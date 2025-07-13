@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-10 18:36:02
+# @Last Modified time: 2025-07-13 16:40:27
 
 ''' Collection of plotting utilities. '''
 
@@ -6767,8 +6767,10 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     return np.array([ton, toff]).T
 
 
-def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker=None, color=None, ls='-', tbounds=None, fps=None,
-                         col_DC_mapper=None, stimdur=None, stimPRF=None, stimdelay=0, col_wrap=2, height=2, aspect=3, errorbar='se'):
+def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker=None, color=None, addavg=True,
+                         palette=None, ls='-', tbounds=None, fps=None, col_DC_mapper=None, stimdur=None,
+                         stimPRF=None, stimdelay=0, col_wrap=2, height=2, aspect=3, errorbar='se',
+                         stackhue=False):
     ''' 
     Plot time-varying row-aggregate profiles
 
@@ -6793,19 +6795,6 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
         s += f' between {tbounds[0]} and {tbounds[1]} s'
     logger.info(s)
 
-    # If specified, restrict time bounds
-    if tbounds is not None:
-        data = data[data[Label.TIME].between(*tbounds)]
-
-    # Create a FacetGrid to plot dFF profile per column
-    g = sns.FacetGrid(
-        data=data.reset_index(),
-        col=col,
-        col_wrap=col_wrap,
-        height=height,
-        aspect=aspect,
-    )
-
     # Cast input key(s) as iterable
     ykeys = as_iterable(ykey)
     if len(ykeys) > 1 and hue is not None:
@@ -6824,39 +6813,80 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
         styles = as_iterable(ls)
     else:
         styles = [ls] * len(ykeys)
+    
+    # If specified, restrict time bounds
+    if tbounds is not None:
+        data = data[data[Label.TIME].between(*tbounds)]
+
+    # If hue specified
+    if hue is not None:
+        # Check that it's available 
+        if hue not in data.index.names and hue not in data.columns:
+            raise ValueError(f'invalid hue key "{hue}": not found in data')
+    
+        # Compute hue order to ensure consistency across graphs
+        hue_order = list(data.groupby(hue).groups.keys())
+
+        # Determine palette, if not provided
+        if palette is None:
+            ngroups = len(hue_order)
+            if ngroups > 20:
+                palette = sns.color_palette(list(plt.get_cmap('tab20b').colors) + list(plt.get_cmap('tab20c').colors))
+            elif ngroups > 10:
+                palette = 'tab20'
+            else:
+                palette = 'tab10'
+
+        # If specified, stack hue curves vertically 
+        if stackhue:
+            for ykey in ykeys:
+                logger.info(f'stacking {ykey} profiles by {hue}')
+                groups = data[ykey].groupby(hue)
+                data.loc[:, ykey] = groups.transform(lambda x: (x - x.mean()) / x.std()) + groups.ngroup() * 3
+
+    # Create a FacetGrid to plot dFF profile per column
+    g = sns.FacetGrid(
+        data=data.reset_index(),
+        col=col,
+        col_wrap=col_wrap,
+        height=height,
+        aspect=aspect,
+    )
 
     # For each profile type
     for c, ykey, ls in zip(colors, ykeys, styles):
 
         # Plot across datasets
         if hue is not None:
-            if hue not in data.index.names and hue not in data.columns:
-                raise ValueError(f'invalid hue key "{hue}": not found in data')
-            errorbar = None
             g.map_dataframe(
                 sns.lineplot,
                 x=Label.TIME,
                 y=ykey,
                 hue=hue,
+                hue_order=hue_order,
+                palette=palette,
+                legend='full',
                 errorbar=None,
-                # alpha=0.5,
-                # color=desaturate_color(c),
                 ls=ls,
                 lw=0.5,
             )
+            errorbar = None
+        else:
+            addavg = True
 
         # Plot global average
-        g.map_dataframe(
-            sns.lineplot,
-            x=Label.TIME,
-            y=ykey,
-            errorbar=errorbar,
-            lw=1.5,
-            color=c,
-            ls=ls,
-            marker=marker,
-            label=ykey
-        )
+        if addavg:
+            g.map_dataframe(
+                sns.lineplot,
+                x=Label.TIME,
+                y=ykey,
+                errorbar=errorbar,
+                lw=1.5,
+                color=c,
+                ls=ls,
+                marker=marker,
+                label=ykey
+            )
 
     # Reset y axes labels to standard DFF
     g.set_axis_labels(Label.TIME, Label.DFF)

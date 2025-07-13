@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-11 13:33:48
+# @Last Modified time: 2025-07-13 19:06:01
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -175,6 +175,7 @@ class DataRoot:
     RAW_BERGAMO = 'raw_bergamo'
     STACKED = 'stacked'
     ROWAVG = 'rowavg'
+    PULSEDIP = 'pulsedip'
     RESAMPLED = 'resampled'
     SPLIT = 'split'
     MODEL = 'model'
@@ -353,7 +354,14 @@ STIM_ONSET_DICT = {
     'cre': 5.0,  # s
     'default': 2.81,  # s
 }
-STIM_TRIG_DELAY = 9e-3  # Stimulus trigger delay in seconds (inferred from data)
+
+DEFAULT_STIM_TRIG_DELAY = 9e-3  # Default stimulus trigger delay in seconds (inferred from data)
+DATASET_STIM_TRIG_DELAY = {  # Dataset-specific variations in stimulus trigger delay (inferred from data) 
+    '20191112_mouse12_region1': 0., 
+    '20191112_mouse12_region2_layer5': 0.,
+    '20190516_mouse8_region2': 18e-3,
+}
+
 
 def get_stim_onset_time(line):
     ''' Get stimulation onset time for a given line '''
