@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 19:56:36
+# @Last Modified time: 2025-07-13 19:59:41
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -155,7 +155,7 @@ def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=T
         logger.info(f'processing intraframe fluorescence signal across {extradims} combinations')
         yout = (y
             .groupby(extradims)
-            .progress_apply(lambda yy: process_intraframe_fluorescence(
+            .apply(lambda yy: process_intraframe_fluorescence(
                 yy.droplevel(extradims), fidx, fps, npre=npre, wroll=wroll, 
                 verbose=False))
         )
