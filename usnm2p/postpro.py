@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 20:30:45
+# @Last Modified time: 2025-07-14 17:50:26
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -321,6 +321,56 @@ def split_by_pulse(y, fidx, fps, dur, PRF, onset=0., verbose=True, name=None):
 
     # Return dataframe
     return y
+
+
+def get_onoff_times(dur, PRF, DC, onset=0):
+    '''
+    Get on and off time in a pulse train
+
+    :param dur: total duration of the pulse train (s)
+    :param PRF: pulse repetition frequency (Hz)
+    :param DC: duty cycle (%)
+    :param onset: onset time of the pulse train (s). Defaults to 0.
+    :return: 2D array of ON and OFF time on and time off vectors (s)
+    '''
+    npulses = int(np.round(dur * PRF))  # number of pulses in the burst
+    ton = np.arange(npulses) / PRF + onset  # pulse onset times
+    toff = ton + (DC * 1e-2) / PRF  # pulse offset times
+    return np.array([ton, toff]).T
+
+
+def get_stimon_mask(dims, fps, tpulses):
+    '''
+    Construct mask of "stim-on" pixels on stimulus frame 
+
+    :param dims: 2D dimensions of the frame (in pixels)
+    :param fps: frame sampling frequency (Hz)
+    :param tpulses: list of onset and offset times for each pulse
+    :return mask: 2D numpy array
+    '''
+    # Compute number of pixels in frame
+    npixels = np.prod(dims)
+    # Compute single pixel sampling frequency (Hz)
+    fs = fps * npixels
+    # Construct serialized scanning time vector
+    tscan = np.arange(npixels) / fs
+    # Create and populate serialized mask
+    mask = np.zeros(npixels)
+    for ton, toff in tpulses:
+        idxs = np.logical_and(tscan >= ton, tscan <= toff)
+        mask[idxs] = 1
+    # Reshape to frame dimenions
+    mask = mask.reshape(dims)
+    # Return
+    return mask
+
+
+def frame_to_dataframe(y):
+    ''' Format a 2D numpy frame array as a pandas dataframe '''
+    df = pd.DataFrame(y)
+    df.columns.name = Label.COL
+    df.index.name = Label.ROW
+    return df
 
 
 def separate_runs(data, nruns):

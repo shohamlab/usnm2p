@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 20:52:57
+# @Last Modified time: 2025-07-14 16:46:56
 
 ''' Collection of plotting utilities. '''
 
@@ -14,7 +14,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 import re
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
@@ -578,7 +578,7 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
 
 
 def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfunc=None,
-               height=4, title=None, **kwargs):    
+               height=4, subplot_spec=None, fig=None, title=None, **kwargs):    
     ''' 
     Plot frame with optional row and column average profiles on marginal axes
 
@@ -591,21 +591,32 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
     '''
     # Create figure
     figsize = np.array([height, height])
+    axdict = {}
     if add_marginals:
         figsize = figsize * 1.25
-        fig = plt.figure(figsize=tuple(figsize))
-        gs = GridSpec(2, 2, width_ratios=[5, 1], height_ratios=[1, 5],
-                    wspace=0.05, hspace=0.05)
-        ax = fig.add_subplot(gs[1, 0])
+        grispec_kwargs = dict(
+            width_ratios=[5, 1],
+            height_ratios=[1, 5],
+            wspace=0.05,
+            hspace=0.05
+        )
+        if subplot_spec is not None:
+            gs = GridSpecFromSubplotSpec(2, 2, subplot_spec=subplot_spec, **grispec_kwargs)
+        else:
+            fig = plt.figure(figsize=tuple(figsize))
+            gs = GridSpec(2, 2, **grispec_kwargs)
+        axdict['frame'] = fig.add_subplot(gs[1, 0])
     else:
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, axdict['frame'] = plt.subplots(figsize=figsize)
 
     # Main image plot
-    ax.imshow(frame, cmap=cmap, aspect='auto', **kwargs)
-    ax.axis('off')
+    axdict['frame'].imshow(frame, cmap=cmap, aspect='auto', **kwargs)
+    axdict['frame'].axis('off')
+    # axdict['frame'].set_aspect('equal')
     if um_per_px is not None:
         npx = frame.shape[-1]
-        add_scale_bar(ax, npx, um_per_px, color='w' if cmap == 'viridis' else 'k')
+        add_scale_bar(
+            axdict['frame'], npx, um_per_px, color='w' if cmap == 'viridis' else 'k')
 
     # If marginals requested
     if add_marginals:
@@ -614,25 +625,26 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
             aggfunc = np.mean
 
         # For each aggregation axis
-        for iax in [0, 1]:
+        for iax, axkey in enumerate(['row', 'col']):
             # Apply aggregation function on specified axis
             yagg = aggfunc(frame, axis=iax)
 
             # Create matplotlib maginal axis 
-            ax = fig.add_subplot(gs[iax, iax])
+            axdict[axkey] = fig.add_subplot(gs[iax, iax])
 
             # Plot aggregate profile
             xagg = np.arange(yagg.size)
             if iax == 0:
-                ax.plot(xagg, yagg, c='k')
-                ax.set_xlim(0, yagg.size)
+                axdict[axkey].plot(xagg, yagg, c='k')
+                axdict[axkey].set_xlim(0, yagg.size)
             else:
-                ax.plot(yagg, xagg, c='k')
-                ax.set_ylim(yagg.size, 0)  # Invert y-axis to match image
-            ax.axis('off')
+                axdict[axkey].plot(yagg, xagg, c='k')
+                axdict[axkey].set_ylim(yagg.size, 0)  # Invert y-axis to match image
+            axdict[axkey].axis('off')
     
     if title is not None:
-        fig.suptitle(title, fontsize=16)
+        ax = axdict.get('row', axdict['frame'])
+        ax.set_title(title)
     
     return fig
 
@@ -6753,22 +6765,6 @@ def add_regression_line(add_text=False, ytxt=.9, robust=False, ls='-', **kwargs)
     if add_text:
         regstr = f's = {s:.2g} (p = {p:.3f})'
         ax.text(.5, ytxt, regstr, color=color, transform=ax.transAxes, ha='center', va='top')
-
-
-def get_onoff_times(dur, PRF, DC, onset=0):
-    '''
-    Get on and off time in a pulse train
-
-    :param dur: total duration of the pulse train (s)
-    :param PRF: pulse repetition frequency (Hz)
-    :param DC: duty cycle (%)
-    :param onset: onset time of the pulse train (s). Defaults to 0.
-    :return: 2D array of ON and OFF time on and time off vectors (s)
-    '''
-    npulses = int(np.round(dur * PRF))  # number of pulses in the burst
-    ton = np.arange(npulses) / PRF + onset  # pulse onset times
-    toff = ton + (DC * 1e-2) / PRF  # pulse offset times
-    return np.array([ton, toff]).T
 
 
 def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker=None, color=None, addavg=True,

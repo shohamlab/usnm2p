@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 19:05:29
+# @Last Modified time: 2025-07-14 17:55:05
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -761,12 +761,15 @@ def save_figs(figsroot, figs, ext='png'):
         v.savefig(os.path.join(figsdir, fname), transparent=True, bbox_inches='tight')
 
 
-def save_rowavg_dataset(fpath, dFF, info_table):
+def save_rowavg_dataset(fpath, rowavg_dFF, Fbase, stim_mask, stim_evoked_pixelwise_dFF, info_table):
     '''
     Save row-average dFF dataset into HDF5 file.
 
     :param fpath: absolute path to data file
     :param dFF: (run, trial, time) row-average dFF series
+    :param Fbase: ((run, row), col) dataframe of pixel-wise baseline fluorescence frame
+    :param stim_mask: ((run, row), col) dataframe of stimulus mask frame
+    :param stim_evoked_pixelwise_dFF: ((run, row), col) dataframe of pixel-wise stim-evoked dFF change 
     :param info_table: dataframe containing information about each acquisition run
     :return: None
     '''
@@ -777,7 +780,16 @@ def save_rowavg_dataset(fpath, dFF, info_table):
     with pd.HDFStore(fpath) as store:
         # Save row-average dFF data
         logger.info('saving row-average dFF data...')
-        store['rowavg_dFF'] = dFF
+        store['rowavg_dFF'] = rowavg_dFF
+        # Save pixel-wise baseline fluorescence frames
+        logger.info('saving pixel-wise baseline fluroescence frames')
+        store['Fbase'] = Fbase
+        # Save stimulus masks
+        logger.info('saving stimulus masks') 
+        store['stim_mask'] = stim_mask
+        # Save pixel-wise stim-evoked pixelwise dFF 
+        logger.info('saving pixel-wise stim-evoked dFF change')
+        store['stim_evoked_pixelwise_dFF'] = stim_evoked_pixelwise_dFF
         # Save experiment info table
         logger.info('saving experiment info table...')
         store['info_table'] = info_table
@@ -790,7 +802,12 @@ def load_rowavg_dataset(fpath):
     Load row-average dFF dataset from HDF5 file.
 
     :param fpath: absolute path to data file
-    :return: (run, trial, time) row-average dFF series, and run-indexed info table
+    :return: 5-tuple with:
+        - (run, trial, time) row-average dFF series
+        - ((run, row), col) dataframe of pixel-wise baseline fluorescence frame
+        - ((run, row), col) dataframe of stimulus mask frame
+        - ((run, row), col) dataframe of pixel-wise stim-evoked dFF change 
+        - run-indexed info table
     '''
     # Check that output file is present in directory
     if not os.path.isfile(fpath):
@@ -799,11 +816,20 @@ def load_rowavg_dataset(fpath):
     with pd.HDFStore(fpath) as store:
         # Load row-average dFF data
         logger.info(f'loading row-average dFF data from {os.path.basename(fpath)}')
-        dFF = store['rowavg_dFF']
+        rowavg_dFF = store['rowavg_dFF']
+        # Load pixel-wise baseline fluorescence frames
+        logger.info('loading pixel-wise baseline fluroescence frames')
+        Fbase = store['Fbase']
+        # Load stimulus masks
+        logger.info('lpading stimulus masks') 
+        stim_mask = store['stim_mask']
+        # Load pixel-wise stim-evoked pixelwise dFF 
+        logger.info('loading pixel-wise stim-evoked dFF change')
+        stim_evoked_pixelwise_dFF = store['stim_evoked_pixelwise_dFF']
         # Load experiment info table
-        logger.info('loading experiment info table...')
+        logger.info('loading experiment info table')
         info_table = store['info_table']
-    return dFF, info_table
+    return rowavg_dFF, Fbase, stim_mask, stim_evoked_pixelwise_dFF, info_table
 
 
 def save_pulse_evoked_dip(fpath, evoked_dFF_dip, info_table):
