@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 12:28:00
+# @Last Modified time: 2025-07-13 20:05:10
 
 ''' Notebook running utilities '''
 
@@ -202,7 +202,8 @@ def execute_notebook(pdict, input_nbpath, outdir):
                 # Log error and notify on slack
                 s = f'"{output_nbname}" execution error: {err}'
                 logger.error(s)
-                jupyter_slack.notify_self(s)
+                if pdict['slack_notify']:
+                    jupyter_slack.notify_self(s)
 
                 # If error is due resource sharing limitation, notify and retry execution
                 if any([x in str(err) for x in NB_RETRY_ERRMSGS]):
@@ -215,7 +216,8 @@ def execute_notebook(pdict, input_nbpath, outdir):
             else:
                 s = f'"{output_nbname}" unknown error: {err}'
                 logger.error(s)
-                jupyter_slack.notify_self(s)
+                if pdict['slack_notify']:
+                    jupyter_slack.notify_self(s)
                 return None
 
 
