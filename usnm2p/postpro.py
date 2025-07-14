@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 19:59:41
+# @Last Modified time: 2025-07-13 20:30:45
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -87,7 +87,7 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
     :return: 1D (if linear) or 2D (if split) frame-average or row-average fluoresence profile
     '''
     # Check valididty of averaging key
-    if avgkey not in ('frame', 'row'):
+    if avgkey is not None and avgkey not in ('frame', 'row'):
         raise ValueError(f'cannot compute "{avgkey}"-average')
 
     # Check input dimensionality

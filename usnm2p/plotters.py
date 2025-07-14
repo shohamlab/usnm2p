@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 16:40:27
+# @Last Modified time: 2025-07-13 20:52:57
 
 ''' Collection of plotting utilities. '''
 
@@ -570,14 +570,15 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
     for k, v in stacks.items():
         ax.hist(v.ravel(), bins=50, label=k, ec='k', alpha=0.5)
     
-    # Add legend 
+    # Add legend
     ax.legend()
 
     # Return figure handle
     return fig
 
 
-def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfunc=None):    
+def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfunc=None,
+               height=4, title=None, **kwargs):    
     ''' 
     Plot frame with optional row and column average profiles on marginal axes
 
@@ -589,7 +590,7 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
     :return: figure object
     '''
     # Create figure
-    figsize = np.array([4, 4])
+    figsize = np.array([height, height])
     if add_marginals:
         figsize = figsize * 1.25
         fig = plt.figure(figsize=tuple(figsize))
@@ -600,11 +601,11 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
         fig, ax = plt.subplots(figsize=figsize)
 
     # Main image plot
-    ax.imshow(frame, cmap=cmap, aspect='auto')
+    ax.imshow(frame, cmap=cmap, aspect='auto', **kwargs)
     ax.axis('off')
     if um_per_px is not None:
         npx = frame.shape[-1]
-        add_scale_bar(ax, npx, um_per_px, color='w')
+        add_scale_bar(ax, npx, um_per_px, color='w' if cmap == 'viridis' else 'k')
 
     # If marginals requested
     if add_marginals:
@@ -629,6 +630,9 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
                 ax.plot(yagg, xagg, c='k')
                 ax.set_ylim(yagg.size, 0)  # Invert y-axis to match image
             ax.axis('off')
+    
+    if title is not None:
+        fig.suptitle(title, fontsize=16)
     
     return fig
 
