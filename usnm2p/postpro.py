@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-14 17:50:26
+# @Last Modified time: 2025-07-15 12:07:54
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -333,6 +333,8 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     :param onset: onset time of the pulse train (s). Defaults to 0.
     :return: 2D array of ON and OFF time on and time off vectors (s)
     '''
+    if DC == 0.:
+        return None
     npulses = int(np.round(dur * PRF))  # number of pulses in the burst
     ton = np.arange(npulses) / PRF + onset  # pulse onset times
     toff = ton + (DC * 1e-2) / PRF  # pulse offset times
@@ -350,15 +352,18 @@ def get_stimon_mask(dims, fps, tpulses):
     '''
     # Compute number of pixels in frame
     npixels = np.prod(dims)
-    # Compute single pixel sampling frequency (Hz)
-    fs = fps * npixels
-    # Construct serialized scanning time vector
-    tscan = np.arange(npixels) / fs
-    # Create and populate serialized mask
+    # Create serialized mask
     mask = np.zeros(npixels)
-    for ton, toff in tpulses:
-        idxs = np.logical_and(tscan >= ton, tscan <= toff)
-        mask[idxs] = 1
+    # If pulses exist
+    if tpulses is not None:
+        # Compute single pixel sampling frequency (Hz)
+        fs = fps * npixels
+        # Construct serialized scanning time vector
+        tscan = np.arange(npixels) / fs
+        # Populate serialized mask for each pulse
+        for ton, toff in tpulses:
+            idxs = np.logical_and(tscan >= ton, tscan <= toff)
+            mask[idxs] = 1
     # Reshape to frame dimenions
     mask = mask.reshape(dims)
     # Return
