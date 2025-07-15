@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-14 16:46:56
+# @Last Modified time: 2025-07-15 12:46:03
 
 ''' Collection of plotting utilities. '''
 
@@ -6909,12 +6909,11 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
             else:
                 DC = None
             if DC is not None and stimdur is not None and stimPRF is not None:
-                tpulses = get_onoff_times(
-                    stimdur, stimPRF, DC, onset=stimdelay
-                )
-                for tp in tpulses:
-                    if is_within(tp[0], tbounds):
-                        ax.axvspan(*tp, fc='tab:brown', alpha=0.5)
+                tpulses = get_onoff_times(stimdur, stimPRF, DC, onset=stimdelay)
+                if tpulses is not None:
+                    for tp in tpulses:
+                        if is_within(tp[0], tbounds):
+                            ax.axvspan(*tp, fc='tab:brown', alpha=0.5)
 
     # Otherwise, add single vertical spans for stimulus
     else:
