@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-14 17:55:05
+# @Last Modified time: 2025-07-16 13:12:13
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -985,38 +985,49 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
     logger.info(f'all data fields saved to "{fpath}"')
 
 
-def load_processed_dataset(fpath):
+def load_processed_dataset(fpath, keys=None):
     '''
     Load processed data of a particular date-mouse-region dataset from a HDF5 file
     
     :param fpath: absolute path to data file
+    :param keys: keys of specific data structures to extract. If none, all sturctures are extracted 
     :return: multi-indexed timeseries and stats dataframes
     '''
     # Check that output file is present in directory
     if not os.path.isfile(fpath):
         raise FileNotFoundError('processed data file not found in directory')
-    # Create HDF store object
+
+    # Retrieve/check structure keys
+    allkeys = [
+        'trialagg_timeseries',
+        'popagg_timeseries',
+        'stats',
+        'triagg_stats',
+        'ROI_masks',
+        'map_ops'
+    ]
+    if keys is None:
+        keys = allkeys
+    else:
+        for k in keys:
+            if k not in allkeys:
+                raise ValueError(f'invalid data structure key: "{k}"')
+
+    # Create output dictionary
+    out = {}
+
+    # Open HDF store object and load data, 1 structure at a time
     with pd.HDFStore(fpath) as store:
-        # Load data
         logger.info(f'loading mouse-region data from {os.path.basename(fpath)}')
-        trialagg_timeseries = store['trialagg_timeseries']
-        popagg_timeseries = store['popagg_timeseries']
-        stats = store['stats']
-        trialagg_stats = store['triagg_stats']
-        ROI_masks = store['ROI_masks']
-        map_ops = store['map_ops'].to_dict()
-    # Return as dictionary
-    return {
-        'trialagg_timeseries': trialagg_timeseries,
-        'popagg_timeseries': popagg_timeseries,
-        'stats': stats,
-        'trialagg_stats': trialagg_stats,
-        'ROI_masks': ROI_masks,
-        'map_ops': map_ops
-    }
+        for k in keys:
+            out[k] = store[k]
+            if k == 'map_ops':
+                out[k] = out[k].to_dict()
+    # Return dictionary
+    return out
 
 
-def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_patterns=None,
+def load_processed_datasets(dirpath, layer=None, keys=None, include_patterns=None, exclude_patterns=None,
                             on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
                             **kwargs):
     '''
@@ -1073,7 +1084,7 @@ def load_processed_datasets(dirpath, layer=None, include_patterns=None, exclude_
         dataset_ids.append(dataset_id)
     
     # Load timeseries and stats datasets
-    datasets = [load_processed_dataset(fpath) for fpath in fpaths]
+    datasets = [load_processed_dataset(fpath, keys=keys) for fpath in fpaths]
     if len(datasets) == 0:
         raise ValueError(f'no valid datasets found in "{dirpath}"')
         

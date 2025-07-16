@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-15 12:07:54
+# @Last Modified time: 2025-07-16 13:12:47
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2076,7 +2076,6 @@ def get_reference_stats_per_run(dfs):
 
     # Extract shortest stats dataframe
     istats = np.where(is_stats)[0]
-    stats_lengths = lengths[istats]
     irefstats = istats[np.argmin(lengths[istats])]
     refstats = dfs[irefstats]
     
