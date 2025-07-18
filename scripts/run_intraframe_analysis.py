@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-07-09 17:20:08
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-10 18:18:44
+# @Last Modified time: 2025-07-18 14:43:30
 
 ''' Utility script to run intraframe analysis notebook '''
 
@@ -19,14 +19,13 @@ if __name__ == '__main__':
 
     # Create command line parser
     parser = get_notebook_parser(
-        '../notebooks/intraframe_analysis.ipynb', line=True)
+        '../notebooks/intraframe_analysis.ipynb', line=True, exec=False)
 
     # Parse command line arguments
     args = vars(parser.parse_args())
 
     # Extract general execution parameters
     input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
-    proc_queue = {}
 
     dataroot = os.path.join(get_data_root(kind=DataRoot.ROWAVG), args['analysis'])
     if args['mouseline'] is None:
@@ -36,9 +35,13 @@ if __name__ == '__main__':
             logger.error(f'mouseline "{args["mouseline"]}" not found in {dataroot}')
             quit()
         mouselines = [args['mouseline']]
-
+    
     # Create execution parameters queue
-    params = [dict(mouseline=mouseline, analysis_type=args['analysis']) for mouseline in mouselines]
+    params = [dict(
+        mouseline=mouseline,
+        analysis_type=args['analysis'],
+        **proc_queue[0]
+    ) for mouseline in mouselines]
  
     # Compute number of jobs to run
     njobs = len(params)

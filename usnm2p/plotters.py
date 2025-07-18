@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-15 12:46:03
+# @Last Modified time: 2025-07-17 16:32:37
 
 ''' Collection of plotting utilities. '''
 
@@ -6923,3 +6923,72 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
 
     # Return figure object
     return g.figure
+
+
+def plot_frames(data, gby=None, title=None, height=3, colwrap=5, cmap='auto', qmax=None):
+    '''
+    Plot frames over different groups
+    
+    :param data: multi-index dataframe containing frames data
+    :param gby: grouping variable
+    :param height (optional): single axis height
+    :param colwrap (optional): column wrap number
+    :param cmap (optional): colormap string/object. If "auto", inferred from data type.
+    :param qmax (optional): saturation quantile
+    :return: figure object
+    '''
+    logger.info(f'plotting {title} frames by {gby}')
+    
+    # Create data groups
+    groups = data.groupby(gby)
+
+    # Determine if data is purely positive or contains both positive and negative values
+    is_dual_signed = data.values.min() < 0 and data.values.max() > 0
+    is_binary = all(data.stack().isin([0, 1]))
+
+    # If cmap is auto, infer from data
+    if cmap == 'auto':
+        if is_dual_signed:
+            cmap = 'coolwarm'
+        elif is_binary:
+            cmap = 'binary' 
+        else:
+            cmap = 'viridis'
+    
+    # Create figure layout with appropriate number of axes 
+    naxes = groups.ngroups
+    nrows, ncols = naxes // colwrap + 1, min(naxes, colwrap)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
+    for ax in axes.ravel():
+        ax.axis('off')
+    
+    # Loop through groups
+    for (gkey, gdata), ax in zip(groups, axes.ravel()):
+        # Extract and check frame array
+        Y = gdata.values
+        if Y.shape[0] != Y.shape[1]:
+            raise ValueError(f'abnormal frame dimensions: {Y.shape}')
+    
+        # Determine saturation values, if any
+        vmin, vmax = None, None
+        if is_binary:
+            vmin = -0.2
+            vmax = 1.5
+        elif qmax is not None:
+            if is_dual_signed:
+                vmax = np.quantile(np.abs(Y), qmax)
+                vmin = -vmax
+            else:
+                vmin = np.quantile(Y, 1 - qmax)
+                vmax = np.quantile(Y, qmax)
+
+        # Plot frame and add frame title
+        ax.set_title(gkey)
+        ax.imshow(Y, vmin=vmin, vmax=vmax, cmap=cmap, interpolation=None)
+
+    # If provided, add figure title  
+    if title is not None:
+        fig.suptitle(title, y=.95)
+    
+    # Return figure object
+    return fig

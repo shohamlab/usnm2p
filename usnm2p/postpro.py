@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-16 13:12:47
+# @Last Modified time: 2025-07-18 14:10:46
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -3998,7 +3998,9 @@ def compute_fit(xdata, ydata, kind, r2_crit=0.2):
         logger.info(f'fitting order {order} polynomial to data')
         popt, pcov = np.polyfit(xdata, ydata, order, full=False, cov=True)
         # Generate function to return polynomial value for a given x
-        objfunc = lambda x, *y: np.poly1d(y)(x)
+        def objfunc(x, *popt):
+            return np.poly1d(popt)(x)
+        objfunc.__name__ = f'poly{order}'
 
     # Otherwise, get fit functions from dictionary and perform classic fit
     else:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-13 20:05:10
+# @Last Modified time: 2025-07-18 14:40:10
 
 ''' Notebook running utilities '''
 
@@ -45,7 +45,7 @@ def none_or_str(value):
     return value
 
 
-def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=False, region=False, layer=False):
+def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=False, region=False, layer=False, exec=True):
     ''' Create command line parser for notebook execution '''
     # Create command line parser
     parser = ArgumentParser()
@@ -73,35 +73,36 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
     add_dataset_arguments(parser, analysis=analysis, line=line, date=date, mouse=mouse, region=region, layer=layer)
 
     # Add arguments about other execution parameters
-    parser.add_argument(
-        '--inspect', default=False, action='store_true',
-        help='Inspect data from random run along processing')
-    parser.add_argument(
-        '-c', '--global_correction', type=none_or_str, default='line', nargs='+',
-        help='Global correction method')
-    parser.add_argument(
-        '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
-        help='Kalman filter gain (s)')
-    parser.add_argument(
-        '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
-        help='scaling coefficient for neuropil subtraction')    
-    parser.add_argument(
-        '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
-        help='Baseline evaluation quantile')
-    parser.add_argument(
-        '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
-        help='Baseline quantile filter window size (s)')
-    parser.add_argument(
-        '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
-        help='Baseline gaussian filter window size (s)')
-    parser.add_argument(
-        '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
-        help='Classification variable')
-    parser.add_argument(
-        '--directional', action='store_true', help='Directional classification')
-    parser.add_argument(
-        '--non-directional', dest='directional', action='store_false')
-    parser.set_defaults(directional=True)
+    if exec:
+        parser.add_argument(
+            '--inspect', default=False, action='store_true',
+            help='Inspect data from random run along processing')
+        parser.add_argument(
+            '-c', '--global_correction', type=none_or_str, default='line', nargs='+',
+            help='Global correction method')
+        parser.add_argument(
+            '-k', '--kalman_gain', type=none_or_float, default=KALMAN_GAIN, nargs='+',
+            help='Kalman filter gain (s)')
+        parser.add_argument(
+            '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
+            help='scaling coefficient for neuropil subtraction')    
+        parser.add_argument(
+            '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
+            help='Baseline evaluation quantile')
+        parser.add_argument(
+            '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
+            help='Baseline quantile filter window size (s)')
+        parser.add_argument(
+            '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
+            help='Baseline gaussian filter window size (s)')
+        parser.add_argument(
+            '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
+            help='Classification variable')
+        parser.add_argument(
+            '--directional', action='store_true', help='Directional classification')
+        parser.add_argument(
+            '--non-directional', dest='directional', action='store_false')
+        parser.set_defaults(directional=True)
     
     # Return parser
     return parser
@@ -126,9 +127,9 @@ def parse_notebook_exec_args(args):
     ask_confirm = not args.pop('go')
     
     # Extract notebook processing parameters
-    proc_args = [
-        'inspect',
+    proc_keys = [
         'slack_notify',
+        'inspect',
         'global_correction',
         'kalman_gain',
         'alpha',
@@ -138,22 +139,29 @@ def parse_notebook_exec_args(args):
         'ykey_classification',
         'directional'
     ]
-    proc_args = {k: args.pop(k) for k in proc_args}
+    proc_args = {}
+    for k in proc_keys:
+        if k in args:
+            proc_args[k] = args.pop(k)
 
     # Cast processing parameters as lists
     proc_args = {k: as_iterable(v) for k, v in proc_args.items()}
 
     # Rename some processing parameters for consistency with notebook definitions
-    proc_args['neuropil_scaling_coeff'] = proc_args.pop('alpha')
-    proc_args['baseline_wquantile'] = proc_args.pop('wq')
-    proc_args['baseline_wsmoothing'] = proc_args.pop('ws')
-    proc_args['ykey_classification'] = [
-        {
-            'evrate': Label.EVENT_RATE, 
-            'dff': Label.DFF,
-            'zscore': Label.ZSCORE
-        }[y]
-        for y in proc_args['ykey_classification']]
+    if 'alpha' in proc_args:
+        proc_args['neuropil_scaling_coeff'] = proc_args.pop('alpha')
+    if 'wq' in proc_args:
+        proc_args['baseline_wquantile'] = proc_args.pop('wq')
+    if 'ws' in proc_args:
+        proc_args['baseline_wsmoothing'] = proc_args.pop('ws')
+    if 'ykey_classification' in proc_args:
+        proc_args['ykey_classification'] = [
+            {
+                'evrate': Label.EVENT_RATE, 
+                'dff': Label.DFF,
+                'zscore': Label.ZSCORE
+            }[y]
+            for y in proc_args['ykey_classification']]
     
     # Create queue from processing parameters
     proc_queue = create_queue(proc_args)
