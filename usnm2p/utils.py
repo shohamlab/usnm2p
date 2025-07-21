@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-09 17:35:05
+# @Last Modified time: 2025-07-21 17:04:44
 
 ''' Collection of generic utilities. '''
 
@@ -1577,3 +1577,43 @@ def resample(x, y, dx):
     # Interpolate y values at new x points
     y_new = np.interp(x_new, x, y)
     return x_new, y_new
+
+
+def shift_signal(y, shift):
+    '''
+    Shift a 1D signal by `shift` samples with np.nan padding.
+    
+    :param y: 1D signal array
+    :param shift: shift, in number of indexes (a positive value indicates a forward shift)
+    :return: shifted signal, padded with NaN values to match original signal size
+    '''
+    # If shift is zero, return original signal
+    if shift == 0:
+        return y.copy()
+    n = y.size
+    yout = np.full(n, np.nan)    
+    if shift > 0:
+        yout[shift:] = y[:n - shift]
+    else:
+        yout[:shift] = y[-shift:]
+    return yout
+
+
+def stretch_signal(y, factor):
+    '''
+    Stretch/shrink signal by a relative factor. 
+    
+    :param y: 1D signal vector
+    :param factor: stretch factor. If < 1, the end of the transformed signal is
+        padded with NaNs to retain original size
+    with NaN padding where     
+    '''
+    # If idendity factor, return copy of original signal
+    if factor == 1:
+        return y.copy()
+    # Generate dummy original time vector 
+    t = np.arange(y.size)  # a.u.
+    # Compute stretched time vector
+    tstretch = t * factor
+    # Interpolate signal defined along tstretch at original time values
+    return np.interp(t, tstretch, y, left=np.nan, right=np.nan)

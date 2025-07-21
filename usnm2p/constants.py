@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-14 17:47:47
+# @Last Modified time: 2025-07-21 18:05:14
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -358,9 +358,9 @@ STIM_ONSET_DICT = {
 
 DEFAULT_STIM_TRIG_DELAY = 9e-3  # Default stimulus trigger delay in seconds (inferred from data)
 DATASET_STIM_TRIG_DELAY = {  # Dataset-specific variations in stimulus trigger delay (inferred from data) 
-    '20191112_mouse12_region1': 0., 
-    '20191112_mouse12_region2_layer5': 0.,
-    '20190516_mouse8_region2': 18e-3,
+    '20191112_mouse12_region1': 0.,   # main line3 
+    '20191112_mouse12_region2_layer5': 0.,  # main line3
+    '20190516_mouse8_region2': 18e-3,   # main sst
 }
 
 

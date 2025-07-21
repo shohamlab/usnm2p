@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-18 14:10:46
+# @Last Modified time: 2025-07-21 17:59:29
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -19,6 +19,7 @@ from scipy.signal import butter, sosfiltfilt, find_peaks, peak_widths, welch, hi
 from scipy.stats import skew, norm, ttest_ind, linregress, chi2
 from scipy.stats import t as tstats
 from scipy.stats import f as fstats
+from scipy.stats import zscore
 from scipy.interpolate import griddata, interp1d
 import spectrum
 import statsmodels.api as sm
@@ -341,7 +342,22 @@ def get_onoff_times(dur, PRF, DC, onset=0):
     return np.array([ton, toff]).T
 
 
-def get_stimon_mask(dims, fps, tpulses):
+def get_stim_envelope(tvec, tpulses):
+    '''
+    Construct stimulus envelope vector
+    
+    :param tvec: time vector (s)
+    :param tpulses: matrix of pulse onsets and onsets (s) 
+    :return: binary stimulus vector sampled at the input time vector. 
+    '''
+    y = np.zeros(tvec.size)
+    if tpulses is not None:
+        for ton, toff in tpulses:
+            y[np.logical_and(tvec >= ton, tvec <= toff)] = 1
+    return y
+
+
+def get_stim_mask(dims, fps, tpulses):
     '''
     Construct mask of "stim-on" pixels on stimulus frame 
 
@@ -352,22 +368,12 @@ def get_stimon_mask(dims, fps, tpulses):
     '''
     # Compute number of pixels in frame
     npixels = np.prod(dims)
-    # Create serialized mask
-    mask = np.zeros(npixels)
-    # If pulses exist
-    if tpulses is not None:
-        # Compute single pixel sampling frequency (Hz)
-        fs = fps * npixels
-        # Construct serialized scanning time vector
-        tscan = np.arange(npixels) / fs
-        # Populate serialized mask for each pulse
-        for ton, toff in tpulses:
-            idxs = np.logical_and(tscan >= ton, tscan <= toff)
-            mask[idxs] = 1
-    # Reshape to frame dimenions
-    mask = mask.reshape(dims)
-    # Return
-    return mask
+    # Construct serialized scanning time vector
+    tscan = np.arange(npixels) / (fps * npixels)
+    # Populate serialized mask for each pulse
+    mask = get_stim_envelope(tscan, tpulses)
+    # Reshape to frame dimenions and return
+    return mask.reshape(dims)
 
 
 def frame_to_dataframe(y):
@@ -3899,12 +3905,14 @@ def get_correlation_matrix(s, by, sort=True, shuffle=False, remove_diag=False, r
     return corrs
 
 
-def cross_correlate(s1, s2):
+def cross_correlate(s1, s2, max_lag=None, plot=False):
     '''
     Extract the cross-correlation between two 1-dimensional signals
     
     :param s1: first input signal (pandas Series or 1D array)
     :param s2: second input signal (pandas Series or 1D array)
+    :param max_lag (optional): maximum lag allow (in samples)
+    :param plot (optional): whether to plot correlation output (default = False) 
     :return:
         - 1D array containing discrete linear cross-correlation of s1 with s2
         - 1D array of the corresponding index lags between s1 and s2 
@@ -3912,10 +3920,28 @@ def cross_correlate(s1, s2):
     '''
     # Compute cross-correlation
     corr = correlate(s1, s2) / s1.size
+
     # Compute associated lags
     lags = correlation_lags(len(s1), len(s2))
+
+    # If required, bound lag interval of interest 
+    if max_lag is not None:
+        mask = np.logical_and(lags >= -max_lag, lags <= max_lag)
+        corr, lags = corr[mask], lags[mask]
+
     # Compute optimal lag
-    opt_lag = lags[np.argmax(corr)]
+    imax = np.argmax(corr) 
+    opt_lag = lags[imax]
+
+    # If required, plot correlation vector
+    if plot:
+        _, ax = plt.subplots(figsize=(6, 3))
+        sns.despine(ax=ax)
+        ax.set_xlabel('lag')
+        ax.set_ylabel('correlation')
+        ax.plot(lags, corr, c='C0')
+        ax.scatter(opt_lag, corr[imax], c='C1')
+
     # Return
     return corr, lags, opt_lag
 
@@ -4761,3 +4787,99 @@ def bin_by_quantile_intervals(data, ykey, nbins=10, bin_unit=None, gby=None, add
 
     else:
         return data[bin_key]
+
+
+def get_stimulus_dFF_template(onset, BD, PRF, DC, fps, lpf):
+    '''
+    Construct template of stimulus-evoked dFF signal
+    
+    :param onset: stimulus onset time (s)
+    :param BD: burst duration (s)
+    :param PRF: Pulse repetition frequency (Hz)
+    :param DC: duty cycle (%)
+    :param fps: frames per second
+    :param lpf: lines per frames 
+    :return: stimulus-evoked dFF template vector sampled at the line sampling frequency
+    '''
+    # Get pulse onset and offset times
+    tpulses = get_onoff_times(BD, PRF, DC, onset=onset)
+    # Construct time vector sampling the entire frame at line sampling frequency
+    tvec = np.arange(0, 1 / fps, 1 / (lpf * fps))
+    # Extract stimulus envelope
+    y = get_stim_envelope(tvec, tpulses)
+    # Offset values by 1 sample to account for stimulus-dFF causality 
+    y = np.hstack(([0], y[:-1]))
+    # Invert sign
+    return -y
+
+
+def match_signal_and_template(y, yt, max_lag, rel_stretch_range=0.05, n=101, plot=False, **kwargs):
+    '''
+    Match template with signal by finding optimal template shift and signal stretch factor.
+
+    :param y: signal vector
+    :param yt: original template vector
+    :param max_lag: maximum lag allowd in number of samples
+    :param rel_stretch_range: relative exploration range for stretch factor
+    :param n: number of tested stretch factors within exploration interval
+        (must be odd to include "no-stretch" condition)
+    :return: 4-tuple with:
+        - optimal template offset
+        - optimal signal stretch factor
+        - corresponding correlation score
+        - original correlation score 
+    '''
+    if n % 2 == 0:
+        raise ValueError('number of tested stretch factors must be odd')
+    
+    # Z-score template and signal
+    y, yt = zscore(y, nan_policy='omit'), zscore(yt, nan_policy='omit')
+
+    # Generate vector of candidate stretch factors
+    stretches = np.linspace(-rel_stretch_range, rel_stretch_range, n)
+
+    # Sweep through candidate stretch factors
+    logger.info(f'matching {y.size}-samples template and signal over (+/-{max_lag} samples lag x +/-{rel_stretch_range * 1e2:.0f}% stretch) 2D space')
+    lags = np.arange(-max_lag, max_lag + 1)
+    corr, opt_lags = np.zeros((n, lags.size)), np.zeros(n, dtype=int)
+    for i, stretch in enumerate(stretches):
+        # Stretch/shrink signal
+        yr = stretch_signal(y, stretch + 1)
+
+        # Cross-correlate template with resampled signal
+        cvec, lvec, opt_lags[i] = cross_correlate(yr[~np.isnan(yr)], yt, max_lag=max_lag, **kwargs)
+        if max_lag is not None:
+            assert all(lvec == lags), 'mismatch in lags vector'
+        corr[i] = cvec
+
+    # Extract (fs, lag) combination yielding max correlation
+    istretch, ilag = np.unravel_index(np.argmax(corr), corr.shape)
+    if istretch in (0, n - 1):
+        logger.warning('optimal match obtained at stretch factor boundary')
+    if ilag in (0, lags.size - 1):
+        logger.warning('optimal match obtained at lag boundary')
+    opt_stretch = stretches[istretch]
+    opt_lag = opt_lags[istretch]
+    opt_corr = corr[istretch, ilag]
+
+    # If process yields worse correlation than originally, raise error
+    org_corr = corr[corr.shape[0] // 2, corr.shape[1] // 2]
+    if opt_corr < org_corr:
+        raise ValueError(f'correlation decreased during optimization (original = {org_corr:.2f}, final = {opt_corr:.2f})')
+
+    # If requested, plot correlation matrix
+    if plot:
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sm = ax.pcolormesh(lags, stretches, corr)
+        ax.set_ylabel('stretch factor')
+        ax.set_xlabel('lag (indexes)')
+        ax.scatter(opt_lags, stretches, c='w', s=10)
+        ax.scatter(opt_lag, opt_stretch, c='r', s=10, zorder=90)
+        ax.axhline(1., c='k', ls='--')
+        ax.axvline(0, c='k', ls='--')
+        cbar_ax = fig.colorbar(sm)
+        cbar_ax.set_label('cross-correlation')
+
+    # Return optimal lag and sampling frequency, and corresponding
+    # correlation score
+    return opt_lag, opt_stretch, opt_corr, org_corr
