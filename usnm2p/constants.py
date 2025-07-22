@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-21 18:05:14
+# @Last Modified time: 2025-07-22 15:52:12
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -362,6 +362,10 @@ DATASET_STIM_TRIG_DELAY = {  # Dataset-specific variations in stimulus trigger d
     '20191112_mouse12_region2_layer5': 0.,  # main line3
     '20190516_mouse8_region2': 18e-3,   # main sst
 }
+def get_stim_trig_delay(dataset_ID):
+    return DATASET_STIM_TRIG_DELAY.get(dataset_ID, DEFAULT_STIM_TRIG_DELAY)
+
+MAX_TEMPLATE_MATCHING_SHIFT = 5e-3  # Maximum signal shift allowed during template matching (in s) 
 
 
 def get_stim_onset_time(line):

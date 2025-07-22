@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-21 17:04:44
+# @Last Modified time: 2025-07-22 16:05:42
 
 ''' Collection of generic utilities. '''
 
@@ -1593,7 +1593,7 @@ def shift_signal(y, shift):
     n = y.size
     yout = np.full(n, np.nan)    
     if shift > 0:
-        yout[shift:] = y[:n - shift]
+        yout[shift:] = y[:-shift]
     else:
         yout[:shift] = y[-shift:]
     return yout

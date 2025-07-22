@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-17 16:32:37
+# @Last Modified time: 2025-07-22 15:37:37
 
 ''' Collection of plotting utilities. '''
 
@@ -5828,6 +5828,27 @@ def get_runid_palette(param_seqs, runid):
     return runid_params.map(mapper).to_dict()
 
 
+def get_discrete_palette(n):
+    '''
+    Return colormap (string or object) allowing for easy visual discrimination
+    between different levels
+
+    :param n: number of discrimination levels
+    :return: colormap (string or object) 
+    '''
+    if n > 40:
+        raise ValueError(f'cannot generate discrete colormap with more than 40 levels')
+    if n > 20:
+        palette = sns.color_palette(list(
+            plt.get_cmap('tab20b').colors) + list(plt.get_cmap('tab20c').colors))
+        return palette[:n]
+    elif n > 10:
+        palette = 'tab20'
+    else:
+        palette = 'tab10'
+    return palette
+
+
 def plot_response_alignment(data, xkey, ykey, fit, sweepkey=Label.DC, 
                             ax=None, xscale=None, fs=10, title=None, height=3, 
                             error_aggfunc='mean', color=None, add_thr=False, 
@@ -6829,13 +6850,7 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
 
         # Determine palette, if not provided
         if palette is None:
-            ngroups = len(hue_order)
-            if ngroups > 20:
-                palette = sns.color_palette(list(plt.get_cmap('tab20b').colors) + list(plt.get_cmap('tab20c').colors))
-            elif ngroups > 10:
-                palette = 'tab20'
-            else:
-                palette = 'tab10'
+            palette = get_discrete_palette(len(hue_order))
 
         # If specified, stack hue curves vertically 
         if stackhue:
@@ -6868,7 +6883,7 @@ def plot_rowagg_profiles(data, ykey=Label.DFF, col=Label.ISPTA, hue=None, marker
                 legend='full',
                 errorbar=None,
                 ls=ls,
-                lw=0.5,
+                lw=1,
             )
             errorbar = None
         else:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-21 17:59:29
+# @Last Modified time: 2025-07-22 17:49:31
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4813,73 +4813,121 @@ def get_stimulus_dFF_template(onset, BD, PRF, DC, fps, lpf):
     return -y
 
 
-def match_signal_and_template(y, yt, max_lag, rel_stretch_range=0.05, n=101, plot=False, **kwargs):
+def match_to_template(y, yt, max_shift, rel_stretch_range=0.05, n=101, plot=False, verbose=False, **kwargs):
     '''
-    Match template with signal by finding optimal template shift and signal stretch factor.
+    Match signal with template by finding optimal shift and stretch factor.
 
     :param y: signal vector
     :param yt: original template vector
-    :param max_lag: maximum lag allowd in number of samples
+    :param max_shift: maximum shift allowd in number of samples
     :param rel_stretch_range: relative exploration range for stretch factor
     :param n: number of tested stretch factors within exploration interval
         (must be odd to include "no-stretch" condition)
-    :return: 4-tuple with:
-        - optimal template offset
-        - optimal signal stretch factor
-        - corresponding correlation score
-        - original correlation score 
+    :return: dictionary with:
+        - original cross-correlation score 
+        - post-matching correlation score
+        - shift of matching transformation
+        - relative stretch of matching transformation
     '''
     if n % 2 == 0:
         raise ValueError('number of tested stretch factors must be odd')
     
+    # Log process
+    msg = f'matching {y.size}-samples template and signal over (+/-{max_shift} samples shift x +/-{rel_stretch_range * 1e2:.0f}% stretch) 2D space'
+    if verbose: 
+        logger.info(msg)
+    else:
+        logger.debug(msg)
+    
     # Z-score template and signal
     y, yt = zscore(y, nan_policy='omit'), zscore(yt, nan_policy='omit')
 
-    # Generate vector of candidate stretch factors
-    stretches = np.linspace(-rel_stretch_range, rel_stretch_range, n)
+    # Generate vector of candidate shifts and relative stretch factors
+    shifts = np.arange(-max_shift, max_shift + 1)
+    rel_stretches = np.linspace(-rel_stretch_range, rel_stretch_range, n)
 
+    # Initialize cross-correlation matrix and optimal shift vector
+    C, opt_shifts = np.zeros((n, shifts.size)), np.zeros(n, dtype=int)
+    
     # Sweep through candidate stretch factors
-    logger.info(f'matching {y.size}-samples template and signal over (+/-{max_lag} samples lag x +/-{rel_stretch_range * 1e2:.0f}% stretch) 2D space')
-    lags = np.arange(-max_lag, max_lag + 1)
-    corr, opt_lags = np.zeros((n, lags.size)), np.zeros(n, dtype=int)
-    for i, stretch in enumerate(stretches):
+    for i, rel_stretch in enumerate(rel_stretches):
         # Stretch/shrink signal
-        yr = stretch_signal(y, stretch + 1)
+        yr = stretch_signal(y, rel_stretch + 1)
 
         # Cross-correlate template with resampled signal
-        cvec, lvec, opt_lags[i] = cross_correlate(yr[~np.isnan(yr)], yt, max_lag=max_lag, **kwargs)
-        if max_lag is not None:
-            assert all(lvec == lags), 'mismatch in lags vector'
-        corr[i] = cvec
+        c, svec, opt_shifts[i] = cross_correlate(yt, yr[~np.isnan(yr)], max_lag=max_shift, **kwargs)
+        assert all(svec == shifts), 'mismatch in shifts vector'
 
-    # Extract (fs, lag) combination yielding max correlation
-    istretch, ilag = np.unravel_index(np.argmax(corr), corr.shape)
+        # Assign cross-correlation vector to cross-correlation matrix
+        C[i] = c
+
+    # Extract (rel_stretch, shift) combination yielding max correlation
+    istretch, ishift = np.unravel_index(np.argmax(C), C.shape)
     if istretch in (0, n - 1):
-        logger.warning('optimal match obtained at stretch factor boundary')
-    if ilag in (0, lags.size - 1):
-        logger.warning('optimal match obtained at lag boundary')
-    opt_stretch = stretches[istretch]
-    opt_lag = opt_lags[istretch]
-    opt_corr = corr[istretch, ilag]
+        logger.warning(f'optimal match obtained at relative stretch factor boundary ({rel_stretches[istretch] * 1e2:.1f}%)')
+    if ishift in (0, shifts.size - 1):
+        logger.warning(f'optimal match obtained at shift boundary ({shifts[ishift]})')
+    opt_rel_stretch = rel_stretches[istretch]
+    opt_shift = opt_shifts[istretch]
+    copt = C[istretch, ishift]
 
-    # If process yields worse correlation than originally, raise error
-    org_corr = corr[corr.shape[0] // 2, corr.shape[1] // 2]
-    if opt_corr < org_corr:
-        raise ValueError(f'correlation decreased during optimization (original = {org_corr:.2f}, final = {opt_corr:.2f})')
+    # If process yields worse cross-correlation than originally, raise error
+    c0 = C[C.shape[0] // 2, C.shape[1] // 2]
+    if copt < c0:
+        raise ValueError(f'cross-correlation decreased during optimization (original = {c0:.2f}, final = {copt:.2f})')
 
-    # If requested, plot correlation matrix
+    # If requested, plot cross-correlation matrix
     if plot:
         fig, ax = plt.subplots(figsize=(5, 4))
-        sm = ax.pcolormesh(lags, stretches, corr)
-        ax.set_ylabel('stretch factor')
-        ax.set_xlabel('lag (indexes)')
-        ax.scatter(opt_lags, stretches, c='w', s=10)
-        ax.scatter(opt_lag, opt_stretch, c='r', s=10, zorder=90)
-        ax.axhline(1., c='k', ls='--')
+        sm = ax.pcolormesh(shifts, rel_stretches * 1e2, C)
+        ax.set_ylabel('stretch factor (%)')
+        ax.set_xlabel('shift (indexes)')
+        ax.scatter(opt_shifts, rel_stretches * 1e2, c='w', s=10)
+        ax.scatter(opt_shift, opt_rel_stretch * 1e2, c='r', s=10, zorder=90)
+        ax.axhline(0., c='k', ls='--')
         ax.axvline(0, c='k', ls='--')
         cbar_ax = fig.colorbar(sm)
         cbar_ax.set_label('cross-correlation')
 
-    # Return optimal lag and sampling frequency, and corresponding
-    # correlation score
-    return opt_lag, opt_stretch, opt_corr, org_corr
+    # Return matching transformation parameters and metrics
+    return {
+        'org. corr': c0,
+        'opt. corr': copt, 
+        'shift (samples)': opt_shift,
+        'rel. stretch (%)': opt_rel_stretch * 1e2,
+    }
+
+
+def extract_matching_parameters(y, onset, dur, PRF, DC, fps, lpf, max_shift=MAX_TEMPLATE_MATCHING_SHIFT, **kwargs):
+    '''
+    Run template-matching algorithm and extract parameters (stretch and shift) required
+    to align signal with a stimulus template
+
+    :param y: 1D numpy array/pandas series containing stimulus frame signal
+    :param onset: stimulus onset (s)
+    :param dur: stimulus duration (s)
+    :param PRF: stimulus PRF (Hz)
+    :param DC: duty cycle (%)
+    :param fps: frame sampling frequency (frames per second)
+    :param lpf: number of scanned lines per frame
+    :param max_shift: maximum shift allowed (in s)
+    :return: dictionary of matching transformation parameters and metrics
+    '''
+    # Compute sampling frequency
+    fs = fps * lpf
+
+    # Construct naive stimulus template
+    yt = get_stimulus_dFF_template(onset, dur, PRF, DC, fps, lpf)
+
+    # Convert max shift from time to samples
+    max_shift = int(np.floor(max_shift * fs))
+
+    # Match signal with template and extract matching parameters 
+    mparams = match_to_template(y, yt, max_shift, **kwargs)
+
+    # Add timing/frequency parameters 
+    mparams['effective fs (Hz)'] = fs / (1 + mparams['rel. stretch (%)'] * 1e-2)  # Hz
+    mparams['offset (ms)'] = mparams['shift (samples)'] / mparams['effective fs (Hz)']
+
+    # Return
+    return mparams
