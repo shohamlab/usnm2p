@@ -14,7 +14,7 @@ from natsort import natsorted
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec, SubplotSpec
 import re
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
 from matplotlib import cm
@@ -646,6 +646,100 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
         ax = axdict.get('row', axdict['frame'])
         ax.set_title(title)
     
+    return fig
+
+
+def plot_evoked_dFF_vs_F0(F0, dFF, stim_mask, ax=None, on_color=None):
+    '''
+    Plot quantile-binned relationship of pixel-wise stim-evoked dFF change vs baseline fluorescence,
+    grouped by stim-on vs stim-off
+
+    :param F0: baseline fluorescence frame matrix
+    :param dFF: pixelwise stimulus-evoked dFF matrix
+    :param stim_mask: stimulus mask matrix 
+    :param ax (optional): axis object on which to plot. If none, figure and axis are created.
+    :param on_color (optional): color to use for "stim-on" condition.
+    :return: figure object
+    '''
+    # Create/retrieve figure and axis
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(4, 4))
+    else:
+        fig = ax.get_figure()
+    sns.despine(ax=ax)
+    
+    # Assemble dataframe of serialized values
+    F0_key = f'baseline {Label.F}'
+    dFF_key = f'stim evoked {Label.DFF}'
+    pixelwise_df = pd.DataFrame({
+        F0_key: F0.ravel(),
+        dFF_key: dFF.ravel(),
+        'stim': stim_mask.ravel()
+    })
+
+    # Transform stimulus mask binary values to "on" and "off" values
+    pixelwise_df['stim'] = pixelwise_df['stim'].map({0: 'off', 1: 'on'})
+
+    # Group by stimulation state
+    groups = pixelwise_df.groupby('stim')
+
+    # Perform robust linear regression of dFF vs F0
+    regres = groups.apply(lambda x: mylinregress(x[F0_key], x[dFF_key], robust=True))
+    
+    # Compute correlation between dFF and F0
+    r = groups.corr().iloc[1::2, 0].droplevel(1).rename('r')
+
+    # Define colors for stim-on and stim-off conditions 
+    if on_color is None:
+        on_color = 'C0'
+    cdict = {'on': on_color, 'off': desaturate_color(on_color)}
+
+    # For each stim condition
+    for gkey, gdata in pixelwise_df.groupby('stim'):
+        
+        # Determine plotting color
+        c = cdict[gkey]
+
+        # Bin data by F0 quantile intervals
+        bin_by_quantile_intervals(
+            gdata,
+            F0_key,
+            nbins=10,
+            bin_unit='data',
+            add_aggregate=True, 
+            binagg_func='mean',
+            add_to_data=True
+        )
+
+        # Plot qunatile-binned dFF vs F0
+        sns.lineplot(
+            ax=ax,
+            data=gdata,
+            x=f'{F0_key} bin agg',
+            y=dFF_key,
+            color=c,
+            marker='o',
+            lw=0,
+            err_style='bars',
+            errorbar='se' 
+        )
+
+        # Add regression line
+        x0 = gdata[F0_key].mean()
+        s = regres.loc[gkey, 'slope']
+        y0 = x0 * s + regres.loc[gkey, 'intercept']
+        ax.axline((x0, y0), slope=s, c=c, ls='--')
+
+    # Add correlation coefficients
+    r.index.name = 'r'
+    r = r.add_prefix('stim-')
+    ax.text(.05, .1, r.to_string(float_format='%.2f'), ha='left', va='bottom', 
+            transform=ax.transAxes)
+
+    # Add y = 0 line
+    ax.axhline(0, c='k', ls='--')
+
+    # Return figure object
     return fig
 
 
