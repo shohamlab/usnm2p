@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-26 15:01:42
+# @Last Modified time: 2025-07-25 19:23:30
 
 import time
 import glob
@@ -119,12 +119,6 @@ class NetworkModel:
     # Reference gain threshold and slope for E population, used to rescale gain functions
     XREF = ('E', 5.)
     GREF = ('E', 1.)
-
-    # Default coupling strength bounds for excitatory and inhibitory connections
-    WMAX = 20.
-    
-    # CSV delimiter
-    DELIMITER = ','
 
     def __init__(self, W=None, tau=None, fgain=None, fparams=None, b=None, srel=None):
         '''
@@ -592,24 +586,62 @@ class NetworkModel:
         ''' 
         Create batch log file if it does not exist.
         
-        :param fpath: path to log file
+        :param fpath: path to log file (either CSV of H5)
         :param pnames: list of input parameter names
         '''
-        if not os.path.isfile(fpath):
-            logger.info(f'creating batch log file: "{fpath}"')
-            with open(fpath, 'w') as csvfile:
-                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
-                writer.writerow(['iteration', *pnames, 'cost'])
-        else:
+        # If file exists, log and return
+        if os.path.isfile(fpath):
             logger.debug(f'existing batch log file: "{fpath}"')
+        
+        # Log 
+        logger.info(f'creating batch log file at {fpath}')
+
+        # Assemble column names
+        colnames = ['iteration', *pnames, 'cost']
+
+        # Extract file extension
+        ext = os.path.splitext(fpath)[1]
+
+        # Create appropriate file type
+        if ext == '.csv':
+            with open(fpath, 'w') as csvfile:
+                writer = csv.writer(csvfile, delimiter=CSV_DELIMITER)
+                writer.writerow(colnames)
+        elif ext == '.h5':
+            df = pd.DataFrame({k: [-1] if k == 'iteration' else [0.] for k in colnames})
+            df.to_hdf(fpath, H5_KEY, mode='w', format='table')
+        else:
+            raise ValueError(f'invalid file type: {ext}')
     
     def append_to_log_file(self, fpath, iteration, params, cost):
-        ''' Append current batch iteration to log file '''
+        '''
+        Append current batch iteration to log file
+
+        :param fpath: path to log file (either CSV of H5)
+        :param iteration: cost function evaluation number
+        :param params: list of cost function input parameters
+        :param cost: associated cost outputed by the cost function 
+        '''
+        # Log
         logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
-        with lockfile.FileLock(fpath):
-            with open(fpath, 'a') as csvfile:
-                writer = csv.writer(csvfile, delimiter=self.DELIMITER)
-                writer.writerow([iteration, *params, cost])
+
+        # Assemble row data
+        rowdata = [iteration, *params, cost]
+
+        # Extract file extension
+        ext = os.path.splitext(fpath)[1]
+
+        # Append to appropriate file type 
+        if ext == '.csv':
+            with lockfile.FileLock(fpath):
+                with open(fpath, 'a') as csvfile:
+                    writer = csv.writer(csvfile, delimiter=CSV_DELIMITER)
+                    writer.writerow(rowdata)
+        elif ext == '.h5':
+            with lockfile.FileLock(fpath):
+                colnames = pd.read_hdf(fpath, H5_KEY, stop=0).columns.tolist()
+                df = pd.DataFrame([rowdata], columns=colnames)
+                df.to_hdf(fpath, H5_KEY, mode='a', format='table', append=True)
 
     @classmethod
     def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height=3, 
@@ -821,7 +853,7 @@ class NetworkModel:
         # Return figure handle
         return fig
 
-    def plot_stimulus_sensitivity(self, srel=None, ax=None, title=None):
+    def plot_stimulus_sensitivity(self, srel=None, ax=None, title=None, norm=False):
         '''
         Plot relative stimulus sensitivity per population
 
@@ -846,6 +878,10 @@ class NetworkModel:
             title = 'stimulus sensitivities'
         ax.set_title(title)
         ax.set_xlabel('population')
+
+        if norm:
+            maxsrel = srel.groupby('population').mean().max()
+            srel = srel / maxsrel
 
         pltkwargs = dict(
             data=srel.reset_index(),
@@ -924,24 +960,57 @@ class NetworkModel:
         # Return figure handle
         return fig
 
-    def plot_summary(self, height=3):
+    def plot_summary(self, height=3, W=None, srel=None, axes=None, add_time_constants=False, 
+                     add_axtitles=True, norm=False):
         '''
         Plot model summary, i.e. time constants, gain functions and connectivity matrix
 
         :param height (optional): figure height
+        :param add_time_constants (optional): whether to plot time constants graph (defaults to False) 
+        :param axes (optional): axes on which to plot
+        :param add_axtitles (optional): whether to add titles to axes (defaults to True)
+        :param norm: whether to normalize stimulus sensitivities and coupling weights 
         :return: figure handle
         '''
-        # Create figure
-        ncols = 4
-        fig, axes = plt.subplots(1, ncols, figsize=(height * ncols, height))
-        # Plot time constants, gain function and connectivity matrix
-        self.plot_time_constants(ax=axes[0])
-        self.plot_fgain(ax=axes[1])
-        self.plot_stimulus_sensitivity(ax=axes[2])
-        self.plot_connectivity_matrix(self.W, ax=axes[3])
-        # Adjust layout
-        fig.tight_layout()
-        fig.suptitle(self, fontsize=12, y=1.05)
+        # Determine number of axes
+        naxes = 3
+        if add_time_constants:
+            naxes += 1
+        
+        # Create/retrieve figure and axes
+        if axes is None:
+            fig, axes = plt.subplots(1, naxes, figsize=(height * naxes, height))
+            has_parent = False
+        else:
+            if len(axes) != naxes:
+                raise ValueError(f'number of input axes ({len(axes)} does not match number of required axes ({naxes})')
+            fig = axes[0].get_figure()
+            has_parent = True
+        axiter = iter(axes)
+
+        # Construct uniform empty axis title or leave it to be decided
+        axtitle = None if add_axtitles else ''
+
+        # Plot connectivity matrix
+        self.plot_connectivity_matrix(
+            self.W if W is None else W, agg=W is not None, norm=norm,
+            ax=next(axiter), title=axtitle)
+
+        # Plot gain functions
+        self.plot_fgain(ax=next(axiter), title=axtitle)
+
+        # Plot stimulus sensitivities
+        self.plot_stimulus_sensitivity(srel=srel, ax=next(axiter), title=axtitle, norm=norm)
+
+        # If required, plot time constants
+        if add_time_constants:
+            self.plot_time_constants(ax=next(axiter), title=axtitle)
+        
+        # If no parent, adjust layout
+        if not has_parent:
+            fig.tight_layout()
+            fig.suptitle(self, fontsize=12, y=1.05)
+
         # Return figure handle
         return fig
     
@@ -1693,31 +1762,57 @@ class NetworkModel:
         # Return figure handle
         return fig
    
-    def get_coupling_bounds(self, wmax=None):
+    def get_coupling_bounds(self, wmax=None, relwmax=None):
         '''
         Get exploration bounds for each element of the network connectivity matrix
         of the current model
 
         :param wmax: max absolute coupling strength across the network
+        :param relwmax: max relative deviation of coupling strength from their reference values 
         '''
-        # If max strength not provided, use default
-        if wmax is None:
-            wmax = self.WMAX
-        # Otherwise, check that is is a positive int or float
-        else:
-            if not isinstance(wmax, (int, float)) or wmax <= 0:
-                raise ModelError('wmax must be a positive number')
-            wmax = float(wmax)
-
+        # If both (or none of) absolute and relative max strength are provided, raise error
+        errmsg = 'one of relative/absolute max coupling strength must be provided'
+        if wmax is None and relwmax is None:
+            raise ValueError(errmsg)
+        if wmax is not None and relwmax is not None:
+            raise ValueError(f'only {errmsg}')
+        
         # Initialize empty bounds matrix
         Wbounds = self.get_empty_W()
 
-        # For each pre-synaptic population
-        for key in self.keys:
-            # Get cell-type-specific coupling stength bounds
-            bounds = (0., wmax) if key == 'E' else (-wmax, 0.)
-            # Assign them to corresponding row in bounds matrix
-            Wbounds.loc[key, :] = [bounds] * self.size
+        # If wmax provided
+        if wmax is not None:
+            # Check that is is a positive int or float
+            if not isinstance(wmax, (int, float)) or wmax <= 0:
+                raise ModelError('wmax must be a positive number')
+            wmax = float(wmax)
+        
+            # For each pre-synaptic population
+            for key in self.keys:
+                # Get cell-type-specific coupling stength bounds
+                bounds = (0., wmax) if key == 'E' else (-wmax, 0.)
+                # Assign them to corresponding row in bounds matrix
+                Wbounds.loc[key, :] = [bounds] * self.size
+        
+        # If relwmax provided
+        if relwmax is not None:
+            # Check that is is a positive int or float
+            if not isinstance(relwmax, (int, float)) or relwmax <= 0:
+                raise ModelError('relwmax must be a positive number')
+            relwmax = float(relwmax)
+
+            # Compute connectivity matrices resulting from max positive and negative relative changes 
+            Wmin = (1 - relwmax) * self.W
+            Wmax = (1 + relwmax) * self.W
+
+            # Re-arrange to get lower and upper bounds matrices
+            Wlb = Wmin.combine(Wmax, func=np.minimum).round(3)
+            Wub = Wmin.combine(Wmax, func=np.maximum).round(3)
+
+            # Populate bounds matrix
+            for prekey in self.keys:
+                for postkey in self.keys:
+                    Wbounds.loc[prekey, postkey] = (Wlb.loc[prekey, postkey], Wub.loc[prekey, postkey])
 
         return Wbounds
     
@@ -1738,15 +1833,144 @@ class NetworkModel:
             raise ModelError('Wbounds indices must match network keys')
         if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
             raise ModelError('all Wbounds values must be tuples')
+        
+    def plot_optimization_results(self, ref_profiles, optres=None, axes=None, norm='ax', norm_params=False,
+                                  add_axtitles=True, title=None, height=2.5, avg_across_runs=False):
+        '''
+        Plot model optimization results
+        
+        :param ref_profiles: reference activation profiles per population, provided as dataframe
+        :param optres: optimization results
+        '''
+        # Determine number of axes
+        norm = as_iterable(norm)
+        naxes = 3 + len(norm)
 
-    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=False, disparity_cost_factor=0., invalid_cost=INVALID_COST):
+        ytitle = 1.05
+
+        W, srel = None, None
+
+        # Adjust model parameters based on optimization results
+        # If optimization results provided
+        if optres is not None:
+            # If multi-run results
+            if isinstance(optres, pd.DataFrame):
+                
+                # Extract number of runs
+                nruns = len(optres)
+
+                # If average specifiied
+                if avg_across_runs:
+                    logger.info(f'averaging optimal parameters across {nruns} runs')
+
+                    # Parse parameters from optimum for each run
+                    parsed_opts = {irun: self.parse_optimum_vector(opt)
+                        for irun, opt in optres.iterrows()}
+
+                    # Extract keys of parsed parameters from 1st run
+                    keys = list(parsed_opts[0].keys())
+
+                    # Concatenate each parsed parameter across runs
+                    parsed_params = {k: {} for k in keys}
+                    for irun, d in parsed_opts.items():
+                        for k, v in d.items():
+                            parsed_params[k][irun] = v
+                    parsed_params = {k: pd.concat(v, names=['run']) for k, v in parsed_params.items()}
+
+                    # Extract W and srel, if present
+                    W = parsed_params.get('W', None)
+                    srel = parsed_params.get('srel', None)
+
+                    # If srel provided, adjust title height and remove axis titles 
+                    # to make space for statistcial comparison 
+                    if srel is not None:
+                        ytitle = 1.4
+                        add_axtitles = False
+
+                    # Average optimum across runs
+                    optres = optres.mean(axis=0)
+
+                    # Adapt title
+                    suffix = f'average across {nruns} runs'
+                    if title is None:
+                        title = suffix
+                    else:
+                        title = f'{title} - {suffix}'
+
+                else:
+                    # Create figure with 2D axes grid
+                    if axes is not None:
+                        raise ValueError('cannot provide axes for multi-run entry')
+                    nrows = nruns 
+                    fig, axes = plt.subplots(nrows, naxes, figsize=(height * naxes, height * nrows))
+
+                    # Call function recursively to plot optimization results for each run
+                    for axrow, (irun, opt) in zip(axes, optres.iterrows()):
+                        self.plot_optimization_results(
+                            ref_profiles, optres=opt, axes=axrow, norm=norm,
+                            add_axtitles=irun == 0)
+                        if title is not None:
+                            fig.suptitle(title, y=1 + 0.01 * nrows)
+                    
+                    # Return figure
+                    return fig
+
+            self.set_from_optimum(optres)
+        
+        # Perform stimulus sweep and extract responses vs amps
+        sweep_data = self.run_stim_sweep(ref_profiles.index)
+        sweep_rss = self.extract_response_magnitude(sweep_data)
+
+        # Compare to reference profiles and extract prediction error
+        costs = self.evaluate_stim_sweep(ref_profiles, sweep_data)
+        try:
+            error = costs['prediction error']
+        except KeyError:
+            error = np.inf 
+
+        # Create /retrieve figure and axes
+        if axes is None:
+            fig, axes = plt.subplots(1, naxes, figsize=(height * naxes, height))
+        else:
+            if len(axes) != naxes:
+                raise ValueError(f'number of input axes ({len(axes)} does not match number of required axes ({naxes})')
+            fig = axes[0].get_figure()
+
+        # Plot model parameters summary
+        self.plot_summary(axes=axes[:3], W=W, srel=srel, add_axtitles=add_axtitles, norm=norm_params)
+
+        # Assemble sweep rss plotting dataframe
+        sweep_comp = pd.concat({
+            'predicted': sweep_rss,
+            'reference': ref_profiles
+        }, axis=0, names=['profile'])
+
+        # Plot model sweep results and reference profiles, for each normalization type
+        for ax, n in zip(axes[3:], norm):
+            self.plot_sweep_results(sweep_comp, norm=n, ax=ax, style='profile')
+            if add_axtitles:
+                ax.set_title(f'{f"{n}-normalized" if n else "absolute"} profiles')
+            if ax is not axes[-1]:
+                ax.get_legend().remove()
+            if n == 'style':
+                ax.text(0.1, 0.9, f'ε = {error:.2f}', transform=ax.transAxes, ha='left', va='top')
+        sns.move_legend(ax, bbox_to_anchor=(1, .5), loc='center left', frameon=False)
+
+        # If requested, add figure title
+        if title is not None:
+            fig.suptitle(title, y=ytitle)
+
+        return fig
+    
+
+    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=NORM_BEFORE_COMP, disparity_cost_factor=0., invalid_cost=INVALID_COST):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
         reference acivtation profiles, and (3) computing cost metrics
 
         :param ref_profiles: reference activation profiles per population, provided as dataframe
         :param sweep_data: stimulus amplitude sweep output dataframe
-        :param norm (optional): whether to normalize reference and output activation profiles before comparison
+        :param norm (optional): whether to normalize reference and output activation profiles before comparison.
         :param invalid_cost (optional): return value in case of "invalid" sweep output
         :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels
             (i.e., max ratio between max activation levels) across populations. If None, no disparity penalty is applied.
@@ -1807,19 +2031,14 @@ class NetworkModel:
         if disparity_cost_factor > 0:
             # Compute max absolute activation levels across sweep for each population
             maxlevels = stim_ss.abs().max().rename('max level')
-            # Compute all pairwise ratios of max activation levels
-            pairs = list(itertools.combinations(maxlevels.index, 2))
-            ratios = pd.Series(
-                [maxlevels.loc[p[0]] / maxlevels.loc[p[1]] for p in pairs],
-                index=pairs,
-                name='max level ratio'
-            )
-            # Transform ratios < 1 to reciprocal
-            ratios = ratios.where(ratios > 1, other=1 / ratios)
-            # Compute max ratio
-            maxratio = ratios.max()
-            # Convert max ratio to cost with appropriate scaling factor
-            costs['disparity'] = maxratio * disparity_cost_factor
+            # If one population has zero max activation, set infinity cost
+            if maxlevels.min() == 0.:
+                costs['disparity'] = np.inf
+            # Otherwise, compute max/min ratio of max activation levels and 
+            # convert to cost with appropriate scaling factor
+            else:
+                maxratio = maxlevels.max() / maxlevels.min()
+                costs['disparity'] = maxratio * disparity_cost_factor
 
         # Return cost dictionary
         return costs
@@ -1845,23 +2064,17 @@ class NetworkModel:
         :param xvec: vector of input parameters
         :return: parsed connectivity and sensitivity vectors
         '''
-        # Compute vector size
-        nx = len(xvec)
-        # Initialize output vectors to None
+        # initialize vectors
         Wvec, srelvec = None, None
-        # If vector is of size n (or 1), assign to sensitivity vector
-        if nx == self.size or nx == 1:
-            srelvec = xvec
-        # If vector is of size n^2, assign to connectivity vector
-        elif nx == self.nW:
-            Wvec = xvec
-        # If vector is of size n^2 + n (or n^2 + 1), assign to both 
-        # connectivity and sensitivity vectors
-        elif (nx == self.nW + self.size) or (nx == self.nW + 1):
-            Wvec, srelvec = xvec[:self.nW], xvec[self.nW:]
-        # Otherwise, raise error
-        else:
-            raise ModelError(f'{self}: cannot parse input vector of size {nx}')
+        
+        # Parse connectivity values
+        if self.Widx is not None:
+            Wvec = xvec[self.Widx]        
+        
+        # Parse sensitivity values
+        if self.srelidx is not None:
+            srelvec = xvec[self.srelidx]
+                
         # Return parsed vectors
         return Wvec, srelvec
     
@@ -1872,17 +2085,41 @@ class NetworkModel:
         :param xvec: vector of optimum output parameters
         :return: dictonary of corresponding model parameter objects
         '''
+        # Unpack coupling weigths and sensitivity vectors
         Wvec, srelvec = self.parse_input_vector(xvec)
+
+        # Initialize optimum parameters dictionary
         opt = {}
+        
+        # If coupling weights present, convert to matrix and add
         if Wvec is not None:
             opt['W'] = self.Wvec_to_Wmat(Wvec)
+        
+        # If sensitivities present, cast as series and add
         if srelvec is not None:
+            if isinstance(srelvec, pd.Series):
+                srelvec = srelvec.values
             if len(srelvec) == 1:
                 srelvec = srelvec[0]
             opt['srel'] = pd.Series(srelvec, index=self.idx, name='stimulus sensitivity')
+
+        # Return optimum parameters dictionary
         return opt
+
+    def set_from_optimum(self, xvec):
+        ''' 
+        Set model connectivity amnd sensitivity parameters taken from optimization result
+
+        :param xvec: vector of optimum output parameters
+        '''
+        # Parse optimum vector into dictionary of parameters
+        d = self.parse_optimum_vector(xvec)
+
+        # Assign them to model
+        for k, v in d.items():
+            setattr(self, k, v)
     
-    def set_run_and_evaluate(self, xvec, ref_profiles, Wdev_cost_factor=0., **kwargs):
+    def set_run_and_evaluate(self, xvec, ref_profiles, Wdev_cost_factor=0., verbose=False, **kwargs):
         '''
         Adjust specific model parameters, run stimulation sweep, 
         evaluate costs, and reset parameters to original values
@@ -1923,8 +2160,9 @@ class NetworkModel:
             costs['connectivity'] = Wdev_cost_factor * Wreldiff.abs().sum().sum()
 
         # Log costs
-        cost_str = ', '.join([f'{k} = {v:.3f}' for k, v in costs.items()])
-        logger.info(f'costs: {cost_str}')
+        if verbose:
+            cost_str = ', '.join([f'{k} = {v:.3f}' for k, v in costs.items()])
+            logger.info(f'costs: {cost_str}')
 
         # Compute total cost
         cost = np.nansum(list(costs.values()))
@@ -1949,20 +2187,19 @@ class NetworkModel:
         :param Wvec: network connectivity matrix vector(s) (size n^2, where n is the number of populations in the network)
         :return: n-by-n network connectivity matrix
         '''
-        # If input is a series, assume 1 vector per row and convert each one to matrix
+        # If input is series, extract values
         if isinstance(Wvec, pd.Series):
-            Wdict = {k: self.Wvec_to_Wmat(v) for k, v in Wvec.items()}
-            gname = Wvec.index.name if Wvec.index.name is not None else 'matrix'
-            return pd.concat(Wdict, axis=0, names=[gname])
+            Wvec = Wvec.values
+
+        # Make sure vector has length n^2
         if len(Wvec) != self.nW:
             raise ModelError('input vector length does not match network connectivity matrix size')
-        Wmat = pd.Series(
+        
+        # Assemble as matrix and return
+        return pd.Series(
             Wvec, 
-            index=pd.MultiIndex.from_tuples(self.Wnames)
+            index=pd.MultiIndex.from_tuples(self.Wnames, names=['pre-synaptic', 'post-synaptic'])
         ).unstack()
-        Wmat.index.name = 'pre-synaptic'
-        Wmat.columns.name = 'post-synaptic'
-        return Wmat
     
     def feval(self, args):
         '''
@@ -1990,8 +2227,7 @@ class NetworkModel:
             x, *self.eval_args, **self.eval_kwargs)
         
         # Log ieration and output
-        logstr = f'{logstr} - cost = {cost:.3f}'
-        logger.info(logstr)
+        logger.info(f'{logstr} - cost = {cost:.2e}')
 
         # Log to file, if path provided
         if self.eval_fpath is not None:
@@ -2000,9 +2236,28 @@ class NetworkModel:
         # Return cost
         return cost
 
-    def setup_eval(self, *args, nevals=None, fpath=None, **kwargs):
-        ''' Initialize attributes used in evaluation function '''
+    @property
+    def xnames(self):
+        return self._xnames
+    
+    @xnames.setter
+    def xnames(self, l):
+        self._xnames = l
+        self.Widx = [i for i, k in enumerate(l) if k.startswith('W')]
+        if len(self.Widx) == 0:
+            self.Widx = None 
+        self.srelidx = [i for i, k in enumerate(l) if k.startswith('srel')]
+        if len(self.srelidx) == 0:
+            self.srelidx = None
+
+    def setup_eval(self, xnames, *args, nevals=None, fpath=None, **kwargs):
+        ''' 
+        Initialize attributes used in evaluation function
+        
+        :param xnames: names of parameters passed as inputs to evaluation function
+        '''
         logger.info(f'setting up {self} for evaluation')
+        self.xnames = xnames
         self.eval_args = args
         self.eval_kwargs = kwargs
         self.eval_fpath = fpath
@@ -2049,7 +2304,9 @@ class ModelOptimizer:
             # Check compatibility with model
             model.check_coupling_bounds(Wbounds)
             # Append serialized bounds to exploration bounds
-            xbounds.append(Wbounds.stack().rename('bounds'))
+            serialized_Wbounds = Wbounds.stack() 
+            serialized_Wbounds.index = serialized_Wbounds.index.map(lambda x: f'W({x[0]}-{x[1]})')
+            xbounds.append(serialized_Wbounds.rename('bounds'))
 
         # If stimulus sensitivities bounds provided
         if srel_bounds is not None:
@@ -2071,7 +2328,7 @@ class ModelOptimizer:
                     raise ModelError('uniform_srel=True but srel_bounds has more than 1 value')
             
             # Add stimulus sensitivities bounds to exploration
-            xbounds.append(srel_bounds)
+            xbounds.append(srel_bounds.add_prefix('srel '))
         
         # If no exploration bounds provided, raise error
         if len(xbounds) == 0:
@@ -2081,26 +2338,25 @@ class ModelOptimizer:
         return pd.concat(xbounds)
     
     @staticmethod
-    def extract_optimum(cost):
+    def extract_optimum(data):
         '''
-        Extract optimum from cost series
+        Extract optimum from exploration results
 
-        :param cost: exploration results as multi-indexed pandas series
-        :return: vector of parameter values yielding optimal cost
+        :param data: exploration results dataframe containing 'cost' column
+        :return: pandas Series of parameter values yielding optimal cost
         '''
-        if isinstance(cost, pd.DataFrame):
-            cost = cost['cost']
-        if len(cost) == 0:
+        # If no data available, raise error
+        if len(data) == 0:
             raise OptimizationError('no exploration results available')
-        elif len(cost) == 1:
-            return cost.index[0]
-        elif cost.index.names[0] == 'run':
-            return cost.groupby('run').agg(lambda x: ModelOptimizer.extract_optimum(x.droplevel('run')))
-        else:
-            out = cost.idxmin()
-            if isinstance(out, float):
-                out = [out]
-            return out
+        
+        # Find exploration entry yielding minimal cost 
+        iopt = data['cost'].idxmin()
+        opt = data.loc[iopt].rename('optimum')
+        cost = opt.pop('cost')
+        logger.info(f'found optimal entry (cost = {cost:.2e})')
+
+        # Return
+        return opt
 
     @classmethod
     def global_optimization(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method='diffev', mpi=False, **kwargs):
@@ -2122,6 +2378,8 @@ class ModelOptimizer:
         '''
         # Initialize empty dictionary for optimization keyword arguments
         optkwargs = {}
+        if 'maxiter' in kwargs:
+            optkwargs['maxiter'] = kwargs.pop('maxiter')
 
         # Extract optimization method and add extra keyword arguments if needed 
         if method == 'diffev':
@@ -2151,7 +2409,6 @@ class ModelOptimizer:
         if mpi:
             # Get the number of available CPUs
             ncpus = get_cpu_count()
-            logger.info(f'parallelizing {method} optimization on {ncpus} CPUs')
             # If more than 1 CPU available, update keyword arguments to use as 
             # many workers as there are cores
             if ncpus > 1:
@@ -2168,29 +2425,46 @@ class ModelOptimizer:
         
         # Extract exploration bounds per parameter
         xbounds = cls.get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=uniform_srel)
+        xnames = xbounds.index.to_list()
                  
         # Run optimization algorithm
-        s = f'running {method} optimization algorithm'
+        s = f'running {len(xbounds)}D {method} optimization algorithm'
         if 'workers' in optkwargs:
             s = f'{s} with {optkwargs["workers"]} parallel workers'
-        logger.info(s)
-        model.setup_eval(*args, **kwargs)
+        xbounds_str = '\n'.join([f'   - {k}: {v}' for k, v in xbounds.items()])
+        logger.info(f'{s} with parameter bounds:\n{xbounds_str}')
+        model.setup_eval(xnames, *args, **kwargs)
         optres = optfunc(model, xbounds.values.tolist(), **optkwargs)
         model.cleanup_eval()
 
         # If optimization failed, raise error
         if hasattr(optres, 'success') and not optres.success:
-                raise OptimizationError(f'optimization failed: {optres.message}')
+            raise OptimizationError(f'optimization failed: {optres.message}')
 
-        # Extract solution array
-        sol = optres.x
-
-        # Return appropriate model output
-        return model.parse_optimum_vector(sol)
+        # Return solution array parsed as pandas Series
+        return pd.Series(optres.x, index=xnames, name='optimum')
     
     @staticmethod
-    def get_log_filename(model, ref_profiles, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor):
-        ''' Generate log filename for optimization input arguments '''
+    def get_log_filename(model, ref_profiles, method, Wbounds, srel_bounds, uniform_srel, 
+                         norm, disparity_cost_factor, Wdev_cost_factor, ftype, irun):
+        ''' 
+        Generate log filename from optimization input arguments
+
+        :param model: model instance
+        :param ref_profiles: reference activation profiles per population, provided as dataframe
+        :param method: optimization algorithm
+        :param Wbounds: network coupling weights bounds matrix.
+        :param srel_bounds: stimulus sensitivities bounds vector.
+        :param uniform_srel: whether to assume uniform stimulus sensitivity across populations
+        :param norm: whether to normalize reference and output activation profiles before comparison
+        :param disparity_cost_factor: scaling factor to penalize disparity in
+            activation levels across populations
+        :param Wdev_cost_factor: scaling factor to penalize deviation from
+            reference network connectivity matrix
+        :param ftype: log file type ('csv' or 'h5')
+        :param irun: run number
+        :return: name of log file
+        '''
         # Gather dictionary of model attribute codes
         model_ids = model.attrcodes()
         
@@ -2248,86 +2522,157 @@ class ModelOptimizer:
         # Assemble into attribute code
         model_code  = '_'.join([f'{k}{v}' for k, v in zip(keys, model_ids.values())])
         
-        # Merge model code and optimization code
-        code = f'{model_code}_{opt_code}'
+        # Merge model code, optimization code and run number
+        code = f'{model_code}_{opt_code}_run{irun}'
 
         # Add extension and return
-        return f'{code}.csv'
+        if ftype not in ('csv', 'h5'):
+            raise ValueError(f'invalid log file type: {ftype}')
+        return f'{code}.{ftype}'
     
     @staticmethod
     def load_log_file(fpath):
         '''
-        Load exploration results from CSV log file
+        Load exploration results from log file
 
-        :param model: model instance
         :param fpath: path to log file
-        :return: series of exploration cost, indexed by exploration parameters
+        :return: dataframe of exploration results
         '''
+        # Log
         logger.info(f'loading optimization results from {fpath}')
-        # Parse log file
-        df = pd.read_csv(fpath)
+
+        # Parse file extension
+        ext = os.path.splitext(fpath)[1]
+
+        # Parse log file depending on tile type
+        if ext == '.csv':
+            df = pd.read_csv(fpath)
+        elif ext == '.h5':
+            df = pd.read_hdf(fpath, H5_KEY).iloc[1:]  # Remove dummy first row necessary for h5
+        
         # Discard 'iteration' column
         del df['iteration']
-        # Set all columns other than "cost" to index
-        df.set_index(list(df.columns[:-1]), inplace=True)
-        # Return only 'cost' column (i.e. discard 'iteration' column)
-        return df['cost']
+        
+        # Return
+        return df
+    
+    @classmethod
+    def find_first_unlogged_run(cls, logdir, *args):
+        ''' 
+        Find first run number that is not logged, for a set of input parameters
+        '''
+        # Initialize existence flag to True 
+        log_exists = True
+
+        # Initialize run index to -1
+        irun = -1
+
+        # While existence flag is true
+        while log_exists:
+            # Increment run number
+            irun += 1
+
+            # Assemble log file path 
+            fname = cls.get_log_filename(*args, irun)
+            fpath = os.path.join(logdir, fname)
+
+            # Update existence flag
+            log_exists = os.path.isfile(fpath)
+        
+        # Return run number
+        return irun
 
     @classmethod
-    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method='diffev', norm=False,
-                 disparity_cost_factor=0., Wdev_cost_factor=0., logdir=None, force_rerun=False, **kwargs):
+    def optimize(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, method=OPT_METHOD,
+                 norm=NORM_BEFORE_COMP, disparity_cost_factor=DISPARITY_COST_FACTOR, 
+                 Wdev_cost_factor=WDEV_COST_FACTOR, irun=0, logdir=None, 
+                 ftype=LOG_FTYPE, nruns=1, **kwargs):
         '''
         Find network connectivity matrix that minimizes divergence with a reference
         set of activation profiles.
 
-        :param model: model instance 
-        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
-        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
+        :param model: model instance
+        :param args: positional arguments passed to global optimization method .
+        :param Wbounds (optional): network coupling weights bounds matrix. 
+            If None, use default weights.
+        :param srel_bounds (optional): stimulus sensitivities bounds vector. 
+            If None, use default sensitivities.
+        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity 
+            across populations (default: False)
         :param method (optional): optimization algorithm (default = "diffev")
-        :param norm (optional): whether to normalize reference and output activation profiles before comparison
-        :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
-        :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
-        :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
+        :param norm (optional): whether to normalize reference and 
+            output activation profiles before comparison (defaults to True)
+        :param disparity_cost_factor (optional): scaling factor to penalize disparity
+            in activation levels across populations
+        :param Wdev_cost_factor (optional): scaling factor to penalize deviation
+            from reference network connectivity matrix
+        :param irun (optional): run number (defaults to 0). Use 'next' to force new run.
+        :param logdir (optional): directory in which to save/load exploration results.
+            If None, no log will be saved.
+        :param ftype: type of log file ('csv' or 'h5')
+        :param nruns: number of runs to perform (defaults to 1)
+        :param kwargs: keyword arguments passed to global optimization method.
         :return: optimized network connectivity matrix
         '''
+        # If multiple runs requested, run them sequentially
+        if nruns > 1:
+            logger.info(f'running {nruns} model optimization runs')
+            opts = {}
+            for irun in range(nruns):
+                opts[irun] = cls.optimize(
+                    model,
+                    *args,
+                    Wbounds=Wbounds,
+                    srel_bounds=srel_bounds,
+                    uniform_srel=uniform_srel,
+                    method=method,
+                    norm=norm,
+                    disparity_cost_factor=disparity_cost_factor,
+                    Wdev_cost_factor=Wdev_cost_factor, 
+                    irun=irun,
+                    logdir=logdir,
+                    ftype=ftype,
+                    nruns=1,
+                    **kwargs
+                )
+            return pd.concat(opts, axis=1, names='run').T
+            
         # Check validity of optimization algorithm
         if method not in cls.GLOBAL_OPT_METHODS:
             raise OptimizationError(f'unknown optimization algorithm: {method}')
         
-        # If log folder is provided, derive path to log file
+        # If log folder is provided
         if logdir is not None:
+            # If run number is "next", find first run index that is not logged 
+            if irun == 'next':
+                irun = cls.find_first_unlogged_run(
+                    logdir, model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, 
+                    disparity_cost_factor, Wdev_cost_factor, ftype)
+            
+            # Derive path to log file 
             fname = cls.get_log_filename(
-                model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
+                model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, 
+                disparity_cost_factor, Wdev_cost_factor, ftype, irun)
             fpath = os.path.join(logdir, fname)
+
+        # Otherwise, set to None
         else:
             fpath = None
         
-        # If log file exists
-        if fpath is not None and os.path.isfile(fpath): 
-            # If force_rerun flag not set, load optimization results 
-            # and return appropriate output
-            if not force_rerun:
-                cost = cls.load_log_file(fpath)
-                xvec = cls.extract_optimum(cost)
-                return model.parse_optimum_vector(xvec)
-
-            # Otherwise, re-run optimization and save in different file
-            else:
-                irerun = 1
-                newfpath = fpath
-                while os.path.isfile(newfpath):
-                    fcode, fext = os.path.splitext(fpath)
-                    newfpath = f'{fcode}_rerun{irerun}{fext}'
-                    irerun += 1
-                fpath = newfpath
-                logger.warning(f're-running optimization and saving results in new log file {fpath}')
+        # Set model parameter names from input exploration bounds 
+        model.xnames = cls.get_exploration_bounds(
+            model, Wbounds, srel_bounds, uniform_srel=uniform_srel).index.values
+        
+        # If log file provided
+        if fpath is not None:
+            # If log file exists, load optimization results from log  
+            if os.path.isfile(fpath):
+                data = cls.load_log_file(fpath)
+                return cls.extract_optimum(data)
         
         # Create log file, if path provided
         if fpath is not None:
-            xnames = cls.get_exploration_bounds(
-                model, Wbounds, srel_bounds, uniform_srel=uniform_srel).index.values
-            model.create_log_file(fpath, xnames)
+            model.create_log_file(fpath, model.xnames)
         
         # Run optimization algorithm and return
         return cls.global_optimization(
@@ -2335,64 +2680,65 @@ class ModelOptimizer:
             fpath=fpath, method=method, norm=norm, disparity_cost_factor=disparity_cost_factor, 
             Wdev_cost_factor=Wdev_cost_factor, **kwargs)
 
-    @classmethod
-    def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, 
-                                  method='diffev', norm=False, disparity_cost_factor=0., Wdev_cost_factor=0., 
-                                  logdir=None, **kwargs):
-        ''' 
-        Load optimization history from CSV log file
+    # @classmethod
+    # def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, 
+    #                               method='diffev', norm=NORM_BEFORE_COMP, disparity_cost_factor=0., Wdev_cost_factor=0., 
+    #                               logdir=None, **kwargs):
+    #     ''' 
+    #     Load optimization history from CSV log file
         
-        :param model: model instance 
-        :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-        :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
-        :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
-        :param method (optional): optimization algorithm (default = "diffev")
-        :param norm (optional): whether to normalize reference and output activation profiles before comparison
-        :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
-        :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
-        :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
-        :return: network connectivity matrix optimizaiton history
-        '''
-        # Check validity of optimization algorithm
-        if method not in cls.GLOBAL_OPT_METHODS:
-            raise OptimizationError(f'unknown optimization algorithm: {method}')
+    #     :param model: model instance 
+    #     :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
+    #     :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
+    #     :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
+    #     :param method (optional): optimization algorithm (default = "diffev")
+    #     :param norm (optional): whether to normalize reference and output activation profiles before comparison
+    #     :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
+    #     :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
+    #     :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
+    #     :return: network connectivity matrix optimizaiton history
+    #     '''
+    #     # Check validity of optimization algorithm
+    #     if method not in cls.GLOBAL_OPT_METHODS:
+    #         raise OptimizationError(f'unknown optimization algorithm: {method}')
         
-        # If log folder is not provided, raise error
-        if logdir is None:
-            raise OptimizationError('log directory must be provided')
+    #     # If log folder is not provided, raise error
+    #     if logdir is None:
+    #         raise OptimizationError('log directory must be provided')
         
-        # Derive path to log file
-        fname = cls.get_log_filename(
-            model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor)
-        fpath = os.path.join(logdir, fname)
+    #     # Derive path to log file
+    #     ftype = kwargs.pop('ftype', 'csv')
+    #     fname = cls.get_log_filename(
+    #         model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor, ftype)
+    #     fpath = os.path.join(logdir, fname)
 
-        # If log file does not exist, raise error
-        if not os.path.isfile(fpath):
-            raise OptimizationError(f'no optimization log file found at {fpath}')
+    #     # If log file does not exist, raise error
+    #     if not os.path.isfile(fpath):
+    #         raise OptimizationError(f'no optimization log file found at {fpath}')
 
-        # Split into code and extension
-        fcode, fext = os.path.splitext(fpath)
+    #     # Split into code and extension
+    #     fcode, fext = os.path.splitext(fpath)
 
-        # List all "rerun" files that match the code in the log directory
-        rerun_fpaths = glob.glob(f'{fcode}_rerun*{fext}')
+    #     # List all "rerun" files that match the code in the log directory
+    #     rerun_fpaths = glob.glob(f'{fcode}_rerun*{fext}')
 
-        # Concatenate all log files
-        fpaths = [fpath, *rerun_fpaths]
+    #     # Concatenate all log files
+    #     fpaths = [fpath, *rerun_fpaths]
         
-        # Sort files by creation date
-        fpaths = sorted(fpaths, key=os.path.getctime)
+    #     # Sort files by creation date
+    #     fpaths = sorted(fpaths, key=os.path.getctime)
         
-        # Load optimization history of each file, and return
-        costs = []
-        for fpath in fpaths:
-            cost = cls.load_log_file(fpath)
-            cost = cost.to_frame()
-            cost['iteration'] = np.arange(len(cost)) + 1
-            costs.append(cost)
-        if len(costs) == 1:
-            return costs[0]
-        else:
-            return pd.concat(costs, keys=range(len(costs)), names=['run'])
+    #     # Load optimization history of each file, and return
+    #     costs = []
+    #     for fpath in fpaths:
+    #         cost = cls.load_log_file(fpath)
+    #         cost = cost.to_frame()
+    #         cost['iteration'] = np.arange(len(cost)) + 1
+    #         costs.append(cost)
+    #     if len(costs) == 1:
+    #         return costs[0]
+    #     else:
+    #         return pd.concat(costs, keys=range(len(costs)), names=['run'])
     
     @classmethod
     def has_optimization_converged(cls, cost):

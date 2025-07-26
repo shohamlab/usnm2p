@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-25 23:01:24
+# @Last Modified time: 2025-07-26 10:56:01
 
 import numpy as np
 import pandas as pd
@@ -34,44 +34,53 @@ if __name__ == '__main__':
     # Define CLI parser
     parser = ArgumentParser(
         description='Script for network model optimization')
+    
+    # Source for reference connectivity matrix
     parser.add_argument(
         '--source', type=str, choices=list(sources_dict.keys()), default='allen',
         help='Source of model parameters')
+    
+    # Number of populations (2 = [E,SST], 3 = [E, SST, PV], 4 = [E, SST, PV, VIP]) 
     parser.add_argument(
-        '--npops', type=int, choices=(2, 3, 4), default=3, 
-        help='Number of populations')
+        '--npops', type=int, choices=(2, 3, 4), default=3, help='Number of populations')
+    
+    # Coupling weights
     parser.add_argument(
-        '--wmax', type=float, default=None, help='Maximum absolute coupling weight value (for exploration')
+        '--wmax', type=float, default=None, help='Maximum absolute coupling weight value during exploration')
     parser.add_argument(
-        '--wbounds', metavar='KEY KEY VALUE VALUE', nargs='+', type=str, 
-        help='List of adjusted search bounds for specific coupling weights')
+        '--relwmax', type=float, default=None, help='Maximum relative deviation of coupling weights from their reference value during exploration')
+    
+    # Stimulus sensitivities
     parser.add_argument(
-        '--srel', metavar='KEY VALUE', nargs='+', type=str, 
-        help='List of stimulus sensitivity per populations')
-    parser.add_argument(
-        '--srel-max', type=float, default=None, help='Maximal stimulus sensitivity value (for exploration)')
+        '--srel-max', type=float, default=None, help='Maximal stimulus sensitivity value during exploration')
     parser.add_argument(
         '--uniform-srel', action='store_true', help='Use uniform stimulus sensitivity for all populations')
+    
+    # Gains
     parser.add_argument(
         '--uniform-gain', action='store_true', help='Use uniform gain function for all populations')
+    
+    # Optimization method 
     parser.add_argument(
         '-m', '--method', type=str, choices=ModelOptimizer.GLOBAL_OPT_METHODS, 
-        default='diffev', help='Optimization method')
+        default=OPT_METHOD, help='Optimization method')
+    
+    # Cost function parameters
     parser.add_argument(
-        '--norm', action='store_true',
+        '--norm', type=bool, default=True,
         help='Normalize profiles prior to comparison')
     parser.add_argument(
-        '--xdisp', type=float, default=0., 
+        '--xdisp', type=float, default=DISPARITY_COST_FACTOR, 
         help='Cost scaling factor to penalize disparity in activity levels across populations')
     parser.add_argument(
-        '--xwdev', type=float, default=0., 
+        '--xwdev', type=float, default=WDEV_COST_FACTOR, 
         help='Cost scaling factor to penalize deviation from initial weights')
+    
+    # Execution parameters
     parser.add_argument(
         '--mpi', action='store_true', help='Run with MPI')
     parser.add_argument(
         '--nosave', action='store_true', help='Do not save results in log file')
-    parser.add_argument(
-        '--force-rerun', action='store_true', help='Enforce rerun of optimization')
     parser.add_argument(
         '--nruns', type=int, default=1, help='Number of optimization runs')
     
@@ -80,6 +89,7 @@ if __name__ == '__main__':
     source_key = sources_dict[args.source]
     npops = args.npops
     wmax = args.wmax
+    relwmax = args.relwmax
     srelmax = args.srel_max
     uniform_srel = args.uniform_srel
     uniform_gain = args.uniform_gain
@@ -89,10 +99,7 @@ if __name__ == '__main__':
     Wdev_cost_factor = args.xwdev
     mpi = args.mpi
     save = not args.nosave
-    force_rerun = args.force_rerun
     nruns = args.nruns
-    if nruns > 1:
-        force_rerun = True
 
     # If nosave option, set logdir to None
     if not save:
@@ -124,64 +131,22 @@ if __name__ == '__main__':
         for k in fparams.index:
             fparams.loc[k] = fparams.loc['E']
     
-    # Parse stimulus sensitivities
-    srel = None
-    if args.srel is not None:
-        if not len(args.srel) % 2 == 0:
-            raise ValueError('Invalid number of arguments for srel (should be multiple of 2)')
-        spairs = [args.srel[i:i + 2] for i in range(0, len(args.srel), 2)]
-        srel = {}
-        for pair in spairs:
-            k, v = pair
-            if k not in populations:
-                raise ValueError(f'Invalid population key in srel: {k}')
-            try:
-                v = float(v)
-            except ValueError:
-                raise ValueError(f'Invalid relative stimulus sensitivity value in srel: {v}')
-            srel[k] = v
-        srel = pd.Series(srel, name='stimulus sensitivities')
-        srel.index.name = 'population'
-        srel = srel.reindex(populations)
-    
     # Initialize model with rescaled parameters
     model = NetworkModel(
         W=NetworkModel.rescale_W(W),
         tau=tau, 
         fparams=NetworkModel.rescale_fparams(fparams),
-        srel=srel
     )
 
     # If specified, parse coupling weight bounds
     Wbounds = None
+    if wmax is not None and relwmax is not None:
+        raise ValueError('cannot specify both wmax and relwmax')    
     if wmax is not None:
         Wbounds = model.get_coupling_bounds(wmax=wmax)
-        
-        # Adjust search range for specific coupling weights if requested
-        if args.wbounds is not None:
-            if Wbounds is None:
-                raise ValueError('Cannot specify specific wbounds if wmax is not set')
-            if not len(args.wbounds) % 4 == 0:
-                raise ValueError('Invalid number of arguments for wbounds (should be multiple of 4)')
-            wquads = [args.wbounds[i:i + 4] for i in range(0, len(args.wbounds), 4)]
-            wbounds = {}
-            for quad in wquads:
-                keys, vals = quad[:2], quad[2:]
-                for k in keys:
-                    if k not in model.keys:
-                        raise ValueError(f'Invalid population key in wbounds: {k}')
-                try:
-                    vals = list(map(float, vals))
-                except ValueError:
-                    raise ValueError(f'Invalid weight bound tuple value in wbounds: {vals}')
-                vals = tuple(sorted(vals))
-                wbounds[tuple(keys)] = tuple(sorted(vals))
-
-            for (kpre, kpost), vals in wbounds.items():
-                Wbounds.loc[kpre, kpost] = vals
-                # Convert Wbounds to float tuples if not already
-                Wbounds = Wbounds.applymap(lambda x: tuple(map(float, x)))
-        
+    elif relwmax is not None:
+        Wbounds = model.get_coupling_bounds(relwmax=relwmax)
+    if Wbounds is not None:
         logger.info(f'coupling weight bounds:\n{Wbounds}')
     
     # If specified, parse, relative stimulus sensitivity bounds
@@ -196,49 +161,23 @@ if __name__ == '__main__':
     
     logger.info(f'target activity profiles:\n{ref_profiles}')
     
-    # Initialize convergence list
-    convergence = []
+    # Run optimization for specified number of runs
+    logger.info(f'running {method} optimization for {model}')
 
-    # For each specified run
-    for i in range(nruns):
-        logger.info(f'running {method} optimization for {model}')
-
-        # Optimize connectivity matrix to minimize divergence with reference profiles
-        try:
-            opt = ModelOptimizer.optimize(
-                model,
-                ref_profiles, 
-                norm=norm,
-                disparity_cost_factor=disparity_cost_factor,
-                Wdev_cost_factor=Wdev_cost_factor,
-                Wbounds=Wbounds,
-                srel_bounds=srel_bounds,
-                uniform_srel=uniform_srel,
-                mpi=mpi,
-                logdir=logdir,
-                method=method, 
-                force_rerun=force_rerun
-            )
-            convergence.append(True)
-        except OptimizationError as e:
-            logger.error(e)
-            convergence.append(False)
-        
-    # If one run failed, quit
-    if not all(convergence):
-        logger.error('At least one optimization run failed')
-        quit()
-    
-    # Extract optimal parameters from last optimization run and assign them to model
-    for k, v in opt.items():
-        logger.info(f'optimal {k}:\n{v}')
-        setattr(model, k, v)
-
-    # Perform stimulus sweep with optimal parameters
-    sweep_data = model.run_stim_sweep(amps)
-
-    # Compare results to reference profiles
-    costs = model.evaluate_stim_sweep(
-        ref_profiles, sweep_data, norm=norm, 
-        disparity_cost_factor=disparity_cost_factor)
-    logger.info(f'prediction error = {costs["prediction error"]:.2f}')
+    # Optimize connectivity matrix to minimize divergence with reference profiles
+    opt = ModelOptimizer.optimize(
+        model,
+        ref_profiles, 
+        norm=norm,
+        disparity_cost_factor=disparity_cost_factor,
+        Wdev_cost_factor=Wdev_cost_factor,
+        Wbounds=Wbounds,
+        srel_bounds=srel_bounds,
+        uniform_srel=uniform_srel,
+        mpi=mpi,
+        logdir=logdir,
+        method=method, 
+        nruns=nruns
+    )
+            
+    logger.info('done')
