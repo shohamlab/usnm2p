@@ -2,9 +2,8 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-26 10:56:01
+# @Last Modified time: 2025-07-27 18:31:50
 
-import numpy as np
 import pandas as pd
 from argparse import ArgumentParser
 import os
@@ -148,7 +147,7 @@ if __name__ == '__main__':
         Wbounds = model.get_coupling_bounds(relwmax=relwmax)
     if Wbounds is not None:
         logger.info(f'coupling weight bounds:\n{Wbounds}')
-    
+
     # If specified, parse, relative stimulus sensitivity bounds
     srel_bounds = None
     if srelmax is not None:

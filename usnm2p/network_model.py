@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-25 19:23:30
+# @Last Modified time: 2025-07-27 19:06:29
 
 import time
 import glob
@@ -39,22 +39,39 @@ def generate_unique_id(obj, max_length=None):
     :param max_length (optional): maximum length of the identifier
     :return: unique object identifier
     '''
-    # Convert object to string and create corresponding hash object
-    hash_object = hashlib.md5(str(obj).encode())
+    # For pandas objects, convert to string via csv method to avoid 
+    # platform-specific string formatting issues
+    if isinstance(obj, (pd.Series, pd.DataFrame)):
+        objstr = obj.to_csv(index=False)
+    
+    # Otherwise, use standard string method
+    else:
+        objstr = str(obj)
+
+    # Encode string representation to binary 
+    encoded_str = objstr.encode()
+
+    # Create corresponding hash object
+    hash_object = hashlib.md5(encoded_str)
+    
     # Compute the hexadecimal digest of the hash
     shash = hash_object.hexdigest()
+    
     # If max length provided, truncate hash string
     if max_length is not None and max_length < len(shash):
         shash = shash[:max_length]
+    
     # If series input, return serialized series string if shorter than hash
     if isinstance(obj, pd.Series):
         s = ''.join([f'{k}{v}' for k, v in obj.items()])
         if len(s) < len(shash):
             return s
+    
     # If input is a callable with a name, return the name if shorter than hash
     if callable(obj) and hasattr(obj, '__name__'):
         if len(obj.__name__) < len(shash):
             return obj.__name__
+    
     # If input is a list / tuple / 1D array, return serialized list string if shorter than hash
     if isinstance(obj, (list, tuple)) or (isinstance(obj, np.ndarray) and obj.ndim == 1):
         s = '-'.join([str(v) for v in obj])
@@ -1622,12 +1639,17 @@ class NetworkModel:
         
         # Define normalization function
         def normfunc(x):
-            return x / x.abs().max(axis=0).replace(0, 1)
+            if 'run' in x.index.names:
+                xavg = x.groupby([k for k in x.index.names if k != 'run']).mean()
+                xmax = xavg.abs().max(axis=0)
+            else:
+                xmax = x.abs().max(axis=0)
+            return x / xmax.replace(0, 1)
             
         # If input is a dataframe with multi-index, run plotting recursively
         if isinstance(data.index, pd.MultiIndex) and len(data.index.names) > 1:
             # Extract extra dimensions
-            gby = [k for k in data.index.names if k != xkey]
+            gby = [k for k in data.index.names if k not in (xkey, 'run')]
             nextra = len(gby)
             
             # If more than 3 extra dimensions, raise error
@@ -1757,6 +1779,7 @@ class NetworkModel:
             style=style,
             style_order=style_order,
             legend=legend,
+            errorbar='se',
         )
 
         # Return figure handle
@@ -1833,24 +1856,69 @@ class NetworkModel:
             raise ModelError('Wbounds indices must match network keys')
         if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
             raise ModelError('all Wbounds values must be tuples')
+    
+    def compare_prediction_to_reference(self, ref_profiles):
+        ''' 
+        Extract dataframe comparing predicted vs reference evoked responses over
+        a sweep of input stimulus amplitudes
+
+        :param ref_profiles: profile of reference evoked responses per stimulus amplitude
+        :return: multi-indexedex dataframe, and prediction error
+        '''
+        # Perform stimulus sweep and extract responses vs amps
+        sweep_data = self.run_stim_sweep(ref_profiles.index)
+        sweep_rss = self.extract_response_magnitude(sweep_data)
         
-    def plot_optimization_results(self, ref_profiles, optres=None, axes=None, norm='ax', norm_params=False,
-                                  add_axtitles=True, title=None, height=2.5, avg_across_runs=False):
+        # Assemble comparison dataframe
+        df = pd.concat({
+            'predicted': sweep_rss,
+            'reference': ref_profiles
+        }, axis=0, names=['profile'])
+
+        # Compare to reference profiles and extract prediction error
+        costs = self.evaluate_stim_sweep(ref_profiles, sweep_data)
+        try:
+            error = costs['prediction error']
+        except KeyError:
+            error = np.inf
+
+        # Return 
+        return df, error
+        
+    def plot_optimization_results(self, ref_profiles, optres=None, axes=None, norm_params=False, norm_res='ax',
+                                  add_axtitles=True, title=None, height=2.5, avg_across_runs=False, return_error=False):
         '''
         Plot model optimization results
         
         :param ref_profiles: reference activation profiles per population, provided as dataframe
-        :param optres: optimization results
+        :param optres: optimization results (from one or multiple runs)
+        :param axes (optional): axes objects on which to plot
+        :param norm_params (optional): whether to normalize model parameters prior to visualization (defaults to False)
+        :param norm (optional): whether/how to normalize response profiles prior to visualization (defaults to 'ax', i.e. 1 normalization per axis)
+        :param: add_axtitles (optional): whether to add axes titles (defaults to True)
+        :param title (optional): global figure title
+        :param height: height per axis row
+        :param avg_across_runs (optional): whether to average optimization results across runs (if any) prior to visualization (defaults to True). 
+            If not, each run will be plotted on a separate axis row
+        :param return_error: whether to return also the prediction error per run 
+        :return: figure object, and optionally also prediction error per run
         '''
-        # Determine number of axes
-        norm = as_iterable(norm)
-        naxes = 3 + len(norm)
+        # Get copy of matrix
+        Wcopy = self.W.copy()
 
+        # Determine number of axes
+        norm_res = as_iterable(norm_res)
+        naxes = 3 + len(norm_res)
+
+        # Set title relative height 
         ytitle = 1.05
 
+        # Set connectivitiy matrix and relative sensitivity vector to None
         W, srel = None, None
 
-        # Adjust model parameters based on optimization results
+        # Set sweep comp data and error to None
+        sweep_comp, error = None, None
+
         # If optimization results provided
         if optres is not None:
             # If multi-run results
@@ -1886,6 +1954,14 @@ class NetworkModel:
                     if srel is not None:
                         ytitle = 1.4
                         add_axtitles = False
+                    
+                    # Adjust model parameters, run sweep comparison and extract error for every run
+                    sweep_comp = {}
+                    error = pd.Series(index=optres.index, name='error')
+                    for irun, opt in optres.iterrows():
+                        self.set_from_optimum(opt)
+                        sweep_comp[irun], error.loc[irun] = self.compare_prediction_to_reference(ref_profiles)
+                    sweep_comp = pd.concat(sweep_comp, axis=0, names=['run'])
 
                     # Average optimum across runs
                     optres = optres.mean(axis=0)
@@ -1905,28 +1981,25 @@ class NetworkModel:
                     fig, axes = plt.subplots(nrows, naxes, figsize=(height * naxes, height * nrows))
 
                     # Call function recursively to plot optimization results for each run
+                    if return_error:
+                        errors = pd.Series(index=optres.index, name='error')
                     for axrow, (irun, opt) in zip(axes, optres.iterrows()):
-                        self.plot_optimization_results(
-                            ref_profiles, optres=opt, axes=axrow, norm=norm,
-                            add_axtitles=irun == 0)
+                        out = self.plot_optimization_results(
+                            ref_profiles, optres=opt, axes=axrow, norm_params=norm_params, norm_res=norm_res,
+                            add_axtitles=irun == 0, return_error=return_error)
+                        if return_error:
+                            errors.loc[irun] = out[1]
                         if title is not None:
                             fig.suptitle(title, y=1 + 0.01 * nrows)
                     
                     # Return figure
-                    return fig
+                    if return_error:
+                        return fig, errors
+                    else:
+                        return fig
 
+            # Adjust model parameters based on optimization results
             self.set_from_optimum(optres)
-        
-        # Perform stimulus sweep and extract responses vs amps
-        sweep_data = self.run_stim_sweep(ref_profiles.index)
-        sweep_rss = self.extract_response_magnitude(sweep_data)
-
-        # Compare to reference profiles and extract prediction error
-        costs = self.evaluate_stim_sweep(ref_profiles, sweep_data)
-        try:
-            error = costs['prediction error']
-        except KeyError:
-            error = np.inf 
 
         # Create /retrieve figure and axes
         if axes is None:
@@ -1939,30 +2012,38 @@ class NetworkModel:
         # Plot model parameters summary
         self.plot_summary(axes=axes[:3], W=W, srel=srel, add_axtitles=add_axtitles, norm=norm_params)
 
-        # Assemble sweep rss plotting dataframe
-        sweep_comp = pd.concat({
-            'predicted': sweep_rss,
-            'reference': ref_profiles
-        }, axis=0, names=['profile'])
+        # Extract reference vs predicted response dataframe over stimulus sweep
+        if sweep_comp is None:
+            sweep_comp, error = self.compare_prediction_to_reference(ref_profiles)
 
         # Plot model sweep results and reference profiles, for each normalization type
-        for ax, n in zip(axes[3:], norm):
+        for ax, n in zip(axes[3:], norm_res):
             self.plot_sweep_results(sweep_comp, norm=n, ax=ax, style='profile')
             if add_axtitles:
                 ax.set_title(f'{f"{n}-normalized" if n else "absolute"} profiles')
             if ax is not axes[-1]:
                 ax.get_legend().remove()
             if n == 'style':
-                ax.text(0.1, 0.9, f'ε = {error:.2f}', transform=ax.transAxes, ha='left', va='top')
+                if isinstance(error, pd.Series):
+                    error_str = f'{error.mean():.2f} +/- {error.std():.2f}'
+                else:
+                    error_str = f'{error:.2f}'
+                ax.text(0.1, 1.0, f'ε = {error_str}', transform=ax.transAxes, ha='left', va='top')
         sns.move_legend(ax, bbox_to_anchor=(1, .5), loc='center left', frameon=False)
 
         # If requested, add figure title
         if title is not None:
             fig.suptitle(title, y=ytitle)
 
-        return fig
-    
+        # Reset matrix
+        self.W = Wcopy
 
+        # Return output(s)
+        if return_error:
+            return fig, error
+        else:
+            return fig
+    
     def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=NORM_BEFORE_COMP, disparity_cost_factor=0., invalid_cost=INVALID_COST):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
@@ -2619,22 +2700,27 @@ class ModelOptimizer:
             logger.info(f'running {nruns} model optimization runs')
             opts = {}
             for irun in range(nruns):
-                opts[irun] = cls.optimize(
-                    model,
-                    *args,
-                    Wbounds=Wbounds,
-                    srel_bounds=srel_bounds,
-                    uniform_srel=uniform_srel,
-                    method=method,
-                    norm=norm,
-                    disparity_cost_factor=disparity_cost_factor,
-                    Wdev_cost_factor=Wdev_cost_factor, 
-                    irun=irun,
-                    logdir=logdir,
-                    ftype=ftype,
-                    nruns=1,
-                    **kwargs
-                )
+                try:
+                    opt = cls.optimize(
+                        model,
+                        *args,
+                        Wbounds=Wbounds,
+                        srel_bounds=srel_bounds,
+                        uniform_srel=uniform_srel,
+                        method=method,
+                        norm=norm,
+                        disparity_cost_factor=disparity_cost_factor,
+                        Wdev_cost_factor=Wdev_cost_factor, 
+                        irun=irun,
+                        logdir=logdir,
+                        ftype=ftype,
+                        nruns=1,
+                        **kwargs
+                    )
+                except OptimizationError as e:
+                    logger.error(e)
+                    opt = pd.Series(np.nan, index=model.xnames, name='optimum')    
+                opts[irun] = opt
             return pd.concat(opts, axis=1, names='run').T
             
         # Check validity of optimization algorithm
