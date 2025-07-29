@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-27 19:06:29
+# @Last Modified time: 2025-07-29 16:42:24
 
 import time
 import glob
@@ -661,7 +661,7 @@ class NetworkModel:
                 df.to_hdf(fpath, H5_KEY, mode='a', format='table', append=True)
 
     @classmethod
-    def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height=3, 
+    def plot_connectivity_matrix(cls, W, Werr=None, norm=False, ax=None, cbar=True, height='auto', 
                                  vmin=None, vmax=None, title=None, colwrap=4, 
                                  agg=False, clabel=None):
         '''
@@ -683,6 +683,10 @@ class NetworkModel:
         # If disctionary provided, concatenate into single dataframe
         if isinstance(W, dict):
             W = pd.concat(W, axis=0, names=['matrix']) 
+
+        # If auto-height, adjust height to matrix size 
+        if height == 'auto':
+            height = len(W.columns)
 
         # If multiple connectivity matrices provided
         if isinstance(W.index, pd.MultiIndex) and W.index.nlevels > 1:
@@ -797,27 +801,30 @@ class NetworkModel:
         # Add annotations
         for y in range(W.shape[0]):
             for x in range(W.shape[1]):
-                txt = f'{W.iloc[y, x]:.2g}'
-                ishigh = np.abs(W.iloc[y, x]) > 0.5 * Wamax
-                color = 'w' if ishigh else 'k'
                 dy = 0
-                if Werr is not None:
-                    errtxt = f'\n±{Werr.iloc[y, x]:.1g}'
-                    dy = 0.1
-                ax.text(
-                    x + 0.5, y + 0.5 - dy, txt,
-                    ha='center', va='center',
-                    fontsize=12, 
-                    color=color, 
-                    fontweight='bold' if Werr is not None else 'normal',
-                )
-                if Werr is not None:
+                w = W.iloc[y, x]
+                if not np.isnan(w):
+                    txt = f'{w:.2g}'
+                    ishigh = np.abs(w) > 0.5 * Wamax
+                    color = 'w' if ishigh else 'k'
+                    if Werr is not None:
+                        werr = Werr.iloc[y, x]
+                        errtxt = f'\n±{werr:.1g}'
+                        dy = 0.1
                     ax.text(
-                        x + 0.5, y + 0.5 + dy, errtxt,
+                        x + 0.5, y + 0.5 - dy, txt,
                         ha='center', va='center',
-                        fontsize=10, 
-                        color=color,
+                        fontsize=12, 
+                        color=color, 
+                        fontweight='bold' if Werr is not None else 'normal',
                     )
+                    if Werr is not None:
+                        ax.text(
+                            x + 0.5, y + 0.5 + dy, errtxt,
+                            ha='center', va='center',
+                            fontsize=10, 
+                            color=color,
+                        )
 
         # Remove ticks
         ax.tick_params(axis='both', which='both', bottom=False, left=False)
@@ -1863,7 +1870,7 @@ class NetworkModel:
         a sweep of input stimulus amplitudes
 
         :param ref_profiles: profile of reference evoked responses per stimulus amplitude
-        :return: multi-indexedex dataframe, and prediction error
+        :return: multi-indexedex dataframe, and costs
         '''
         # Perform stimulus sweep and extract responses vs amps
         sweep_data = self.run_stim_sweep(ref_profiles.index)
@@ -1875,20 +1882,21 @@ class NetworkModel:
             'reference': ref_profiles
         }, axis=0, names=['profile'])
 
-        # Compare to reference profiles and extract prediction error
+        # Compare to reference profiles and extract evaluated costs
         costs = self.evaluate_stim_sweep(ref_profiles, sweep_data)
-        try:
-            error = costs['prediction error']
-        except KeyError:
-            error = np.inf
+        # try:
+        #     error = costs['prediction error']
+        # except KeyError:
+        #     error = np.inf
 
         # Return 
-        return df, error
+        return df, costs
         
-    def plot_optimization_results(self, ref_profiles, optres=None, axes=None, norm_params=False, norm_res='ax',
-                                  add_axtitles=True, title=None, height=2.5, avg_across_runs=False, return_error=False):
+    def plot_predictions(self, ref_profiles, optres=None, axes=None, norm_params=False, norm_res='ax',
+                         add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
+                         return_costs=False, Wref=None):
         '''
-        Plot model optimization results
+        Plot model parameters and predicted activity profiles against reference ones
         
         :param ref_profiles: reference activation profiles per population, provided as dataframe
         :param optres: optimization results (from one or multiple runs)
@@ -1900,8 +1908,8 @@ class NetworkModel:
         :param height: height per axis row
         :param avg_across_runs (optional): whether to average optimization results across runs (if any) prior to visualization (defaults to True). 
             If not, each run will be plotted on a separate axis row
-        :param return_error: whether to return also the prediction error per run 
-        :return: figure object, and optionally also prediction error per run
+        :param return_costs: whether to return also avaluated costs per run 
+        :return: figure object, and optionally also evaluated costs per run
         '''
         # Get copy of matrix
         Wcopy = self.W.copy()
@@ -1957,11 +1965,16 @@ class NetworkModel:
                     
                     # Adjust model parameters, run sweep comparison and extract error for every run
                     sweep_comp = {}
-                    error = pd.Series(index=optres.index, name='error')
+                    costs = {} # pd.Series(index=optres.index, name='error')
                     for irun, opt in optres.iterrows():
                         self.set_from_optimum(opt)
-                        sweep_comp[irun], error.loc[irun] = self.compare_prediction_to_reference(ref_profiles)
+                        sweep_comp[irun], costs[irun] = self.compare_prediction_to_reference(ref_profiles)
+                        if Wref is not None:
+                            costs[irun]['connectivity'] = self.compute_connectivity_cost(Wref=Wref, factor=WDEV_COST_FACTOR)
+                        costs[irun] = pd.Series(costs[irun])
                     sweep_comp = pd.concat(sweep_comp, axis=0, names=['run'])
+                    costs = pd.concat(costs, names=['run']).unstack()
+                    costs.columns.name = 'kind'
 
                     # Average optimum across runs
                     optres = optres.mean(axis=0)
@@ -1981,20 +1994,23 @@ class NetworkModel:
                     fig, axes = plt.subplots(nrows, naxes, figsize=(height * naxes, height * nrows))
 
                     # Call function recursively to plot optimization results for each run
-                    if return_error:
-                        errors = pd.Series(index=optres.index, name='error')
+                    if return_costs:
+                        costs = {}
                     for axrow, (irun, opt) in zip(axes, optres.iterrows()):
-                        out = self.plot_optimization_results(
+                        out = self.plot_predictions(
                             ref_profiles, optres=opt, axes=axrow, norm_params=norm_params, norm_res=norm_res,
-                            add_axtitles=irun == 0, return_error=return_error)
-                        if return_error:
-                            errors.loc[irun] = out[1]
+                            add_axtitles=irun == 0, return_costs=return_costs, Wref=Wref)
+                        if return_costs:
+                            costs[irun] = out[1]
                         if title is not None:
                             fig.suptitle(title, y=1 + 0.01 * nrows)
+                    if return_costs:
+                        costs = pd.concat(costs, names=['run']).unstack()
+                        costs.columns.name = 'kind'
                     
-                    # Return figure
-                    if return_error:
-                        return fig, errors
+                    # Return figure (and optionally, evaluated costs)
+                    if return_costs:
+                        return fig, costs
                     else:
                         return fig
 
@@ -2014,7 +2030,16 @@ class NetworkModel:
 
         # Extract reference vs predicted response dataframe over stimulus sweep
         if sweep_comp is None:
-            sweep_comp, error = self.compare_prediction_to_reference(ref_profiles)
+            sweep_comp, costs = self.compare_prediction_to_reference(ref_profiles)
+        errpredkey = 'prediction error'
+        if isinstance(costs, dict):
+            if Wref is not None and 'connectivity' not in costs:
+                costs['connectivity'] = self.compute_connectivity_cost(Wref, WDEV_COST_FACTOR)
+            costs = pd.Series(costs)
+            costs.index.name = 'kind'
+            error = costs.loc[errpredkey]
+        else:
+            error = costs[errpredkey]
 
         # Plot model sweep results and reference profiles, for each normalization type
         for ax, n in zip(axes[3:], norm_res):
@@ -2039,12 +2064,12 @@ class NetworkModel:
         self.W = Wcopy
 
         # Return output(s)
-        if return_error:
-            return fig, error
+        if return_costs:
+            return fig, costs
         else:
             return fig
     
-    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=NORM_BEFORE_COMP, disparity_cost_factor=0., invalid_cost=INVALID_COST):
+    def evaluate_stim_sweep(self, ref_profiles, sweep_data, norm=NORM_BEFORE_COMP, disparity_cost_factor=DISPARITY_COST_FACTOR, invalid_cost=INVALID_COST):
         '''
         Evaluate stimulation sweep results by (1) assessing its validity, (2) comparing it to
         reference acivtation profiles, and (3) computing cost metrics
@@ -2200,6 +2225,18 @@ class NetworkModel:
         for k, v in d.items():
             setattr(self, k, v)
     
+    def compute_connectivity_cost(self, Wref, factor):
+        ''' 
+        Compute cost associated with deviation from reference connectivity matrix
+        
+        :param Wref: reference connectivity matrix
+        :param factor: cost factor 
+        '''
+        # Compute relative change in each coupling weight w.r.t. reference
+        Wreldiff = (self.W - Wref) / Wref
+        # Return mean of absolute values of relative changes, scaled by cost factor 
+        return factor * Wreldiff.abs().mean().mean()
+    
     def set_run_and_evaluate(self, xvec, ref_profiles, Wdev_cost_factor=0., verbose=False, **kwargs):
         '''
         Adjust specific model parameters, run stimulation sweep, 
@@ -2236,9 +2273,8 @@ class NetworkModel:
         costs = self.evaluate_stim_sweep(ref_profiles, sweep_data, **eval_kwargs)
 
         # If requested, add cost for relative deviation from reference network connectivity matrix
-        if Wdev_cost_factor > 0 and Wvec is not None:
-            Wreldiff = (self.W - Wref) / Wref
-            costs['connectivity'] = Wdev_cost_factor * Wreldiff.abs().sum().sum()
+        if Wvec is not None:
+            costs['connectivity'] = self.compute_connectivity_cost(Wref, Wdev_cost_factor)
 
         # Log costs
         if verbose:
@@ -2364,6 +2400,37 @@ class ModelOptimizer:
 
     # Allowed global optimization methods
     GLOBAL_OPT_METHODS = ('diffev', 'annealing', 'shg', 'direct', 'BO')
+
+    # def __init__(self, method=OPT_METHOD, norm=NORM_BEFORE_COMP, disparity_cost_factor=DISPARITY_COST_FACTOR, 
+    #              Wdev_cost_factor=WDEV_COST_FACTOR):
+    #     ''' 
+    #     Constructor 
+    #     '''
+    #     self.opt_method = method
+    #     self.norm = norm
+    #     self.disparity_cost_factor = disparity_cost_factor
+    #     self.Wdev_cost_factor = Wdev_cost_factor
+
+    # @property
+    # def opt_method(self):
+    #     return self._opt_method
+    
+    # @opt_method.setter
+    # def opt_method(self, method): 
+    #     # Extract optimization method and add extra keyword arguments if needed 
+    #     if method == 'diffev':
+    #         optfunc = optimize.differential_evolution
+    #     elif method == 'annealing':
+    #         optfunc = optimize.dual_annealing
+    #     elif method == 'shg':
+    #         optfunc = optimize.shgo
+    #     elif method == 'direct':
+    #         optfunc = optimize.direct
+    #     elif method == 'BO':
+    #         optfunc = gp_minimize
+    #     else:
+    #         raise OptimizationError(f'unknown optimization algorithm: {method}')
+    #     self.optfunc = optfunc
 
     @staticmethod
     def get_exploration_bounds(model, Wbounds, srel_bounds, uniform_srel=False):
@@ -2766,66 +2833,6 @@ class ModelOptimizer:
             fpath=fpath, method=method, norm=norm, disparity_cost_factor=disparity_cost_factor, 
             Wdev_cost_factor=Wdev_cost_factor, **kwargs)
 
-    # @classmethod
-    # def load_optimization_history(cls, model, *args, Wbounds=None, srel_bounds=None, uniform_srel=False, 
-    #                               method='diffev', norm=NORM_BEFORE_COMP, disparity_cost_factor=0., Wdev_cost_factor=0., 
-    #                               logdir=None, **kwargs):
-    #     ''' 
-    #     Load optimization history from CSV log file
-        
-    #     :param model: model instance 
-    #     :param Wbounds (optional): network connectivity matrix bounds. If None, use default bounds
-    #     :param srel_bounds (optional): stimulus sensitivities bounds. If None, do not explore.
-    #     :param uniform_srel (optional): whether to assume uniform stimulus sensitivity across populations (default: False)
-    #     :param method (optional): optimization algorithm (default = "diffev")
-    #     :param norm (optional): whether to normalize reference and output activation profiles before comparison
-    #     :param disparity_cost_factor (optional): scaling factor to penalize disparity in activation levels across populations
-    #     :param Wdev_cost_factor (optional): scaling factor to penalize deviation from reference network connectivity matrix
-    #     :param logdir (optional): directory in which to create log file to save exploration results. If None, no log will be saved.
-    #     :return: network connectivity matrix optimizaiton history
-    #     '''
-    #     # Check validity of optimization algorithm
-    #     if method not in cls.GLOBAL_OPT_METHODS:
-    #         raise OptimizationError(f'unknown optimization algorithm: {method}')
-        
-    #     # If log folder is not provided, raise error
-    #     if logdir is None:
-    #         raise OptimizationError('log directory must be provided')
-        
-    #     # Derive path to log file
-    #     ftype = kwargs.pop('ftype', 'csv')
-    #     fname = cls.get_log_filename(
-    #         model, *args, method, Wbounds, srel_bounds, uniform_srel, norm, disparity_cost_factor, Wdev_cost_factor, ftype)
-    #     fpath = os.path.join(logdir, fname)
-
-    #     # If log file does not exist, raise error
-    #     if not os.path.isfile(fpath):
-    #         raise OptimizationError(f'no optimization log file found at {fpath}')
-
-    #     # Split into code and extension
-    #     fcode, fext = os.path.splitext(fpath)
-
-    #     # List all "rerun" files that match the code in the log directory
-    #     rerun_fpaths = glob.glob(f'{fcode}_rerun*{fext}')
-
-    #     # Concatenate all log files
-    #     fpaths = [fpath, *rerun_fpaths]
-        
-    #     # Sort files by creation date
-    #     fpaths = sorted(fpaths, key=os.path.getctime)
-        
-    #     # Load optimization history of each file, and return
-    #     costs = []
-    #     for fpath in fpaths:
-    #         cost = cls.load_log_file(fpath)
-    #         cost = cost.to_frame()
-    #         cost['iteration'] = np.arange(len(cost)) + 1
-    #         costs.append(cost)
-    #     if len(costs) == 1:
-    #         return costs[0]
-    #     else:
-    #         return pd.concat(costs, keys=range(len(costs)), names=['run'])
-    
     @classmethod
     def has_optimization_converged(cls, cost):
         '''

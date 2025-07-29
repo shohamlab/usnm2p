@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-25 15:30:25
+# @Last Modified time: 2025-07-29 16:28:17
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -492,7 +492,7 @@ NB_RETRY_ERRMSGS = [  # Notebook execution error messages for which to re-try ex
 INVALID_COST = np.inf  # cost value for invalid optimization results
 MAX_COST = 1e12  # maximum cost value for optimization results
 DISPARITY_COST_FACTOR = 1e-3  # cost factor for activity profiles disparity
-WDEV_COST_FACTOR = .1  # cost factor for connectivity matrix relative deviation from reference
+WDEV_COST_FACTOR = .9  # cost factor for connectivity matrix relative deviation from reference
 SRELMAX = 5.0  # maximum relative stimulus sensitivity value
 WMAX = 20.0  # maximum absolute value of coupling weights
 RELWMAX = 0.3  # maximum relative deviation of coupling weights from their reference values  
@@ -500,4 +500,4 @@ OPT_METHOD = 'diffev'  # default optimizqtion method
 NORM_BEFORE_COMP = True  # whether to normalize activity profiles before optimization
 CSV_DELIMITER = ','  # CSV delimiter
 H5_KEY = 'opt_history'  # H5 key
-LOG_FTYPE = 'csv' # default log file type 
+LOG_FTYPE = 'h5' # 'csv' # default log file type
