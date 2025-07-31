@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-27 18:31:50
+# @Last Modified time: 2025-07-31 16:09:51
 
 import pandas as pd
 from argparse import ArgumentParser
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     
     # Number of populations (2 = [E,SST], 3 = [E, SST, PV], 4 = [E, SST, PV, VIP]) 
     parser.add_argument(
-        '--npops', type=int, choices=(2, 3, 4), default=3, help='Number of populations')
+        '--npops', type=int, choices=(2, 3, 4), default=4, help='Number of populations')
     
     # Coupling weights
     parser.add_argument(
@@ -109,21 +109,27 @@ if __name__ == '__main__':
     fparams = fparams_dict[source_key].copy()
     W = W_dict[source_key].copy()
 
-    # If less than 4 populations selected, remove VIP related parameters
-    if npops < 4:
-        tau = tau.drop('VIP')
-        fparams = fparams.drop('VIP')
-        W = W.drop('VIP', axis=0).drop('VIP', axis=1)
-
-    # If 2 populations selected, remove PV related parameters
+    # Determine populations to keep and remove
+    toremove = []
     if npops == 2:
-        tau = tau.drop('PV')
-        fparams = fparams.drop('PV')
-        W = W.drop('PV', axis=0).drop('PV', axis=1)
-        ref_profiles = ref_profiles.drop('PV', axis=1)
-    
-    # Extract populations list
-    populations = tau.index.values.tolist()
+        toremove = ['PV', 'VIP'] 
+    elif npops == 3:
+        toremove = ['VIP']
+    elif npops == 4:
+        toremove = []
+    else:
+        logger.error(f'invalid number of populations: {npops}')
+
+    # Remove inputs for discarded populations
+    for k in toremove:
+        if k in tau.index:
+            tau = tau.drop(k)
+        if k in fparams.index:
+            fparams = fparams.drop(k)
+        if k in W.index:
+            W = W.drop(k, axis=0).drop(k, axis=1)
+        if k in ref_profiles:
+            ref_profiles = ref_profiles.drop(k, axis=1)
     
     # If uniform gain function requested, assign all populations to same values as E
     if uniform_gain:
@@ -132,9 +138,9 @@ if __name__ == '__main__':
     
     # Initialize model with rescaled parameters
     model = NetworkModel(
-        W=NetworkModel.rescale_W(W),
+        W=W,
         tau=tau, 
-        fparams=NetworkModel.rescale_fparams(fparams),
+        fparams=fparams,
     )
 
     # If specified, parse coupling weight bounds
@@ -163,19 +169,23 @@ if __name__ == '__main__':
     # Run optimization for specified number of runs
     logger.info(f'running {method} optimization for {model}')
 
+    # Initialize optimizer object
+    optimizer = ModelOptimizer(
+        method=method,
+        norm=norm,
+        disparity_cost_factor=disparity_cost_factor, 
+        Wdev_cost_factor=Wdev_cost_factor,
+    )
+
     # Optimize connectivity matrix to minimize divergence with reference profiles
-    opt = ModelOptimizer.optimize(
+    opt = optimizer.optimize(
         model,
         ref_profiles, 
-        norm=norm,
-        disparity_cost_factor=disparity_cost_factor,
-        Wdev_cost_factor=Wdev_cost_factor,
         Wbounds=Wbounds,
         srel_bounds=srel_bounds,
         uniform_srel=uniform_srel,
         mpi=mpi,
         logdir=logdir,
-        method=method, 
         nruns=nruns
     )
             
