@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-31 16:57:11
+# @Last Modified time: 2025-08-01 16:51:12
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -497,7 +497,8 @@ WDEV_COST_FACTOR = .9  # cost factor for connectivity matrix relative deviation 
 SRELMAX = 5.0  # maximum relative stimulus sensitivity value
 WMAX = 20.0  # maximum absolute value of coupling weights
 RELWMAX = 0.3  # maximum relative deviation of coupling weights from their reference values  
-OPT_METHOD = 'diffev'  # default optimizqtion method
+OPT_METHOD = 'diffev'  # default optimization method
+OPT_NRUNS = 5  # default number of optimization runs 
 NORM_BEFORE_COMP = True  # whether to normalize activity profiles before optimization
 CSV_DELIMITER = ','  # CSV delimiter
 H5_KEY = 'opt_history'  # H5 key

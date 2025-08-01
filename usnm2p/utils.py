@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-22 16:05:42
+# @Last Modified time: 2025-08-01 15:02:19
 
 ''' Collection of generic utilities. '''
 
 import os
+import hashlib
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -1617,3 +1618,53 @@ def stretch_signal(y, factor):
     tstretch = t * factor
     # Interpolate signal defined along tstretch at original time values
     return np.interp(t, tstretch, y, left=np.nan, right=np.nan)
+
+
+def generate_unique_id(obj, max_length=None):
+    '''
+    Generate unique identifier for a given object
+
+    :param obj: object to identify
+    :param max_length (optional): maximum length of the identifier
+    :return: unique object identifier
+    '''
+    # For pandas objects, convert to string via csv method to avoid 
+    # platform-specific string formatting issues
+    if isinstance(obj, (pd.Series, pd.DataFrame)):
+        objstr = obj.to_csv(index=False)
+    
+    # Otherwise, use standard string method
+    else:
+        objstr = str(obj)
+
+    # Encode string representation to binary 
+    encoded_str = objstr.encode()
+
+    # Create corresponding hash object
+    hash_object = hashlib.md5(encoded_str)
+    
+    # Compute the hexadecimal digest of the hash
+    shash = hash_object.hexdigest()
+    
+    # If max length provided, truncate hash string
+    if max_length is not None and max_length < len(shash):
+        shash = shash[:max_length]
+    
+    # If series input, return serialized series string if shorter than hash
+    if isinstance(obj, pd.Series):
+        s = ''.join([f'{k}{v}' for k, v in obj.items()])
+        if len(s) < len(shash):
+            return s
+    
+    # If input is a callable with a name, return the name if shorter than hash
+    if callable(obj) and hasattr(obj, '__name__'):
+        if len(obj.__name__) < len(shash):
+            return obj.__name__
+    
+    # If input is a list / tuple / 1D array, return serialized list string if shorter than hash
+    if isinstance(obj, (list, tuple)) or (isinstance(obj, np.ndarray) and obj.ndim == 1):
+        s = '-'.join([str(v) for v in obj])
+        if len(s) < len(shash):
+            return s
+    # Return hash string
+    return shash

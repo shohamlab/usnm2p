@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-31 16:09:51
+# @Last Modified time: 2025-08-01 17:18:02
 
 import pandas as pd
 from argparse import ArgumentParser
@@ -11,6 +11,7 @@ import pandas as pd
 
 from usnm2p.logger import logger
 from usnm2p.network_model import *
+from usnm2p.model_optimizer import *
 from usnm2p.constants import Label, DataRoot
 from usnm2p.fileops import get_data_root
 from usnm2p.model_params import *
@@ -51,7 +52,7 @@ if __name__ == '__main__':
     
     # Stimulus sensitivities
     parser.add_argument(
-        '--srel-max', type=float, default=None, help='Maximal stimulus sensitivity value during exploration')
+        '--srelmax', type=float, default=None, help='Maximal stimulus sensitivity value during exploration')
     parser.add_argument(
         '--uniform-srel', action='store_true', help='Use uniform stimulus sensitivity for all populations')
     
@@ -61,7 +62,7 @@ if __name__ == '__main__':
     
     # Optimization method 
     parser.add_argument(
-        '-m', '--method', type=str, choices=ModelOptimizer.GLOBAL_OPT_METHODS, 
+        '-m', '--method', type=str, choices=list(ModelOptimizer.GLOBAL_OPT_METHODS.keys()), 
         default=OPT_METHOD, help='Optimization method')
     
     # Cost function parameters
@@ -89,7 +90,7 @@ if __name__ == '__main__':
     npops = args.npops
     wmax = args.wmax
     relwmax = args.relwmax
-    srelmax = args.srel_max
+    srelmax = args.srelmax
     uniform_srel = args.uniform_srel
     uniform_gain = args.uniform_gain
     method = args.method
@@ -165,22 +166,19 @@ if __name__ == '__main__':
         raise ValueError('At least one of Wbounds or srel_bounds should be specified')
     
     logger.info(f'target activity profiles:\n{ref_profiles}')
-    
-    # Run optimization for specified number of runs
-    logger.info(f'running {method} optimization for {model}')
 
     # Initialize optimizer object
     optimizer = ModelOptimizer(
+        model,
+        ref_profiles, 
         method=method,
         norm=norm,
         disparity_cost_factor=disparity_cost_factor, 
         Wdev_cost_factor=Wdev_cost_factor,
     )
 
-    # Optimize connectivity matrix to minimize divergence with reference profiles
+    # Optimize model to minimize divergence with reference profiles
     opt = optimizer.optimize(
-        model,
-        ref_profiles, 
         Wbounds=Wbounds,
         srel_bounds=srel_bounds,
         uniform_srel=uniform_srel,
