@@ -2,20 +2,19 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-01 16:50:28
+# @Last Modified time: 2025-08-05 14:37:38
 
 ''' Model optimization utilities '''
 
+import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import optimize
-from skopt import gp_minimize
 import os
 import csv
 import lockfile
-import multiprocessing as mp
 
 from .logger import logger
 from .utils import as_iterable, generate_unique_id
@@ -37,7 +36,6 @@ class ModelOptimizer:
         'annealing': optimize.dual_annealing,
         'shg': optimize.shgo,
         'direct': optimize.direct,
-        'BO': gp_minimize
     }
 
     # Keys for different cost types
@@ -171,7 +169,7 @@ class ModelOptimizer:
                 writer.writerow(colnames)
         elif ext == '.h5':
             df = pd.DataFrame({k: [-1] if k == 'iteration' else [0.] for k in colnames})
-            df.to_hdf(fpath, H5_KEY, mode='w', format='table')
+            df.to_hdf(fpath, OPTHISTORY_KEY, mode='w', format='table')
         else:
             raise ValueError(f'invalid file type: {ext}')
     
@@ -186,7 +184,7 @@ class ModelOptimizer:
         :param cost: associated cost outputed by the cost function 
         '''
         # Log
-        logger.debug(f'appending iteration {iteration} to batch log file: "{fpath}"')
+        logger.debug(f'appending iteration {iteration} to history log file: "{fpath}"')
 
         # Assemble row data
         rowdata = [iteration, *params, cost]
@@ -202,14 +200,14 @@ class ModelOptimizer:
                     writer.writerow(rowdata)
         elif ext == '.h5':
             with lockfile.FileLock(fpath):
-                colnames = pd.read_hdf(fpath, H5_KEY, stop=0).columns.tolist()
+                colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()
                 df = pd.DataFrame([rowdata], columns=colnames)
-                df.to_hdf(fpath, H5_KEY, mode='a', format='table', append=True)
+                df.to_hdf(fpath, OPTHISTORY_KEY, mode='a', format='table', append=True)
     
-    @staticmethod
-    def load_log_file(fpath):
+    @classmethod
+    def load_log_file(cls, fpath):
         '''
-        Load exploration results from log file
+        Load optimization results from log file
 
         :param fpath: path to log file
         :return: dataframe of exploration results
@@ -220,20 +218,35 @@ class ModelOptimizer:
         # Parse file extension
         ext = os.path.splitext(fpath)[1]
 
-        # Parse log file depending on tile type
-        if ext == '.csv':
-            df = pd.read_csv(fpath)
-        elif ext == '.h5':
-            df = pd.read_hdf(fpath, H5_KEY).iloc[1:]  # Remove dummy first row necessary for h5
-            df.index = range(len(df)) # Re-index 
-        
-        # Discard 'iteration' column
-        del df['iteration']
-        
-        # Return
-        return df
+        # Set optimization result to None
+        optres = None
 
-    def evaluate_sweep(self, sweep_data):
+        # CSV file: load history
+        if ext == '.csv':
+            opt_history = pd.read_csv(fpath)
+        # HDF5 file
+        elif ext == '.h5':
+            # Attempt to load results directly
+            try:
+                optres = pd.read_hdf(fpath, OPTRES_KEY)
+                optres = optimize.OptimizeResult(**optres)
+            # If not there, load history
+            except KeyError:
+                opt_history = pd.read_hdf(fpath, OPTHISTORY_KEY).iloc[1:]  # Remove dummy first row necessary for h5
+                opt_history.index = range(len(opt_history)) # Re-index
+        
+        # If optimization result available, return solution vector
+        if optres is not None:
+            logger.info(f'optimization result:\n{optres}')
+            return optres.x
+
+        # Otherwise, extract optimal vector from history
+        else:
+            logger.warning(f'optimization result not directly available from {fpath} -> extract optimum from history')
+            del opt_history['iteration']
+            return cls.extract_optimum(opt_history)
+
+    def evaluate_sweep(self, sweep_data, verbose=True):
         '''
         Evaluate model sweep results by (1) assessing its validity, (2) comparing it to
         reference acivtation profiles, and (3) computing cost metrics
@@ -241,6 +254,7 @@ class ModelOptimizer:
         :param sweep_data: stimulus amplitude sweep output dataframe
         :return: dictionary of evaluated costs
         '''
+        logwarnfunc = logger.warning if verbose else logger.debug
         if 't' not in sweep_data.index.names:
             raise OptimizationError('sweep_data must contain a time index')
 
@@ -250,7 +264,7 @@ class ModelOptimizer:
         # If some simulations in sweep failed, return invalidity cost
         out_amps = sweep_data.index.unique('amplitude').values
         if len(out_amps) < len(amps):
-            logger.warning('simulation divergence detected')
+            logwarnfunc('simulation divergence detected')
             return {'divergent sim': self.invalid_cost}
         
         # Extract stimulus-evoked steady-states from sweep output
@@ -258,7 +272,7 @@ class ModelOptimizer:
             sweep_data, window='stim', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if stim_ss.isna().any().any():
-            logger.warning('unstable stimulus-evoked steady-states detected')
+            logwarnfunc('unstable stimulus-evoked steady-states detected')
             return {'unstable evoked ss': self.invalid_cost}
         
         # Extract final steady-states from sweep output
@@ -266,12 +280,12 @@ class ModelOptimizer:
             sweep_data, window='post', metric='ss', verbose=False)
         # If some steady-states could not be extracted (i.e. unstable behavior), return invalidity cost
         if final_ss.isna().any().any():
-            logger.warning('unstable final steady-states detected')
+            logwarnfunc('unstable final steady-states detected')
             return {'unstable final ss': self.invalid_cost}
 
         # If some final steady-states did not return to baseline, return invalidity cost
         if (final_ss > 1e-1).any().any():
-            logger.warning('non-zero final steady-states detected')
+            logwarnfunc('non-zero final steady-states detected')
             return {'non-zero final ss': self.invalid_cost}
         
         # Initialize cost dictionary
@@ -282,8 +296,8 @@ class ModelOptimizer:
 
         # If specicied, normalize profiles 
         if self.norm:
-            yref = self.model.normalize_profiles(yref)
-            ypred = self.model.normalize_profiles(ypred)
+            yref = self.model.normalize_profiles(yref, verbose=verbose)
+            ypred = self.model.normalize_profiles(ypred, verbose=verbose)
         
         # Compute errors between profiles
         err = yref - ypred
@@ -375,7 +389,7 @@ class ModelOptimizer:
         # Run stimulation sweep and evaluate cost
         amps = self.ref_profiles.index.values
         sweep_data = self.model.run_sweep(amps, verbose=False, **kwargs)
-        costs = self.evaluate_sweep(sweep_data)
+        costs = self.evaluate_sweep(sweep_data, verbose=verbose)
 
         # If requested, add cost for relative deviation from reference network connectivity matrix
         if W is not None:
@@ -408,28 +422,55 @@ class ModelOptimizer:
 
         :param x: input arguments vector
         '''
-        # Unpack input arguments and log evaluation
-        pid = os.getpid()
-        p = mp.current_process()
-        if len(p._identity) > 0:
-            i = p._identity[0]
-        else:
-            i = self.ieval
-            self.ieval += 1
-        logstr = f'pid {pid}, evaluation {i}'
+        return self.set_run_and_evaluate(x, verbose=False)
+    
+    def test_eval(self, *args, **kwargs):
+        ''' Run test call to evaluation function '''
+        # Extract search bounds
+        pbounds = self.get_exploration_bounds(*args, **kwargs)
+        # Randomly select parameters within search bounds
+        p = pbounds.apply(lambda x: np.random.uniform(*x))
+        # Set model xnames to enable inputs parsing
+        self.model.xnames = p.index.values
+        # Call feval on parameters array
+        out = self.feval(p.values)
+        # Reset model xnames to None
+        self.model.xnames = None
+        # Return evaluation result
+        return out
 
-        # Call evaluation function with input vector
-        cost = self.set_run_and_evaluate(x)
+    def callback(self, xk):
+        '''
+        Callback function called at the end of every iteration during optimization
+
+        :param xk: current best solution vector 
+        '''
+        # Evaluate cost for best candidate
+        cost = self.set_run_and_evaluate(xk)
+
+        # Log iteration number, computation time, and cost
+        t = time.perf_counter()
+        logger.info(f'{self} iteration {self.iter} completed in {t - self.tref:.1f} s, cost = {cost:.2e}')
+        self.tref =t
         
-        # Log ieration and output
-        logger.info(f'{logstr} - cost = {cost:.2e}')
-
         # Log to file, if path provided
         if self.logfpath is not None:
-            self.append_to_log_file(self.logfpath, i, x, cost)
+            self.append_to_log_file(self.logfpath, self.iter, xk, cost)
         
-        # Return cost
-        return cost
+        # Increment iteration counter
+        self.iter += 1
+
+    def annealing_callback(self, x, f, context):
+        self.callback(x)
+    
+    def diffev_callback(self, xk, convergence):
+        self.callback(xk)
+    
+    def shg_callback(self, xk):
+        self.callback(xk)
+    
+    def direct_callback(self, xk):
+        self.callback(xk)
 
     def get_exploration_bounds(self, Wbounds, srel_bounds, uniform_srel=False):
         '''
@@ -456,12 +497,9 @@ class ModelOptimizer:
 
         # If stimulus sensitivities bounds provided
         if srel_bounds is not None:
-            # If single tuple provided, broadcast to all populations
+            # If single tuple provided, parse it
             if isinstance(srel_bounds, tuple):
-                if uniform_srel:
-                    srel_bounds = pd.Series(index=['all'], data=[srel_bounds])
-                else:
-                    srel_bounds = pd.Series(index=self.model.keys, data=[srel_bounds] * self.model.size)
+                srel_bounds = self.model.parse_srel_bounds(srel_bounds, uniform_srel=uniform_srel)
             # Otherwise, check that bounds are compatible with model
             else:
                 self.model.check_srel_bounds(srel_bounds, is_uniform=uniform_srel)
@@ -488,32 +526,35 @@ class ModelOptimizer:
         :param fpath (optional): path of file in which to log optimization process (inputs and costs) 
         :return: optimized network connectivity matrix
         '''
-        # Initialize empty dictionary for optimization keyword arguments
-        optkwargs = {}
-        if 'maxiter' in kwargs:
-            optkwargs['maxiter'] = kwargs.pop('maxiter')
-
-        # If optimization method is not compatible with multiprocessing, turn it off
-        if mpi and self.opt_method not in ('diffev', 'BO'):
-            logger.warning(f'multiprocessing not supported for {self.opt_method} optimization method -> turning off')
-            mpi = False
+        # Initialize dictionary of optimization keyword arguments with appropriate callback function
+        optkwargs = {
+            **kwargs, 
+            'callback': getattr(self, f'{self.opt_method}_callback')
+        }
 
         # If multiprocessing requested
         if mpi:
-            # Get the number of available CPUs
-            ncpus = get_cpu_count()
-            # If more than 1 CPU available, update keyword arguments to use as 
-            # many workers as there are cores
-            if ncpus > 1:
-                if self.opt_method == 'diffev':
+            # If optimization method is not compatible with multiprocessing, turn it off
+            if self.opt_method != 'diffev':
+                logger.warning(f'multiprocessing not supported for {self.opt_method} optimization method -> turning off')
+                mpi = False
+
+            # Otherwise
+            else:            
+                # Get the number of available CPUs
+                ncpus = get_cpu_count()
+
+                # If only 1 CPU available, turn off multiprocessing  
+                if ncpus == 1:
+                    logger.warning('only 1 CPU available -> turning off multiprocessing')
+                    mpi = False
+                
+                # Othwerise, update keyword arguments to use as 
+                # many workers as there are cores
+                else:
                     optkwargs.update({
                         'workers': ncpus,
                         'updating': 'deferred'
-                    })
-                elif self.opt_method == 'BO':
-                    optkwargs.update({
-                        'n_jobs': ncpus,
-                        'acq_optimizer': 'lbfgs',
                     })
         
         # Extract exploration bounds per parameter
@@ -521,7 +562,7 @@ class ModelOptimizer:
         xnames = xbounds.index.to_list()
         
         # Initialize evaluation counter and assign optional log file path 
-        self.ieval = 0
+        self.iter = 0
         self.logfpath = fpath
 
         # Run optimization algorithm
@@ -530,10 +571,25 @@ class ModelOptimizer:
             s = f'{s} with {optkwargs["workers"]} parallel workers'
         xbounds_str = '\n'.join([f'   - {k}: {v}' for k, v in xbounds.items()])
         logger.info(f'{self}: {s} with parameter bounds:\n{xbounds_str}')
-        optres = self.opt_func(self.feval, xbounds.values.tolist(), **optkwargs)
+        self.tref = time.perf_counter()
+        optres = self.opt_func(
+            self.feval,
+            xbounds.values.tolist(), 
+            **optkwargs
+        )
+        self.tref = None
+
+        # If log file specified, attempt to save optimization results to file
+        if fpath is not None:
+            fext = os.path.splitext(fpath)[1]
+            if fext == '.h5':
+                logger.info(f'saving optimization result in {fpath}')
+                pd.Series(optres).to_hdf(fpath, OPTRES_KEY)
+            else:
+                logger.warning(f'optimization result saving not supported for {fext} file type')
 
         # Reset evaluation counter and log file attributes
-        self.ieval = None
+        self.iter = None
         self.logfpath = None
 
         # If optimization failed, raise error
@@ -616,8 +672,7 @@ class ModelOptimizer:
         # Add extension and return
         return f'{code}.{self.log_ftype}'
     
-    @classmethod
-    def find_first_unlogged_run(cls, logdir, *args):
+    def find_first_unlogged_run(self, logdir, *args):
         ''' 
         Find first run number that is not logged, for a set of input parameters
         '''
@@ -633,7 +688,7 @@ class ModelOptimizer:
             irun += 1
 
             # Assemble log file path 
-            fname = cls.get_log_filename(*args, irun)
+            fname = self.get_log_filename(*args, irun)
             fpath = os.path.join(logdir, fname)
 
             # Update existence flag
@@ -684,6 +739,15 @@ class ModelOptimizer:
         :param kwargs: keyword arguments passed to global optimization method.
         :return: optimized network connectivity matrix
         '''
+        # If nruns set to "auto", set to number of corresponding log files found in log dir
+        if nruns == 'auto':
+            nruns = self.find_first_unlogged_run(
+                logdir, *args, Wbounds, srel_bounds, uniform_srel)
+            if nruns == 0:
+                raise OptimizationError(f'{self}: no optimization log file found in {logdir}')
+            else:
+                logger.info(f'found {nruns} optimization log files in {logdir}')
+
         # If multiple runs requested, run them sequentially
         if nruns > 1:
             logger.info(f'{self}: running {nruns} optimization runs')
@@ -730,8 +794,7 @@ class ModelOptimizer:
         if fpath is not None:
             # If log file exists, load optimization results from log  
             if os.path.isfile(fpath):
-                data = self.load_log_file(fpath)
-                return self.extract_optimum(data)
+                return self.load_log_file(fpath)
             
             # Otherwise, create log file, if path provided
             self.create_log_file(fpath, self.model.xnames)
@@ -803,8 +866,9 @@ class ModelOptimizer:
         :param return_costs: whether to return also avaluated costs per run 
         :return: figure object, and optionally also evaluated costs per run
         '''
-        # Get copy of matrix
+        # Get copy of matrix and srel vector
         Wcopy = self.model.W.copy()
+        srelcopy = self.model.srel.copy()
 
         # Determine number of axes
         norm_res = as_iterable(norm_res)
@@ -933,9 +997,9 @@ class ModelOptimizer:
 
         # Generate costs string
         if isinstance(costs, pd.Series):
-            costs_str = {self.SHORT_COST_KEYS[k]: f'{v:.2f}' for k, v in costs.items()}
+            costs_str = {self.SHORT_COST_KEYS[k]: f'{v:.2g}' for k, v in costs.items()}
         else:
-            costs_str = {self.SHORT_COST_KEYS[k]: f'{costs[k].mean():.2f} ± {costs[k].std():.2f}' for k in costs}
+            costs_str = {self.SHORT_COST_KEYS[k]: f'{costs[k].mean():.2g} ± {costs[k].std():.2g}' for k in costs}
         costs_str = '\n'.join([f'ε{k} = {v}' for k, v in costs_str.items()])
 
         # Plot model sweep results and reference profiles, for each normalization type
@@ -953,8 +1017,9 @@ class ModelOptimizer:
         if title is not None:
             fig.suptitle(title, y=ytitle)
 
-        # Reset matrix
+        # Reset matrix and srel vector
         self.model.W = Wcopy
+        self.model.srel = srelcopy
 
         # Return output(s)
         if return_costs:

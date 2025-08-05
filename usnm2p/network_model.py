@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-01 17:10:47
+# @Last Modified time: 2025-08-05 14:21:48
 
 ''' Network model utilities '''
 
 # External packages
+import numba
 import time
 import itertools
 import numpy as np
@@ -21,9 +22,95 @@ from scipy.integrate import simps
 # Internal modules
 from .solvers import ODESolver, EventDrivenSolver
 from .logger import logger
-from .utils import expconv, expconv_reciprocal, threshold_linear, as_iterable, generate_unique_id
+from .utils import expconv, expconv_reciprocal, threshold_linear, fast_threshold_linear, as_iterable, generate_unique_id
 from .postpro import mylinregress
 from .constants import *
+
+
+@numba.njit
+def fast_compute_drive(W, srel, r, x):
+    '''
+    Compute total input drive to gain function
+
+    :param W: connectivity matrix (2D array)
+    :param srel: vector of relative stimulus sensitivities (1D array)
+    :param r: activity vector (Hz)
+    :param x: stimulus input
+    :return: total input drive vector
+    '''    
+    return np.dot(W, r) + x * srel
+
+
+@numba.njit
+def vector_fast_threshold_linear(x, params):
+    ''' 
+    Wrapper around fast_threshold_linear that handles vector inputs
+
+    :param x: n-sized vector if input
+    :param params: n-by-m matrix of parameters 
+    :return: n-size vector of outputs
+    '''
+    n = params.shape[0]
+    y = np.empty(n)
+    for i in range(n):
+        y[i] = fast_threshold_linear(x[i], params[i, 0], params[i, 1])
+    return y
+
+
+class FGainCallable:
+    ''' Interface for gain function callable(s) '''
+
+    def __init__(self, fgain, params):
+        '''
+        Class constructor
+
+        :param fgain: callable gain function
+        :param params: dataframe of gain function parameters per population
+        '''        
+        # Assign gain function callable and parameters
+        self.fgain = fgain
+        self.params = params
+
+        # Assign default values for "fast call alternative" 
+        self.fast_fgain = None
+
+        # If gain function set to "threshold_linear", construct a 
+        # vectorized "fast call" alternative
+        if self.fgain is threshold_linear and isinstance(params, pd.DataFrame):
+            self.fast_fgain = vector_fast_threshold_linear
+            self.pmat = params.values
+    
+    def __call__(self, x, fast=False):
+        ''' 
+        Internal call method, calling the gain function with its parameters
+
+        :param x: input vector
+        :param fast: whether to use call the "fast" alternative 
+            (useful for call inside derivatives functions)
+        :return: array of gain function output values per population
+        '''
+        # If fast call requested, call the "fast" alternative with
+        if fast:
+            return self.fast_fgain(np.asarray(x), self.pmat)
+
+        # Otherwise, call normal gain function for parameters dictionary
+        out = np.empty(self.params.shape[0])
+        for i in range(out.size):
+            out[i] = self.fgain(x[i], **self.params.iloc[i].to_dict())
+        return out
+
+
+@numba.njit
+def fast_compute_derivatives(r, g, tau):
+    '''
+    Compute activity derivatives from activity state and gain output
+
+    :param r: activity vector
+    :param g: gain output vector
+    :param tau: time constants vector
+    :return: activity derivatives
+    '''
+    return (g - r) / tau
 
 
 # Define custom error classes
@@ -41,17 +128,6 @@ class ModelError(Exception):
 class MetricError(Exception):
     ''' Metric error '''
     pass
-
-
-# Define class to make gain function callables
-
-class FGainCallable:
-    def __init__(self, fgain, params):
-        self.fgain = fgain
-        self.params = params
-    
-    def __call__(self, x):
-        return self.fgain(x, **self.params)
 
 
 class NetworkModel:
@@ -302,11 +378,7 @@ class NetworkModel:
             tau = pd.Series(10., index=self.idx, name='tau (s)')
         self.check_vector_input(tau)
         self._tau = tau.round(2)
-    
-    @property
-    def tauvec(self):
-        ''' Return time constants as numpy array '''
-        return self.tau.values
+        self.tauvec = self._tau.values
     
     @property
     def b(self):
@@ -387,57 +459,21 @@ class NetworkModel:
         if params is None:
             params = {}
         
-        # If dictionary or series provided, check that keys do not match model population names
-        elif isinstance(params, (dict, pd.Series)):
-            for k in params.keys():
-                if k in self.keys:
-                    raise ModelError(f'gain function parameter key {k} matches a population name')
-        
         # If dataframe provided, check that (1) rows match and (2) columns do not match model population names
         elif isinstance(params, pd.DataFrame):
             self.check_keys(params.index.values)
             for c in params.columns:
                 if c in self.keys:
                     raise ModelError(f'gain function parameter column {c} matches a population name')
-        
-        # If params provided, round to 2 decimals
-        if isinstance(params, (pd.Series, pd.DataFrame)):
             params = params.round(2)
         
-        self._fparams = params
-        self.fgain_callable = self.get_fgain_callables(params)
-    
-    def is_fgain_unique(self):
-        ''' Return whether gain function is unique or population-specific '''
-        return self.fparams is None or isinstance(self.fparams, (dict, pd.Series))
-        # return not isinstance(self.fgain_callable, dict)
-
-    def get_fgain_callable(self, params):
-        '''
-        Return gain function callable with given parameters
-
-        :param params: dictionary gain function parameters
-        :return: gain function callable
-        '''
-        # return lambda x: self.fgain(x, **params)
-        return FGainCallable(self.fgain, params)
-    
-    def get_fgain_callables(self, params):
-        '''
-        Return gain function callable(s)
-
-        :param params: gain function parameters
-        :return: gain function callable(s)
-        '''
-        # If no customization parameters provided, return "generic" gain function
-        if params is None:
-            return self.fgain
-        # If unique gain function parameters provided, return single callable
-        elif isinstance(params, (dict, pd.Series)):
-            return self.get_fgain_callable(params)
-        # If population-specific gain function parameters provided, return dictionary of callables
+        # Otherwise, raise error
         else:
-            return {k: self.get_fgain_callable(params.loc[k, :]) for k in self.keys}
+            raise ModelError(f'invalid fparams type: {type(params)}')
+
+        # Assign to class, and extract callable
+        self._fparams = params
+        self.fgain_callable = FGainCallable(self.fgain, params)
     
     def is_fgain_bounded(self):
         '''
@@ -797,25 +833,17 @@ class NetworkModel:
         ax.set_ylabel('output')
 
         # Create x values (up to 3 times the maximum threshold value)
-        if self.is_fgain_unique():
-            x0max = self.fparams['x0']
-        else:
-            x0max = self.fparams['x0'].max()
+        x0max = self.fparams['x0'].max()
         x = np.linspace(0, 3 * x0max, 100)
 
         # Determine title if not provided
         if title is None:
-            title = 'gain function'
-            if not self.is_fgain_unique():
-                title = f'{title}s'
+            title = 'gain functions'
         
-        # Plot gain function(s)
-        if self.is_fgain_unique():
-            ax.plot(x, self.fgain_callable(x), lw=2, c='k')
-        else:
-            for k, fgain in self.fgain_callable.items():
-                ax.plot(x, fgain(x), lw=2, c=self.palette.get(k, None), label=k)
-            ax.legend(loc='upper left', frameon=False)
+        # Plot gain functions
+        for k, params in self.fparams.iterrows(): 
+            ax.plot(x, self.fgain(x, *params.values), lw=2, c=self.palette.get(k, None), label=k)
+        ax.legend(loc='upper left', frameon=False)
 
         # Adjust layout
         ax.set_title(title)
@@ -917,19 +945,6 @@ class NetworkModel:
         # Return total drive
         return drive
     
-    def compute_gain_output(self, drive):
-        ''' 
-        Compute gain function output 
-        
-        :param drive: total input drive vector
-        '''
-        # If unique gain function, apply it on drive vector
-        if self.is_fgain_unique():
-            return self.fgain_callable(drive)
-        # Otherwise, apply separate gain function on each population drive
-        else:
-            return np.array([fgain(d) for fgain, d in zip(self.fgain_callable.values(), drive)])
-    
     def get_steady_state_objfunc(self, *args, **kwargs):
         '''
         Return objective function whose root is the steady state, i.e.
@@ -937,7 +952,7 @@ class NetworkModel:
 
         :return: objective function
         '''        
-        return lambda x: self.compute_gain_output(self.compute_drive(x, *args, **kwargs)) - x
+        return lambda x: self.fgain_callable(self.compute_drive(x, *args, **kwargs)) - x
     
     def compute_steady_state(self, *args, **kwargs):
         '''
@@ -1051,30 +1066,20 @@ class NetworkModel:
         # Return baseline drives
         return b
 
-    def derivatives(self, r, *args, **kwargs):
+    def derivatives(self, r, x=0.):
         '''
         Return activity derivatives
 
         :param r: activity vector (Hz)
+        :param x: stimulus amplitude
         :return: activity derivatives (Hz/s)
         '''
         # Compute total input drive
-        drive = self.compute_drive(r, *args, **kwargs)
+        drive = fast_compute_drive(self.Wmat, self.srel_vec, r, x)
         # Compute gain function output
-        g = self.compute_gain_output(drive)
+        g = self.fgain_callable(drive, fast=True)
         # Subtract leak term, divide by time constants and return
-        return (g - r) / self.tauvec
-        
-    def tderivatives(self, t, r, *args, **kwargs):
-        ''' 
-        Wrapper around derivatives that:
-            - also takes time as first argument
-            - checks for potential simulation divergence
-        '''
-        # If rates reach unresaonable values, throw error
-        if np.any(r > self.MAX_RATE):
-            raise SimulationError('simulation diverged')
-        return self.derivatives(r, *args, **kwargs)
+        return fast_compute_derivatives(r, g, self.tauvec)
 
     def simulate(self, tstop=500., r0=None, A=None, tstart=100., tstim=200., tau_stim=None, dt=None, verbose=True):
         '''
@@ -1107,7 +1112,7 @@ class NetworkModel:
             # Initialize simple ODE solver
             solver = ODESolver(
                 self.keys, 
-                self.tderivatives,
+                lambda t, *args: self.derivatives(*args),
                 dt=dt
             )
             # Define solver arguments
@@ -1134,7 +1139,7 @@ class NetworkModel:
             solver = EventDrivenSolver(
                 lambda x: setattr(solver, 'stim', A * x),  # eventfunc
                 self.keys, 
-                lambda *args: self.tderivatives(*args, x=solver.stim),  # dfunc
+                lambda t, *args: self.derivatives(*args, x=solver.stim),  # dfunc
                 event_params={'stim': float(A)},
                 dt=dt
             )
@@ -1143,10 +1148,7 @@ class NetworkModel:
 
         # Compute solution
         flog(f'{self}: running {tstop} s long simulation with A = {A}')
-        t0 = time.perf_counter()
         sol = solver(*solver_args)
-        tcomp = time.perf_counter() - t0
-        flog(f'simulation completed in {tcomp * 1e3:.1f} ms')
 
         # If solution diverged, raise error
         if sol[self.keys].max().max() > self.MAX_RATE:
@@ -1429,11 +1431,10 @@ class NetworkModel:
 
         # Log sweep start, if requested
         if verbose:
-            logger.info(f'{self}: running stimulation sweep')
+            logger.info(f'{self}: running {amps.size}-amplitudes stimulation sweep')
         
         # For each stimulus amplitude
-        iterable = tqdm(amps) if verbose else amps
-        for A in iterable:
+        for A in amps:
             # Attempt to run simulation and extract results
             try:
                 data = self.simulate(A=A, verbose=False, **kwargs)
@@ -1707,6 +1708,21 @@ class NetworkModel:
         if not all(isinstance(x, tuple) for x in Wbounds.values.ravel()):
             raise ModelError('all Wbounds values must be tuples')
     
+    def parse_srel_bounds(self, srel_bounds, uniform_srel=False):
+        ''' 
+        Parse relative stimulus sensitivity bounds
+
+        :param srel_bounds: (lb, ub) tuple for stimulus sensitivity 
+        :para 
+        :return: series of (lb, ub) stimulus bounds
+        '''
+        # If uniform sensitivity required, generate singleton series
+        if uniform_srel:
+            return pd.Series(index=['all'], data=[srel_bounds])
+        # Otherwise, broadcast to all populations 
+        else:
+            return pd.Series(index=self.keys, data=[srel_bounds] * self.size)
+    
     def check_srel_bounds(self, srel_bounds, is_uniform=False):
         ''' Check that stimulus sensitivity exploration bounds are compatible with current model '''
         if not isinstance(srel_bounds, pd.Series):
@@ -1719,7 +1735,7 @@ class NetworkModel:
             raise ModelError('uniform srel_bounds required  but srel_bounds has more than 1 value')
     
     @staticmethod
-    def normalize_profiles(y, ythr=MIN_ACTIVITY_LEVEL):
+    def normalize_profiles(y, ythr=MIN_ACTIVITY_LEVEL, verbose=True):
         '''
         Custom activity profiles normalization function that zeros profiles with max activity below a specific
         threshold, to avoid generation of "falsly varying" profiles due to numerical approximation errors.
@@ -1741,7 +1757,8 @@ class NetworkModel:
         # Zero profiles of populations that evolve below set activity threshold 
         inactive_pops = ymax.index[ymax < ythr]
         if len(inactive_pops) > 0:
-            logger.warning(f'no activity detected in {inactive_pops.values.tolist()} populations')
+            logfunc = logger.warning if verbose else logger.debug 
+            logfunc(f'no activity detected in {inactive_pops.values.tolist()} populations')
             ynorm[inactive_pops] = 0.
 
         # Return
@@ -1818,9 +1835,12 @@ class NetworkModel:
     @xnames.setter
     def xnames(self, l):
         self._xnames = l
-        self.Widx = [i for i, k in enumerate(l) if k.startswith('W')]
-        if len(self.Widx) == 0:
-            self.Widx = None 
-        self.srelidx = [i for i, k in enumerate(l) if k.startswith('srel')]
-        if len(self.srelidx) == 0:
-            self.srelidx = None
+        if l is None:
+            self.Widx, self.srelidx = None, None
+        else:
+            self.Widx = [i for i, k in enumerate(l) if k.startswith('W')]
+            if len(self.Widx) == 0:
+                self.Widx = None 
+            self.srelidx = [i for i, k in enumerate(l) if k.startswith('srel')]
+            if len(self.srelidx) == 0:
+                self.srelidx = None

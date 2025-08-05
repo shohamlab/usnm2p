@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-01 16:51:12
+# @Last Modified time: 2025-08-04 13:57:57
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -501,5 +501,6 @@ OPT_METHOD = 'diffev'  # default optimization method
 OPT_NRUNS = 5  # default number of optimization runs 
 NORM_BEFORE_COMP = True  # whether to normalize activity profiles before optimization
 CSV_DELIMITER = ','  # CSV delimiter
-H5_KEY = 'opt_history'  # H5 key
+OPTHISTORY_KEY = 'opt_history'  # H5 key for access to optimization history
+OPTRES_KEY = 'opt_res' # H5 key for access to optimization result
 LOG_FTYPE = 'h5' # 'csv' # default log file type

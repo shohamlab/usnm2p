@@ -2,11 +2,12 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-01 15:02:19
+# @Last Modified time: 2025-08-05 12:09:00
 
 ''' Collection of generic utilities. '''
 
 import os
+import numba
 import hashlib
 import numpy as np
 import pandas as pd
@@ -1033,7 +1034,8 @@ def get_sigmoid_decay_params(x, y):
     ]
 
 
-def threshold_linear(x, x0=1, A=1, sigma=0, y0=0):
+@numba.njit
+def fast_threshold_linear(x, x0, A, sigma=0., y0=0.):
     '''
     Function that transitions between a constant and a linear regime
     at a specific threshold, with a parametrized exponential transition
@@ -1043,18 +1045,15 @@ def threshold_linear(x, x0=1, A=1, sigma=0, y0=0):
     :param A: slope of linear segment
     :param sigma: exponential transition width
     :param y0: vertical offset
+    :return: output value(s)
     '''
     # If sigma is negative, raise error
     if sigma < 0:
         raise ValueError('sigma must be positive')
+
     # If sigma is zero, set it to a very small value
     if sigma == 0:
         sigma = 1e-9
-
-    # If input is iterable, apply function to each element, and return array
-    if is_iterable(x):
-        return np.array([
-            threshold_linear(xi, x0=x0, A=A, sigma=sigma, y0=y0) for xi in x])
 
     # Compute inverted relative x coordinate to inflexion point
     xrel = x0 - x
@@ -1073,6 +1072,25 @@ def threshold_linear(x, x0=1, A=1, sigma=0, y0=0):
 
     # Add vertical offset and return
     return y + y0
+
+
+def threshold_linear(x, x0=1, A=1, sigma=0, y0=0):
+    '''
+    Function that transitions between a constant and a linear regime
+    at a specific threshold, with a parametrized exponential transition
+
+    :param x: input value
+    :param x0: transition threshold
+    :param A: slope of linear segment
+    :param sigma: exponential transition width
+    :param y0: vertical offset
+    '''
+    # If input is iterable, apply function to each element, and return array
+    if is_iterable(x):
+        return np.array([
+            threshold_linear(xi, x0=x0, A=A, sigma=sigma, y0=y0) for xi in x])
+    
+    return fast_threshold_linear(x, x0, A, sigma, y0)
 
 
 def get_threshold_linear_params(x, y):
