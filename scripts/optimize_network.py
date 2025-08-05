@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-01 17:18:02
+# @Last Modified time: 2025-08-05 17:11:37
 
 import pandas as pd
 from argparse import ArgumentParser
@@ -64,6 +64,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '-m', '--method', type=str, choices=list(ModelOptimizer.GLOBAL_OPT_METHODS.keys()), 
         default=OPT_METHOD, help='Optimization method')
+    parser.add_argument(
+        '--popsize', type=int, default=OPT_POPSIZE,
+        help='Multiplier for setting the total population size (for diffev method only)')
     
     # Cost function parameters
     parser.add_argument(
@@ -94,6 +97,7 @@ if __name__ == '__main__':
     uniform_srel = args.uniform_srel
     uniform_gain = args.uniform_gain
     method = args.method
+    popsize = args.popsize
     norm = args.norm
     disparity_cost_factor = args.xdisp
     Wdev_cost_factor = args.xwdev
@@ -178,7 +182,7 @@ if __name__ == '__main__':
     )
 
     # Optimize model to minimize divergence with reference profiles
-    opt = optimizer.optimize(
+    optkwargs = dict(
         Wbounds=Wbounds,
         srel_bounds=srel_bounds,
         uniform_srel=uniform_srel,
@@ -186,5 +190,10 @@ if __name__ == '__main__':
         logdir=logdir,
         nruns=nruns
     )
+    if optimizer.opt_method == 'diffev':
+        optkwargs['popsize'] = popsize
+        optkwargs['mutation'] = OPT_MUTATION
+        optkwargs['recombination'] = OPT_RECOMBINATION
+    opt = optimizer.optimize(**optkwargs)
             
     logger.info('done')

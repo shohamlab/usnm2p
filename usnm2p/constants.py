@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 14:48:15
+# @Last Modified time: 2025-08-05 17:17:41
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -498,6 +498,9 @@ SRELMAX = 5.0  # maximum relative stimulus sensitivity value
 WMAX = 20.0  # maximum absolute value of coupling weights
 RELWMAX = 0.3  # maximum relative deviation of coupling weights from their reference values  
 OPT_METHOD = 'diffev'  # default optimization method
+OPT_POPSIZE = 30  # Default multiplier for total population size (only valid for differential evolution)
+OPT_MUTATION = (1., 1.8)  # Default bounds for mutation constant (only valid for differential evolution)
+OPT_RECOMBINATION = 0.5  # Default recombination constant (only valid for differential evolution)
 OPT_NRUNS = 5  # default number of optimization runs 
 NORM_BEFORE_COMP = True  # whether to normalize activity profiles before optimization
 CSV_DELIMITER = ','  # CSV delimiter

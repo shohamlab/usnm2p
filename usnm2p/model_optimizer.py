@@ -2,13 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 14:37:38
+# @Last Modified time: 2025-08-05 17:15:27
 
 ''' Model optimization utilities '''
 
 import time
 import numpy as np
 import pandas as pd
+import multiprocessing as mp
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import optimize
@@ -220,6 +221,7 @@ class ModelOptimizer:
 
         # Set optimization result to None
         optres = None
+        colnames = None
 
         # CSV file: load history
         if ext == '.csv':
@@ -230,6 +232,7 @@ class ModelOptimizer:
             try:
                 optres = pd.read_hdf(fpath, OPTRES_KEY)
                 optres = optimize.OptimizeResult(**optres)
+                colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()[1:-1]
             # If not there, load history
             except KeyError:
                 opt_history = pd.read_hdf(fpath, OPTHISTORY_KEY).iloc[1:]  # Remove dummy first row necessary for h5
@@ -238,7 +241,7 @@ class ModelOptimizer:
         # If optimization result available, return solution vector
         if optres is not None:
             logger.info(f'optimization result:\n{optres}')
-            return optres.x
+            return pd.Series(optres.x, index=colnames, name='optimum')
 
         # Otherwise, extract optimal vector from history
         else:
@@ -424,6 +427,19 @@ class ModelOptimizer:
         '''
         return self.set_run_and_evaluate(x, verbose=False)
     
+    def batch_feval(self, X, mpi=True):
+        ''' 
+        Call evaluation function on several sets of parameter inputs
+
+        :param X: array of parameter inputs
+        '''
+        if mpi:
+            with mp.Pool(processes=os.cpu_count()) as pool:
+                res = pool.map(self.feval, X)
+        else:
+            res = list(map(self.feval, X))
+        return res
+    
     def test_eval(self, *args, **kwargs):
         ''' Run test call to evaluation function '''
         # Extract search bounds
@@ -446,7 +462,7 @@ class ModelOptimizer:
         :param xk: current best solution vector 
         '''
         # Evaluate cost for best candidate
-        cost = self.set_run_and_evaluate(xk)
+        cost = self.feval(xk)
 
         # Log iteration number, computation time, and cost
         t = time.perf_counter()
@@ -531,7 +547,7 @@ class ModelOptimizer:
             **kwargs, 
             'callback': getattr(self, f'{self.opt_method}_callback')
         }
-
+        
         # If multiprocessing requested
         if mpi:
             # If optimization method is not compatible with multiprocessing, turn it off
@@ -578,6 +594,9 @@ class ModelOptimizer:
             **optkwargs
         )
         self.tref = None
+
+        # Log results to terminal
+        logger.info(f'optimization result:\n{optres}')
 
         # If log file specified, attempt to save optimization results to file
         if fpath is not None:

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 14:21:48
+# @Last Modified time: 2025-08-05 15:25:36
 
 ''' Network model utilities '''
 
@@ -71,27 +71,28 @@ class FGainCallable:
         self.fgain = fgain
         self.params = params
 
-        # Assign default values for "fast call alternative" 
-        self.fast_fgain = None
-
         # If gain function set to "threshold_linear", construct a 
         # vectorized "fast call" alternative
-        if self.fgain is threshold_linear and isinstance(params, pd.DataFrame):
+        if fgain is threshold_linear and isinstance(params, pd.DataFrame):
             self.fast_fgain = vector_fast_threshold_linear
             self.pmat = params.values
+            self.has_fast_alternative = True
+        
+        # Otherwise, set flag to False
+        else:
+            self.has_fast = False
     
-    def __call__(self, x, fast=False):
+    def __call__(self, x):
         ''' 
         Internal call method, calling the gain function with its parameters
 
-        :param x: input vector
-        :param fast: whether to use call the "fast" alternative 
-            (useful for call inside derivatives functions)
+        :param x: input vector as numpy array
+        :param fast: whether to use call the "fast" alternative
         :return: array of gain function output values per population
         '''
-        # If fast call requested, call the "fast" alternative with
-        if fast:
-            return self.fast_fgain(np.asarray(x), self.pmat)
+        # If possible, call the "fast" alternative with
+        if self.has_fast_alternative:
+            return self.fast_fgain(x, self.pmat)
 
         # Otherwise, call normal gain function for parameters dictionary
         out = np.empty(self.params.shape[0])
@@ -317,6 +318,9 @@ class NetworkModel:
 
         # Set connectivity matrix
         self._W = W
+
+        # Extract underlying 2D array of connectivity matrix
+        self.Wmat = W.values.T
     
     def disconnect(self, presyn_key=None):
         '''
@@ -337,11 +341,6 @@ class NetworkModel:
             W = self.get_empty_W().fillna(0.)
         self.W = W
         return self
-    
-    @property
-    def Wmat(self):
-        ''' Return connectivity matrix a 2D numpy array '''
-        return self.W.values.T
     
     @property
     def Wnames(self):
@@ -412,16 +411,8 @@ class NetworkModel:
         srel = srel.astype(float)
         # Set attribute
         self._srel = srel
-    
-    @property
-    def srel_vec(self):
-        ''' Return relative stimulus sensitivity vector as numpy array '''
-        return self.srel.values
-    
-    @property
-    def is_srel_uniform(self):
-        ''' Return whether all populations have the same relative stimulus sensitivity '''
-        return np.isclose(self.srel.max(), self.srel.min())
+        # Extract underlying array of relative stimulus sensitivity
+        self.srel_vec = srel.values
     
     @property
     def params_table(self):
@@ -927,7 +918,7 @@ class NetworkModel:
             return pd.DataFrame(d, columns=self.idx, index=r.index)
         
         # Extract connectivity matrix, and take absolute values if signed=False
-        W = self.Wmat.copy()
+        W = self.W.values.T.copy()
         if not signed:
             W = np.abs(W)
         
@@ -1077,7 +1068,7 @@ class NetworkModel:
         # Compute total input drive
         drive = fast_compute_drive(self.Wmat, self.srel_vec, r, x)
         # Compute gain function output
-        g = self.fgain_callable(drive, fast=True)
+        g = self.fgain_callable(drive)
         # Subtract leak term, divide by time constants and return
         return fast_compute_derivatives(r, g, self.tauvec)
 
@@ -1097,6 +1088,11 @@ class NetworkModel:
         '''
         # Determine logging level
         flog = logger.info if verbose else logger.debug 
+
+        # Extract underlying numpy objects for connectivity matrix
+        # and stimulus sensitivity vector
+        self.Wmat = self.W.values.T
+        self.srel_vec = self.srel.values
 
         # If no initial conditions provided, set to steady state
         if r0 is None:
