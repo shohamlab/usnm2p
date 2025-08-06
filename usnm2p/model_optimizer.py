@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 17:15:27
+# @Last Modified time: 2025-08-06 17:12:19
 
 ''' Model optimization utilities '''
 
@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import optimize
 import os
-import csv
 import lockfile
 
 from .logger import logger
@@ -52,7 +51,7 @@ class ModelOptimizer:
     }
 
     def __init__(self, model, ref_profiles, method=OPT_METHOD, norm=NORM_BEFORE_COMP, disparity_cost_factor=DISPARITY_COST_FACTOR, 
-                 Wdev_cost_factor=WDEV_COST_FACTOR, invalid_cost=INVALID_COST, log_ftype=LOG_FTYPE):
+                 Wdev_cost_factor=WDEV_COST_FACTOR, invalid_cost=INVALID_COST):
         ''' 
         Constructor 
 
@@ -70,7 +69,6 @@ class ModelOptimizer:
         :param Wdev_cost_factor: scaling factor to penalize deviation from
             reference network connectivity matrix
         :param invalid_cost: cost value assigned to "invalid" evaluations
-        :param log_ftype: log file type ('csv' or 'h5')
         '''
         self.model = model
         self.ref_profiles = ref_profiles 
@@ -79,7 +77,6 @@ class ModelOptimizer:
         self.disparity_cost_factor = disparity_cost_factor
         self.Wdev_cost_factor = Wdev_cost_factor
         self.invalid_cost = invalid_cost
-        self.log_ftype = log_ftype
         logger.info(f'initialized {self}')
     
     @property
@@ -131,23 +128,13 @@ class ModelOptimizer:
             plist.append(f'xwdev={self.Wdev_cost_factor}')
         pstr = ', '.join(plist)
         return f'{self.__class__.__name__}({pstr})'    
-
-    @property
-    def log_ftype(self): 
-        return self._log_ftype
-    
-    @log_ftype.setter
-    def log_ftype(self, value):
-        if value not in ('csv', 'h5'):
-            raise ValueError(f'invalid log file type: {value}')
-        self._log_ftype = value
     
     @staticmethod
     def create_log_file(fpath, pnames):
         ''' 
         Create batch log file if it does not exist.
         
-        :param fpath: path to log file (either CSV of H5)
+        :param fpath: path to log file
         :param pnames: list of input parameter names
         '''
         # If file exists, log and return
@@ -163,23 +150,16 @@ class ModelOptimizer:
         # Extract file extension
         ext = os.path.splitext(fpath)[1]
 
-        # Create appropriate file type
-        if ext == '.csv':
-            with open(fpath, 'w') as csvfile:
-                writer = csv.writer(csvfile, delimiter=CSV_DELIMITER)
-                writer.writerow(colnames)
-        elif ext == '.h5':
-            df = pd.DataFrame({k: [-1] if k == 'iteration' else [0.] for k in colnames})
-            df.to_hdf(fpath, OPTHISTORY_KEY, mode='w', format='table')
-        else:
-            raise ValueError(f'invalid file type: {ext}')
+        # Create file
+        df = pd.DataFrame({k: [-1] if k == 'iteration' else [0.] for k in colnames})
+        df.to_hdf(fpath, OPTHISTORY_KEY, mode='w', format='table')
     
     @staticmethod
     def append_to_log_file(fpath, iteration, params, cost):
         '''
         Append current batch iteration to log file
 
-        :param fpath: path to log file (either CSV of H5)
+        :param fpath: path to log file
         :param iteration: cost function evaluation number
         :param params: list of cost function input parameters
         :param cost: associated cost outputed by the cost function 
@@ -193,61 +173,66 @@ class ModelOptimizer:
         # Extract file extension
         ext = os.path.splitext(fpath)[1]
 
-        # Append to appropriate file type 
-        if ext == '.csv':
-            with lockfile.FileLock(fpath):
-                with open(fpath, 'a') as csvfile:
-                    writer = csv.writer(csvfile, delimiter=CSV_DELIMITER)
-                    writer.writerow(rowdata)
-        elif ext == '.h5':
-            with lockfile.FileLock(fpath):
-                colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()
-                df = pd.DataFrame([rowdata], columns=colnames)
-                df.to_hdf(fpath, OPTHISTORY_KEY, mode='a', format='table', append=True)
+        # Append to file 
+        with lockfile.FileLock(fpath):
+            colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()
+            df = pd.DataFrame([rowdata], columns=colnames)
+            df.to_hdf(fpath, OPTHISTORY_KEY, mode='a', format='table', append=True)
     
     @classmethod
-    def load_log_file(cls, fpath):
+    def load_optimization_history(cls, fpath):
+        '''
+        Load optimization history from log file
+
+        :param fpath: path to log file
+        :return: dataframe of optimization history
+        '''
+        # Log
+        logger.info(f'loading optimization history from {fpath}')
+
+        # Load history from HDF5 file
+        return (
+            pd.read_hdf(fpath, OPTHISTORY_KEY)
+            .iloc[1:]  # Remove dummy first row necessary for h5
+            .set_index('iteration')
+        )
+    
+    @classmethod
+    def load_optimization_results(cls, fpath, verbose=True):
         '''
         Load optimization results from log file
 
         :param fpath: path to log file
-        :return: dataframe of exploration results
+        :return: 2-tuple with:
+            - OptimizeResult instance
+            - pandas Series of optimal parameters
         '''
         # Log
         logger.info(f'loading optimization results from {fpath}')
-
-        # Parse file extension
-        ext = os.path.splitext(fpath)[1]
 
         # Set optimization result to None
         optres = None
         colnames = None
 
-        # CSV file: load history
-        if ext == '.csv':
-            opt_history = pd.read_csv(fpath)
-        # HDF5 file
-        elif ext == '.h5':
-            # Attempt to load results directly
-            try:
-                optres = pd.read_hdf(fpath, OPTRES_KEY)
-                optres = optimize.OptimizeResult(**optres)
-                colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()[1:-1]
-            # If not there, load history
-            except KeyError:
-                opt_history = pd.read_hdf(fpath, OPTHISTORY_KEY).iloc[1:]  # Remove dummy first row necessary for h5
-                opt_history.index = range(len(opt_history)) # Re-index
+        # Load optimization results from file
+        optres = pd.read_hdf(fpath, OPTRES_KEY)
         
-        # If optimization result available, return solution vector
-        if optres is not None:
+        # Create OptimizeResult instance based on these results
+        optres = optimize.OptimizeResult(**optres)
+        if verbose:
             logger.info(f'optimization result:\n{optres}')
-            return pd.Series(optres.x, index=colnames, name='optimum')
 
-        # Otherwise, extract optimal vector from history
-        else:
-            logger.warning(f'optimization result not directly available from {fpath} -> extract optimum from history')
-            del opt_history['iteration']
-            return cls.extract_optimum(opt_history)
+        # Assemble series of optimal parameters 
+        colnames = (
+            pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0)
+            .columns
+            .tolist()
+            [1:-1]
+        )
+        optparams = pd.Series(optres.x, index=colnames, name='optimum')
+
+        # Return outputs
+        return optres, optparams
 
     def evaluate_sweep(self, sweep_data, verbose=True):
         '''
@@ -600,12 +585,8 @@ class ModelOptimizer:
 
         # If log file specified, attempt to save optimization results to file
         if fpath is not None:
-            fext = os.path.splitext(fpath)[1]
-            if fext == '.h5':
-                logger.info(f'saving optimization result in {fpath}')
-                pd.Series(optres).to_hdf(fpath, OPTRES_KEY)
-            else:
-                logger.warning(f'optimization result saving not supported for {fext} file type')
+            logger.info(f'saving optimization result in {fpath}')
+            pd.Series(optres).to_hdf(fpath, OPTRES_KEY)
 
         # Reset evaluation counter and log file attributes
         self.iter = None
@@ -689,7 +670,7 @@ class ModelOptimizer:
         code = f'{model_code}_{opt_code}_run{irun}'
 
         # Add extension and return
-        return f'{code}.{self.log_ftype}'
+        return f'{code}.h5'
     
     def find_first_unlogged_run(self, logdir, *args):
         ''' 
@@ -811,10 +792,16 @@ class ModelOptimizer:
         
         # If log file path provided
         if fpath is not None:
-            # If log file exists, load optimization results from log  
+            # If log file exists
             if os.path.isfile(fpath):
-                return self.load_log_file(fpath)
-            
+                # Load optimization results from log
+                optres, optparams = self.load_optimization_results(fpath, verbose=False)
+                # If optimization failed, raise error
+                if hasattr(optres, 'success') and not optres.success:
+                    raise OptimizationError(f'optimization failed: {optres.message}')
+                # Return optimum solution
+                return optparams
+                
             # Otherwise, create log file, if path provided
             self.create_log_file(fpath, self.model.xnames)
         
@@ -826,24 +813,62 @@ class ModelOptimizer:
             fpath=fpath,
             **kwargs
         )
-
-    @classmethod
-    def has_optimization_converged(cls, cost):
-        '''
-        Check whether optimization has converged based on cost history
-
-        :param cost: optimization cost history
-        :return: whether optimization has converged
-        '''
-        if isinstance(cost, pd.DataFrame):
-            cost = cost['cost']
-        if cost.index.names[0] == 'run':
-            return cost.groupby('run').agg(
-                lambda x: cls.has_optimization_converged(x.droplevel('run')))
-        idxmin = cost.idxmin()
-        imin = np.where(cost.index == idxmin)[0][0]
-        return imin > 0.9 * len(cost)
     
+    def load_optimization_histories(self, logdir, *args):
+        '''
+        Load optimization histories across runs for a specific of optimization parameters
+
+        :param logdir: directory of log files
+        :param args: list of argumetns passed on to "get_log_filename" method
+        :return: (run, iteration)-indexed dataframe of explored parameters and associated costs
+        '''
+        # Extract number of runs
+        nruns = self.find_first_unlogged_run(logdir, *args)
+        # Lopp through runs and load optimization history
+        opt_history = {}
+        for irun in range(nruns):
+            fname = self.get_log_filename(*args, irun)
+            fpath = os.path.join(logdir, fname)
+            opt_history[irun] = self.load_optimization_history(fpath)
+        # Concatenate in multi-indexed dataframe, and return
+        return pd.concat(opt_history, axis=0, names=['run'])
+    
+    def plot_optimization_histories(self, history, ax=None, title=None):
+        '''
+        Plot optimization history across run
+
+        :param history: (run, iteration)-indexed dataframe of explored parameters and associated costs
+        :param ax (optional): plotting axis
+        :param title (optional): axis title
+        :return: figure handle       
+        '''
+        # Create/retrieve axis
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.get_figure()
+        sns.despine(ax=ax)
+        
+        # Plot cost vs iteration, by run
+        sns.lineplot(
+            ax=ax,
+            data=history,
+            x='iteration',
+            y='cost',
+            hue='run',
+            palette='tab10'
+        )
+
+        # Set log y-scale
+        ax.set_yscale('log')
+
+        # Add title
+        if title is not None:
+            ax.set_title(title)
+
+        # Return figure
+        return fig
+
     def compare_prediction_to_reference(self):
         ''' 
         Extract dataframe comparing predicted vs reference evoked responses over
@@ -867,13 +892,13 @@ class ModelOptimizer:
         # Return 
         return df, costs
 
-    def plot_predictions(self, optres=None, axes=None, norm_params=False, norm_res='ax',
+    def plot_predictions(self, mparams=None, axes=None, norm_params=False, norm_res='ax',
                          add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
                          return_costs=False, Wref=None):
         '''
         Plot model parameters and predicted activity profiles against reference ones
         
-        :param optres: optimization results (from one or multiple runs)
+        :param mparams: series of (or run-indexed dataframe of) serialized model parameters
         :param axes (optional): axes objects on which to plot
         :param norm_params (optional): whether to normalize model parameters prior to visualization (defaults to False)
         :param norm (optional): whether/how to normalize response profiles prior to visualization (defaults to 'ax', i.e. 1 normalization per axis)
@@ -902,29 +927,29 @@ class ModelOptimizer:
         # Set sweep comp data and error to None
         sweep_comp, error = None, None
 
-        # If optimization results provided
-        if optres is not None:
+        # If model parameters provided
+        if mparams is not None:
             # If multi-run results
-            if isinstance(optres, pd.DataFrame):
+            if isinstance(mparams, pd.DataFrame):
                 
                 # Extract number of runs
-                nruns = len(optres)
+                nruns = len(mparams)
 
                 # If average specifiied
                 if avg_across_runs:
                     logger.info(f'{self}: averaging optimal parameters across {nruns} runs')
 
-                    # Parse parameters from optimum for each run
-                    parsed_opts = {irun: self.model.parse_input_vector(opt)
-                        for irun, opt in optres.iterrows()}
+                    # Parse parameters from vector for each run
+                    parsed_mparams = {irun: self.model.parse_input_vector(v)
+                        for irun, v in mparams.iterrows()}
                     
                     # Extract W and srel, if present
-                    W = {k: v[0] for k, v in parsed_opts.items()}
+                    W = {k: v[0] for k, v in parsed_mparams.items()}
                     if any(w is None for w in W.values()):
                         W = None
                     else:
                         W = pd.concat(W, names=['run'])
-                    srel = {k: v[1] for k, v in parsed_opts.items()}
+                    srel = {k: v[1] for k, v in parsed_mparams.items()}
                     if any (s is None for s in srel.values()):
                         srel = None
                     else:
@@ -938,9 +963,9 @@ class ModelOptimizer:
                     
                     # Adjust model parameters, run sweep comparison and extract error for every run
                     sweep_comp = {}
-                    costs = {} # pd.Series(index=optres.index, name='error')
-                    for irun, opt in optres.iterrows():
-                        self.model.set_from_vector(opt)
+                    costs = {}
+                    for irun, v in mparams.iterrows():
+                        self.model.set_from_vector(v)
                         sweep_comp[irun], costs[irun] = self.compare_prediction_to_reference()
                         if Wref is not None:
                             costs[irun][self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, Wref)
@@ -949,8 +974,8 @@ class ModelOptimizer:
                     costs = pd.concat(costs, names=['run']).unstack()
                     costs.columns.name = 'kind'
 
-                    # Average optimum across runs
-                    optres = optres.mean(axis=0)
+                    # Average model parameters across runs
+                    mparams = mparams.mean(axis=0)
 
                     # Adapt title
                     suffix = f'average across {nruns} runs'
@@ -969,9 +994,9 @@ class ModelOptimizer:
                     # Call function recursively to plot optimization results for each run
                     if return_costs:
                         costs = {}
-                    for axrow, (irun, opt) in zip(axes, optres.iterrows()):
+                    for axrow, (irun, v) in zip(axes, mparams.iterrows()):
                         out = self.plot_predictions(
-                            optres=opt, axes=axrow, norm_params=norm_params, norm_res=norm_res,
+                            mparams=v, axes=axrow, norm_params=norm_params, norm_res=norm_res,
                             add_axtitles=irun == 0, return_costs=return_costs, Wref=Wref)
                         if return_costs:
                             costs[irun] = out[1]
@@ -988,7 +1013,7 @@ class ModelOptimizer:
                         return fig
 
             # Adjust model parameters based on optimization results
-            self.model.set_from_vector(optres)
+            self.model.set_from_vector(mparams)
 
         # Create /retrieve figure and axes
         if axes is None:
@@ -1016,10 +1041,17 @@ class ModelOptimizer:
 
         # Generate costs string
         if isinstance(costs, pd.Series):
-            costs_str = {self.SHORT_COST_KEYS[k]: f'{v:.2g}' for k, v in costs.items()}
+            if any(k not in self.SHORT_COST_KEYS for k in costs.index):
+                costs_str = costs.index[0]
+            else:
+                costs_str = {self.SHORT_COST_KEYS[k]: f'{v:.2g}' for k, v in costs.items()}
         else:
             costs_str = {self.SHORT_COST_KEYS[k]: f'{costs[k].mean():.2g} ± {costs[k].std():.2g}' for k in costs}
-        costs_str = '\n'.join([f'ε{k} = {v}' for k, v in costs_str.items()])
+        if isinstance(costs_str, dict):
+            costs_str = '\n'.join([f'ε{k} = {v}' for k, v in costs_str.items()])
+            fontweight = 'normal'
+        else:
+            fontweight = 'bold'
 
         # Plot model sweep results and reference profiles, for each normalization type
         for ax, n in zip(axes[3:], norm_res):
@@ -1029,7 +1061,8 @@ class ModelOptimizer:
             if ax is not axes[-1]:
                 ax.get_legend().remove()
             if n == 'style':
-                ax.text(0.1, 1.0, costs_str, transform=ax.transAxes, ha='left', va='top')
+                ax.text(
+                    0.1, 1.0, costs_str, transform=ax.transAxes, ha='left', va='top', weight=fontweight)
         sns.move_legend(ax, bbox_to_anchor=(1, .5), loc='center left', frameon=False)
 
         # If requested, add figure title

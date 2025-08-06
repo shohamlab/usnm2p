@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 22:07:46
+# @Last Modified time: 2025-08-06 18:43:11
 
 import pandas as pd
 from argparse import ArgumentParser
@@ -15,6 +15,7 @@ from usnm2p.model_optimizer import *
 from usnm2p.constants import Label, DataRoot
 from usnm2p.fileops import get_data_root
 from usnm2p.model_params import *
+from usnm2p.utils import parse_pairs_dict
 
 # Set up logging folder
 logdir = get_data_root(kind=DataRoot.MODEL)
@@ -51,6 +52,8 @@ if __name__ == '__main__':
         '--relwmax', type=float, default=None, help='Maximum relative deviation of coupling weights from their reference value during exploration')
     
     # Stimulus sensitivities
+    parser.add_argument(
+        '--srelbounds', type=parse_pairs_dict, help='Stimulus sensitivity bounds per population in the format "pop1:lb,ub;...;popn;lb,ub"')
     parser.add_argument(
         '--srelmax', type=float, default=None, help='Maximal stimulus sensitivity value during exploration')
     parser.add_argument(
@@ -96,6 +99,7 @@ if __name__ == '__main__':
     npops = args.npops
     wmax = args.wmax
     relwmax = args.relwmax
+    srelbounds = args.srelbounds
     srelmax = args.srelmax
     uniform_srel = args.uniform_srel
     uniform_gain = args.uniform_gain
@@ -165,7 +169,10 @@ if __name__ == '__main__':
 
     # If specified, parse, relative stimulus sensitivity bounds
     srel_bounds = None
-    if srelmax is not None:
+    if srelbounds is not None:
+        srel_bounds = pd.Series(srelbounds)
+        logger.info(f'stimulus sensitivity bounds:\n{srel_bounds}')
+    elif srelmax is not None:
         srel_bounds = (0., srelmax)
         logger.info(f'stimulus sensitivity bounds: {srel_bounds}')
 

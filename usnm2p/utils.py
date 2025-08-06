@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 12:09:00
+# @Last Modified time: 2025-08-06 18:36:29
 
 ''' Collection of generic utilities. '''
 
@@ -1686,3 +1686,33 @@ def generate_unique_id(obj, max_length=None):
             return s
     # Return hash string
     return shash
+
+
+def parse_pairs_dict(s):
+    '''
+    Parse a dictionary of float pairs from a command line string
+    
+    :param s: input string of the form "key1:x,y;key2:x,y;...;keyn:x,y" 
+        (e.g., "A:0,1;b:-5,5")
+    :return: dictionary of (key: (x, y)) float tuples
+        (e.g., {'A': (0.0, 1.0), 'b': (-5.0, 5.0)})
+    '''
+    # Initialize pairs dictionary
+    pairs_dict = {}
+
+    # Loop through groups separated by semicolon 
+    for item in s.split(';'):
+        try:
+            # Extract key and values separated by colon
+            key, vals = item.split(':')
+            # Extract individual items separated by comma
+            xstr, ystr = vals.split(',')
+            # Cast as float and assemble pair
+            pair = (float(xstr), float(ystr))
+            # Add to dictionary
+            pairs_dict[key.strip()] = pair
+        except ValueError:
+            raise ValueError(f"Invalid bounds format: '{item}'. Expected format is key:x,y")
+    
+    # Return pairs dictionary
+    return pairs_dict

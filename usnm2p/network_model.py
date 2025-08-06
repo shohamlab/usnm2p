@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 15:25:36
+# @Last Modified time: 2025-08-06 18:48:25
 
 ''' Network model utilities '''
 
@@ -1725,7 +1725,7 @@ class NetworkModel:
             raise ModelError('srel_bounds must be a Series')
         if not all(isinstance(x, tuple) for x in srel_bounds.values):
             raise ModelError('all srel_bounds values must be tuples')
-        if not is_uniform and not srel_bounds.index.equals(self.keys):
+        if not is_uniform and any(srel_bounds.index.values != self.keys):
             raise ModelError('srel_bounds indices must match network keys')
         if is_uniform and len(srel_bounds) != 1:
             raise ModelError('uniform srel_bounds required  but srel_bounds has more than 1 value')
