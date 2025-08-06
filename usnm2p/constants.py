@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 22:04:52
+# @Last Modified time: 2025-08-05 22:09:59
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -493,7 +493,7 @@ INVALID_COST = np.inf  # cost value for invalid optimization results
 MAX_COST = 1e12  # maximum cost value for optimization results
 MIN_ACTIVITY_LEVEL = 1e-2  # minimum activity level considered meaningful (to prevent emergence of "falsly varying" profiles upon normalization) 
 DISPARITY_COST_FACTOR = 1e-3  # cost factor for activity profiles disparity
-WDEV_COST_FACTOR = .9  # cost factor for connectivity matrix relative deviation from reference
+WDEV_COST_FACTOR = 1.0  # cost factor for connectivity matrix relative deviation from reference
 SRELMAX = 5.0  # maximum relative stimulus sensitivity value
 WMAX = 20.0  # maximum absolute value of coupling weights
 RELWMAX = 0.3  # maximum relative deviation of coupling weights from their reference values  
