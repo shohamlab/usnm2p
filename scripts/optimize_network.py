@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:56:23
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-05 17:11:37
+# @Last Modified time: 2025-08-05 22:07:46
 
 import pandas as pd
 from argparse import ArgumentParser
@@ -67,6 +67,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '--popsize', type=int, default=OPT_POPSIZE,
         help='Multiplier for setting the total population size (for diffev method only)')
+    parser.add_argument(
+        '--maxiter', type=int, default=OPT_MAXITER,
+        help='Maximal number of algorithmic iterations for global optimization')
     
     # Cost function parameters
     parser.add_argument(
@@ -98,6 +101,7 @@ if __name__ == '__main__':
     uniform_gain = args.uniform_gain
     method = args.method
     popsize = args.popsize
+    maxiter = args.maxiter
     norm = args.norm
     disparity_cost_factor = args.xdisp
     Wdev_cost_factor = args.xwdev
@@ -188,12 +192,11 @@ if __name__ == '__main__':
         uniform_srel=uniform_srel,
         mpi=mpi,
         logdir=logdir,
-        nruns=nruns
+        nruns=nruns,
+        maxiter=maxiter
     )
     if optimizer.opt_method == 'diffev':
         optkwargs['popsize'] = popsize
-        optkwargs['mutation'] = OPT_MUTATION
-        optkwargs['recombination'] = OPT_RECOMBINATION
     opt = optimizer.optimize(**optkwargs)
             
     logger.info('done')
