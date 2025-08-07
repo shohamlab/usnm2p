@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-06 18:48:25
+# @Last Modified time: 2025-08-07 15:49:00
 
 ''' Network model utilities '''
 
@@ -744,13 +744,15 @@ class NetworkModel:
         # Return figure handle
         return fig
 
-    def plot_stimulus_sensitivity(self, srel=None, ax=None, title=None, norm=False):
+    def plot_stimulus_sensitivity(self, srel=None, ax=None, title=None, norm=False, add_stats=True):
         '''
         Plot relative stimulus sensitivity per population
 
         :param srel: relative sensitivities vector, provided as pandas series. If None, use current model sensitivities
         :param ax (optional): axis handle
         :param title (optional): axis title
+        :param add_stats: whether to add statistical comparisons between populations
+            (only if extra dimensions are found)  
         :return: figure handle
         '''
         # If no sensitivities provided, use current model sensitivities
@@ -789,7 +791,7 @@ class NetworkModel:
         )
 
         # If extra dimension, perform statistical comparison across populations
-        if srel.index.nlevels > 1:
+        if srel.index.nlevels > 1 and add_stats:
             pairs = list(itertools.combinations(self.keys, 2))
             # Perform tests and add statistical annotations
             annotator = Annotator(
@@ -1723,12 +1725,13 @@ class NetworkModel:
         ''' Check that stimulus sensitivity exploration bounds are compatible with current model '''
         if not isinstance(srel_bounds, pd.Series):
             raise ModelError('srel_bounds must be a Series')
-        if not all(isinstance(x, tuple) for x in srel_bounds.values):
-            raise ModelError('all srel_bounds values must be tuples')
+        for x in srel_bounds.values:
+            if not isinstance(x, tuple) or len(x) != 2 or any(not isinstance(xx, float) for xx in x):
+                raise ModelError('all srel_bounds values must be 2-tuples of floats')
         if not is_uniform and any(srel_bounds.index.values != self.keys):
             raise ModelError('srel_bounds indices must match network keys')
         if is_uniform and len(srel_bounds) != 1:
-            raise ModelError('uniform srel_bounds required  but srel_bounds has more than 1 value')
+            raise ModelError('uniform srel_bounds required but srel_bounds has more than 1 value')
     
     @staticmethod
     def normalize_profiles(y, ythr=MIN_ACTIVITY_LEVEL, verbose=True):

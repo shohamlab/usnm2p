@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-06 20:45:45
+# @Last Modified time: 2025-08-07 18:57:54
 
 ''' Model optimization utilities '''
 
@@ -87,6 +87,8 @@ class ModelOptimizer:
         if not isinstance(model, NetworkModel):
             raise OptimizationError(f'invalid model object: {model}')
         self._model = model
+        # Keep copy of reference connecitivity matrix
+        self.Wref = self._model.W.copy()
     
     @property
     def ref_profiles(self):
@@ -590,9 +592,9 @@ class ModelOptimizer:
         self.iter = None
         self.logfpath = None
 
-        # If optimization failed, raise error
+        # If optimization failed, log error
         if hasattr(optres, 'success') and not optres.success:
-            raise OptimizationError(f'optimization failed: {optres.message}')
+            logger.error(f'optimization failed: {optres.message}')
 
         # Return solution array parsed as pandas Series
         return pd.Series(optres.x, index=xnames, name='optimum')
@@ -794,9 +796,9 @@ class ModelOptimizer:
             if os.path.isfile(fpath):
                 # Load optimization results from log
                 optres, optparams = self.load_optimization_results(fpath, verbose=False)
-                # If optimization failed, raise error
+                # If optimization failed, log error
                 if hasattr(optres, 'success') and not optres.success:
-                    raise OptimizationError(f'optimization failed: {optres.message}')
+                    logger.error(f'optimization failed: {optres.message}')
                 # Return optimum solution
                 return optparams
                 
@@ -831,11 +833,13 @@ class ModelOptimizer:
         # Concatenate in multi-indexed dataframe, and return
         return pd.concat(opt_history, axis=0, names=['run'])
     
-    def plot_optimization_histories(self, history, ax=None, title=None):
+    def plot_optimization_history(self, history, ax=None, title=None):
         '''
-        Plot optimization history across run
+        Plot optimization history
 
-        :param history: (run, iteration)-indexed dataframe of explored parameters and associated costs
+        :param history: iteration-indexed dataframe of explored parameters and associated costs.
+            If other index dimensions are present, one line will be plotted for each combination
+            of these higher dimensions.
         :param ax (optional): plotting axis
         :param title (optional): axis title
         :return: figure handle       
@@ -846,16 +850,32 @@ class ModelOptimizer:
         else:
             fig = ax.get_figure()
         sns.despine(ax=ax)
+
+        # Initialize plotting parameters dictionary
+        pltkwargs = {}
+
+        otherdims = [k for k in history.index.names if k != 'iteration'][::-1]
+        if len(otherdims) > 2:
+            raise ValueError('cannot plot histories with more than 2 extra dimensions')
+        if len(otherdims) > 0:
+            pltkwargs['hue'] = otherdims[0]
+            pltkwargs['palette'] = 'Set2'
+        else:
+            pltkwargs['color'] = 'k'
+        if len(otherdims) > 1:
+            pltkwargs['style'] = otherdims[1]
         
-        # Plot cost vs iteration, by run
+        # Plot cost vs iteration, with grouping across higher dimensions
         sns.lineplot(
             ax=ax,
             data=history,
             x='iteration',
             y='cost',
-            hue='run',
-            palette='tab10'
+            **pltkwargs
         )
+
+        # Add line materializing max number of iterations 
+        ax.axvline(OPT_MAXITER, c='k', ls='--')
 
         # Set log y-scale
         ax.set_yscale('log')
@@ -889,14 +909,69 @@ class ModelOptimizer:
 
         # Return 
         return df, costs
+    
+    def plot_costs(self, costs, ax=None, height=3, title=None, yscale='log', **kwargs):
+        '''
+        Plot costs per category
 
-    def plot_predictions(self, mparams=None, axes=None, norm_params=False, norm_res='ax',
+        :params costs: "kind"-indexed series of costs
+        :param x (optional): plotting axis
+        :param height (optional): figure height
+        :param title (optional): figure title
+        :param yscale: y-axis scale ('lin' or 'log')
+        :return: figure handle        
+        '''
+        # If dataframe input, stack it
+        if isinstance(costs, pd.DataFrame):
+            costs = costs.stack()
+        # If dict input, cast as series
+        elif isinstance(costs, dict):
+            costs = pd.Series(costs)
+            costs.index.name = 'kind'
+        
+        # Extract number of costs categories
+        nkinds = costs.groupby('kind').ngroups
+
+        # Create retrieve figure and axis
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(nkinds, height))
+        else:
+            fig = ax.get_figure()
+        sns.despine(ax=ax)
+
+        # Plot costs by category
+        sns.barplot(
+            ax=ax,
+            data=costs.rename('cost').reset_index(),
+            x='kind',
+            y='cost',
+            palette='Set2',
+            errorbar='se',
+            **kwargs
+        )
+
+        # Set log scale if requested
+        if yscale == 'log':
+            ax.set_yscale('log')
+            # ymin = np.floor(np.log10(costs.min()))
+            # ymax = np.ceil(np.log10(costs.max()))
+            # ax.set_ylim(*np.power(10, np.array([ymin, ymax])))
+
+        # Add title if provided
+        if title is not None:
+            ax.set_title(title)
+
+        # Return figure
+        return fig
+
+    def plot_predictions(self, mparams=None, opt_history=None, axes=None, norm_params=False, norm_res='ax',
                          add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
                          return_costs=False, Wref=None):
         '''
         Plot model parameters and predicted activity profiles against reference ones
         
         :param mparams: series of (or run-indexed dataframe of) serialized model parameters
+        :param opt_history (optional): (run, iteration)-indexed dataframe of explored parameters and associated costs
         :param axes (optional): axes objects on which to plot
         :param norm_params (optional): whether to normalize model parameters prior to visualization (defaults to False)
         :param norm (optional): whether/how to normalize response profiles prior to visualization (defaults to 'ax', i.e. 1 normalization per axis)
@@ -915,6 +990,8 @@ class ModelOptimizer:
         # Determine number of axes
         norm_res = as_iterable(norm_res)
         naxes = 3 + len(norm_res)
+        if opt_history is not None:
+            naxes += 1
 
         # Set title relative height 
         ytitle = 1.05
@@ -952,12 +1029,6 @@ class ModelOptimizer:
                         srel = None
                     else:
                         srel = pd.concat(srel, names=['run'])
-
-                    # If srel provided, adjust title height and remove axis titles 
-                    # to make space for statistcial comparison 
-                    if srel is not None:
-                        ytitle = 1.4
-                        add_axtitles = False
                     
                     # Adjust model parameters, run sweep comparison and extract error for every run
                     sweep_comp = {}
@@ -987,19 +1058,29 @@ class ModelOptimizer:
                     if axes is not None:
                         raise ValueError('cannot provide axes for multi-run entry')
                     nrows = nruns 
-                    fig, axes = plt.subplots(nrows, naxes, figsize=(height * naxes, height * nrows))
+                    fig, axes = plt.subplots(
+                        nrows, naxes, figsize=(height * naxes, height * nrows))
+                    fig.subplots_adjust(wspace=.5, hspace=.5)
 
+                    # Share x and y axes across each grid column
+                    for axcol in axes.T:
+                        for ax in axcol[1:]:
+                            ax.get_shared_x_axes().join(axcol[0], ax)
+                            ax.get_shared_y_axes().join(axcol[0], ax)
+                    
                     # Call function recursively to plot optimization results for each run
                     if return_costs:
                         costs = {}
                     for axrow, (irun, v) in zip(axes, mparams.iterrows()):
                         out = self.plot_predictions(
-                            mparams=v, axes=axrow, norm_params=norm_params, norm_res=norm_res,
+                            mparams=v, 
+                            opt_history=opt_history.loc[irun] if opt_history is not None else None,
+                            axes=axrow, norm_params=norm_params, norm_res=norm_res,
                             add_axtitles=irun == 0, return_costs=return_costs, Wref=Wref)
                         if return_costs:
                             costs[irun] = out[1]
                         if title is not None:
-                            fig.suptitle(title, y=1 + 0.01 * nrows)
+                            fig.suptitle(title, y=1 - 0.015 * nrows)
                     if return_costs:
                         costs = pd.concat(costs, names=['run']).unstack()
                         costs.columns.name = 'kind'
@@ -1015,15 +1096,13 @@ class ModelOptimizer:
 
         # Create /retrieve figure and axes
         if axes is None:
-            fig, axes = plt.subplots(1, naxes, figsize=(height * naxes, height))
+            fig, axes = plt.subplots(1, naxes, figsize=(1.2 * height * naxes, height))
+            fig.subplots_adjust(wspace=.5)
         else:
             if len(axes) != naxes:
                 raise ValueError(f'number of input axes ({len(axes)} does not match number of required axes ({naxes})')
             fig = axes[0].get_figure()
-
-        # Plot model parameters summary
-        self.model.plot_summary(
-            axes=axes[:3], W=W, srel=srel, add_axtitles=add_axtitles, norm=norm_params)
+        iax = 0
 
         # Extract reference vs predicted response dataframe over stimulus sweep
         if sweep_comp is None:
@@ -1036,6 +1115,28 @@ class ModelOptimizer:
                 costs[self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, Wref)
             costs = pd.Series(costs)
             costs.index.name = 'kind'
+
+        # If provided, plot optimization history
+        if opt_history is not None:
+            self.plot_optimization_history(opt_history, ax=axes[iax])
+            iax += 1
+
+        # Plot costs
+        self.plot_costs(costs, ax=axes[iax])
+        iax += 1
+
+        # Plot connectivity matrix
+        self.model.plot_connectivity_matrix(
+            self.model.W if W is None else W,
+            ax=axes[iax], agg=True,
+            norm=norm_params, 
+            title='')
+        iax += 1
+
+        # Plot stimulus sensitivity
+        self.model.plot_stimulus_sensitivity(
+            srel=srel, ax=axes[iax], norm=norm_params, title='', add_stats=False)
+        iax += 1
 
         # Generate costs string
         if isinstance(costs, pd.Series):
@@ -1052,7 +1153,7 @@ class ModelOptimizer:
             fontweight = 'bold'
 
         # Plot model sweep results and reference profiles, for each normalization type
-        for ax, n in zip(axes[3:], norm_res):
+        for ax, n in zip(axes[iax:], norm_res):
             self.model.plot_sweep_results(sweep_comp, norm=n, ax=ax, style='profile')
             if add_axtitles:
                 ax.set_title(f'{f"{n}-normalized" if n else "absolute"} profiles')
