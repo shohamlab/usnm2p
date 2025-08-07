@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-06 17:12:19
+# @Last Modified time: 2025-08-06 20:45:45
 
 ''' Model optimization utilities '''
 
@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import optimize
 import os
-import lockfile
 
 from .logger import logger
 from .utils import as_iterable, generate_unique_id
@@ -174,10 +173,9 @@ class ModelOptimizer:
         ext = os.path.splitext(fpath)[1]
 
         # Append to file 
-        with lockfile.FileLock(fpath):
-            colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()
-            df = pd.DataFrame([rowdata], columns=colnames)
-            df.to_hdf(fpath, OPTHISTORY_KEY, mode='a', format='table', append=True)
+        colnames = pd.read_hdf(fpath, OPTHISTORY_KEY, stop=0).columns.tolist()
+        df = pd.DataFrame([rowdata], columns=colnames)
+        df.to_hdf(fpath, OPTHISTORY_KEY, mode='a', format='table', append=True)
     
     @classmethod
     def load_optimization_history(cls, fpath):
