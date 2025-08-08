@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-07 15:49:00
+# @Last Modified time: 2025-08-08 09:30:58
 
 ''' Network model utilities '''
 

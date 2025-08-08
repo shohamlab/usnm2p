@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-07 18:57:54
+# @Last Modified time: 2025-08-08 09:33:42
 
 ''' Model optimization utilities '''
 
@@ -964,7 +964,7 @@ class ModelOptimizer:
         # Return figure
         return fig
 
-    def plot_predictions(self, mparams=None, opt_history=None, axes=None, norm_params=False, norm_res='ax',
+    def plot_results(self, mparams=None, opt_history=None, axes=None, norm_params=False, norm_res='ax',
                          add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
                          return_costs=False, Wref=None):
         '''
@@ -1072,7 +1072,7 @@ class ModelOptimizer:
                     if return_costs:
                         costs = {}
                     for axrow, (irun, v) in zip(axes, mparams.iterrows()):
-                        out = self.plot_predictions(
+                        out = self.plot_results(
                             mparams=v, 
                             opt_history=opt_history.loc[irun] if opt_history is not None else None,
                             axes=axrow, norm_params=norm_params, norm_res=norm_res,
