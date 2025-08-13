@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-06 18:36:29
+# @Last Modified time: 2025-08-12 16:44:17
 
 ''' Collection of generic utilities. '''
 
@@ -50,6 +50,22 @@ def plural(x):
 def swapdict(d):
     ''' Swap keys and values in a dictionary '''
     return {v: k for k, v in d.items()}
+
+
+def swaplevels(d):
+    ''' Swap levels in nested dictionary '''
+    # Extract top-level and nested keys
+    top_keys = list(d.keys())
+    nested_keys = list(d[top_keys[0]].keys())
+    # Initialize new dictionary
+    newd = {}
+    # Loop through nested keys
+    for key in nested_keys:
+        # Add sub-dictionary with nested key entry for all top key values
+        newd[key] = {k: d[k][key] for k in top_keys}
+    # Return swapped dictionary
+    return newd
+
 
 si_prefixes = {k: np.power(10., v) for k, v in SI_POWERS.items()}
 sorted_si_prefixes = sorted(si_prefixes.items(), key=operator.itemgetter(1))

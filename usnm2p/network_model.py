@@ -2,13 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2024-03-14 17:13:28
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-08 09:30:58
+# @Last Modified time: 2025-08-12 23:21:33
 
 ''' Network model utilities '''
 
 # External packages
 import numba
-import time
+import textwrap
 import itertools
 import numpy as np
 import pandas as pd
@@ -351,6 +351,34 @@ class NetworkModel:
     def nW(self):
         ''' Return number of elements in the connectivity matrix '''
         return len(self.W.stack())
+    
+    @property
+    def Ikeys(self):
+        ''' 
+        Return array of inhibitory populations in the model
+        (identified from connectivity matrix)
+        '''
+        # Identify inhibitory populations as those having negative weights
+        # in connectivity matrix
+        is_inhibitory = (self.W < 0).any(axis=1)
+        # Return inhibitory populations
+        return np.asarray(is_inhibitory[is_inhibitory].index.values, dtype='U')
+    
+    @property
+    def Ekey(self):
+        ''' 
+        Return key corresponding to excitatory population in the model
+        (identified from connectivity matrix)
+        '''
+        # Identify excitatory population as that having positive weights
+        # in connectivity matrix
+        is_excitatory = (self.W > 0).any(axis=1)
+        # If more than one identified, raise error
+        Ekey = is_excitatory[is_excitatory].index
+        if len(Ekey) > 1:
+            raise ModelError(f'more than 1 excitatory population identified: {Ekey.values}')
+        # Return excitatory population
+        return Ekey[0]
     
     def check_vector_input(self, v):
         '''
@@ -1074,7 +1102,7 @@ class NetworkModel:
         # Subtract leak term, divide by time constants and return
         return fast_compute_derivatives(r, g, self.tauvec)
 
-    def simulate(self, tstop=500., r0=None, A=None, tstart=100., tstim=200., tau_stim=None, dt=None, verbose=True):
+    def simulate(self, tstop=500., r0=None, A=None, tstart=100., tstim=200., tau_stim=None, dt=None, verbose=True, target_dt=None):
         '''
         Simulate the network model
 
@@ -1086,6 +1114,7 @@ class NetworkModel:
         :param tau_stim (optional): stimulus rise/decay time constant (ms)
         :param dt: simulation time step (ms)
         :param verbose (optional): whether to log simulation progress
+        :param target_dt (optional): target time step used for post-simulation resampling
         :return: activity time series
         '''
         # Determine logging level
@@ -1139,14 +1168,14 @@ class NetworkModel:
                 self.keys, 
                 lambda t, *args: self.derivatives(*args, x=solver.stim),  # dfunc
                 event_params={'stim': float(A)},
-                dt=dt
+                dt=dt,
             )
             # Define solver arguments
             solver_args = [r0, events, tstop]
 
         # Compute solution
         flog(f'{self}: running {tstop} s long simulation with A = {A}')
-        sol = solver(*solver_args)
+        sol = solver(*solver_args, target_dt=target_dt)
 
         # If solution diverged, raise error
         if sol[self.keys].max().max() > self.MAX_RATE:
@@ -1315,6 +1344,18 @@ class NetworkModel:
         resp.index.name = 'population'
         return resp.rename('activity')
     
+    def predict_response_profiles(self, amps):
+        '''
+        Run simulation sweep and extract response profiles per population
+
+        :param amps: stimulus amplitudes vector
+        :return: amplitude-indexed dataframe of response profiles per population
+        '''
+        # Run sweep of simulations with a range of stimulus amplitudes
+        sweep_data = self.run_sweep(amps)
+        # Extract responses vs amps
+        return self.extract_response_magnitude(sweep_data)
+    
     def plot_timeseries(self, sol, ss=None, plot_stimulus=True, add_synaptic_drive=False, title=None, axes=None):
         ''' 
         Plot timeseries from simulation results
@@ -1337,11 +1378,17 @@ class NetworkModel:
         tbounds, x = None, None
         if 'x' in sol.columns:
             x = sol.pop('x')
+            # If extra dimensions, average across them
+            if isinstance(x.index, pd.MultiIndex):
+                x = x.groupby('t').mean()
             tbounds = self.extract_stim_bounds(x)
             if x.max() == 0:
                 tbounds = None
             if plot_stimulus:
                 naxes += 1
+
+        # Set columns index name
+        sol.columns.name = 'population'
 
         # Add synaptic inputs to data, if requested
         if add_synaptic_drive:
@@ -1373,12 +1420,17 @@ class NetworkModel:
             ax = next(axiter)
         
         # Plot activity time series
-        for k, v in sol.items():
-            v.plot(
-                ax=ax, 
-                c=self.palette.get(k, None),
-            )
-            if ss is not None:
+        sns.lineplot(
+            ax=ax,
+            data=sol.stack().rename('activity').reset_index(),
+            x='t',
+            y='activity',
+            hue='population',
+            errorbar='se',
+            palette=self.palette,
+        )
+        if ss is not None:
+            for k, v in sol.items():
                 ax.axhline(ss.loc[k], ls='--', c=self.palette[k])
         ax.legend(loc='upper right', frameon=False)
         if self.is_fgain_bounded():
@@ -1756,8 +1808,8 @@ class NetworkModel:
         # Zero profiles of populations that evolve below set activity threshold 
         inactive_pops = ymax.index[ymax < ythr]
         if len(inactive_pops) > 0:
-            logfunc = logger.warning if verbose else logger.debug 
-            logfunc(f'no activity detected in {inactive_pops.values.tolist()} populations')
+            logfunc = logger.warning if verbose else logger.debug
+            logfunc(f'no activity detected in {", ".join(inactive_pops.values)} population{"s" if len(inactive_pops) > 1 else ""}')
             ynorm[inactive_pops] = 0.
 
         # Return
@@ -1793,6 +1845,8 @@ class NetworkModel:
         '''
         # If input is formatted as series, extract underlying vector
         if isinstance(xvec, pd.Series):
+            if not hasattr(self, '_xnames'):
+                self.xnames = xvec.index.to_list()
             xvec = xvec.values
         
         # Initialize vectors
@@ -1817,6 +1871,7 @@ class NetworkModel:
         Set model connectivity and sensitivity parameters taken from parameters vector
 
         :param xvec: vector of model parameters
+        :return: model instance (useful for chained commands)
         '''
         # Parse connectivity matrix and sensitivity vector from inputs 
         W, srel = self.parse_input_vector(xvec)
@@ -1826,7 +1881,7 @@ class NetworkModel:
             self.W = W
         if srel is not None:
             self.srel = srel
-
+    
     @property
     def xnames(self):
         return self._xnames
@@ -1843,3 +1898,186 @@ class NetworkModel:
             self.srelidx = [i for i, k in enumerate(l) if k.startswith('srel')]
             if len(self.srelidx) == 0:
                 self.srelidx = None
+    
+    def compute_stim_drive(self, amps):
+        '''
+        Compute steady-state stimulus drive per population, over a range of stimulus amplitudes
+        
+        :param amps: stimulus amplitude vector
+        :return: stimulus-amplitude-indexed dataframe of stimulus drive amplitudes per population
+        '''
+        return pd.DataFrame(
+            data=np.outer(amps, self.srel),
+            index=pd.Index(amps, name='amplitude'),
+            columns=self.idx,
+        )
+    
+    def compute_stim_drive_fraction(self, resp_profiles):
+        '''
+        Compute relative contribution of stimulus drive to total input drive,
+        for a range of stimulus amplitudes
+        
+        :param resp_profiles: stimulus amplitude indexed dataframe of steady-state
+            evoked response magnitude per population
+        :return: stimulus amplitude indexed dataframe of relative stimulus
+            contribution to total drive per population
+        '''
+        # Compute absolute net steady-state presynaptic drive
+        # onto each post-synaptic population
+        presyn_drive = self.compute_drive(resp_profiles).abs()
+
+        # Compute stimulus drive onto each population
+        stim_drive = self.compute_stim_drive(resp_profiles.index.values)
+
+        # Compute total drive over input amplitudes range
+        total_drive = (presyn_drive + stim_drive)
+        
+        # Compute relative contribution of stimulus drive to total drive
+        rel_stim_drive = stim_drive / total_drive
+
+        # Restrict output ot instances where there is a response
+        # (setting other elements to NaN)
+        rel_stim_drive = rel_stim_drive.where(
+            resp_profiles >= MIN_ACTIVITY_LEVEL, other=np.nan)
+        
+        # Return
+        return rel_stim_drive
+    
+    def compute_detailed_presynaptic_drives(self, resp_profiles):
+        '''
+        Compute the contribution of each presynaptic population to the network drive
+        of each postynaptic population, for a range of input amplitudes
+
+        :param resp_profiles: stimulus amplitude indexed dataframe of steady-state
+            evoked response magnitude per population
+        :return: post-synaptic population and stimulus amplitude indexed dataframe of
+            presynaptic drive amplitude per population
+        '''  
+        return pd.concat({
+            pop: self.W.loc[:, pop] * resp_profiles for pop in self.keys
+        }, axis=0, names=['postsyn pop'])
+    
+    def compute_I_to_E_drive_fractions(self, detailed_presyn_drives):
+        '''
+        Compute fraction of contribution of each inhibitory population to
+        total inhibitory drive to excitatory population
+
+        :param detailed_presyn_drives: post-synaptic population and stimulus amplitude-indexed dataframe of
+            presynaptic drive amplitude per population
+        :return: stimulus amplitude indexed dataframe of fractional inhibitory contribution of each population
+            to total inhibitory drive to excitatory population
+        '''
+        # Extract inhibitory presynaptic inputs to excitatory population 
+        I_to_E_drives = detailed_presyn_drives.loc[self.Ekey, self.Ikeys]
+
+        # Normalize them to sum of inhibitory drives
+        return I_to_E_drives.div(I_to_E_drives.sum(axis=1), axis=0)
+
+    def compute_coinhibition_fractions(self, detailed_presyn_drives, pop1, pop2):
+        '''
+        Compute inhibitory drive from each inhibitory population in a mutual
+        inhibition loop as a fraction of the total inhibitory drive in the loop.
+
+        :param detailed_presyn_drives: post-synaptic population and stimulus amplitude-indexed dataframe of
+            presynaptic drive amplitude per population
+        :param pop1: key of first inhbitory population
+        :param pop2: key of second inhbitory population
+        :return: stimulus amplitude indexed dataframe of fractional inhibitory contribution of each population
+            to total inhibitory drive in the inhibitiry loop
+        '''
+        # Make sure that they corresponding to inhibitory population
+        for k in [pop1, pop2]:
+            if k not in self.Ikeys:
+                raise ModelError(f'"{k}" not found in model inhibitory populations ({self.Ikeys})') 
+
+        # Extract inhibitory presynaptic inputs in mutual inhibition loop
+        I_to_I_drives  = pd.concat({
+            pop1: detailed_presyn_drives.loc[pop2, pop1],
+            pop2: detailed_presyn_drives.loc[pop1, pop2],
+        }, axis=1)
+        I_to_I_drives.columns.name = 'population'
+
+        # Normalize them to sum of inhibitory drives in the loop
+        return I_to_I_drives.div(I_to_I_drives.sum(axis=1), axis=0)
+    
+    def compute_drive_contributions(self, amps):
+        '''
+        Compute various breakdowns of drive contributions over a range of stimulus amplitudes
+        
+        :param amps: stimulus amplitude vector
+        :return: dictionary of drive contributions dataframes
+        '''
+        logger.info('computing drive contributions breakdown')
+        # Predict response profiles per population
+        predicted_profiles = self.predict_response_profiles(amps)
+
+        # Compute relative contribution of stimulus to total drive
+        stim_drive_fraction = self.compute_stim_drive_fraction(predicted_profiles)
+
+        # Compute detailed presynaptic drives between each pre-post population pair
+        detailed_presyn_drives = self.compute_detailed_presynaptic_drives(predicted_profiles) 
+
+        # Compute fractional contributions to inhibitory drive to excitatory population 
+        I_E_fractions = self.compute_I_to_E_drive_fractions(detailed_presyn_drives) 
+
+        # Compute fractional pre-synaptic inhibitory contributions in SST-PV coninhibition
+        I_I_fractions = self.compute_coinhibition_fractions(detailed_presyn_drives, 'PV', 'SST')
+
+        # Return in global dictionary
+        return {
+            'stimulus contribution to total drive': stim_drive_fraction,
+            'pre-synaptic contributions to inhibitory drive to E': I_E_fractions,
+            'pre-synaptic strengths in SST-PV co-inhibition loop': I_I_fractions    
+        }
+    
+    def plot_drive_contributions(self, data, title=None):
+        '''
+        Plot detailed breakdown of drive contributions
+        
+        :paramd data: dictionary of drive contributions dataframes
+        :param title (optional): figure title
+        :return: figure object
+        '''
+        logger.info('plotting drive contributions breakdown')
+        # Concatenate data into single pandas series
+        data = pd.concat(
+            {k: v.stack() for k, v in data.items()},
+            names=['kind']
+        ).rename('fraction')
+
+        # Extract stimulus amplitude vector
+        amps = data.index.unique(level='amplitude')
+
+        # Plot all contributions, by breakdown kind
+        g = sns.relplot(
+            data=data.reset_index(),
+                kind='line',
+                x='amplitude',
+                y='fraction',
+                col='kind',
+                hue='population',
+                errorbar='se',
+                palette=self.palette,
+                height=3,
+                aspect=1.
+        )
+        g.set_titles('{col_name}')
+
+        # Add reference line at 0.5
+        g.refline(y=0.5, ls='--', c='k')
+
+        # Adapt axes titles and limits
+        for ax in g.axes.ravel():
+            ax.set_title(textwrap.fill(ax.get_title(), width=27))
+            ax.set_xlim(-0.05 * amps.max(), 1.05 * amps.max())
+            ax.set_ylim(-0.05, 1.05)
+        
+        # Extract figure
+        fig = g.figure
+
+        # Add title, if specified
+        if title is not None:
+            fig.suptitle(title, y=1.1)
+        
+        # Return figure
+        return fig

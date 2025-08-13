@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-08 09:33:42
+# @Last Modified time: 2025-08-13 00:09:04
 
 ''' Model optimization utilities '''
 
@@ -16,7 +16,7 @@ from scipy import optimize
 import os
 
 from .logger import logger
-from .utils import as_iterable, generate_unique_id
+from .utils import as_iterable, generate_unique_id, swaplevels
 from .batches import get_cpu_count
 from .constants import *
 from .network_model import NetworkModel
@@ -874,8 +874,8 @@ class ModelOptimizer:
             **pltkwargs
         )
 
-        # Add line materializing max number of iterations 
-        ax.axvline(OPT_MAXITER, c='k', ls='--')
+        # # Add line materializing max number of iterations 
+        # ax.axvline(OPT_MAXITER, c='k', ls='--')
 
         # Set log y-scale
         ax.set_yscale('log')
@@ -894,20 +894,20 @@ class ModelOptimizer:
 
         :return: multi-indexedex dataframe, and costs
         '''
-        # Perform stimulus sweep and extract responses vs amps
+        # Perform stimulus sweep and extract predicted responses profiles
         sweep_data = self.model.run_sweep(self.ref_profiles.index)
-        sweep_rss = self.model.extract_response_magnitude(sweep_data)
+        predicted_profiles = self.model.extract_response_magnitude(sweep_data)
         
         # Assemble comparison dataframe
         df = pd.concat({
-            'predicted': sweep_rss,
+            'predicted': predicted_profiles,
             'reference': self.ref_profiles
         }, axis=0, names=['profile'])
 
         # Compare to reference profiles and extract evaluated costs
         costs = self.evaluate_sweep(sweep_data)
 
-        # Return 
+        # Return
         return df, costs
     
     def plot_costs(self, costs, ax=None, height=3, title=None, yscale='log', **kwargs):
@@ -965,8 +965,8 @@ class ModelOptimizer:
         return fig
 
     def plot_results(self, mparams=None, opt_history=None, axes=None, norm_params=False, norm_res='ax',
-                         add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
-                         return_costs=False, Wref=None):
+                     add_respthrs=False, add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
+                     return_costs=False):
         '''
         Plot model parameters and predicted activity profiles against reference ones
         
@@ -974,8 +974,10 @@ class ModelOptimizer:
         :param opt_history (optional): (run, iteration)-indexed dataframe of explored parameters and associated costs
         :param axes (optional): axes objects on which to plot
         :param norm_params (optional): whether to normalize model parameters prior to visualization (defaults to False)
-        :param norm (optional): whether/how to normalize response profiles prior to visualization (defaults to 'ax', i.e. 1 normalization per axis)
-        :param: add_axtitles (optional): whether to add axes titles (defaults to True)
+        :param norm_res (optional): whether/how to normalize response profiles prior to visualization (defaults to 'ax', i.e. 1 normalization per axis)
+        :param add_respthrs (optional): whether to add an axis on which to plot distributions
+            of intrinic response thresholds (in stimulus units) per population 
+        :param add_axtitles (optional): whether to add axes titles (defaults to True)
         :param title (optional): global figure title
         :param height: height per axis row
         :param avg_across_runs (optional): whether to average optimization results across runs (if any) prior to visualization (defaults to True). 
@@ -991,6 +993,8 @@ class ModelOptimizer:
         norm_res = as_iterable(norm_res)
         naxes = 3 + len(norm_res)
         if opt_history is not None:
+            naxes += 1
+        if add_respthrs:
             naxes += 1
 
         # Set title relative height 
@@ -1036,8 +1040,7 @@ class ModelOptimizer:
                     for irun, v in mparams.iterrows():
                         self.model.set_from_vector(v)
                         sweep_comp[irun], costs[irun] = self.compare_prediction_to_reference()
-                        if Wref is not None:
-                            costs[irun][self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, Wref)
+                        costs[irun][self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, self.Wref)
                         costs[irun] = pd.Series(costs[irun])
                     sweep_comp = pd.concat(sweep_comp, axis=0, names=['run'])
                     costs = pd.concat(costs, names=['run']).unstack()
@@ -1076,7 +1079,7 @@ class ModelOptimizer:
                             mparams=v, 
                             opt_history=opt_history.loc[irun] if opt_history is not None else None,
                             axes=axrow, norm_params=norm_params, norm_res=norm_res,
-                            add_axtitles=irun == 0, return_costs=return_costs, Wref=Wref)
+                            add_respthrs=add_respthrs, add_axtitles=irun == 0, return_costs=return_costs)
                         if return_costs:
                             costs[irun] = out[1]
                         if title is not None:
@@ -1111,8 +1114,8 @@ class ModelOptimizer:
         # In case of single-run (cost dictionary), add connectivity cost if not present
         # and format as series
         if isinstance(costs, dict):
-            if Wref is not None and self.CONN_COST_KEY not in costs:
-                costs[self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, Wref)
+            if mparams is not None and self.CONN_COST_KEY not in costs:
+                costs[self.CONN_COST_KEY] = self.compute_connectivity_cost(self.model.W, self.Wref)
             costs = pd.Series(costs)
             costs.index.name = 'kind'
 
@@ -1131,12 +1134,39 @@ class ModelOptimizer:
             ax=axes[iax], agg=True,
             norm=norm_params, 
             title='')
+
+        # If connectivity matrix provided, compute average magnitude of
+        # relative change in each coupling weight
+        if W is not None:
+            dwwkey = 'avg |Δw/w|'
+            if isinstance(W.index, pd.MultiIndex) and 'run' in W.index.names:
+                Wreldev = W.groupby('run').apply(
+                    lambda v: self.get_relative_change(v.droplevel('run'), self.Wref))
+                avg_abs_wreldev = Wreldev.groupby('run').apply(lambda df: df.abs().mean().mean())
+                wreldev_str = f'{dwwkey} = {avg_abs_wreldev.mean() * 100:.1f}±{avg_abs_wreldev.std() * 100:.1f} %'
+            else:
+                Wreldev = self.get_relative_change(W, self.Wref)
+                avg_abs_wreldev = Wreldev.abs().mean().mean()
+                wreldev_str = f'{dwwkey} = {avg_abs_wreldev * 100:.1f} %'
+            axes[iax].set_title(wreldev_str)
         iax += 1
 
         # Plot stimulus sensitivity
         self.model.plot_stimulus_sensitivity(
             srel=srel, ax=axes[iax], norm=norm_params, title='', add_stats=False)
         iax += 1
+
+        # If specified, compute and plot intrinsic response thresholds
+        if add_respthrs:
+            intrinsic_thrs = (self.model.fparams['x0'] / srel).rename('response threshold (stim. units)')
+            if isinstance(srel.index, pd.MultiIndex):
+                intrinsic_thrs_thr = intrinsic_thrs.groupby('population').agg(['mean', 'sem'])
+            else:
+                intrinsic_thrs_thr = intrinsic_thrs
+            logger.info(f'intrinsic response thresholds (in stimulus units):\n{intrinsic_thrs_thr}')
+            self.model.plot_stimulus_sensitivity(
+                srel=intrinsic_thrs, ax=axes[iax], title='', add_stats=False)
+            iax += 1
 
         # Generate costs string
         if isinstance(costs, pd.Series):
@@ -1177,3 +1207,99 @@ class ModelOptimizer:
             return fig, costs
         else:
             return fig
+        
+    def compute_drive_contributions(self, optparams):
+        '''
+        Compute various breakdowns of drive contributions over reference range of
+        stimulus amplitudes
+
+        :param optparams: series (or run-indexed dataframe) of optimal model parameters
+        :return: dictionary of (potentially run-indexed) dataframes of drive contributions
+        '''
+        # If multi-run input, compute function recursively for each run, and return
+        # dictionary of run-indexed dataframes
+        if isinstance(optparams, pd.DataFrame):
+            drive_contributions = {irun: self.compute_drive_contributions(opt)
+                                   for irun, opt in optparams.iterrows()}
+            return {k: pd.concat(v, names=['run']) 
+                    for k, v in swaplevels(drive_contributions).items()}
+        
+        # Store copy of model parameters
+        W, srel = self.model.W, self.model.srel
+
+        # Assign input parameters to model
+        self.model.set_from_vector(optparams)
+
+        # Compute all drive contributions
+        drive_contributions = self.model.compute_drive_contributions(
+            self.ref_profiles.index)
+        
+        # Restore model default parameters
+        self.model.W = W
+        self.model.srel = srel
+
+        # Return drive contributions dictionary
+        return drive_contributions
+    
+    def compute_timeseries(self, optparams, amps, norm=False):
+        '''
+        Plot detailed timeseries for a set of stimulus amplitudes
+
+        :param optparams: series (or run-indexed dataframe) of optimal model parameters
+        :param amps: amplitudes at which to compute solutions
+        :param norm (optional): whether to normalize solutions by dividing each population trace
+            by the maximal evoked response magnitude of that population along the full amplitude range  
+        :return: amplitude and time (and potentially run-) indexed dataframe of solution timeseries
+        '''
+        # If multi-run input, compute function recursively for each run, and return
+        # run-indexed timeseries
+        if isinstance(optparams, pd.DataFrame):
+            return pd.concat({irun: self.compute_timeseries(opt, amps, norm=norm)
+                              for irun, opt in optparams.iterrows()}, names=['run'])
+        
+        # Store copy of model parameters
+        W, srel = self.model.W, self.model.srel
+
+        # Assign input parameters to model
+        self.model.set_from_vector(optparams)
+
+        # Run simulation sweep across input amplitudes, 
+        # and resample to common time step
+        sweep_data = self.model.run_sweep(amps, target_dt=1e0)
+
+        # If requested, normalize by dividing by max response amplitudes evoked
+        # along full amplitude range
+        if norm:
+            sweep_data[self.model.keys] /= self.model.predict_response_profiles(
+                self.ref_profiles.index.values).max()
+        
+        # Restore model default parameters
+        self.model.W = W
+        self.model.srel = srel
+        
+        # Return
+        return sweep_data
+
+    def plot_timeseries(self, optparams, amps, norm=False, title=None):
+        '''
+        Plot detailed timeseries for a set of stimulus amplitudes
+
+        :param optparams: series (or run-indexed dataframe) of optimal model parameters
+        '''
+        # Compute solution timeseries for input model parameters
+        sweep_data = self.compute_timeseries(optparams, amps, norm=norm)
+        
+        # Plot detailed simulation results for a set of characteristic input amplitudes
+        fig, axes = plt.subplots(
+            amps.size, 1, figsize=(5, 1.5 * amps.size), 
+            sharex=True, sharey=True)
+        for (A, sol), ax in zip(sweep_data.groupby('amplitude'), axes):
+            self.model.plot_timeseries(
+                sol.droplevel('amplitude'), title=f'A = {A:.2f}', axes=ax, plot_stimulus=False)
+    
+        # If supplied, add title
+        if title is not None:
+            fig.suptitle(title, y=1.05)
+        
+        # Return figure
+        return fig
