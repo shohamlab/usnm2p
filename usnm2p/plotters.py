@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-22 15:37:37
+# @Last Modified time: 2025-09-08 16:11:16
 
 ''' Collection of plotting utilities. '''
 
@@ -4311,84 +4311,142 @@ def plot_P_DC_map(P=None, DC=None, dose_key=None, cmap='viridis_r', color='silve
     return fig
 
 
-def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None, title=None,
-                            cmap='viridis', dx=0.5, dy=0.5, rmax=1., clevels=None):
+def get_radii_wedges(rmax):
+    radii = np.arange(.5, rmax + .01, .5)
+    lss = ['--'] * len(radii)
+    lss[-1] = '-'
+    return [
+        mpatches.Wedge(
+        (0., 0.), r, 180, 360, linestyle=ls, fc='none', ec='w')
+        for r, ls in zip(radii, lss)]
+
+
+def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, avg=False, filters=None,
+                            title=None, cmap='viridis', w=5, h=4, dx=0.5, dy=0.5, minimalist=False,
+                            rmax=None):
     '''
     Plot map of output metrics as a function of XY offset
     
-    :param stats: stats dataframe
+    :param stats: multi-indexed ([dataframe], ROI, run) trial aggregated stats dataframe.
+        The dataset index dimension is optional.
     :param xkey: column name for X offset coordinates
     :param ykey: column name for Y offset coordinates
     :param outkey: column name for output metrics
-    :param interp: type of interpolant used to geenrate XY map of output metrics (default=None)
+    :param interp: type of interpolant used to generate XY map of output metrics (default=None).
+        If none, no interpolation will be done, and only sampled locations will be plotted. 
+    :param avg: whether to average maps across datasets, if multiple (in interpolation mode only) 
     :param filters: potential filters to restrict dataset
     :param title: optional figure title
     :param cmap: colormap string
+    :param w: figure width per axis
+    :param h: figure height
     :param dx: interpolation step size in x dimension
     :param dy: interpolation step size in y dimension 
-    :return: 2-tuple with:
-        - figure handle
-        - offset coordinates of max response per dataset
+    :param minimalist: whether to format axes to "minimalistic" style
+    :return: figure handle
     '''
     # Apply filters if provided
     if filters is not None:
         for k, v in filters.items():
             logger.info(f'restricting {k} to "{v}"')
             stats = stats[stats[k] == v]
-
-    # Group stats by dataset
-    logger.info('grouping stats by dataset...')
-    groups = stats.groupby(Label.DATASET)
-
+    
     # Get colormap object
     cmap = plt.get_cmap(cmap)
     cmap.set_bad(cmap(0))
 
-    # Create figure backbone
-    naxes = len(groups)
-    fig, axes = plt.subplots(1, naxes, figsize=(5 * naxes, 4))
-    stitle = 'normalized response strength vs. offset'
-    if title is not None:
-        stitle = f'{stitle} ({title})'
-    for ax in axes:
-        sns.despine(ax=ax)
-        ax.set_aspect(1.)
-        ax.set_xlabel(xkey)
-        ax.set_ylabel(xkey)
-        ax.axhline(0., c='k', ls='--', zorder=-10)
-        ax.axvline(0., c='k', ls='--', zorder=-10)
-    
     # Get colormap normalizer and mappable
     norm, sm = set_normalizer(cmap, [0, 1])
 
-    # For each dataset
+    # Assemble figure title
+    stitle = 'normalized response strength vs. offset'
+    if title is not None:
+        stitle = f'{stitle} ({title})'
+    if interp is not None:
+        stitle = f'{stitle} - {interp} interpolant'
+        
+    # If multi-dataset input
+    if Label.DATASET in stats.index.names and len(stats.index.unique(level=Label.DATASET)) > 1:
+        # Group stats by dataset
+        logger.info('grouping stats by dataset...')
+        groups = stats.groupby(Label.DATASET)
+        ndatasets = groups.ngroups
+
+        # If averaging requested but not interpolation method, raise error
+        if interp is None and avg:
+            raise ValueError('cannot average maps across datasets: no interpolation method specified')
+        
+        naxes = 1 if avg else ndatasets
+        if avg: 
+            stitle = f'{stitle} - average map (n = {ndatasets})'
+    else:
+        naxes = 1
+        groups = (None, stats)
+        avg = False
+                
+    # Create figure backbone
+    fig, axes = plt.subplots(1, naxes, figsize=(w * naxes, h))
+    if naxes == 1:
+        axes = [axes]
+        ax = axes[0]
+        ax.set_title(stitle)
+    else:
+        fig.suptitle(stitle, y=.95)
+    for ax in axes:
+        sns.despine(ax=ax)
+        ax.set_aspect(1.)
+        if not minimalist:
+            ax.set_xlabel(xkey)
+            ax.set_ylabel(xkey)
+            ax.axhline(0., c='k', ls='--', zorder=-10)
+            ax.axvline(0., c='k', ls='--', zorder=-10)
+
+    # Log    
     logger.info(f'plotting map of "{outkey}" vs. XY offset...')
+
+    meshes = []
+    
+    # For each dataset
     xranges, yranges, interp_maps = [], [], []
-    for (dataset_id, substats), ax in zip(groups, axes):
-        ax.set_title(dataset_id)
+    for i, (dataset_id, substats) in enumerate(groups):
+        ax = axes[i] if not avg else axes[0]
+        
+        if dataset_id is not None and not avg:
+            ax.set_title(dataset_id, pad=20)
+        
         # Compute average output metrics for each XY offset value
         outkey_avg = substats[[xkey, ykey, outkey]].groupby(
             [xkey, ykey])[outkey].mean().reset_index()
+        
         # Divide by max value to bring to [0, 1] range 
         outkey_avg[outkey] /= outkey_avg[outkey].max()
-        # Plot output metrics across scanned XY offsets
+        
+        # Plot output metrics across scanned XY offsets, with optional color code
+        # (if no interpolation selected)
         ax.scatter(
-            outkey_avg[xkey], outkey_avg[ykey], s=80, c=outkey_avg[outkey], edgecolors='w', cmap=cmap)
+            outkey_avg[xkey], outkey_avg[ykey], s=50 if interp else 80, 
+            c='none' if interp else outkey_avg[outkey], edgecolors='silver', cmap=cmap)
+        
         # If specified: plot interpolated 2D map of response strength vs offset location
         if interp is not None:
             # Get grid vectors and 2d map
             xrange, yrange, interp_map = interpolate_2d_map(
                 outkey_avg, xkey, ykey, outkey, method=interp, dx=dx, dy=dy)
+            
             # Normalize 2d map
             interp_map /= np.nanmax(interp_map)
-            # Plot
-            ax.pcolormesh(
-                compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
-                zorder=-10, cmap=cmap, rasterized=True, norm=norm)
+                        
             # Append to global containers
             xranges.append(xrange)
             yranges.append(yrange)
             interp_maps.append(interp_map)
+
+            # Plot, if average not selected
+            if not avg:
+                mesh = ax.pcolormesh(
+                    compute_mesh_edges(xrange), compute_mesh_edges(yrange), interp_map.T,
+                    zorder=-10, cmap=cmap, rasterized=True, norm=norm)
+                meshes.append(mesh)
     
     # Add colorbar
     pos = ax.get_position()
@@ -4396,16 +4454,12 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
     cbar_ax = fig.add_axes([0.95, pos.y0, 0.02, pos.y1 - pos.y0])
     fig.colorbar(sm, cax=cbar_ax)
 
-    # Add figure title
-    if interp is not None:
-        stitle = f'{stitle} - {interp} interpolant'
-    fig.suptitle(stitle)
-
-    # If more than 1 interpolation map was generated
-    if len(xranges) > 1:
+    # If more than 1 interpolation map was generated, and average mode selected
+    if len(xranges) > 1 and avg:
         dxs = np.unique(np.hstack([np.unique(np.diff(i)) for i in xranges]))
         dys = np.unique(np.hstack([np.unique(np.diff(i)) for i in yranges]))
         dxs, dys = [np.round(reduce_close_elements(xx), 2) for xx in [dxs, dys]]
+
         # If x and y step sizes are constant across maps
         if dxs.size == 1 and dys.size == 1:
             # Generate average 2D map (from normalized maps)
@@ -4420,58 +4474,54 @@ def plot_stat_vs_offset_map(stats, xkey, ykey, outkey, interp=None, filters=None
                 avgmap[i, ixshift:ixshift + x.size, iyshift:iyshift + y.size] = imap
             avgmap = np.nanmean(avgmap, axis=0)
 
-            # Plot average 2D map on new figure
-            fs = 12
-            newfig, newax = plt.subplots()
-            newax.set_title('average map', fontsize=fs + 2)
-            newax.set_xticks([])
-            newax.set_yticks([])
-            newax.set_aspect(1.)
-            radii = np.arange(.5, rmax + .01, .5)
-            lss = ['--'] * len(radii)
-            lss[-1] = '-'
-            wedges = [
-                mpatches.Wedge(
-                    (0., 0.), r, 180, 360, linestyle=ls, fc='none', ec='w')
-                for r, ls in zip(radii, lss)]
-            mesh = newax.pcolormesh(
-                xrange, yrange, avgmap.T, 
-                cmap=cmap, rasterized=True, shading='gouraud')
-            for w in wedges:
-                newax.add_patch(w)
-            mesh.set_clip_path(wedges[-1])
-            newax.set_xlim(-rmax, rmax)
-            newax.set_ylim(-rmax, 0.25 * rmax)
-            if clevels is not None:
-                newax.contour(
-                    xrange, yrange, avgmap.T, levels=as_iterable(clevels), colors=['w'])
-            sns.despine(ax=newax, bottom=True, left=True)
+            # Plot average 2D map
+            mesh = ax.pcolormesh(
+                compute_mesh_edges(xrange), compute_mesh_edges(yrange), avgmap.T,
+                zorder=-10, cmap=cmap, rasterized=True, norm=norm)
+            meshes = [mesh]
+    
+    # Minimalist mode
+    if minimalist:
+        for i, ax in enumerate(axes):
+
+            # Remove ticks and ensure aspect ratio is correct 
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_aspect(1.)
+            sns.despine(ax=ax, bottom=True, left=True)
+
+            # Add characteristic radii
+            if rmax is not None:
+                wedges = get_radii_wedges(rmax)
+                for w in wedges:
+                    ax.add_patch(w)
+
+                # Clip map at max radius
+                if meshes:
+                    meshes[i].set_clip_path(wedges[-1])
+
+                ax.set_xlim(-rmax, rmax)
+                ax.set_ylim(-rmax, 0.25 * rmax)
+                scalex = np.ceil(rmax) / 2
+            
+            else:
+                scalex = 0.25 * np.ptp(xrange)
 
             # Add scale bar
-            scalex = np.ceil(rmax) / 2
             scalebar = AnchoredSizeBar(
-                newax.transData,
+                ax.transData,
                 scalex, f'{scalex:.1f} mm', 'upper right', 
                 color='k', frameon=False, label_top=True, size_vertical=.025,
-                fontproperties={'size': fs})
-            newax.add_artist(scalebar)
+            )
+            ax.add_artist(scalebar)
 
             # Add focus annotation
-            newax.annotate(
+            ax.annotate(
                 'focus', xy=(0., 0.),  xycoords='data',
                 xytext=(0.5, .99), textcoords='axes fraction',
                 arrowprops=dict(facecolor='black', shrink=0.01, width=2),
-                horizontalalignment='center', verticalalignment='top', fontsize=fs)
-            
-            # Add colorbar
-            pos = newax.get_position()
-            newfig.subplots_adjust(right=0.85)
-            newcbar_ax = newfig.add_axes([0.9, pos.y0, 0.05, pos.y1 - pos.y0])
-            newfig.colorbar(sm, cax=newcbar_ax)
-
-            # Return both figures
-            return fig, newfig
-
+                horizontalalignment='center', verticalalignment='top')
+    
     # Return figure
     return fig
 

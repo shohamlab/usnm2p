@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 10:40:33
+# @Last Modified time: 2025-09-08 13:29:26
 
 from .constants import *
 from .fileops import get_data_root
@@ -233,7 +233,7 @@ def extract_from_batch_data(data):
     keys = [
         'trialagg_timeseries',
         'popagg_timeseries', 
-        'trialagg_stats', 
+        'triagg_stats', 
         'stats',
         'ROI_masks',
         'map_ops'
