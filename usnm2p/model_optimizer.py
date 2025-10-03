@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2025-08-01 15:00:59
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-13 00:09:04
+# @Last Modified time: 2025-09-17 14:26:04
 
 ''' Model optimization utilities '''
 
@@ -879,6 +879,7 @@ class ModelOptimizer:
 
         # Set log y-scale
         ax.set_yscale('log')
+        ax.set_ylim(*COST_PLOT_RANGE)
 
         # Add title
         if title is not None:
@@ -940,23 +941,29 @@ class ModelOptimizer:
         sns.despine(ax=ax)
 
         # Plot costs by category
-        sns.barplot(
+        pltkwargs = dict(
             ax=ax,
             data=costs.rename('cost').reset_index(),
             x='kind',
-            y='cost',
+            y='cost'
+        )
+        sns.stripplot(
             palette='Set2',
-            errorbar='se',
+            **pltkwargs,
             **kwargs
+        )
+        sns.pointplot(
+            color='k',
+            linestyles='none',
+            errorbar='se',
+            **pltkwargs,
         )
 
         # Set log scale if requested
         if yscale == 'log':
             ax.set_yscale('log')
-            # ymin = np.floor(np.log10(costs.min()))
-            # ymax = np.ceil(np.log10(costs.max()))
-            # ax.set_ylim(*np.power(10, np.array([ymin, ymax])))
-
+            ax.set_ylim(*COST_PLOT_RANGE)
+        
         # Add title if provided
         if title is not None:
             ax.set_title(title)
@@ -966,7 +973,7 @@ class ModelOptimizer:
 
     def plot_results(self, mparams=None, opt_history=None, axes=None, norm_params=False, norm_res='ax',
                      add_respthrs=False, add_axtitles=True, title=None, height=2.5, avg_across_runs=False,
-                     return_costs=False):
+                     return_costs=False, add_stats=False):
         '''
         Plot model parameters and predicted activity profiles against reference ones
         
@@ -1142,6 +1149,7 @@ class ModelOptimizer:
             if isinstance(W.index, pd.MultiIndex) and 'run' in W.index.names:
                 Wreldev = W.groupby('run').apply(
                     lambda v: self.get_relative_change(v.droplevel('run'), self.Wref))
+                print(Wreldev.abs().max().max())
                 avg_abs_wreldev = Wreldev.groupby('run').apply(lambda df: df.abs().mean().mean())
                 wreldev_str = f'{dwwkey} = {avg_abs_wreldev.mean() * 100:.1f}±{avg_abs_wreldev.std() * 100:.1f} %'
             else:
@@ -1153,7 +1161,7 @@ class ModelOptimizer:
 
         # Plot stimulus sensitivity
         self.model.plot_stimulus_sensitivity(
-            srel=srel, ax=axes[iax], norm=norm_params, title='', add_stats=False)
+            srel=srel, ax=axes[iax], norm=norm_params, title='', add_stats=add_stats)
         iax += 1
 
         # If specified, compute and plot intrinsic response thresholds
@@ -1165,7 +1173,7 @@ class ModelOptimizer:
                 intrinsic_thrs_thr = intrinsic_thrs
             logger.info(f'intrinsic response thresholds (in stimulus units):\n{intrinsic_thrs_thr}')
             self.model.plot_stimulus_sensitivity(
-                srel=intrinsic_thrs, ax=axes[iax], title='', add_stats=False)
+                srel=intrinsic_thrs, ax=axes[iax], title='', add_stats=add_stats)
             iax += 1
 
         # Generate costs string
