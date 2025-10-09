@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-22 17:49:31
+# @Last Modified time: 2025-10-08 16:54:57
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -110,6 +110,7 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
 
     # If baseline quantile is provided, compute relative change in fluorescence
     if qbase is not None:
+        logger.info('computing element-wise dFF profiles')
         F0 = np.quantile(F, qbase, axis=0)
         F = (F - F0) / F0
 
@@ -125,6 +126,7 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
 
     # If nsplit provided, apply
     if nsplit is not None:
+        logger.info('splitting across first dimension')
         F = split_first_dim(F, nsplit)
     
     # Return profile
@@ -3351,6 +3353,7 @@ def get_params_by_run(data, extra_dims=None):
 
     # Parameter keys to extract
     inputkeys = [Label.P, Label.DC, Label.ISPTA]
+    inputkeys = [k for k in inputkeys if k in data]
     
     # Extract first value of each parameter for each group
     first_params_by_run = data[inputkeys].groupby(gby).first()

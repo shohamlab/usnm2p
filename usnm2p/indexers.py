@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-15 17:32:10
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-02 11:47:19
+# @Last Modified time: 2025-10-08 16:02:09
 import numpy as np
 
 class FrameIndexer:
@@ -97,11 +97,11 @@ class FrameIndexer:
         '''
         Get a window slice centered around a reference index
 
-        :param kind: window kind ('pre' or 'post')
+        :param kind: window kind ('pre' / 'post' / 'prepost')
         :return: window slice
         '''
         # Check that window kind is valid
-        if kind not in ('pre', 'post'):
+        if kind not in ('pre', 'post', 'prepost'):
             raise ValueError(f'unknown window kind "{kind}"') 
         
         # Preceding window: n elements, finishing on (including) index
@@ -109,8 +109,12 @@ class FrameIndexer:
             return slice(self.iref - self.npre + 1, self.iref + 1)
         
         # Postceding window: n elements, starting at index + 1
-        else:
+        elif kind == 'post':
             return slice(self.iref + 1, self.iref + self.npost + 1)
+        
+        # Surrounding window: from start of pre to end of ppost
+        else:
+            return slice(self.iref - self.npre + 1, self.iref + self.npost + 1)
     
     def get_window_idxs(self, kind):
         '''

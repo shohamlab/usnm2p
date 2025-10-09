@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-09-08 16:11:16
+# @Last Modified time: 2025-10-09 07:30:24
 
 ''' Collection of plotting utilities. '''
 
@@ -578,7 +578,7 @@ def plot_stack_histogram(stacks, title=None, yscale='log'):
 
 
 def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfunc=None,
-               height=4, subplot_spec=None, fig=None, title=None, **kwargs):    
+               height=4, subplot_spec=None, fig=None, title=None, ax=None, **kwargs):    
     ''' 
     Plot frame with optional row and column average profiles on marginal axes
 
@@ -589,25 +589,31 @@ def plot_frame(frame, cmap='viridis', add_marginals=False, um_per_px=None, aggfu
     :param aggfunc: aggregation function for marginal profiles (default = mean)
     :return: figure object
     '''
-    # Create figure
-    figsize = np.array([height, height])
-    axdict = {}
-    if add_marginals:
-        figsize = figsize * 1.25
-        grispec_kwargs = dict(
-            width_ratios=[5, 1],
-            height_ratios=[1, 5],
-            wspace=0.05,
-            hspace=0.05
-        )
-        if subplot_spec is not None:
-            gs = GridSpecFromSubplotSpec(2, 2, subplot_spec=subplot_spec, **grispec_kwargs)
-        else:
-            fig = plt.figure(figsize=tuple(figsize))
-            gs = GridSpec(2, 2, **grispec_kwargs)
-        axdict['frame'] = fig.add_subplot(gs[1, 0])
+    if ax is not None:
+        if add_marginals:
+            raise ValueError('cannot plot marginal profiles with only 1 provided axis')
+        axdict = {'frame': ax}
+        fig = ax.get_figure()
     else:
-        fig, axdict['frame'] = plt.subplots(figsize=figsize)
+        # Create figure
+        figsize = np.array([height, height])
+        axdict = {}
+        if add_marginals:
+            figsize = figsize * 1.25
+            grispec_kwargs = dict(
+                width_ratios=[5, 1],
+                height_ratios=[1, 5],
+                wspace=0.05,
+                hspace=0.05
+            )
+            if subplot_spec is not None:
+                gs = GridSpecFromSubplotSpec(2, 2, subplot_spec=subplot_spec, **grispec_kwargs)
+            else:
+                fig = plt.figure(figsize=tuple(figsize))
+                gs = GridSpec(2, 2, **grispec_kwargs)
+            axdict['frame'] = fig.add_subplot(gs[1, 0])
+        else:
+            fig, axdict['frame'] = plt.subplots(figsize=figsize)
 
     # Main image plot
     axdict['frame'].imshow(frame, cmap=cmap, aspect='auto', **kwargs)
@@ -795,6 +801,84 @@ def plot_frameavg_profiles(frameavgs, details=False, title=None):
                 iframes, ymean - ysem, ymean + ysem, fc='k', alpha=0.3)
     
     # Return figure handle
+    return fig
+
+
+def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto', qthr=0.005):
+    '''
+    Plot fluorescence timelapse 
+
+    :param F: 3D (time, ny, nx) fluorescence stack
+    :param label: label describing fluorescence stack 
+    :param times: corresponding times (optional, for labeling) 
+    :param um_per_px: spatial resolution (optinal, for spatial scale)
+    :param title: figure title (optional)
+    :param cmap: colormap used to render frames (default = "auto", i.e. automatically inferred from data)
+    :return: figure object
+    '''
+    # Infer whether movie contains both positive and negative values 
+    is_signed = F.min() < 0 and F.max() > 0
+    
+    # Infer colormap if required
+    if cmap == 'auto':
+        if is_signed:
+            cmap = 'RdBu_r'
+        else:
+            cmap = 'viridis'
+
+    # Extract bounding values for colormap
+    vmin, vmax = np.quantile(F, [qthr, 1 - qthr])    
+    if is_signed:
+        vabsmax = np.abs(np.array([vmin, vmax])).max()
+        vmin, vmax = -vabsmax, vabsmax
+    
+    # Create figure
+    nframes = F.shape[0]
+    naxes = nframes + 1
+    colwrap = 5
+    height = 2.5
+    ncols = min(colwrap, naxes)
+    nrows = naxes // colwrap + 1
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * height, nrows * height))
+    axiter = iter(axes.ravel())
+    
+    # Plot timelapse
+    logger.info(f'plotting {label} timelapse')
+    for i, frame in enumerate(F):
+        ax = next(axiter)
+        plot_frame(frame, um_per_px=um_per_px, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap)
+        if times is not None:
+            ax.text(.05, .05, f'{times[i]:.2f} s', transform=ax.transAxes, fontsize=10)
+        ax.set_aspect(1.)
+    
+    # Add colorbar
+    cbar_ax = next(axiter)
+    cbar_ax.set_box_aspect(4.)
+    fig.colorbar(
+        cm.ScalarMappable(norm=plt.Normalize(vmin=vmin, vmax=vmax), cmap=cmap),
+        cax=cbar_ax, 
+        label=label
+    )
+
+    # Hide remaining axes, if any
+    if ncols * nrows > naxes:
+        try:
+            while True:
+                ax = next(axiter)
+                ax.axis('off')
+        except StopIteration:
+            pass
+
+    # Adjust layout
+    fig.tight_layout()
+
+    # Add title
+    stitle = f'{label} timelapse'
+    if title is not None:
+        stitle = f'{stitle} - {title}'
+    fig.suptitle(stitle)
+
+    # Return 
     return fig
 
 
