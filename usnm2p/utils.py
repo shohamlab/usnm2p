@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-08-12 16:44:17
+# @Last Modified time: 2025-10-21 13:14:31
 
 ''' Collection of generic utilities. '''
 
@@ -1160,6 +1160,28 @@ def threshold_sqrt(x, A=1, x0=0, y0=0):
     return A * yrel + y0
 
 
+def linear_nointercept(x, A=1):
+    '''
+    Linear function passing through origin
+    
+    :param x: input value
+    :param A: slope
+    :return: linear function output 
+    '''
+    return A * x
+
+
+def get_linear_nointercept_params(x, y):
+    '''
+    Function estimating the initial parameters of a linear function to fit through origin
+
+    :param x: input vector
+    :param y: output vector
+    :return: initial fit parameters
+    '''
+    return [np.mean(y / x)]
+
+
 def scaled_power(x, A=1, b=1):
     '''
     Power function with an amplitude scaling factor
@@ -1285,6 +1307,7 @@ fit_functions_dict = {
     'parabolic': (parabolic, get_parabolic_params),
     'biexponential': (biexponential, get_biexponential_params),
     'threshold_linear': (threshold_linear, get_threshold_linear_params, get_threshold_linear_bounds),
+    'linear_nointercept': (linear_nointercept, get_linear_nointercept_params),
 }
 
 

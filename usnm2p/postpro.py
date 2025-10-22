@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-08 16:54:57
+# @Last Modified time: 2025-10-21 11:44:11
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4934,3 +4934,124 @@ def extract_matching_parameters(y, onset, dur, PRF, DC, fps, lpf, max_shift=MAX_
 
     # Return
     return mparams
+
+
+def rect_pulse_template(n, istart, npulse, A, y0, smooth_sigma):
+    '''
+    Return template vector describing single rectangular pulse
+    
+    :param n: vector size
+    :param istart: index of pulse onset
+    :param npulse: number of indexes in rectangular pulse
+    :param A: amplitude (can be negative)
+    :param y0: vertical baseline offset
+    :param smooth_sigma: gaussian filter window for edge smoothing (0 means no smoothing)
+    :return: template vector
+    '''
+    istart = int(np.round(istart))
+    npulse = int(np.round(npulse))
+    # Check input validity
+    bounds = (0, n - 1)
+    if not is_within(istart, bounds):
+        raise ValueError(f'start index should be within [0 - {n - 1}]')
+    if npulse < 0:
+        raise ValueError(f'number of pulse indexes should be >=0')
+    # Create empty vector
+    v = np.zeros(n, dtype=float)
+    # Assign pulse interval to A
+    v[istart:istart + npulse] = A
+    # If requested, apply gaussian smoothing
+    if smooth_sigma > 0:
+        v = gaussian_filter1d(v, sigma=smooth_sigma, mode='constant')
+    # Add baseline offset and return
+    return v + y0
+
+
+def fit_pulse_template(y, fs, PD):
+    '''
+    Fit template to pulse-evoked dFF dip signal
+    
+    :param y: input dFF signal
+    :param fs: signal sampling frequency (Hz)
+    :param PD: pulse duration (s) 
+    :return: fitted template parameters
+    '''
+    # Create template generation function
+    def make_template(x, *args):
+        return rect_pulse_template(x.size, *args)
+
+    # Extract peak-to-peak and max signal value in window  
+    yptp, ymax = np.ptp(y), y.max()
+
+    # Initial guess
+    p0_dict = {
+        'istart': int(np.round(1e-3 * fs)),  # starting index: index corresponding to ~1 ms after start 
+        'npulse': int(np.round(PD * fs)) + 1,  # number of pulse indexes: ~PD at sampling frequency
+        'A': -yptp,  # dip amplitude: negative peak-to-peak amplitude in window  
+        'y0': ymax,  # baseline: max value in window
+        'smooth_sigma': 5e-5 * fs  # smoothing factor: ~0.05 ms at sampling frequency 
+    }
+
+    # Search bounds
+    k = 0.05  # relative factor multiplying peak-to-peak to determine baseline range
+    pbounds_dict = {
+        'istart': (0, y.size // 3),  # starting index: first third of window
+        'npulse': (0, y.size),  # number of indexes in pulse: up entire window size
+        'A': (-np.inf, np.inf), 
+        'y0': (-np.inf, np.inf),
+        'smooth_sigma': np.array([1e-5, 5e-4]) * fs,  # smoothing factor: between 0.01 and 0.5 ms at sampling frequency 
+    }
+    pbounds = (
+        [p[0] for p in pbounds_dict.values()],
+        [p[1] for p in pbounds_dict.values()]
+    )
+
+    # Apply curve fitting to extract optimal template parameters
+    popt, _ = curve_fit(
+        make_template,
+        np.arange(y.size),
+        y,
+        p0=list(p0_dict.values()),
+        bounds=pbounds,
+    )
+
+    # Format as dictionary
+    popt_dict = {
+        'istart': int(np.round(popt[0])),
+        'npulse': int(np.round(popt[1])),
+        'A': popt[2],
+        'y0': popt[3],
+        'smooth_sigma': popt[4]
+    }
+
+    # Return fitted parameters
+    return popt_dict
+
+
+def fit_pulse_template_from_table(df, ykey, PRF=1e2):
+    '''
+    Fit template to pulse-evoked dip signal provided as part of dataframe
+
+    :param df: time-indexed dataframe containing signal and DC columns
+    :param ykey: name of signal column
+    :return: pandas Series with fitted parameters
+    '''
+    # Extract DC from dataframe, and compute pulse duration
+    try:
+        DC = get_singleton(df, Label.DC) * 1e-2  # (-)
+    except KeyError:
+        DC = 0.5 
+    PD = DC / PRF  # s
+    
+    # Extract sampling frequency from dataframe index 
+    t = df.index.values
+    fs = 1 / (t[1] - t[0]) * 1e3
+
+    # Extract signal and remove NaN values
+    y = df[ykey].dropna().values
+
+    # Fit template to signal, and return fitted parameters
+    popt = fit_pulse_template(y, fs, PD)
+
+    # Return as series
+    return pd.Series(popt)

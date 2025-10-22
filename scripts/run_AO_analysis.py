@@ -2,15 +2,14 @@
 # @Author: Theo Lemaire
 # @Date:   2025-07-09 17:20:08
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-18 14:43:30
+# @Last Modified time: 2025-10-21 11:44:59
 
 ''' Utility script to run intraframe analysis notebook '''
 
 import os
-from itertools import product
 
 from usnm2p.constants import *
-from usnm2p.fileops import get_data_root, get_dataset_params, restrict_datasets
+from usnm2p.fileops import get_data_root
 from usnm2p.logger import logger
 from usnm2p.nbutils import DirectorySwicther, execute_notebooks, get_notebook_parser, parse_notebook_exec_args
 
@@ -19,7 +18,7 @@ if __name__ == '__main__':
 
     # Create command line parser
     parser = get_notebook_parser(
-        '../notebooks/intraframe_analysis.ipynb', line=True, exec=False)
+        '../notebooks/AO_analysis.ipynb', line=True, exec=False)
 
     # Parse command line arguments
     args = vars(parser.parse_args())
