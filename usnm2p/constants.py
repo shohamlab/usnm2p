@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-09-17 14:27:16
+# @Last Modified time: 2025-10-23 12:09:43
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -240,6 +240,17 @@ M2_TO_CM2 = 1e4
 UM2_TO_MM2 = 1e-6
 S_TO_MS = 1e3
 HZ_TO_KHZ = 1e-3
+HZ_TO_MHZ = 1e-6
+
+###################################### PHYSICAL CONSTANTS ######################################
+
+# Extract from IT'IS database of tissue properties
+RHO_BRAIN = 1046.0  # density of brain tissue (kg/m3)
+C_BRAIN = 1546.3  # speed of sound in brain tissue (m/s)
+ALPHA0_BRAIN = 6.8032  # Acoustic attenuation constant of brain tissue at 1 MHz (Np/m) 
+B_BRAIN = 1.3  # Exponent of the frequency dependency of the attenuation constant of brain tissue (-)   
+CS_BRAIN = 3630.  # specific heat capacity per unit mass of brain tissue (J/kg/°C)
+
 
 ###################################### DATA ACQUISITION ######################################
 

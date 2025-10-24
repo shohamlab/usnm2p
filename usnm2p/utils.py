@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-21 13:14:31
+# @Last Modified time: 2025-10-24 10:25:35
 
 ''' Collection of generic utilities. '''
 
@@ -18,7 +18,7 @@ from fractions import Fraction
 import re
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler
 
-from .constants import SI_POWERS, IND_LETTERS, Label, ENV_NAME, PA_TO_MPA, M2_TO_CM2
+from .constants import *
 from .logger import logger
 
 
@@ -619,7 +619,7 @@ def resolve_columns(df, cols, **kwargs):
     return df
 
 
-def pressure_to_intensity(p, rho=1046.0, c=1546.3):
+def pressure_to_intensity(p, rho=RHO_BRAIN, c=C_BRAIN):
     '''
     Return the spatial peak, pulse average acoustic intensity (ISPPA)
     associated with the specified pressure amplitude.
@@ -635,7 +635,7 @@ def pressure_to_intensity(p, rho=1046.0, c=1546.3):
     return p**2 / (2 * rho * c)
 
 
-def intensity_to_pressure(I, rho=1046.0, c=1546.3):
+def intensity_to_pressure(I, rho=RHO_BRAIN, c=C_BRAIN):
     '''
     Return the pressure amplitude (in Pa) associated with the specified
     spatial peak, pulse average acoustic intensity (ISPPA).
@@ -671,7 +671,7 @@ def dB_to_intensity(dB):
     return np.power(10., dB / 10.)
 
 
-def compute_attenuation_coefficient(f, alpha0=6.8032, b=1.3):
+def compute_attenuation_coefficient(f, alpha0=ALPHA0_BRAIN, b=B_BRAIN):
     '''
     Compute the acoustic attenuation coefficient for a given ultrasound frequency
 
@@ -683,7 +683,23 @@ def compute_attenuation_coefficient(f, alpha0=6.8032, b=1.3):
     return alpha0 * f**b
 
 
-def compute_heat_generation_rate(f, I, rho=1046., C=3630., **kwargs):
+def compute_radiation_force(f, I, c=C_BRAIN, **kwargs):
+    '''
+    Compute radiation force for a specificd acoustic frequency and intensity
+    
+    :param f: frequency (MHz)
+    :param I: acoustic intensity (W/cm2)
+    :param c: speed of sound in medium (m/s)
+    :return: acoustic radiation force (N/m3)
+    '''
+    # Compute attenuation coefficient at given frequency
+    alpha = compute_attenuation_coefficient(f, **kwargs)  # Np/m
+
+    # Compute acoustic radiation force
+    return 2 * alpha * (I * M2_TO_CM2) / c  # (1/m) * (W/m2) / (m/s) = W*s/m4 = N/m3
+
+
+def compute_heat_generation_rate(f, I, rho=RHO_BRAIN, C=CS_BRAIN, **kwargs):
     '''
     Compute rate of heat generation per unit volume for a specific acoustic
     frequency and intensity
@@ -701,6 +717,22 @@ def compute_heat_generation_rate(f, I, rho=1046., C=3630., **kwargs):
     Cv = C * rho / 1e6  # J/cm3/°C
     # Compute heat generation rate
     return 2 * alpha * I / Cv  # Np*°C*W/J = Np*°C/s = °C/s
+
+
+def compute_temperature_increase(f, I, dur, **kwargs):
+    '''
+    Compute predicted temperature increase for a specific acoustic frequency, intensity
+    and sonication duration, assuming no heat loss by thermal conduction, convection,
+    or any other heat removal process.
+
+    :param f: frequency (MHz)
+    :param I: acoustic intensity (W/cm2)
+    :param dur: sonicaiton duration (s)
+    :return: predicted maximal temperature increase (°C)
+    '''
+    # Temperature increase
+    dT_dt = compute_heat_generation_rate(f, I, **kwargs)  # °C/s
+    return dT_dt * dur  # °C
 
 
 def compute_mechanical_index(f, P):
@@ -1755,3 +1787,24 @@ def parse_pairs_dict(s):
     
     # Return pairs dictionary
     return pairs_dict
+
+
+def interpolate_at(df, x):
+    '''
+    Interpolate all columns of a dataframe at a specific index value(s)
+    
+    :param df: dataframe
+    :param x: target index value(s)
+    :return: series/dataframe of interpolated column values at target index(es)
+    '''
+    # Define index values of interest for interpolation
+    new_index = sorted(list(df.index) + list(as_iterable(x)))
+
+    # Reindex the DataFrame to include the interpolation points
+    df_reindexed = df.reindex(new_index)
+
+    # Interpolate using the 'index' method for numerical index-based interpolation
+    df_interpolated = df_reindexed.interpolate(method='index')
+
+    # Extract values at target points
+    return df_interpolated.loc[x]
