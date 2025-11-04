@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-21 11:44:11
+# @Last Modified time: 2025-10-28 16:09:43
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -4156,6 +4156,7 @@ def get_fit_table(Pfit='poly2', exclude=None):
         'pv':  'threshold_linear',  # 'sigmoid',
         'cre_sst': 'corrected_sigmoid',
         'cre_ndnf': 'corrected_sigmoid',
+        'cre_all': 'corrected_sigmoid',
     }
 
     # Create empty 2D dataFframe

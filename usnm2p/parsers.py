@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:29:19
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 15:14:12
+# @Last Modified time: 2025-10-28 16:49:55
 
 ''' Collection of parsing utilities. '''
 
@@ -327,3 +327,19 @@ def find_suffixes(l):
     iprefend = pref.rindex('_')
     # Return suffixes
     return [item[iprefend + 1:] for item in l]
+
+
+def map_dates_to_deafening_status(df):
+    '''
+    Map dates to deafening status ('pre' and 'post') for a given mouse dataframe.
+
+    :param df: DataFrame containing data for a single mouse.
+    :return: Series mapping dates to 'pre' and 'post' status.    
+    '''
+    dates = df[Label.DATE].sort_values()
+    if len(dates) != 2:
+        raise ValueError(f'Expected 2 unique dates for mouse {df[Label.MOUSE].iloc[0]}, found {len(dates)}.')
+    return dates.map({
+        dates[0]: 'pre-deafening',
+        dates[1]: 'post-deafening'
+    })

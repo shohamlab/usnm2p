@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 16:34:13
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-09 14:34:44
+# @Last Modified time: 2025-11-04 16:02:07
 
 ''' Utilities for Bergamo data pre-processing '''
 
@@ -10,6 +10,9 @@
 import os
 import numpy as np
 import json
+import re
+import tifffile
+import pandas as pd
 
 # Internal modules
 from .constants import *
@@ -146,6 +149,32 @@ def stack_trial_tifs(stacker, in_fpaths, out_fpath, **kwargs):
 
     # Return reference metadata
     return ref_meta
+
+
+def stack_singleframe_tifs_across_trials(input_dir, **kwargs):
+    '''
+    Stack single-frame TIFs for each trial identified in a directory.
+    
+    :param input_dir: input directory containing singl-frame tifs
+    :return: filepaths to the created tif stacks per trial
+    '''
+    # Define search pattern for single-frame tif: must have condition prefix, trial number and frame number 
+    pattern = re.compile(r'^(.*)_(\d{5})_(\d{5}).tif$')
+
+    # Find all single-frame TIFs matching pattern in directory
+    inputs = []
+    for fname in os.listdir(input_dir):
+        mo = pattern.match(fname)
+        if mo:
+            condition, trial, frame = mo.groups()
+            trial = int(trial)
+            frame = int(frame)
+            inputs.append(fname, condition, trial, frame)
+    df = pd.DataFrame(
+        data=inputs,
+        columns=['filename', 'condition', 'trial', 'frame']
+    )
+    print(df)
 
 
 def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta=True, **kwargs):

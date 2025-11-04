@@ -2,13 +2,13 @@
 # @Author: Theo Lemaire
 # @Date:   2022-08-15 09:29:37
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-01 17:44:38
+# @Last Modified time: 2025-10-30 17:59:02
 
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from scipy.signal import spectrogram
+from scipy.signal import spectrogram, hilbert
 from scipy.signal.windows import tukey
 
 from .constants import S_TO_MS, HZ_TO_KHZ
@@ -17,7 +17,7 @@ from .logger import logger
 from .plotters import data_to_axis
 
 
-def get_pulse_envelope(n, xramp=0, xprepad=0, xpostpad=0, rms_norm=True, nreps=1):
+def get_pulse_envelope(n, xramp=0, xprepad=0, xpostpad=0, rms_norm=True, nreps=1, njitter=0.):
     '''
     Get a pulse envelope of specified size with a specific ramp-up/down fraction 
     and optional pre- and post-pulse zero padding.
@@ -28,6 +28,7 @@ def get_pulse_envelope(n, xramp=0, xprepad=0, xpostpad=0, rms_norm=True, nreps=1
     :param xpostpad: relative size of post-pulse zero padding, w.r.t pulse window. Defaults to zero.
     :param rms_norm: flag indicating whether to normalize the envelope to unit RMS amplitude (default = True)
     :param nreps: number of repetitions of the pulse envelope (default = 1)
+    :param njitter: time jitter amplitude, in samples (optional, defaults ot 0)
     :return: pulse(s) envelope vector (potentially normalized to unit RMS amplitude)
     '''
     # Check that ramp fraction is in [0, 1]
@@ -42,23 +43,41 @@ def get_pulse_envelope(n, xramp=0, xprepad=0, xpostpad=0, rms_norm=True, nreps=1
         wrms = np.sqrt(np.mean(w**2))  # RMS amplitude of the pulse envelope
         w = w / wrms  # normalize to unit RMS amplitude
 
-    # Add pre- and post-pulse padding, if any
-    if xprepad > 0:
-        npre = int(np.round(n * xprepad))
-        w = np.hstack([np.zeros(npre), w])
-    if xpostpad > 0:
-        npost = int(np.round(n * xpostpad))
-        w = np.hstack([w, np.zeros(npost)])
+    # Compute length of pre and post-padding
+    npre = int(np.round(n * xprepad))
+    npost = int(np.round(n * xpostpad))
 
-    # Repeat pulse envelope if needed
-    if nreps > 1:
-        w = np.tile(w, nreps)
+    # Create empy list of pulse waveforms
+    wall = []
 
-    # Return envelope vector
-    return w
+    # For each rep
+    for irep in range(nreps):
+        # Copy nominal pulse waveform
+        wrep = w.copy()
+        
+        # Compute npre and npost for that pulse, with optional jitters
+        # taken from uniform distirbution
+        npre_rep, npost_rep = npre, npost
+        if njitter > 0:
+            jitters = np.random.uniform(-njitter, njitter, size=2).astype(int)
+            npre_rep += jitters[0]
+            npost_rep += jitters[1]
+
+        # Add pre- and post-pulse padding, if any
+        if npre_rep > 0:
+            wrep = np.hstack([np.zeros(npre_rep), wrep])
+        if npost_rep > 0:
+            wrep = np.hstack([wrep, np.zeros(npost_rep)])
+        wall.append(wrep)
+
+    # Stack into single vector 
+    wall = np.hstack(wall)
+
+    # Return
+    return wall
 
 
-def get_pulse_train_envelope(dt, dur, PRF=None, DC=100., tramp=0, tprepad=None, tpostpad=None, **kwargs):
+def get_pulse_train_envelope(dt, dur, PRF=None, DC=100., tramp=0, tprepad=None, tpostpad=None, tjitter=0., **kwargs):
     '''
     Construct pulse train envelope from stimulation parameters
 
@@ -69,10 +88,10 @@ def get_pulse_train_envelope(dt, dur, PRF=None, DC=100., tramp=0, tprepad=None, 
     :param tramp: ramp-up time (s) for each pulse envelope
     :param tprepad: pre-train zero padding (s). If None, set to 5% of pulse train duration or 20 ms, whichever is greater
     :param tpostpad: post-train zero padding (s). If None, set to 5% of pulse train duration or 20 ms, whichever is greater
+    :param tjitter: time jitter amplitude, in seconds (optional, defaults ot 0.)
     :param kwargs: additional arguments for get_pulse_envelope function
     :return: time and envelope vectors
     '''
-    # print(dt, dur, PRF, DC, tramp, tprepad, tpostpad, kwargs)
     # Determine overall number of points
     nenv = int(np.round(dur / dt)) + 1
 
@@ -106,7 +125,7 @@ def get_pulse_train_envelope(dt, dur, PRF=None, DC=100., tramp=0, tprepad=None, 
         xpostpad = 1 / (DC * 1e-2) - 1  # offset fraction
 
         # Get pulse envelope
-        y = get_pulse_envelope(nperpulse, xramp=xramp, xpostpad=xpostpad, nreps=npulses, **kwargs)
+        y = get_pulse_envelope(nperpulse, xramp=xramp, xpostpad=xpostpad, nreps=npulses, njitter=tjitter / dt, **kwargs)
 
     # Compute effective time step post-construction, and check against requested time step
     dteff = dur / (y.size - 1)
@@ -131,7 +150,7 @@ def get_pulse_train_envelope(dt, dur, PRF=None, DC=100., tramp=0, tprepad=None, 
     return t, y
 
 
-def get_waveform(Fdrive, A, *args, npc=25, **kwargs):
+def get_waveform(Fdrive, A, *args, npc=25, env_tjitter=0., **kwargs):
     '''
     Get full waveform from waveform prameters
 
@@ -139,6 +158,7 @@ def get_waveform(Fdrive, A, *args, npc=25, **kwargs):
     :param A: waveform amplitude
     :param args: additional arguments for get_pulse_train_envelope function
     :param npc: number of points per cycle (default = 25)
+    :param env_tjitter: envelope time jitter amplitude, in seconds (optional, defaults ot 0.)
     :param kwargs: additional arguments for get_pulse_envelope function
     :return: time, waveform and waveform envelope vectors
     '''
@@ -146,7 +166,7 @@ def get_waveform(Fdrive, A, *args, npc=25, **kwargs):
     dt_target = 1 / (Fdrive * npc)  # s
 
     # Construct pulse train envelope and time vectors
-    t, yenv = get_pulse_train_envelope(dt_target, *args, **kwargs)
+    t, yenv = get_pulse_train_envelope(dt_target, *args, tjitter=env_tjitter, **kwargs)
     yenv *= A  # scale envelope by amplitude
     
     # Construct carrier vector

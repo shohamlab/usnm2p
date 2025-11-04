@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-23 12:09:43
+# @Last Modified time: 2025-10-28 16:44:10
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -47,6 +47,8 @@ class Label:
     FRAMEROW = 'frame row'
     STIMFRAME = 'stimulus frame'
     CH = 'channel'
+    MOUSE = 'mouse'
+    DATE = 'date'
     DATASET = 'dataset'
     LAYER = 'layer'
     OFFSET = 'offset (mm)'
@@ -300,6 +302,7 @@ GLOBAL_CORRECTION = {
     'sarah_line3': None,
     'cre_sst': None, #'linreg_robust', 'linreg_nointercept_refch2'
     'cre_ndnf': None,
+    'cre_all': None,
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
 
@@ -452,6 +455,7 @@ class Palette:
         'sst': 'r',
         'cre_sst': 'C2',
         'cre_ndnf': 'C2',
+        'cre_all': 'C2',
     }
     P = 'flare'  # pressure (continuous)
     DC = 'crest'  # duty cycle (continuous)
@@ -484,6 +488,7 @@ MIN_CELL_DENSITY = {
     'pv': None,
     'cre_sst': None,
     'cre_ndnf': None,
+    'cre_all': None,
 }
 
 

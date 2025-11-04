@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-16 13:12:13
+# @Last Modified time: 2025-11-04 15:05:19
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -404,6 +404,7 @@ def loadtif(fpath, verbose=True, metadata=False, nchannels=1):
             # Load metadata
             meta = tif.scanimage_metadata
             # Check number of channels and reshape TIF stack if necessary
+            logfunc('inferring number of channels from ScanImage metadata')
             nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
         else:
             meta = None

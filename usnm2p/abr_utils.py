@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2024-08-22 12:16:31
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-06-03 10:14:36
+# @Last Modified time: 2025-10-30 13:12:59
 
 ''' Utilities for the anlysis of ABR data and the prediciton of ABR responses to US '''
 
@@ -158,7 +158,7 @@ def extract_stim_window(y, rel_thr=0.05):
     return ibounds
 
 
-def compute_predicted_ABR(ABR_thresholds, impulse_ABR, *args, fbounds=(2e3, 90e3), norm_factor=None, **kwargs):
+def compute_predicted_ABR(ABR_thresholds, impulse_ABR, *args, fbounds=(2e3, 90e3), norm_factor=None, nreps=1, **kwargs):
     '''
     Compute predicted ABR signal evoked by specific US waveform
 
@@ -167,9 +167,19 @@ def compute_predicted_ABR(ABR_thresholds, impulse_ABR, *args, fbounds=(2e3, 90e3
     :param args: arguments for get_waveform function
     :param fbounds: frequency bounds for ABR signal (default = mouse hreading range [2 - 90 kHz])
     :param norm_factor: normalization factor for final ABR response signal (default = None) 
+    :param nreps: number of repetitions (useful if randomness injected into input signal)
     :param kwargs: arguments for get_spectrogram function
     :return: time-indexed evoked ABR signal (uV) as pandas Series
     '''
+    # If more than 1 rep, call function recursively and stack outputs in multi-indexed series 
+    if nreps > 1:
+        outputs = {}
+        for irep in range(nreps):
+            outputs[irep] = compute_predicted_ABR(
+                ABR_thresholds, impulse_ABR, *args, fbounds=fbounds,
+                norm_factor=norm_factor, nreps=1, **kwargs)
+        return pd.concat(outputs, names=['repetition'], axis=0)
+
     # Construct US waveform
     t, P_t, _ = get_waveform(*args, **kwargs)
 
@@ -219,7 +229,7 @@ def compute_predicted_ABR(ABR_thresholds, impulse_ABR, *args, fbounds=(2e3, 90e3
     )
 
 
-def plot_ABR_vs_parameter(s, pname, punit, stim_tbounds=None):
+def plot_ABR_vs_parameter(s, pname, punit, stim_tbounds=None, height=1, hue=None):
     '''
     Plot ABR response signal vs. input parameter
     
@@ -240,9 +250,11 @@ def plot_ABR_vs_parameter(s, pname, punit, stim_tbounds=None):
         kind='line',
         x='time (ms)',
         y='ABR (a.u.)',
+        hue=hue,
+        errorbar='se',
         row=pkey,
         row_order=pvals,
-        height=1, aspect=5, 
+        height=height, aspect=5, 
     )
     fig = g.fig
     axes = g.axes.flatten()
