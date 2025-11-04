@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-09 07:30:24
+# @Last Modified time: 2025-11-04 16:15:31
 
 ''' Collection of plotting utilities. '''
 
@@ -16,7 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec, SubplotSpec
 import re
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, Normalize, LogNorm, SymLogNorm, to_rgb, TwoSlopeNorm
 from matplotlib import cm
 import matplotlib.colors as mcolors
 from matplotlib.ticker import FormatStrFormatter
@@ -804,7 +804,7 @@ def plot_frameavg_profiles(frameavgs, details=False, title=None):
     return fig
 
 
-def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto', qthr=0.005):
+def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto', qmin=0.005, qmax=.995):
     '''
     Plot fluorescence timelapse 
 
@@ -814,6 +814,8 @@ def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto'
     :param um_per_px: spatial resolution (optinal, for spatial scale)
     :param title: figure title (optional)
     :param cmap: colormap used to render frames (default = "auto", i.e. automatically inferred from data)
+    :param qmin: lower bound clipping quantile
+    :param qmax: upper boubnd clipping quantile
     :return: figure object
     '''
     # Infer whether movie contains both positive and negative values 
@@ -821,16 +823,16 @@ def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto'
     
     # Infer colormap if required
     if cmap == 'auto':
-        if is_signed:
-            cmap = 'RdBu_r'
-        else:
-            cmap = 'viridis'
+        cmap = 'RdBu_r' if is_signed else 'viridis'
 
     # Extract bounding values for colormap
-    vmin, vmax = np.quantile(F, [qthr, 1 - qthr])    
+    vmin, vmax = np.quantile(F, [qmin, qmax])    
     if is_signed:
-        vabsmax = np.abs(np.array([vmin, vmax])).max()
-        vmin, vmax = -vabsmax, vabsmax
+        # vabsmax = np.abs(np.array([vmin, vmax])).max()
+        # norm = plt.Normalize(-vabsmax, vabsmax)
+        norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+    else:
+        norm = plt.Normalize(vmin, vmax)
     
     # Create figure
     nframes = F.shape[0]
@@ -846,7 +848,8 @@ def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto'
     logger.info(f'plotting {label} timelapse')
     for i, frame in enumerate(F):
         ax = next(axiter)
-        plot_frame(frame, um_per_px=um_per_px, ax=ax, vmin=vmin, vmax=vmax, cmap=cmap)
+        plot_frame(
+            frame, um_per_px=um_per_px, ax=ax, norm=norm, cmap=cmap)
         if times is not None:
             ax.text(.05, .05, f'{times[i]:.2f} s', transform=ax.transAxes, fontsize=10)
         ax.set_aspect(1.)
@@ -855,7 +858,7 @@ def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto'
     cbar_ax = next(axiter)
     cbar_ax.set_box_aspect(4.)
     fig.colorbar(
-        cm.ScalarMappable(norm=plt.Normalize(vmin=vmin, vmax=vmax), cmap=cmap),
+        cm.ScalarMappable(norm=norm, cmap=cmap),
         cax=cbar_ax, 
         label=label
     )
@@ -869,14 +872,14 @@ def plot_timelapse(F, label, times=None, um_per_px=None, title=None, cmap='auto'
         except StopIteration:
             pass
 
-    # Adjust layout
-    fig.tight_layout()
-
     # Add title
     stitle = f'{label} timelapse'
     if title is not None:
         stitle = f'{stitle} - {title}'
     fig.suptitle(stitle)
+
+    # Adjust layout
+    fig.tight_layout()
 
     # Return 
     return fig
