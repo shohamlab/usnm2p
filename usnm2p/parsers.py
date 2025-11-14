@@ -8,6 +8,7 @@
 
 # External modules
 import re
+import json
 import os
 import numpy as np
 import pandas as pd
@@ -343,3 +344,188 @@ def map_dates_to_deafening_status(df):
         dates[0]: 'pre-deafening',
         dates[1]: 'post-deafening'
     })
+
+
+def parse_matlab_inner_array(inner):
+    '''
+    Parse the inner content of a MATLAB-like array string into a 2D Python list.
+    :param inner: string content inside MATLAB array brackets (or cell brackets)
+    :return: 2D list with parsed values
+    '''
+    rows = [r.strip() for r in inner.split(";")]
+    parsed = []
+    for row in rows:
+        row_elems = []
+        for x in row.split():
+            if x.lower() == 'true':
+                val = True
+            elif x.lower() == 'false':
+                val = False
+            elif re.search(r"[.\deE+-]", x):
+                try:
+                    val = int(x)
+                except ValueError:
+                    val = float(x)
+            else:
+                val = x
+            row_elems.append(val)
+        parsed.append(row_elems)
+    return parsed
+
+
+def parse_matlab_value(v):
+    '''
+    Convert MATLAB-like value strings into Python types
+    
+    :param v: string value to parse
+    :return: parsed value
+    '''
+    v = v.strip()
+
+    # Empty array
+    if v in ("[]", "{}", "''"):
+        return [] if v != "''" else ""
+
+    # Booleans
+    if v.lower() == "true":
+        return True
+    if v.lower() == "false":
+        return False
+
+    # NaN, Inf
+    if v.lower() == "nan":
+        return np.nan
+    if v.lower() == "inf":
+        return float("inf")
+
+    # Function handles like @scanimage...
+    if v.startswith("@"):
+        return v  # keep as string
+
+    # Strings in quotes
+    if re.match(r"^'.*'$", v):
+        return v[1:-1]
+
+    # Numeric scalar
+    try:
+        return float(v) if any(ch in v for ch in ".eE") else int(v)
+    except ValueError:
+        pass
+
+    # MATLAB array: [a b; c d]
+    if v.startswith("[") and v.endswith("]"):
+        inner = v[1:-1].strip()
+        return parse_matlab_inner_array(inner)
+
+    # MATLAB cell array: {'a';'b'} or {1 2}
+    if v.startswith("{") and v.endswith("}"):
+        inner = v[1:-1].strip()
+        if not inner:
+            return []
+    
+        subarrays = re.findall(r'\[([^\]]+)\]', inner)
+        if subarrays:
+            return [parse_matlab_inner_array(sub)[0] for sub in subarrays]
+
+        parts = re.split(r"[; ]+", inner)
+        return [parse_matlab_value(p) for p in parts if p]
+
+    # Default: raw string
+    return v
+
+
+def parse_scanimage_software_tag(s):
+    '''
+    Parse a ScanImage-style TIF software tag.
+
+    :param s: string containing TIF software tag
+    :return: dictionary with parsed metadata from the tag
+    '''
+    # Preprocess the string
+    lines = [ln.strip() for ln in s.strip().splitlines() if ln.strip()]
+    
+    # Initialize output dictionary
+    data = {}
+
+    # Parse line by line
+    for line in lines:
+        # If no '=' in line, skip
+        if '=' not in line:
+            continue
+        # Split key and value around first '='
+        key, val = [x.strip() for x in line.split('=', 1)]
+        # Parse value and store in dictionary
+        data[key] = parse_matlab_value(val.rstrip(';'))
+
+    # Return parsed data
+    return data
+
+
+def parse_scanimage_artist_tag(s):
+    '''
+    Parse a ScanImage-style TIF artist tag.
+
+    :param s: string containing TIF artist tag
+    :return: dictionary with parsed metadata
+    '''
+    # Step 1. Clean the string (remove stray whitespace, ensure valid JSON)
+    s = s.strip()
+    
+    # Replace any "NaN" or "Inf" variants with null for JSON safety
+    s = re.sub(r'\bNaN\b', 'null', s)
+    s = re.sub(r'\bInf\b', 'null', s)
+    
+    # Step 2. Ensure it’s valid JSON (this example already is)
+    try:
+        data = json.loads(s)
+    except json.JSONDecodeError as e:
+        # Try to repair with slightly more lenient regex adjustments
+        # Replace single quotes with double quotes if needed
+        s_fixed = re.sub(r"(?<!\\)'", '"', s)
+        data = json.loads(s_fixed)
+
+    # Step 3. Recursively convert numeric strings, etc.
+    def convert_types(obj):
+        if isinstance(obj, dict):
+            return {k: convert_types(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_types(v) for v in obj]
+        elif isinstance(obj, str):
+            # Try to convert numeric strings
+            try:
+                if '.' in obj or 'e' in obj or 'E' in obj:
+                    return float(obj)
+                else:
+                    return int(obj)
+            except ValueError:
+                return obj
+        else:
+            return obj
+
+    return convert_types(data)
+
+
+def parse_scanimage_metadata_from_tif_tags(tif):
+    ''' 
+    Parse ScanImage metadata from a TiffFile object.
+
+    :param tif: TiffFile object
+    :return: dictionary with parsed metadata
+    '''
+    # If TIF is not from scanimage, return empty dict
+    if not tif.is_scanimage:
+        return {}
+
+    # Extract metadata from tags
+    software = tif.pages[0].tags['Software'].value
+    artist = tif.pages[0].tags['Artist'].value
+
+    # Reconstruct ScanImage metadata dictionary
+    meta = {
+        'FrameData': parse_scanimage_software_tag(software),
+    }
+    meta.update(parse_scanimage_artist_tag(artist))
+    meta['version'] = meta['FrameData'].get('SI.TIFF_FORMAT_VERSION', 'unknown')
+
+    # Return metadata
+    return meta

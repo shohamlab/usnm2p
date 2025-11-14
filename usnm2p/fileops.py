@@ -20,7 +20,7 @@ import matplotlib.backends.backend_pdf
 from tqdm import tqdm
 from natsort import natsorted
 
-from .parsers import parse_experiment_parameters, P_TIFFILE, parse_date_mouse_region
+from .parsers import parse_experiment_parameters, P_TIFFILE, parse_date_mouse_region, parse_scanimage_metadata_from_tif_tags
 from .logger import logger
 from .utils import *
 from .constants import *
@@ -403,12 +403,15 @@ def loadtif(fpath, verbose=True, metadata=False, nchannels=1):
         if tif.is_scanimage:
             # Load metadata
             meta = tif.scanimage_metadata
+            if not meta:
+                meta = parse_scanimage_metadata_from_tif_tags(tif)
             # Check number of channels and reshape TIF stack if necessary
             logfunc('inferring number of channels from ScanImage metadata')
             nchannels = len(meta['FrameData']['SI.hChannels.channelSave'])
         else:
             meta = None
-        if stack.ndim < 4 and nchannels > 1:
+        # Reshape TIF stack if multichannel but no expliciti channel dimension
+        if nchannels > 1 and stack.ndim < 4 and stack.shape[0] != nchannels:
             logfunc(f'splitting {nchannels} channels {stack.shape} shaped array')
             stack = np.reshape(
                 stack, (stack.shape[0] // nchannels, nchannels, *stack.shape[1:]))
@@ -432,11 +435,29 @@ def get_tif_dtype(fpath):
     return dtype
 
 
-def load_tif_metadata(fpath):
-    ''' Load metadata from .tif file '''
+def load_scanimage_metadata(fpath):
+    ''' Load ScanImage metadata from .tif file '''
     with TiffFile(fpath) as tif:
-        return tif.scanimage_metadata
-    
+        # Attempt to extract scanImage metadata directly from TiffFile object field
+        meta = tif.scanimage_metadata
+        if meta:
+            return meta        
+        # Otherwise, resort to manual parsing from TIF tags
+        return parse_scanimage_metadata_from_tif_tags(tif)
+
+
+def print_scanimage_metadata(meta):
+    ''' Print ScanImage metadata dictionary in a readable format. '''
+    print('----- SCANIMAGE METADATA -----')
+    for k, v in meta.items():
+        if isinstance(v, dict):
+            print(f"    {k}:")
+            for k2, v2 in v.items():
+                print(f"         {k2}: {v2}")
+        else:
+            print(f"    {k}: {v}")
+    print('------------------------------')
+
 
 def load_tif_nframes(fpath, nchannels=1):
     ''' 

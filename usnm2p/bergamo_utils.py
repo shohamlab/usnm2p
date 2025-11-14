@@ -13,12 +13,15 @@ import json
 import re
 import tifffile
 import pandas as pd
+import logging
+import time
+from tqdm import tqdm
 
 # Internal modules
 from .constants import *
 from .logger import logger
 from .parsers import find_suffixes, group_by_run
-from .fileops import load_tif_metadata, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif, get_output_equivalent, save_acquisition_settings, process_and_save
+from .fileops import load_scanimage_metadata, get_input_files, get_subfolder_names, get_dataset_params, restrict_datasets, split_path_at, load_acquisition_settings, loadtif, savetif, get_output_equivalent, save_acquisition_settings, process_and_save
 from .stackers import TifStacker
 from .filters import KalmanDenoiser
 from .resamplers import resample_tifs
@@ -78,7 +81,7 @@ def parse_scanimage_meta(fpath):
     :return: metadata dictionary
     '''
     # Load metadata from TIF file
-    meta = load_tif_metadata(fpath)
+    meta = load_scanimage_metadata(fpath)
 
     # Restrict to FrameData information
     meta = meta['FrameData']
@@ -151,11 +154,89 @@ def stack_trial_tifs(stacker, in_fpaths, out_fpath, **kwargs):
     return ref_meta
 
 
-def stack_singleframe_tifs_across_trials(input_dir, **kwargs):
+def stack_scanimage_singleframe_tifs(in_fpaths, out_fpath=None, overwrite=False):
+    '''
+    Stack a collection of single-frame TIFs acquired with ScanImage.
+
+    :param in_fpaths: list of input single-frame TIF file paths
+    :param out_fpath (optional): output file path for the stacked TIF
+    :param overwrite: whether to overwrite existing output file (default: False)
+    :return: filepath to the created tif stack
+    '''
+    # If output fpath not provided, assemble from common prefix of input filepaths
+    if out_fpath is None:
+        common_prefix = os.path.commonprefix(in_fpaths)
+        common_prefix = re.sub(r'(_0+)$', '', common_prefix)
+        out_fpath = f'{common_prefix}.tif'
+
+    # If output file already exists and overwrite is False, skip stacking
+    if os.path.isfile(out_fpath) and not overwrite:
+        logger.warning(f'{out_fpath} already exists -> skipping')
+        return out_fpath
+
+    # Log information
+    out_fname = os.path.basename(out_fpath)
+    logger.info(f'stacking {len(in_fpaths)} single-frame TIFs into {out_fname}')
+
+    # Store current tifffile log level and suppress tifffile warnings
+    tiflogger = logging.getLogger('tifffile')
+    tifloglevel = tiflogger.getEffectiveLevel()
+    tiflogger.setLevel(logging.ERROR)
+
+    # Loop through single-frame TIFs
+    stack = []
+    for f in tqdm(in_fpaths):
+        # Load TIF data and metadata
+        data, si_meta = loadtif(f, metadata=True, verbose=False)
+        stack.append(data)
+        # Load SI metadata
+        tags = tifffile.TiffFile(f).pages[0].tags
+        desc = tags['ImageDescription'].value
+        software = tags['Software'].value
+        compression = tags['Compression'].value
+    
+    tags_to_add = [
+        'Orientation',
+        'Artist',
+    ]
+    extratags = [tag.astuple() for tag_id, tag in tags.items() if tag.name in tags_to_add]
+
+    # Ensure all frames have the same shape
+    shapes = [s.shape for s in stack]
+    if not all(s == shapes[0] for s in shapes):
+        raise ValueError('inconsistent shapes across single-frame TIFs')
+
+    # If multi-channel frames, concatenate channels along first axis
+    if stack[0].ndim == 3:
+        stack = np.concatenate(stack, axis=0)
+    # Otherwise, create new stacking axis
+    else:
+        stack = np.stack(stack, axis=0)
+
+    # Save stacked data to output TIF
+    tifffile.imwrite(
+        out_fpath, 
+        stack, 
+        description=desc, 
+        software=software,
+        compression=compression,
+        extratags=extratags
+    )
+
+    # Restore tifffile log level
+    tiflogger.setLevel(tifloglevel)
+
+    # Return output filepath
+    return out_fpath
+
+
+def stack_singleframe_tifs_across_trials(input_dir, outsubkey='stacked', overwrite=False):
     '''
     Stack single-frame TIFs for each trial identified in a directory.
     
     :param input_dir: input directory containing singl-frame tifs
+    :param outsubkey: name of the output subdirectory for stacked tifs
+    :param overwrite: whether to overwrite existing stacks
     :return: filepaths to the created tif stacks per trial
     '''
     # Define search pattern for single-frame tif: must have condition prefix, trial number and frame number 
@@ -169,12 +250,50 @@ def stack_singleframe_tifs_across_trials(input_dir, **kwargs):
             condition, trial, frame = mo.groups()
             trial = int(trial)
             frame = int(frame)
-            inputs.append(fname, condition, trial, frame)
+            inputs.append((fname, condition, trial, frame))
+    
+    # Assemble inputs in dataframe
     df = pd.DataFrame(
         data=inputs,
         columns=['filename', 'condition', 'trial', 'frame']
     )
-    print(df)
+
+    # Sort by condition, trial, frame
+    df = df.sort_values(by=['condition', 'trial', 'frame'])
+    logger.info(f'identified the following single-frame TIFs to stack:\n{df}')
+
+    # Define and create output sub-directory
+    outputdir = os.path.join(input_dir, outsubkey)
+    os.makedirs(outputdir, exist_ok=True)
+
+    # Initialize output filepaths list
+    output_fpaths = []
+
+    # Start timer
+    t0 = time.perf_counter()
+
+    # For each condition and trial, stack associated single-frame TIFs
+    for (condition, trial), group in df.groupby(['condition', 'trial']):
+        logger.info(f'generating TIF stack for condition "{condition}", trial {trial}')
+        # Get list of input filepaths for current condition and trial
+        in_fpaths = [os.path.join(input_dir, fname) for fname in group['filename'].values]
+
+        # Define output filepath
+        out_fpath = os.path.join(outputdir, f'{condition}_{trial:05d}.tif')
+
+        # Stack single-frame TIFs together into multi-frame TIF
+        stack_scanimage_singleframe_tifs(in_fpaths, out_fpath=out_fpath, overwrite=overwrite)
+
+        # Append output filepath to list
+        output_fpaths.append(out_fpath)
+    
+    # Stop timer and log information
+    t1 = time.perf_counter()
+    logger.info(f'stacking completed in {t1 - t0:.2f} seconds')
+    logger.info(f'stacked single-frame TIFs into {len(output_fpaths)} multi-frame TIFs in {outputdir}')
+
+    # Return list of output filepaths
+    return output_fpaths
 
 
 def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta=True, **kwargs):

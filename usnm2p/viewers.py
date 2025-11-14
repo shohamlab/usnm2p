@@ -56,7 +56,7 @@ class StackViewer:
         '''
         self.logfunc = logger.info if verbose else logger.debug
         self.fpaths = fpaths
-        self.logfunc('initializing stack viewer')
+        self.logfunc(f'initializing {nchannels}-channel stack viewer')
         self.fobjs = [self.get_fileobj(fp, **kwargs) for fp in self.fpaths]
         self.headers = headers
         self.title = title
