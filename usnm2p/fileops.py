@@ -446,6 +446,14 @@ def load_scanimage_metadata(fpath):
         return parse_scanimage_metadata_from_tif_tags(tif)
 
 
+def load_scanimage_nchannels(f):
+    ''' Load number of channels from ScanImage .tif file '''
+    meta = load_scanimage_metadata(f)
+    ichannels = meta['FrameData']['SI.hChannels.channelSave']
+    ichannels = [x[0] if len(x) == 1 else x for x in ichannels]
+    return len(ichannels)
+
+
 def print_scanimage_metadata(meta):
     ''' Print ScanImage metadata dictionary in a readable format. '''
     print('----- SCANIMAGE METADATA -----')

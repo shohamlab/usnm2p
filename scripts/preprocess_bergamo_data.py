@@ -40,6 +40,12 @@ if __name__ == '__main__':
         '-k', '--kalman-gain', type=float, default=0, help='Kalman filter gain')
     parser.add_argument(
         '--ich', type=int, help='channel index')
+    parser.add_argument(
+        '--allow-trial-mismatches', default=False, action='store_true',
+        help='allow mismatches in metadata across trials when stacking')
+    parser.add_argument(
+        '--allow-run-mismatches', default=False, action='store_true',
+        help='allow mismatches in metadata across runs when stacking')
 
     # Parse command line arguments
     args = parser.parse_args()

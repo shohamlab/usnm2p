@@ -109,14 +109,15 @@ def parse_scanimage_meta(fpath):
     return meta
 
 
-def stack_trial_tifs(stacker, in_fpaths, out_fpath, **kwargs):
+def stack_trial_tifs(stacker, in_fpaths, out_fpath, ref_trial=None, allow_mismatches=False, **kwargs):
     '''
     Stack TIFs of consecutive trials together
     
     :param stacker: TifStacker object
     :param in_fpaths: absolute paths to input trial stacks
     :param out_fpath: absolute path to output stack
-    :param save_meta (default=True): whether to save metadata to JSON file or not
+    :param ref_trial (default=None): reference trial for metadata extraction. If none, the mode across trials is used.
+    :param allow_mismatches (default=False): whether to allow mismatches in metadata across trials
     :return: metadata shared across all trials, as a pandas Series
     '''
     # Load metadata from all TIF files
@@ -127,19 +128,28 @@ def stack_trial_tifs(stacker, in_fpaths, out_fpath, **kwargs):
     meta_by_trial = pd.concat(meta_by_trial, axis=1, names='trial')
     meta_by_trial = meta_by_trial.transpose()
 
-    # Check that metadata is consistent across all TIF files
-    ref_meta = (
-        meta_by_trial
-        .mode(axis=0)
-        .iloc[0, :]
-        .rename('settings')
-    )
+    # If specified, use specific trial for reference metadata
+    if ref_trial is not None:
+        ref_meta = meta_by_trial.loc[ref_trial]
+    # Otherwise, use mode across trials
+    else:
+        ref_meta = (
+            meta_by_trial
+            .mode(axis=0)
+            .iloc[0, :]
+        )
+    ref_meta = ref_meta.rename('settings')
 
     # If some settings vary across runs, raise an error
     ismatch = meta_by_trial.eq(ref_meta, axis=1).all(axis=0)
-    nonmatching_settings = ismatch[~ismatch]
+    nonmatching_settings = ismatch[~ismatch].index.values
     if len(nonmatching_settings) > 0:
-        raise ValueError(f'Inconsistent metadata across trials for the following settings:\n{meta_by_trial[nonmatching_settings]}')
+        with pd.option_context('display.max_colwidth', None, 'display.max_columns', None):
+            msg = f'Inconsistent metadata across trials for the following settings:\n{meta_by_trial[nonmatching_settings]}'
+            if not allow_mismatches:
+                raise ValueError(msg)
+            else:
+                logger.warning(msg)
 
     # Add number of trial files to reference metadata
     ref_meta['nTrials'] = len(in_fpaths)
@@ -296,7 +306,7 @@ def stack_singleframe_tifs_across_trials(input_dir, outsubkey='stacked', overwri
     return output_fpaths
 
 
-def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta=True, **kwargs):
+def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta=True, allow_trial_mismatches=False, allow_run_mismatches=False, **kwargs):
     '''
     Stack trial TIFs for each run identified in a file list.
     
@@ -304,6 +314,8 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
     :param input_key: input key for output path replacement
     :param align (default=False): whether to align stacks or not
     :param save_meta (default=True): whether to save metadata to JSON file or not
+    :param allow_trial_mismatches (default=False): whether to allow mismatches in metadata across trials when stacking
+    :param allow_run_mismatches (default=False): whether to allow mismatches in metadata across runs when stacking
     :return: filepaths to the created tif stacks per run
     '''
     # Get TIF stacker object
@@ -329,7 +341,7 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
         out_fpath = os.path.join(outdir, run_fname)
 
         # Stack trial TIFs together, and store shared trials metadata
-        meta_by_run[run_fname] = stack_trial_tifs(stacker, trial_fpaths, out_fpath, **kwargs)
+        meta_by_run[run_fname] = stack_trial_tifs(stacker, trial_fpaths, out_fpath, allow_mismatches=allow_trial_mismatches, **kwargs)
 
         # Append output filepath to list
         output_fpaths.append(out_fpath)
@@ -350,51 +362,55 @@ def stack_trial_tifs_across_runs(input_fpaths, input_key, align=False, save_meta
     outliers = []
     diff_settings = []
 
-    # Check that metadata is consistent across all runs, and extract potential non-matching settings
-    logger.info('checking for settings consistency across runs...')
-    ismatch = meta_by_run.eq(ref_meta, axis=1).all(axis=0)
-    nonmatching_settings = ismatch[~ismatch].index.values
+    if allow_run_mismatches:
+        logger.warning('allowing mismatches in metadata across runs -> no consistency check will be performed')
+    else:
 
-    # For each differing setting
-    for k in nonmatching_settings:
-        # Extract values across runs, and reference value
-        vals = meta_by_run[k]
-        ref_val = ref_meta[k]
+        # Check that metadata is consistent across all runs, and extract potential non-matching settings
+        logger.info('checking for settings consistency across runs...')
+        ismatch = meta_by_run.eq(ref_meta, axis=1).all(axis=0)
+        nonmatching_settings = ismatch[~ismatch].index.values
 
-        # If numeric setting
-        # if vals.dtype == 'float64':
-        if isinstance(ref_val, (int, float, np.int16, np.int32, np.int64, np.float64)):
-            # Compute absolute relative deviations from reference value
-            rel_devs = ((vals - ref_val) / ref_val).abs()
-            logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
+        # For each differing setting
+        for k in nonmatching_settings:
+            # Extract values across runs, and reference value
+            vals = meta_by_run[k]
+            ref_val = ref_meta[k]
 
-            # Identify runs with significant relative deviations
-            maxreldev = MAX_LASER_POWER_REL_DEV if k == 'SI.hBeams.powers' else MAX_DAQ_REL_DEV  # for input laser power: allow 15% dev
-            current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
+            # If numeric setting
+            # if vals.dtype == 'float64':
+            if isinstance(ref_val, (int, float, np.int16, np.int32, np.int64, np.float64)):
+                # Compute absolute relative deviations from reference value
+                rel_devs = ((vals - ref_val) / ref_val).abs()
+                logger.debug(f'absolute relative deviations from {k} reference:\n{rel_devs}')
+
+                # Identify runs with significant relative deviations
+                maxreldev = MAX_LASER_POWER_REL_DEV if k == 'SI.hBeams.powers' else MAX_DAQ_REL_DEV  # for input laser power: allow 15% dev
+                current_outliers = rel_devs[rel_devs > maxreldev].index.values.tolist()
+            
+            # Otherwise
+            else:
+                # Identify runs that differ from ref value 
+                try:
+                    current_outliers = vals[vals != ref_val].index.values.tolist()
+                except ValueError as e:
+                    logger.error(f'error when comparing {k} values:')
+                    logger.error(f'vals: {vals}')
+                    logger.error(f'ref_val: {ref_val}')
+                    raise e
+
+            # If outliers were detected, store differing setting
+            if len(current_outliers) > 0:
+                diff_settings.append(k)
+
+            # Add outliers runs to global list
+            outliers += current_outliers
         
-        # Otherwise
-        else:
-            # Identify runs that differ from ref value 
-            try:
-                current_outliers = vals[vals != ref_val].index.values.tolist()
-            except ValueError as e:
-                logger.error(f'error when comparing {k} values:')
-                logger.error(f'vals: {vals}')
-                logger.error(f'ref_val: {ref_val}')
-                raise e
-
-        # If outliers were detected, store differing setting
-        if len(current_outliers) > 0:
-            diff_settings.append(k)
-
-        # Add outliers runs to global list
-        outliers += current_outliers
-    
-    # If truly differing settings were found, log warning message
-    if len(diff_settings) > 0:
-        raise ValueError(
-            f'found {len(diff_settings)} acquisition setting(s) varying across runs:\n{meta_by_run[diff_settings]}')
-    
+        # If truly differing settings were found, log warning message
+        if len(diff_settings) > 0:
+            raise ValueError(
+                f'found {len(diff_settings)} acquisition setting(s) varying across runs:\n{meta_by_run[diff_settings]}')
+        
     # If "extra acquisition settings" JSON file exists, load extra settings and add them to metadata
     extra_settings_fpath = os.path.join(input_dir, 'extra_settings.json')
     if os.path.exists(extra_settings_fpath):
@@ -506,7 +522,7 @@ def split_multichannel_tifs(input_fpaths, input_key, **kwargs):
 
 
 def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kalman_gain=None, ich=None,
-                               mpi=False, overwrite=False, **kwargs):
+                               mpi=False, overwrite=False, allow_trial_mismatches=False, allow_run_mismatches=False, **kwargs):
     ''' 
     Pre-process Bergamo dataset
     
@@ -527,7 +543,10 @@ def preprocess_bergamo_dataset(fpaths, fps=None, smooth=False, correct=None, kal
 
     # Stack trial TIFs of every run in the stack list
     fpaths = stack_trial_tifs_across_runs(
-        fpaths, input_root, overwrite=overwrite)
+        fpaths, input_root, overwrite=overwrite, 
+        allow_trial_mismatches=allow_trial_mismatches,
+        allow_run_mismatches=allow_run_mismatches
+    )
     input_root = DataRoot.STACKED
 
     # Load daq settings from first input file
