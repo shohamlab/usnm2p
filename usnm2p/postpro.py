@@ -568,7 +568,7 @@ def quantile_filter(x, w, q):
     :param q: quantile value
     :return: filtered signal
     '''
-    return apply_rolling_window(x, w, func=lambda x: x.quantile(q))
+    return apply_rolling_window(x, w, func=lambda xx: xx.quantile(q))
 
 
 def skew_to_quantile(s, qthr=0.05, sigma=1.):
@@ -609,7 +609,7 @@ def get_quantile_baseline_func(fs, wquantile, q=None, wsmooth=None):
 
         # Define baseline extraction function per run
         def bfunc_per_run(y, q_):
-            y = quantile_filter(y, wquantile_len, q_)
+            y = quantile_filter(y.values, wquantile_len, q_)
             if wsmooth is not None:
                 y = gaussian_filter1d(y, wsmooth_len)
             return y

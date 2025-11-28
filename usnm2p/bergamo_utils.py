@@ -240,12 +240,12 @@ def stack_scanimage_singleframe_tifs(in_fpaths, out_fpath=None, overwrite=False)
     return out_fpath
 
 
-def stack_singleframe_tifs_across_trials(input_dir, outsubkey='stacked', overwrite=False):
+def stack_singleframe_tifs_across_trials(input_dir, output_dirname='stacked', overwrite=False):
     '''
     Stack single-frame TIFs for each trial identified in a directory.
     
     :param input_dir: input directory containing singl-frame tifs
-    :param outsubkey: name of the output subdirectory for stacked tifs
+    :param output_dirname: name of the output directory for stacked tifs (created as directory in parent of input_dir)
     :param overwrite: whether to overwrite existing stacks
     :return: filepaths to the created tif stacks per trial
     '''
@@ -272,8 +272,9 @@ def stack_singleframe_tifs_across_trials(input_dir, outsubkey='stacked', overwri
     df = df.sort_values(by=['condition', 'trial', 'frame'])
     logger.info(f'identified the following single-frame TIFs to stack:\n{df}')
 
-    # Define and create output sub-directory
-    outputdir = os.path.join(input_dir, outsubkey)
+    # Define and create output directory (in parent of input directory)
+    pardir = os.path.abspath(os.path.join(input_dir, os.pardir))
+    outputdir = os.path.join(pardir, output_dirname)
     os.makedirs(outputdir, exist_ok=True)
 
     # Initialize output filepaths list

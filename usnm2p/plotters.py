@@ -2767,7 +2767,7 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
 
     # Initialize figure, or use provided axes
     if axes is not None:
-        axes = np.asarray(axes)
+        axes = np.atleast_1d(np.asarray(axes))
         if len(axes) != naxes:
             raise ValueError(f'axes must be of length {naxes}')
         fig = axes[0].get_figure()

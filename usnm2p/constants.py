@@ -302,6 +302,7 @@ GLOBAL_CORRECTION = {
     'sarah_line3': None,
     'cre_sst': None, #'linreg_robust', 'linreg_nointercept_refch2'
     'cre_ndnf': None,
+    'cre_vip': None,
     'cre_all': None,
 }
 KALMAN_GAIN = 0.5  # gain of Kalman filter (0-1)
@@ -454,6 +455,7 @@ class Palette:
         'pv': 'C1',
         'sst': 'r',
         'cre_sst': 'C2',
+        'cre_vip': 'C2',
         'cre_ndnf': 'C2',
         'cre_all': 'C2',
     }
@@ -487,6 +489,7 @@ MIN_CELL_DENSITY = {
     'sst': None,
     'pv': None,
     'cre_sst': None,
+    'cre_vip': None,
     'cre_ndnf': None,
     'cre_all': None,
 }

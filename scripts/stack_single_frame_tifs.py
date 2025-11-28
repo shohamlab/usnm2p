@@ -7,7 +7,7 @@
 from usnm2p.bergamo_utils import stack_singleframe_tifs_across_trials
 
 # Define input directory containing single-frame TIFs across trials
-input_dir = '/gpfs/home/lemait01/scratch/data/usnm/raw_bergamo/main/cre_vip/20200309_mouse214_region1/singleframe'
+input_dir = '/gpfs/home/lemait01/scratch/data/usnm/raw_bergamo/main/cre_vip/20200309_mouse214_region1/excluded/singleframe'
 
 # Stack single-frame TIFs across trials
 stack_singleframe_tifs_across_trials(input_dir, overwrite=False)
