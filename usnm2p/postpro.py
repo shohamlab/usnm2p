@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-28 16:09:43
+# @Last Modified time: 2025-11-28 16:15:24
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2249,6 +2249,7 @@ def harmonize_run_index(dfs, condition='param'):
                     extrakeys = list(set(conds[sk].index.names) - set(refdims))
                     if ref_extrakeys is None or len(extrakeys) < len(ref_extrakeys):
                         ref_sk, ref_extrakeys = sk, extrakeys
+            
 
             # If no reference condition is found, raise error 
             if ref_sk is None:
@@ -2268,6 +2269,17 @@ def harmonize_run_index(dfs, condition='param'):
             # Create expanded condition compatible with timeseries
             s = f'{s} to match "{k}" timeseries'
             logger.info(s)
+
+            # If number of frames per trial varies across datasets, 
+            # crop everything to min number of frames per trial
+            nframes_per_dataset = (
+                dfs[k]
+                .groupby(Label.DATASET)
+                .apply(lambda tmp: len(tmp.index.unique(Label.FRAME))
+            ))
+            if len(nframes_per_dataset.value_counts()) > 1:
+                frameslice = slice(0, nframes_per_dataset.min() - 1)
+                dfs[k] = dfs[k].loc[slice_last_dim(dfs[k].index, frameslice)]
             conds[k] = expand_to_match(refcond, dfs[k].index)
     
     # Get condition: run-index mapper
