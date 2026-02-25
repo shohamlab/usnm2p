@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 19:25:20
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2024-08-07 16:00:09
+# @Last Modified time: 2026-02-24 13:33:00
 
 ''' 
 Collection of utilities to run suite2p batches, retrieve suite2p outputs and filter said
@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from suite2p import run_s2p, default_ops, version
 from suite2p.io import BinaryFile
+from suite2p.extraction import masks 
 
 from .constants import *
 from .logger import logger
@@ -362,3 +363,31 @@ def get_s2p_stack_label(ops):
     if len(l) > 0:
         label = f'{label} ({" + ".join(l)})'
     return label
+
+
+def intensity_ratio(ops, stats, imgkey='meanImg_chan2'):
+    ''' compute pixels in cell and in area around cell (including overlaps)
+        (exclude pixels from other cells) '''
+    Ly, Lx = ops['Ly'], ops['Lx']
+    cell_pix = masks.create_cell_pix(stats, Ly=ops['Ly'], Lx=ops['Lx'])
+    cell_masks0 = [masks.create_cell_mask(stat, Ly=ops['Ly'], Lx=ops['Lx'], allow_overlap=ops['allow_overlap']) for stat in stats]
+    neuropil_ipix = masks.create_neuropil_masks(
+        ypixs=[stat['ypix'] for stat in stats],
+        xpixs=[stat['xpix'] for stat in stats],
+        cell_pix=cell_pix,
+        inner_neuropil_radius=ops['inner_neuropil_radius'],
+        min_neuropil_pixels=ops['min_neuropil_pixels'],
+    )
+    cell_masks = np.zeros((len(stats), Ly * Lx), np.float32)
+    neuropil_masks = np.zeros((len(stats), Ly * Lx), np.float32)
+    for cell_mask, cell_mask0, neuropil_mask, neuropil_mask0 in zip(cell_masks, cell_masks0, neuropil_masks, neuropil_ipix):
+        cell_mask[cell_mask0[0]] = cell_mask0[1]
+        neuropil_mask[neuropil_mask0.astype(np.int64)] = 1. / len(neuropil_mask0)
+
+    mimg2 = ops[imgkey]
+    inpix = cell_masks @ mimg2.flatten()
+    extpix = neuropil_masks @ mimg2.flatten()
+    inpix = np.maximum(1e-3, inpix)
+    redprob = inpix / (inpix + extpix)
+    redcell = redprob > ops['chan2_thres']
+    return np.stack((redcell, redprob), axis=-1)
