@@ -388,6 +388,19 @@ def intensity_ratio(ops, stats, imgkey='meanImg_chan2'):
     inpix = cell_masks @ mimg2.flatten()
     extpix = neuropil_masks @ mimg2.flatten()
     inpix = np.maximum(1e-3, inpix)
-    redprob = inpix / (inpix + extpix)
-    redcell = redprob > ops['chan2_thres']
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.scatter(inpix, extpix)
+    ax.set_xlabel('inpix')
+    ax.set_ylabel('extpix')
+    thr = np.median(mimg2.flatten()) + 1 * np.std(mimg2.flatten())
+    ax.axvline(thr, ls='--', c='k')
+    
+    # TODO: classify based on absolute inpix value instead of ratio
+    # could for instance identify all cells whose inpix value is above a certain threshold (50% of max inpix value for instance) 
+    redprob = inpix / max(inpix)
+    redcell = redprob > (thr / max(inpix))
+    # redprob = inpix / (inpix + extpix)
+    # redcell = redprob > ops['chan2_thres']
     return np.stack((redcell, redprob), axis=-1)
