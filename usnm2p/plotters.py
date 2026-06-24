@@ -2614,7 +2614,7 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
                           colwrap=4, row=None, cmap=None, center=None, vmin=None, vmax=None,
                           quantile_bounds=(.01, .99), mark_stim=True, sort_ROIs=None,
                           col_order=None, col_labels=None, row_order=None,
-                          rect_markers=None, rasterized=False, axes=None, height_factor=1, **kwargs):
+                          rect_markers=None, rasterized=False, axes=None, height_factor=1, constrain_aspect=True, **kwargs):
     '''
     Plot heatmap of population activity over over time.
     
@@ -2763,7 +2763,8 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
         height *= aspect_ratio
 
     # Constrain figure height to fit letter aspect ratio
-    height = min(height, width * 11 / 8.5)
+    if constrain_aspect:
+        height = min(height, width * 11 / 8.5)
 
     # Initialize figure, or use provided axes
     if axes is not None:

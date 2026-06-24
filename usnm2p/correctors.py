@@ -788,7 +788,7 @@ class LinRegCorrector(Corrector):
         '''
         # If stack is 3D or no reference channel is given, call parent method 
         if stack.ndim == 3 or self.refch is None:
-            return self.run(stack)
+            return super()._run(stack)
         
         # Verify that stack is 4D
         if stack.ndim != 4:

@@ -1058,7 +1058,8 @@ def load_processed_dataset(fpath, keys=None):
 
 
 def load_processed_datasets(dirpath, layer=None, keys=None, include_patterns=None, exclude_patterns=None,
-                            on_duplicate_runs='raise', harmonize_runs=True, include_mode='all', 
+                            on_duplicate_runs='raise', harmonize_runs=True, include_mode='all',
+                            dataset_filter=None, 
                             **kwargs):
     '''
     Load multiple mouse-region datasets
@@ -1112,6 +1113,10 @@ def load_processed_datasets(dirpath, layer=None, keys=None, include_patterns=Non
         while dataset_id.startswith('_'):
             dataset_id = dataset_id[1:]
         dataset_ids.append(dataset_id)
+    
+    # If dataset filter function provided, apply it to dataset IDs and filter filepaths accordingly
+    if dataset_filter is not None:
+        fpaths, dataset_ids = list(zip(*[(f, d) for f, d in zip(fpaths, dataset_ids) if d in dataset_filter]))
     
     # Load timeseries and stats datasets
     datasets = [load_processed_dataset(fpath, keys=keys) for fpath in fpaths]

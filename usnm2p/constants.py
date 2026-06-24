@@ -69,6 +69,7 @@ class Label:
 
     # Time-varying signals
     TIME = 'time (s)'
+    ELAPSED_TIME = 'elapsed time (s)'
     HOURS = 'hours'
     TRIALPHASE = 'trial phase (rad)'
     PHASE = 'phase (rad)'
