@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 14:36:14
+# @Last Modified time: 2026-08-19 14:58:15
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -73,17 +73,18 @@ def ravel_first_two_dims(arr):
     return arr.reshape(new_shape)
 
 
-def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, serialize=False, nsplit=None):
+def extract_fluorescence_profile(F, qbase=None, avgkey=None, relchange=False, zscore=False, serialize=False, nsplit=None):
     '''
     Extract fluorescence profile (either absolute or relative change) from a stack,
     by averaging across a specific dimension.
 
     :param F: 3D (single channel) or 4D (multi-channel) fluorescence stack
-    :param qbase (optional): quantile for baseline extraction, if relative change is required
+    :param qbase (optional): quantile for baseline extraction, if change or relative change is required
     :param avgkey (optional): key specifying dimension to average across, if any. One of:
         - None: no aggregation, stack is fully expanded into 1D vector
         - 'frame': average across entire frame
         - 'row': average across column for each frame row
+    :param relchange (optional): whether to compute relative change in fluorescence (only when qbase is provided, defaults to False)
     :param serialize (optional): whether to serialize data if not already frame-averaged (defaults to False)
     :param nsplit (optional): number of segments to split the output profile into
     :return: 1D (if linear) or 2D (if split) frame-average or row-average fluoresence profile
@@ -99,7 +100,8 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
 
     # If multi-channel, run independently on each channel
     if nd == 4:
-        return np.array([extract_fluorescence_profile(x, qbase, avgkey=avgkey, nsplit=nsplit) for x in F])
+        return np.array([extract_fluorescence_profile(
+            x, qbase=qbase, avgkey=avgkey, relchange=relchange, zscore=zscore, serialize=serialize, nsplit=nsplit) for x in F])
 
     # Determine average axi(e)s, if any
     if avgkey is not None:
@@ -109,11 +111,18 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
         logger.info(f'extracting {avgkey}-average profile')
         F = np.mean(F, axis=avgax[avgkey])
 
-    # If baseline quantile is provided, compute relative change in fluorescence
+    # If baseline quantile is provided, compute pixel-wise baseline fluorescence
     if qbase is not None:
-        logger.info('computing element-wise dFF profiles')
+        logger.info('computing element-wise F0')
         F0 = np.quantile(F, qbase, axis=0)
-        F = (F - F0) / F0
+        # If specified, compute relative change in fluorescence
+        if relchange:
+            logger.info('computing element-wise dFF profiles')
+            F = (F - F0) / F0
+        # Otherwise, compute absolute changes in fluorescence
+        else:
+            logger.info('computing element-wise (F - F0) profiles')
+            F = F - F0
 
     # If specified, zscore the fluorescence profile
     if zscore:

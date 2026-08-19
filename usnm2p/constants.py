@@ -85,6 +85,7 @@ class Label:
     F0 = 'F0 (a.u.)'
     F_DETRENDED = 'F_detrended (a.u.)'
     F0_DETRENDED = 'F0 detrended (a.u.)'
+    DF = '\u0394F'
     DFF = '\u0394F/F0'
     PI = '\u03C0'
     ZSCORE = f'Z({DFF})'
