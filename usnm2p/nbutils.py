@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 15:12:58
+# @Last Modified time: 2026-08-19 16:27:36
 
 ''' Notebook running utilities '''
 
@@ -78,7 +78,7 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
             '--inspect', default=False, action='store_true',
             help='Inspect data from random run along processing')
         parser.add_argument(
-            '--inspectAO', default=False, action='store_true', help='Inspect AO effect in sonication frame, stop afterwards')
+            '--inspect-AO', default=False, action='store_true', help='Inspect AO effect in sonication frame, stop afterwards')
         parser.add_argument(
             '-c', '--global_correction', type=none_or_str, default='line', nargs='+',
             help='Global correction method')
@@ -89,7 +89,7 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
             '--alpha', type=float, default=NEUROPIL_SCALING_COEFF, nargs='+',
             help='scaling coefficient for neuropil subtraction')    
         parser.add_argument(
-            '-q', '--baseline_quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
+            '-q', '--baseline-quantile', type=none_or_float, default=BASELINE_QUANTILE, nargs='+',
             help='Baseline evaluation quantile')
         parser.add_argument(
             '--wq', type=float, default=BASELINE_WQUANTILE, nargs='+',
@@ -98,7 +98,7 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
             '--ws', type=none_or_float, default=BASELINE_WSMOOTHING, nargs='+',
             help='Baseline gaussian filter window size (s)')
         parser.add_argument(
-            '-y', '--ykey_classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
+            '-y', '--ykey-classification', type=str, default='zscore', choices=['dff', 'zscore', 'evrate'], nargs='+',
             help='Classification variable')
         parser.add_argument(
             '--directional', action='store_true', help='Directional classification')
@@ -132,7 +132,7 @@ def parse_notebook_exec_args(args):
     proc_keys = [
         'slack_notify',
         'inspect',
-        'inspectAO',
+        'inspect_AO',
         'global_correction',
         'kalman_gain',
         'alpha',
