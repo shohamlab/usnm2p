@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-11-28 16:15:24
+# @Last Modified time: 2026-08-19 14:36:14
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -27,6 +27,7 @@ from statsmodels.formula.api import ols
 from functools import wraps
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from patsy import dmatrix
 
 from .constants import *
 from .logger import logger
@@ -133,7 +134,7 @@ def extract_fluorescence_profile(F, qbase=None, avgkey=None, zscore=False, seria
     return F
 
 
-def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=True):
+def process_intraframe_fluorescence(y, fidx, fps, npre=3, detrend=False, wroll=None, verbose=True):
     '''
     Process intraframe fluorescence signal.
 
@@ -142,7 +143,9 @@ def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=T
     :param fps: frame sampling frequency (frame per second)
     :param npre: number of pre-stimulus frames to average from to get predictive
         scanning-induced intraframe variation profile
-    :param wt: size of rolling window (in seconds) for "rolling max" computation
+    :param detrend: boolean stating whether or not to remove the slow physiological baseline by linearly detrending
+        between the last row of each frame.
+    :param wroll: size of rolling window (in seconds) for "rolling max" computation. If none, no baseline smoothing is applied.
     :param verbose: whether to log different process steps
     :return: pandas dataframe with pulse-evoked dips
     '''
@@ -176,18 +179,20 @@ def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=T
     # Extract number of rows per frame
     lpf = y.index.get_level_values(Label.ROW).max() + 1
 
-    # Interpolate values between the last row of each frame to extract "physiological response trend"
-    if verbose:
-        logger.info('interpolating slow physiological response trend')
-    yresp = y.copy()
-    yresp.loc[pd.IndexSlice[:, :lpf - 1]] = np.nan
-    yresp.loc[pd.IndexSlice[0, 0]] = y.loc[pd.IndexSlice[0, 0]]
-    yresp = yresp.interpolate(method='linear')
+    # If frame-rate detrending is requested 
+    if detrend:
+        # Interpolate values between the last row of each frame to extract "physiological response trend"
+        if verbose:
+            logger.info('interpolating slow physiological response trend')
+        yresp = y.copy()
+        yresp.loc[pd.IndexSlice[:, :lpf - 1]] = np.nan
+        yresp.loc[pd.IndexSlice[0, 0]] = y.loc[pd.IndexSlice[0, 0]]
+        yresp = yresp.interpolate(method='linear')
 
-    # Subtract interpolated response trend from original profile
-    if verbose:
-        logger.info('subtracting interpolated response trend')
-    y = y - yresp
+        # Subtract interpolated response trend from original profile
+        if verbose:
+            logger.info('subtracting interpolated response trend')
+        y = y - yresp
 
     # Compute average intra-frame variation (scanning artifact) profile from n preceding frames
     if verbose:
@@ -201,21 +206,22 @@ def process_intraframe_fluorescence(y, fidx, fps, npre=3, wroll=15e-3, verbose=T
     yscan = yscan.swaplevel(0, 1).sort_index()
     y = y - yscan
 
-    # Apply frame-by-frame rolling filter to extract baseline
-    if verbose:
-        logger.info('applying frame-by-frame rolling filter to extract remaining intra-frame LF baseline')
-    w = int(np.round(wroll * fps * lpf))  # Rolling window size (in frames)
-    if w % 2 == 0:  # Ensure odd window size
-        w += 1
-    ybaseline = (y
-        .groupby(Label.FRAME)
-        .transform(lambda x: gaussian_filter1d(quantile_filter(x.values, w, 1), w // 2))
-    )
+    # If specified, apply frame-by-frame rolling filter to extract baseline
+    if wroll is not None:
+        if verbose:
+            logger.info('applying frame-by-frame rolling filter to extract remaining intra-frame LF baseline')
+        w = int(np.round(wroll * fps * lpf))  # Rolling window size (in frames)
+        if w % 2 == 0:  # Ensure odd window size
+            w += 1
+        ybaseline = (y
+            .groupby(Label.FRAME)
+            .transform(lambda x: gaussian_filter1d(quantile_filter(x.values, w, 1), w // 2))
+        )
 
-    # Subtract frame-by-frame baseline fit from baseline corrected profile
-    if verbose:
-        logger.info('subtracting frame-by-frame baseline fit')
-    y = y - ybaseline
+        # Subtract frame-by-frame baseline fit from baseline corrected profile
+        if verbose:
+            logger.info('subtracting frame-by-frame baseline fit')
+        y = y - ybaseline
 
     # Reset series name and return
     return y.rename(name)
@@ -4980,7 +4986,7 @@ def rect_pulse_template(n, istart, npulse, A, y0, smooth_sigma):
     return v + y0
 
 
-def fit_pulse_template(y, fs, PD):
+def _fit_pulse_template_from_params(y, fs, PD):
     '''
     Fit template to pulse-evoked dFF dip signal
     
@@ -4994,7 +5000,7 @@ def fit_pulse_template(y, fs, PD):
         return rect_pulse_template(x.size, *args)
 
     # Extract peak-to-peak and max signal value in window  
-    yptp, ymax = np.ptp(y), y.max()
+    yptp, ymax, ystd = np.ptp(y), y.max(), y.std()
 
     # Initial guess
     p0_dict = {
@@ -5006,12 +5012,13 @@ def fit_pulse_template(y, fs, PD):
     }
 
     # Search bounds
-    k = 0.05  # relative factor multiplying peak-to-peak to determine baseline range
     pbounds_dict = {
         'istart': (0, y.size // 3),  # starting index: first third of window
         'npulse': (0, y.size),  # number of indexes in pulse: up entire window size
         'A': (-np.inf, np.inf), 
         'y0': (-np.inf, np.inf),
+        # 'A': (-2 * yptp, 2 * yptp),  # amplitude: +/- 2x peak-to-peak amplitude in window
+        # 'y0': (ymax - 5 * ystd, ymax + 5 * ystd),  # baseline: +/- 5x std around max value in window
         'smooth_sigma': np.array([1e-5, 5e-4]) * fs,  # smoothing factor: between 0.01 and 0.5 ms at sampling frequency 
     }
     pbounds = (
@@ -5041,12 +5048,13 @@ def fit_pulse_template(y, fs, PD):
     return popt_dict
 
 
-def fit_pulse_template_from_table(df, ykey, PRF=1e2):
+def fit_pulse_template(df, ykey, PRF=1e2):
     '''
     Fit template to pulse-evoked dip signal provided as part of dataframe
 
     :param df: time-indexed dataframe containing signal and DC columns
     :param ykey: name of signal column
+    :param PRF: pulse repetition frequency (Hz)
     :return: pandas Series with fitted parameters
     '''
     # Extract DC from dataframe, and compute pulse duration
@@ -5057,14 +5065,168 @@ def fit_pulse_template_from_table(df, ykey, PRF=1e2):
     PD = DC / PRF  # s
     
     # Extract sampling frequency from dataframe index 
-    t = df.index.values
-    fs = 1 / (t[1] - t[0]) * 1e3
+    t = df.index.values  # ms
+    fs = 1 / (t[1] - t[0]) * 1e3  # Hz
 
     # Extract signal and remove NaN values
     y = df[ykey].dropna().values
 
     # Fit template to signal, and return fitted parameters
-    popt = fit_pulse_template(y, fs, PD)
+    popt = _fit_pulse_template_from_params(y, fs, PD)
 
     # Return as series
     return pd.Series(popt)
+
+
+
+def _bspline_basis(x, df, degree=3):
+    '''
+    Cubic B-spline basis on x in [0, 1].
+    '''
+    return np.asarray(
+        dmatrix(
+            f'bs(x, df={df}, degree={degree}, include_intercept=True) - 1',
+            {'x': np.asarray(x)},
+            return_type='dataframe',
+        )
+    )
+
+
+def _fourier_basis(phase, nharmonics):
+    '''
+    Zero-mean periodic Fourier basis.
+    '''
+    phase = np.asarray(phase)
+    columns = []
+
+    for harmonic in range(1, nharmonics + 1):
+        angle = 2 * np.pi * harmonic * phase
+        columns.append(np.sin(angle))
+        columns.append(np.cos(angle))
+
+    return np.column_stack(columns)
+
+
+def _ridge_fit(X, y, ridge=1e-6, penalize_intercept=False):
+    '''
+    Ridge regression with optional unpenalized first column.
+    '''
+    n_parameters = X.shape[1]
+    penalty = np.eye(n_parameters) * ridge
+
+    if not penalize_intercept:
+        penalty[0, 0] = 0.0
+
+    lhs = X.T @ X + penalty
+    rhs = X.T @ y
+
+    return np.linalg.solve(lhs, rhs)
+
+
+def fit_raster_artifact(y, yb, fidx, npre=3, nharmonics=5, time_df=20, ridge=1e-5, amplitude_mode='trend'):
+    '''
+    Fit and subtract amplitude-modulated raster artifact using raster-phase and amplitude-dependent regression model. 
+
+    :param y: pandas.Series MultiIndexed Series with index levels: (frame_index, row_index).
+    :param yb: pandas.Series MultiIndexed Series with index levels: (frame_index, row_index).
+    :param fidx: FrameIndex object containing the reference frame index.
+    :param npre: number of pre-stimulus frame to use to estimate the raster phase template.
+    :param nharmonics: number of Fourier harmonics used for the raster-phase template.
+    :param time_df: degrees of freedom of the smooth time basis controlling the slowly varying artifact amplitude.
+    :param ridge : ridge regularization strength.
+    :param amplitude_mode: str
+        "trend"  -> artifact amplitude = alpha + beta * phys_trend
+        "smooth" -> artifact amplitude is a smooth function of time
+    :return: estimated raster artifact Series
+    '''
+    if not y.index.equals(yb.index):
+        raise ValueError('y and yb must have identical MultiIndex values.')
+
+    # Extract arrays of detailed frame and row values
+    iframe = y.index.get_level_values(Label.FRAME).to_numpy()
+    irow = y.index.get_level_values(Label.ROW).to_numpy()
+    nrows = irow.max() + 1
+    nframes = len(y.index.unique(level=Label.FRAME))
+
+    # Check that the input forms a complete frame-by-row array
+    if len(y) != nframes * nrows:
+        raise ValueError('Input does not form a complete frame-by-row array.')
+    
+    # Compute residual signal after removing the supplied baseline
+    y_residual = y - yb
+
+    # Construct normalized time vector
+    cumidx = iframe * nrows + irow
+    tnorm = (cumidx - cumidx.min()) / (cumidx.max() - cumidx.min())
+
+    # Construct scan phase vector
+    phase = irow / nrows
+
+    # Construct mask for pre-stimulus frames
+    prestim_frames = np.arange(fidx.iref - npre, fidx.iref)
+    is_prestim = np.isin(iframe, prestim_frames)
+
+    if is_prestim.sum() < max(4 * nharmonics, 20):
+        raise ValueError('too few pre-stimulus samples for template estimation')
+
+    # Construct periodic Fourier basis for the raster phase
+    Q_phase = _fourier_basis(phase, nharmonics)
+
+    # Estimate pre-stimulus raster template.
+    beta_template = np.linalg.lstsq(
+        Q_phase[is_prestim],
+        y_residual[is_prestim],
+        rcond=None,
+    )[0]
+    phase_template = Q_phase @ beta_template
+    phase_template -= phase_template.mean()
+
+    # Normalize the pre-stimulus raster template
+    template_rms = np.sqrt(np.mean(phase_template**2))
+    if template_rms == 0:
+        raise ValueError('pre-stimulus raster template has zero variance.')
+    phase_template /= template_rms
+
+    # Normalize the external physiological trend 
+    yb_centered = yb - yb[is_prestim].median()
+    h_scale = yb_centered[is_prestim].abs().quantile(0.75)
+    if not np.isfinite(h_scale) or h_scale == 0:
+        h_scale = yb_centered.std()
+    if not np.isfinite(h_scale) or h_scale == 0:
+        h_scale = 1.0
+    yb_scaled = yb_centered / h_scale
+
+    # Build artifact model
+    if amplitude_mode == 'trend':
+        # a(t) = alpha + beta * yb(t)
+        X_artifact = np.column_stack([
+            phase_template,
+            phase_template * yb_scaled,
+        ])
+
+    elif amplitude_mode == 'smooth':
+        # a(t) = smooth spline in continuous time
+        B_time = _bspline_basis(tnorm, time_df, degree=3)
+        X_artifact = B_time * phase_template[:, None]
+
+    else:
+        raise ValueError("amplitude_mode must be 'trend' or 'smooth'.")
+
+    # Include an intercept because dF/F may not be exactly centered.
+    X = np.column_stack([
+        np.ones(len(y)),
+        X_artifact,
+    ])
+
+    # Solve the ridge regression normal equations to estimate the artifact coefficients.
+    beta = _ridge_fit(X, y, ridge=ridge, penalize_intercept=False)
+
+    # Compute the estimated artifact as the product of the design matrix and the fitted coefficients.
+    artifact = X_artifact @ beta[1:]
+
+    # Return the estimated artifact as a pandas Series
+    return pd.Series(
+        artifact,
+        index=y.index,
+        name=f'{y.name} predicted scan artifact',
+    )

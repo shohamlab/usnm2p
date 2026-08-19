@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-11-04 16:15:31
+# @Last Modified time: 2026-08-19 11:14:45
 
 ''' Collection of plotting utilities. '''
 
@@ -7239,3 +7239,26 @@ def plot_frames(data, gby=None, title=None, height=3, colwrap=5, cmap='auto', qm
     
     # Return figure object
     return fig
+
+
+def quantile_restricted_2D_histplot(data, x, y, qmin=0.001, qmax=0.999, **kwargs):
+    '''
+    Plot a 2D histogram with quantile restrictions.
+    
+    :param data: DataFrame containing the data to plot.
+    :param x: Name of the column to use for the x-axis.
+    :param y: Name of the column to use for the y-axis.
+    :param qmin: Minimum quantile to consider for both x and y.
+    :param qmax: Maximum quantile to consider for both x and y.
+    :param kwargs: Additional keyword arguments to pass to sns.histplot.
+    :return: sns.histplot output (maptlotlib axis)
+    '''
+    x_low, x_high = data[x].quantile([qmin, qmax])
+    y_low, y_high = data[y].quantile([qmin, qmax])
+    return sns.histplot(
+        data=data,
+        x=x,
+        y=y,
+        binrange=((x_low, x_high), (y_low, y_high)),
+        **kwargs
+    )

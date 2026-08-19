@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-28 16:44:10
+# @Last Modified time: 2026-08-19 09:33:04
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -280,6 +280,8 @@ IREF_FRAMES_BERGAMO = slice(-200, None)  # index range of reference frames for d
 NEXPS_DECAY_DETREND = 2  # number of exponentials for initial decay detrending on corrupted Bergamo acquisitions
 NSAMPLES_DECAY_DETREND = 200  # number of samples for initial decay detrending on corrupted Bergamo acquisitions
 DECAY_FIT_MAX_REL_RMSE = 1.2 # max relative RMSE allowed during stack decay detrending process
+
+QREF_BASELINE = 'q0.1'  # reference quantile code for traces baseline extraction
 
 # Substitution maps
 STIMSUB = ('stim-1', 'stim', 'trial')  # stimulus frames, every trial
