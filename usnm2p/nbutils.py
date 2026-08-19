@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-01-06 11:17:50
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-07-18 14:40:10
+# @Last Modified time: 2026-08-19 15:12:58
 
 ''' Notebook running utilities '''
 
@@ -78,6 +78,8 @@ def get_notebook_parser(input_nb, analysis=True, line=False, date=False, mouse=F
             '--inspect', default=False, action='store_true',
             help='Inspect data from random run along processing')
         parser.add_argument(
+            '--inspectAO', default=False, action='store_true', help='Inspect AO effect in sonication frame, stop afterwards')
+        parser.add_argument(
             '-c', '--global_correction', type=none_or_str, default='line', nargs='+',
             help='Global correction method')
         parser.add_argument(
@@ -130,6 +132,7 @@ def parse_notebook_exec_args(args):
     proc_keys = [
         'slack_notify',
         'inspect',
+        'inspectAO',
         'global_correction',
         'kalman_gain',
         'alpha',
