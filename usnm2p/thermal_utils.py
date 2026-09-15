@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-14 16:28:13
+# @Last Modified time: 2026-09-15 15:32:06
 
 import glob
 import os
@@ -12,6 +12,7 @@ from scipy import signal, optimize
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from natsort import natsorted
 
 from .logger import logger
 from .constants import Label
@@ -25,35 +26,36 @@ TEMP_KEY = 'T (°C)'
 REL_TEMP_KEY = f'Δ{TEMP_KEY}'
 STIMDUR_KEY = 'tstim (s)'
 MAX_REL_TEMP_KEY = f'max-evoked {REL_TEMP_KEY}'
+X_KEY = 'x (mm)'
+Y_KEY = 'y (mm)'
+Z_KEY = 'z (mm)'
 
-COND_KEYS = ['condition', 'location', 'x (mm)', 'y (mm)', 'z (mm)', Label.P]
+COND_KEYS = ['condition', 'location', X_KEY, Y_KEY, Z_KEY, Label.P]
 NONAGG_KEYS = ['timestamp', 'elapsed time (s)']
 
-# Conversion constants
-ADC_TO_VOLTS = 50.354e-6  # V per ADC unit, from Intan RHD2000 datasheet (TO CHECK)
+# Intan RHD2000 acquisition system constants
+ADC_TO_VOLTS = 50.354e-6  # V per ADC unit, from Intan RHD2000 datasheet
+VOLTAGE_DIVIDER_FACTOR = 0.5  # from voltage divider placed by Misi before input to Intan RHD2000 board, TO CHECK
 
-# Osensa fiber-optic temperature probe conversion constants, from Misi. (TO CHECK)
-OSENSA_TZERO_C = 0.0
-OSENSA_TSPAN_C = 100.0
-OSENSA_RA_OHM = 149.3
-OSENSA_I_MIN_A = 4e-3
-OSENSA_I_MAX_A = 20e-3
-OSENSA_GAIN_C_PER_V = OSENSA_TSPAN_C / (OSENSA_RA_OHM * (OSENSA_I_MAX_A - OSENSA_I_MIN_A))
+# Osensa fiber-optic temperature probe constants
+OSENSA_IRANGE = (4e-3, 20e-3)  # current range (A) for Tzero to (Tzero + Tspan), from FTX-300-LUX+ manual
+OSENSA_RA = 149.3  # Ω (from Misi, TO MEASURE)
+OSENSA_TZERO = -40. # 0.0  # °C (probe-specific, TO CHECK WITH COMPANY)
+OSENSA_TSPAN = 160. # 100.0  # °C (probe-specific, TO CHECK WITH COMPANY)
+OSENSA_SENSOR_TIP_OFFSET = 1e-3  # delta z (m) from the tip of the fiber to the sensing zone
 
 # Analysis constants
 TARGET_FS = 120  # target sampling rate when downsampling loaded data (Hz)
 LOWPASS_FC = 30  # Hz, lowpass filter cutoff frequency for analog signal
 OVERVIEW_FS = 4   # sampling rate for longitudinal overview (Hz)
 GROUP_GAP = 1.0  # s, edges further apart than this start a new burst
-
-# Triggered average properties
 STIM_ONSET = 0.5  # s, window length before each trigger burst onset
 RESPONSE_WINDOW = (0., 3.0)  # s, time window containing expected response after each trigger burst onset
 BASELINE_PRE = 0.4  # s, pre-onset span averaged and subtracted from each trial
 
 # Double-exponential fit bounds
-FIT_MIN_CELSIUS_AMPLITUDE = 0.01  # degC
-FIT_MAX_CELSIUS_AMPLITUDE = 3.0  # degC
+FIT_MIN_CELSIUS_AMPLITUDE = 0.01  # °C
+FIT_MAX_CELSIUS_AMPLITUDE = 10.0  # °C
 FIT_MAX_TAU_RISE = 1.0  # s
 FIT_MAX_TAU_DECAY = 5.0  # s
 
@@ -92,9 +94,16 @@ def load_experiment_log(folder):
     return data
 
 
+def _skip_qstring(f):
+    ''' Skip a Qt-style QString in an Intan RHD header file. '''
+    n_bytes, = struct.unpack('<I', f.read(4))
+    if n_bytes != 0xFFFFFFFF:
+        f.seek(n_bytes, 1)
+
+
 def get_intan_layout(folder):
     '''
-    Extract sample rate (Hz), sample count and analog channel count for a Intan RHD recording.
+    Extract sample rate (Hz),board mode, sample count and analog channel count for a Intan RHD recording.
 
     The rate comes straight out of info.rhd's fixed-offset header: magic number
     (4B) + version major/minor (2x int16) + sample_rate (float32). The channel
@@ -117,9 +126,31 @@ def get_intan_layout(folder):
         magic_number, = struct.unpack('<I', f.read(4))
         if magic_number != 0xc6912702:
             raise ValueError(f'{folder}/info.rhd is not a valid Intan RHD header')
-        f.read(4)  # version major/minor, unused here
+
+        # Get RHD version number
+        major, minor = struct.unpack('<hh', f.read(4))
+        rhd_version = float(f'{major}.{minor}')
+        logger.info(f'Intan RHD version: {rhd_version}')
+
+        # Get sample rate (Hz) from header
         fs, = struct.unpack('<f', f.read(4))
-    logger.info(f'sample rate: {fs} Hz')
+        logger.info(f'Intan RHD sample rate: {fs} Hz')
+
+        # Skip over the rest of the header fields that are not needed
+        f.seek(2, 1)       # DSP enabled: int16
+        f.seek(6 * 4, 1)   # six float32 DSP/bandwidth fields
+        f.seek(2, 1)       # notch mode: int16
+        f.seek(2 * 4, 1)   # two float32 impedance-test fields
+        for _ in range(3):  # three QStrings
+            _skip_qstring(f)
+
+        # If RHD version >= 1.3, skip over the number of temperature sensors and read the board mode
+        if rhd_version >= 1.3:
+            f.seek(2, 1)  # number of temperature sensors
+            board_mode, = struct.unpack('<h', f.read(2))
+        else:
+            board_mode = None
+        logger.info(f'Intan RHD board mode: {board_mode}')
 
     # Get sample count and analog channel count from file sizes
     logger.info('getting sample count and analog channel count from file sizes')
@@ -129,8 +160,8 @@ def get_intan_layout(folder):
     nchannels = round(2 * analog_bytes / time_bytes)
     logger.info(f'sample count: {nsamples}, analog channel count: {nchannels}')
 
-    # Return sample rate, sample count and analog channel count
-    return fs, nsamples, nchannels
+    # Return sample rate, board mode, sample count and analog channel count
+    return fs, board_mode, nsamples, nchannels
 
 
 def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=100_000):
@@ -147,7 +178,7 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
     :return: 4-tuple with time vector (s), voltage vector (V), raw rate (Hz), downsampled rate (Hz)
     '''
     # Get recording layout
-    raw_fs, n_samples, n_channels = get_intan_layout(folder)
+    raw_fs, board_mode, n_samples, n_channels = get_intan_layout(folder)
 
     # Check time.dat continuity
     time_fpath = os.path.join(folder, 'time.dat')
@@ -179,14 +210,17 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
 
     # Convert downsampled ADC vector to volts
     logger.info('converting downsampled ADC vector to volts')
-    v_ds = analog_ds * ADC_TO_VOLTS
+    if board_mode != 0:
+        raise ValueError(f'board mode {board_mode} not supported for voltage conversion')
+    v_intan_ds = analog_ds * ADC_TO_VOLTS
+    v_source_ds = v_intan_ds / VOLTAGE_DIVIDER_FACTOR
 
     # Generate downsampled time vector (s)
     logger.info('generating downsampled time vector')
     t_s = (np.arange(n_bins) + 0.5) / ds_fs
 
     # Return outputs
-    return t_s, v_ds, raw_fs, ds_fs
+    return t_s, v_source_ds, raw_fs, ds_fs
 
 
 def get_active_digital_lines(words, chunk):
@@ -256,14 +290,14 @@ def load_digital_rising_edges(folder, line=None, chunk=20_000_000):
 
 def volts_to_degc(v):
     '''
-    Convert Osensa probe voltage (analogin channel 0, across burden resistor RA) to degC.
+    Convert Osensa probe voltage (analogin channel 0, across burden resistor RA) to °C.
     Linear 4-20 mA current-loop scaling, matching the vendor's MATLAB:
         temp = Tzero + (V - Imin*RA) / (Imax*RA - Imin*RA) * Tspan
     '''
-    logger.info('converting Osensa probe voltage to degC')
-    v_min = OSENSA_I_MIN_A * OSENSA_RA_OHM  # V
-    v_max = OSENSA_I_MAX_A * OSENSA_RA_OHM  # V
-    return OSENSA_TZERO_C + (v - v_min) / (v_max - v_min) * OSENSA_TSPAN_C
+    logger.info('converting Osensa probe voltage to °C')
+    osensa_vrange = np.array(OSENSA_IRANGE) * OSENSA_RA  # V
+    norm_v = (v - osensa_vrange[0]) / (osensa_vrange[1] - osensa_vrange[0])
+    return OSENSA_TZERO + norm_v * OSENSA_TSPAN
 
 
 def filter_temperature_recording(y, fs, fc=LOWPASS_FC):
@@ -314,8 +348,15 @@ def plot_longitudinal_temperature_recording(recording, display_fs=OVERVIEW_FS, t
         ax=ax
     )
 
+    # Add horizontal lines for min and max temperature values
+    Tmin = recording[TEMP_KEY].min()
+    Tmax = recording[TEMP_KEY].max()
+    for T in [Tmin, Tmax]:
+        ax.axhline(T, color='k', linestyle='--', alpha=0.5)
+    Trange = Tmax - Tmin
+
     # Add figure title
-    tit = 'longitudinal temperature recording'
+    tit = f'longitudinal temperature recording (range = {Trange:.2f} °C)'
     if title is not None:
         tit += f' - {title}'
     ax.set_title(tit)
@@ -324,7 +365,7 @@ def plot_longitudinal_temperature_recording(recording, display_fs=OVERVIEW_FS, t
     return fig
 
 
-def load_thermal_experiment(folder, plot=False):
+def load_thermal_experiment(folder, plot=False, figdict=None):
     '''
     Load and pre-process thermal experiment data from a given folder, 
     including analog temperature recordings, digital trigger edges, 
@@ -332,16 +373,17 @@ def load_thermal_experiment(folder, plot=False):
 
     :param folder: path to the thermal experiment data folder
     :param plot: if True, plot the longitudinal temperature recording
+    :param figdict: dictionary to store the generated figures
     :return: tuple containing:
         - recording: pandas DataFrame with temperature recording data indexed by sample
         - edge_times: array of sample indices where the digital trigger rises
         - log_data: pandas DataFrame with experiment log data indexed by trial
     '''
     # Load downsampled Itan analog recording data
-    t_ds, v_ds, fs, ds_fs = load_analog_downsampled(folder)
+    t_ds, vsource_ds, fs, ds_fs = load_analog_downsampled(folder)
 
-    # Convert voltage to temperature in degC using Osensa probe calibration
-    temp_ds = volts_to_degc(v_ds)
+    # Convert voltage to temperature in °C using Osensa probe calibration
+    temp_ds = volts_to_degc(vsource_ds)
 
     # Lowpass the whole continuous trace
     temp_filtered = filter_temperature_recording(temp_ds, ds_fs)
@@ -355,7 +397,9 @@ def load_thermal_experiment(folder, plot=False):
 
     # Plot the longitudinal temperature recording if requested
     if plot:
-        plot_longitudinal_temperature_recording(recording, title=os.path.basename(folder))
+        fig = plot_longitudinal_temperature_recording(recording, title=os.path.basename(folder))
+        if figdict is not None:
+            figdict[f'{os.path.basename(folder)} recording'] = fig
 
     # Load rising edge times from Intan digital channel (trigger signal)
     edge_times = load_digital_rising_edges(folder) / fs
@@ -371,7 +415,7 @@ def interpolate_trial_data(data, ykey, target_reltime):
     Interpolate trial time traces along a specific relative time vector.
 
     :param data: pandas DataFrame with trial time traces, indexed by trial
-    :param ykeys: list of column names to interpolate
+    :param ykey: name of the column to interpolate
     :param target_reltime: relative time vector to interpolate onto
     :return: time-indexed pandas Series with interpolated trial time trace
     '''
@@ -508,7 +552,8 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, trial_offs
         # Try to call function recursively on all subfolders
         data = {}
         trial_offset = 0
-        for item in os.listdir(folder):
+        subitems = natsorted(os.listdir(folder))
+        for item in subitems:
             sub_path = os.path.join(folder, item)
             if os.path.isdir(sub_path):
                 data[item] = load_and_process_thermal_experiment(
@@ -534,6 +579,11 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, trial_offs
         df_reset = data.reset_index()
         df_reset['trial'] = df_reset['trial'] + trial_offset
         data = df_reset.set_index(idx_names)
+
+    # If data contains "z (mm)" scanning column, add sensor tip offset to it
+    if Z_KEY in data.columns:
+        logger.info(f'adding sensor tip offset of {OSENSA_SENSOR_TIP_OFFSET*1e3:.1f} mm to "z (mm)" scanning column')
+        data[Z_KEY] += OSENSA_SENSOR_TIP_OFFSET * 1e3
 
     # Return the harmonized recording with trial information
     return data
@@ -586,9 +636,10 @@ def compute_deltaT(y, baseline_pre=BASELINE_PRE):
     return y - y0
 
 
-def condition_keys(index):
+def condition_keys(data):
     ''' Extract condition keys present in the data '''
-    return [k for k in COND_KEYS if k in index]
+    candidate_keys = list(data.columns) + list(data.index.names)
+    return [k for k in COND_KEYS if k in candidate_keys]
 
 
 def compute_trial_average(data):
@@ -601,7 +652,7 @@ def compute_trial_average(data):
         indexed by condition(s) and relative time
     '''
     # Identify over which to average trial data
-    cond_keys = condition_keys(list(data.columns) + list(data.index.names))
+    cond_keys = condition_keys(data)
 
     # Identify columns to average
     aggkeys = list(set(data.columns) - set(NONAGG_KEYS + cond_keys))
@@ -762,7 +813,7 @@ def fit_double_exp(y):
         return sopt
 
     # Return the optimal parameters for the double_exp_peak fit
-    return pd.Series(dict(zip(sopt.index, popt)))
+    return pd.Series(data=popt, index=sopt.index)
 
 
 def longest_common_substring(strs):
