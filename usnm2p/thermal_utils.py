@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-16 11:42:19
+# @Last Modified time: 2026-09-16 15:59:02
 
 import glob
 import os
@@ -13,6 +13,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from natsort import natsorted
+import re
 
 from .logger import logger
 from .constants import Label
@@ -25,12 +26,12 @@ REL_TIME_KEY = 'relative time (s)'
 TEMP_KEY = 'T (°C)'
 REL_TEMP_KEY = f'Δ{TEMP_KEY}'
 STIMDUR_KEY = 'tstim (s)'
-MAX_REL_TEMP_KEY = f'max-evoked {REL_TEMP_KEY}'
+MAX_REL_TEMP_KEY = f'max {REL_TEMP_KEY}'
 X_KEY = 'x (mm)'
 Y_KEY = 'y (mm)'
 Z_KEY = 'z (mm)'
 
-COND_KEYS = ['condition', 'location', X_KEY, Y_KEY, Z_KEY, Label.P]
+COND_KEYS = ['condition', 'location', X_KEY, Y_KEY, Z_KEY, Label.P, Label.ISPPA, Label.ISPTA]
 NONAGG_KEYS = ['timestamp', 'elapsed time (s)']
 
 # Intan RHD2000 acquisition system constants
@@ -61,8 +62,46 @@ FIT_MAX_CELSIUS_AMPLITUDE = 10.0  # °C
 FIT_MAX_TAU_RISE = 1.0  # s
 FIT_MAX_TAU_DECAY = 5.0  # s
 
-# Presure range (MPA) used throughout experiments, for consistent color-coding
-P_RANGE = (0, 1.6)
+# Pressure-related constants
+P_RANGE = (0, 2.5)  # pressure range (MPA) used throughout experiments, for consistent color-coding
+ISPTA_RANGE = (0, 130)  # ISPTA range (W/cm2) used throughout experiments, for consistent color-coding
+COVERGLASS_ATTENUATION_FACTOR = 0.70  # pressure attenuation factor between measurements in free-field and 2x150um coverglass (average of 2 transducers, measured by Theo)
+
+# Regexp patterns
+LOG_FILEPATTERN = 'thermal_experiment_log_([A-Za-z0-9]+)_T(\d+)_([A-Za-z0-9]+)_(\d+\.\d+)MHz(.*).csv'
+MOUSE_PATTERN = 'M([0-9]+)'
+
+
+def parse_log_filename(fname):
+    '''
+    Parse the thermal experiment log filename
+    
+    :param fname: filename of the thermal experiment log
+    :return: dictionary containing:
+        - specimen
+        - transducer ID
+        - calibration condition
+        - carrier frequency
+        - recording condition, if present in the filename
+    '''
+    # Parse log file name
+    mo = re.search(LOG_FILEPATTERN, fname)
+    if mo is None:
+        raise ValueError(f'Filename "{fname}" does not match expected pattern {LOG_FILEPATTERN}')
+    specimen = mo.group(1)
+    transducer = f'T{mo.group(2)}'
+    calib_cond = mo.group(3)
+    fMHz = float(mo.group(4))
+    rec_cond = mo.group(5)
+    d = {
+        'specimen': specimen,
+        'transducer ID': transducer,
+        'calibration condition': calib_cond,
+        'f (MHz)': fMHz,
+    }
+    if len(rec_cond) > 0:
+        d['recording condition'] = rec_cond
+    return d
 
 
 def load_experiment_log(folder):
@@ -74,14 +113,15 @@ def load_experiment_log(folder):
     '''
     # Search for CSV file starting with 'thermal_experiment_log_' in folder
     logger.info(f'searching for experiment log in "{folder}"')
-    glob_pattern = os.path.join(folder, 'thermal_experiment_log_*.csv')
-    log_fpaths = glob.glob(glob_pattern)
+    items = os.listdir(folder)
+    log_fnames = [item for item in items if re.search(LOG_FILEPATTERN, item)]
+    log_fpaths = [os.path.join(folder, fname) for fname in log_fnames]
 
     # Make sure there is exactly one log file found
     if len(log_fpaths) == 0:
-        raise FileNotFoundError(f'No log file found in {folder} matching pattern {glob_pattern}')
+        raise FileNotFoundError(f'No log file found in {folder} matching pattern {LOG_FILEPATTERN}')
     elif len(log_fpaths) > 1:
-        raise FileExistsError(f'Multiple log files found in {folder} matching pattern {glob_pattern}: {log_fpaths}')
+        raise FileExistsError(f'Multiple log files found in {folder} matching pattern {LOG_FILEPATTERN}: {log_fpaths}')
     log_fpath = log_fpaths[0]
 
     # Load log data from CSV file into pandas DataFrame, and set index name to 'trial'
@@ -94,6 +134,17 @@ def load_experiment_log(folder):
 
     # Compute and add elapsed time column (s) since first trial, in seconds
     data['elapsed time (s)'] = (data['timestamp'] - data['timestamp'][0]).dt.total_seconds()
+
+    # Parse log file name
+    exp_info = parse_log_filename(os.path.basename(log_fpath))
+    calib_cond = exp_info['calibration condition']
+
+    # If specimen is a mouse (means no coverglass) and transducer calibration conditions are not free-field
+    # adjust pressure values to free-field equivalent using the coverglass attenuation factor 
+    is_mouse = re.match(MOUSE_PATTERN, exp_info['specimen']) is not None
+    if is_mouse and exp_info['calibration condition'] != 'free-field':
+        logger.warning(f'"open craniotomy" mouse experiment but transducer calibrated in "{calib_cond}" -> adjusting pressure values to free-field equivalent using attenuation factor {COVERGLASS_ATTENUATION_FACTOR}')
+        data[Label.P] = (data[Label.P] / COVERGLASS_ATTENUATION_FACTOR).round(2)
 
     # Return log data
     return data
@@ -690,13 +741,19 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs)
     kwargs['ax'] = ax
     sns.despine(ax=ax)
 
+    # Determine the hue normalization range based on the hue variable
+    hue_norm = {
+        Label.P: P_RANGE,
+        Label.ISPTA: ISPTA_RANGE,
+    }.get(hue, None)
+
     # Plot the evoked thermal response using seaborn lineplot
     sns.lineplot(
         data=data,
         x=TIME_KEY,
         y=y,
         hue=hue,
-        hue_norm=P_RANGE if hue == Label.P else None,
+        hue_norm=hue_norm,
         **kwargs
     )
 
@@ -879,16 +936,20 @@ def select_subset(data, trial_stats, cond):
     return cond_data, cond_stats 
 
 
-def plot_pressure_dependence(data, max_ΔT, ax=None, title=None):
+def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
     ''' 
-    Plot pressure dependence of stim-evoked temperature change and its peak.
+    Plot ispta dependence of stim-evoked temperature change and its peak
 
     :param data: pandas DataFrame with trial time traces, indexed by trial and relative time
     :param max_ΔT: pandas Series with max-evoked temperature change for each trial
+    :param Itarget: target ISPTA for which to compute the predicted max-evoked temperature change from the linear fit
+    :return: matplotlib Figure object containing the plot, and optionally the predicted max-evoked temperature change at target
     '''
     # Create/retrieve axis and figure
+    add_dt_text = False
     if ax is None:
         fig, ax = plt.subplots()
+        add_dt_text = True
     else:
         fig = ax.get_figure()
     
@@ -896,15 +957,15 @@ def plot_pressure_dependence(data, max_ΔT, ax=None, title=None):
     if title is not None:
         ax.set_title(title)
 
-    # Plot pressure-dependent temperature traces
-    logger.info(f'plotting pressure-dependent evoked temperature change traces')
+    # Plot ISPTA-dependent temperature traces
+    logger.info(f'plotting ISPTA-dependent evoked temperature change traces')
     sns.despine(ax=ax)
     for units in ['trial', None]:
         plot_evoked_thermal_response(
             ax=ax,
             data=data.reset_index(),
             y=REL_TEMP_KEY,
-            hue=Label.P,
+            hue=Label.ISPTA,
             palette='flare',
             estimator=None if units is not None else 'mean',
             errorbar=None,
@@ -913,48 +974,57 @@ def plot_pressure_dependence(data, max_ΔT, ax=None, title=None):
             lw=.5 if units is not None else 2.0,
             legend='full' if units is None else False
         )
-    sns.move_legend(ax, 'upper right', title=Label.P, frameon=False)
+    sns.move_legend(ax, 'upper right', title=Label.ISPTA, frameon=False)
 
-    # Perform quadratic fit to the pressure-dependence of max_ΔT
-    logger.info('performing quadratic fit on max_ΔT vs pressure')
-    Pvals = max_ΔT.index.get_level_values(Label.P)
-    quadfit_popt = np.polyfit(Pvals, max_ΔT.values, deg=2)
-    quadfit_pred = np.polyval(quadfit_popt, Pvals)
-    quadfit_r2 = np.corrcoef(max_ΔT.values, quadfit_pred)[0, 1] ** 2
+    # Perform least-square linear fit to the ISPTA-dependence of max_ΔT
+    logger.info('performing least-square linear fit on max_ΔT vs ISPTA')
+    ISPTA_vals = np.array(max_ΔT.index.get_level_values(Label.ISPTA))
 
-    ylims = ax.get_ylim()
-    ax.set_ylim(ylims[0], ylims[1] + 0.2 * (ylims[1] - ylims[0]))
+    # Solve y = m * x without an intercept
+    m, residuals, *_ = np.linalg.lstsq(
+        ISPTA_vals[:, np.newaxis], max_ΔT.values, rcond=None)
+    slope, ss_res = m[0], residuals[0]
+
+    # Compute R2
+    ss_tot = np.sum((max_ΔT - np.mean(max_ΔT)) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+    logger.info(f'least-square linear fit: slope = {slope:.3f} °C/(W/cm²), R² = {r2:.2f}')
 
     # Add inset axis
-    inset_ax = ax.inset_axes([0.60, 0.25, 0.3, 0.4])
+    inset_ax = ax.inset_axes([0.60, 0.25, 0.25, 0.3])
 
-    # Plot dose-dependence of max-evoked temperature change at focus
-    logger.info(f'plotting dose-dependence of max-evoked temperature change at focus')
+    # Plot ISPTA-dependence of max-evoked temperature change at focus
+    logger.info(f'plotting ISPTA-dependence of max-evoked temperature change at focus')
     sns.despine(ax=inset_ax)
     sns.lineplot(
         ax=inset_ax,
         data=max_ΔT.reset_index(),
-        x=Label.P,
+        x=Label.ISPTA,
         y=MAX_REL_TEMP_KEY,
         errorbar='sd',
         ls='',
         err_style='bars',
         err_kws={'elinewidth': 1.5, 'capsize': 10},
     )
-    inset_ax.set_xticks(Pvals.unique())
-    inset_ax.set_xticklabels(Pvals.unique())
 
-    # Add quadratic fit to the dose-dependence of max-evoked temperature change at focus
-    Pdense = np.linspace(Pvals.min(), Pvals.max(), 100)
-    quadfit_pred_dense = np.polyval(quadfit_popt, Pdense)
-    inset_ax.plot(
-        Pdense,
-        quadfit_pred_dense,
-        color='k',
-        lw=2,
-        ls='--',
-        label=f'∝P² (R² = {quadfit_r2:.3f})'
-    )
-    inset_ax.legend(frameon=False)
+    # Add linear fit to the ISPTA-dependence of max-evoked temperature change at focus
+    inset_ax.axline(slope=slope, xy1=(0, 0), color='k', lw=1)
+    inset_ax.set_title(f'∝ISPTA (R² = {r2:.3f})')
 
-    return fig
+    # If Itarget is specified, compute and plot the predicted max-evoked temperature change at that value
+    if Itarget is not None:
+        max_ΔT_pred = slope * Itarget
+        logger.info(f'predicted max-evoked temperature change at {Itarget} W/cm²: {max_ΔT_pred:.3f} °C')
+        inset_ax.plot([Itarget] * 2, [0, max_ΔT_pred], color='k', ls=':', lw=1.5)
+        inset_ax.plot([0, Itarget], [max_ΔT_pred] * 2, color='k', ls=':', lw=1.5)
+        if add_dt_text:
+            inset_ax.text(
+                0., .95 * max_ΔT_pred, f'ΔT = {max_ΔT_pred:.2f} °C',
+                ha='left', va='top', fontsize=8
+            )
+
+    # Return output(s)
+    if Itarget is not None:
+        return fig, max_ΔT_pred
+    else:
+        return fig
