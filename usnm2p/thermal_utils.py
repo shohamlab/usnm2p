@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-15 15:32:06
+# @Last Modified time: 2026-09-16 11:42:19
 
 import glob
 import os
@@ -35,14 +35,16 @@ NONAGG_KEYS = ['timestamp', 'elapsed time (s)']
 
 # Intan RHD2000 acquisition system constants
 ADC_TO_VOLTS = 50.354e-6  # V per ADC unit, from Intan RHD2000 datasheet
-VOLTAGE_DIVIDER_FACTOR = 0.5  # from voltage divider placed by Misi before input to Intan RHD2000 board, TO CHECK
+VOLTAGE_DIVIDER_RA = 4610.  # voltage divider resistor A, between Osensa and Intan anaog input (Ohm)
+VOLTAGE_DIVIDER_RB = 4610.   # voltage divider resistor B, between Osensa and ground (Ohm)
 
 # Osensa fiber-optic temperature probe constants
 OSENSA_IRANGE = (4e-3, 20e-3)  # current range (A) for Tzero to (Tzero + Tspan), from FTX-300-LUX+ manual
-OSENSA_RA = 149.3  # Ω (from Misi, TO MEASURE)
-OSENSA_TZERO = -40. # 0.0  # °C (probe-specific, TO CHECK WITH COMPANY)
-OSENSA_TSPAN = 160. # 100.0  # °C (probe-specific, TO CHECK WITH COMPANY)
+OSENSA_RA = 197.5  # 149.3  # Ω (from Misi, TO MEASURE)
+OSENSA_TZERO = -40. # °C (probe-specific, TO CHECK WITH COMPANY)
+OSENSA_TSPAN = 160. # °C (probe-specific, TO CHECK WITH COMPANY)
 OSENSA_SENSOR_TIP_OFFSET = 1e-3  # delta z (m) from the tip of the fiber to the sensing zone
+OSENSA_PROBE_TOFFSET = 0.  # probe-specific temprature offset (°C) to be added to the measured temperature, if known
 
 # Analysis constants
 TARGET_FS = 120  # target sampling rate when downsampling loaded data (Hz)
@@ -58,6 +60,9 @@ FIT_MIN_CELSIUS_AMPLITUDE = 0.01  # °C
 FIT_MAX_CELSIUS_AMPLITUDE = 10.0  # °C
 FIT_MAX_TAU_RISE = 1.0  # s
 FIT_MAX_TAU_DECAY = 5.0  # s
+
+# Presure range (MPA) used throughout experiments, for consistent color-coding
+P_RANGE = (0, 1.6)
 
 
 def load_experiment_log(folder):
@@ -213,7 +218,8 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
     if board_mode != 0:
         raise ValueError(f'board mode {board_mode} not supported for voltage conversion')
     v_intan_ds = analog_ds * ADC_TO_VOLTS
-    v_source_ds = v_intan_ds / VOLTAGE_DIVIDER_FACTOR
+    k = VOLTAGE_DIVIDER_RA / (VOLTAGE_DIVIDER_RA + VOLTAGE_DIVIDER_RB)
+    v_source_ds = v_intan_ds / k
 
     # Generate downsampled time vector (s)
     logger.info('generating downsampled time vector')
@@ -297,7 +303,7 @@ def volts_to_degc(v):
     logger.info('converting Osensa probe voltage to °C')
     osensa_vrange = np.array(OSENSA_IRANGE) * OSENSA_RA  # V
     norm_v = (v - osensa_vrange[0]) / (osensa_vrange[1] - osensa_vrange[0])
-    return OSENSA_TZERO + norm_v * OSENSA_TSPAN
+    return OSENSA_TZERO + norm_v * OSENSA_TSPAN + OSENSA_PROBE_TOFFSET
 
 
 def filter_temperature_recording(y, fs, fc=LOWPASS_FC):
@@ -667,7 +673,7 @@ def compute_trial_average(data):
     )
 
 
-def plot_evoked_thermal_response(ax=None, data=None, y=None, **kwargs):
+def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs):
     '''
     Plot the evoked thermal response for a given ykey (e.g., relative temperature change)
     as a function of relative time.
@@ -675,6 +681,7 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, **kwargs):
     :param ax: matplotlib Axes object to plot on. If None, a new figure and axes are created.
     :param data: pandas DataFrame with trial time traces, indexed by trial and relative time
     :param y: column name of the y-axis variable to plot (e.g., relative temperature change)
+    :param hue: column name of the variable to use for color-coding different conditions
     :param kwargs: additional keyword arguments to pass to sns.lineplot
     '''
     # Set the axes and despine    
@@ -688,6 +695,8 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, **kwargs):
         data=data,
         x=TIME_KEY,
         y=y,
+        hue=hue,
+        hue_norm=P_RANGE if hue == Label.P else None,
         **kwargs
     )
 
