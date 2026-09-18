@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-18 15:41:14
+# @Last Modified time: 2026-09-18 15:45:19
 
 import os
 import struct
@@ -723,10 +723,10 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
     process_data_fname = log_fcode.replace('_log_', '_processed_data_') + '.h5'
     process_data_fpath = os.path.join(folder, process_data_fname)
 
-    # If processed data file exists, load it and return
+    # If processed data file exists, load it
     if os.path.exists(process_data_fpath):
         logger.info(f'loading processed data from "{process_data_fname}"')
-        return pd.read_hdf(process_data_fpath, key='data')
+        data = pd.read_hdf(process_data_fpath, key='data')
     
     # Otherwise
     else:
