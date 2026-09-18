@@ -2,9 +2,8 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-16 15:59:02
+# @Last Modified time: 2026-09-18 15:39:45
 
-import glob
 import os
 import struct
 import numpy as np
@@ -14,25 +13,33 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from natsort import natsorted
 import re
+import warnings
+from tables import NaturalNameWarning
 
 from .logger import logger
-from .constants import Label
+from .constants import *
+from .utils import *
 
 ''' Utilities for the analysis of temperature measurement experiments '''
 
-# Labels
-TIME_KEY = 'time (s)'
-REL_TIME_KEY = 'relative time (s)'
-TEMP_KEY = 'T (°C)'
-REL_TEMP_KEY = f'Δ{TEMP_KEY}'
-STIMDUR_KEY = 'tstim (s)'
-MAX_REL_TEMP_KEY = f'max {REL_TEMP_KEY}'
-X_KEY = 'x (mm)'
-Y_KEY = 'y (mm)'
-Z_KEY = 'z (mm)'
+# Condition keys that should be conserved upon trial-averaging
+COND_KEYS = [
+    Label.SPECIMEN,
+    Label.REC,
+    Label.LOCATION,
+    Label.X_MM,
+    Label.Y_MM,
+    Label.Z_MM,
+    Label.P,
+    Label.ISPPA,
+    Label.ISPTA
+]
 
-COND_KEYS = ['condition', 'location', X_KEY, Y_KEY, Z_KEY, Label.P, Label.ISPPA, Label.ISPTA]
-NONAGG_KEYS = ['timestamp', 'elapsed time (s)']
+# Keys that should be discarded upon trial-averaging
+NONAGG_KEYS = [
+    Label.TIMESTAMP,
+    Label.ELAPSED_TIME
+]
 
 # Intan RHD2000 acquisition system constants
 ADC_TO_VOLTS = 50.354e-6  # V per ADC unit, from Intan RHD2000 datasheet
@@ -53,6 +60,7 @@ LOWPASS_FC = 30  # Hz, lowpass filter cutoff frequency for analog signal
 OVERVIEW_FS = 4   # sampling rate for longitudinal overview (Hz)
 GROUP_GAP = 1.0  # s, edges further apart than this start a new burst
 STIM_ONSET = 0.5  # s, window length before each trigger burst onset
+PROG_TRIGGER_DELAY = 0.15  # s, delay between trigger onset and actual stimulus onset (due to hardware limitations with programmatic trigger)
 RESPONSE_WINDOW = (0., 3.0)  # s, time window containing expected response after each trigger burst onset
 BASELINE_PRE = 0.4  # s, pre-onset span averaged and subtracted from each trial
 
@@ -70,6 +78,22 @@ COVERGLASS_ATTENUATION_FACTOR = 0.70  # pressure attenuation factor between meas
 # Regexp patterns
 LOG_FILEPATTERN = 'thermal_experiment_log_([A-Za-z0-9]+)_T(\d+)_([A-Za-z0-9]+)_(\d+\.\d+)MHz(.*).csv'
 MOUSE_PATTERN = 'M([0-9]+)'
+
+# Shared hue parameters for traces plotting  
+TRACE_HUE_KWARGS = dict(
+    hue=Label.ISPTA,
+    palette='flare',
+)
+
+
+def get_thermal_data_root():
+    ''' Get root directory for thermal data '''
+    # dataroot = '/Volumes/shohas01lab/shohas01labspace/Theo/US_thermal_experiments'
+    # if not os.path.exists(dataroot):
+    #     logger.info(f'could not connect to R-drive -> using local data directory')
+    dataroot = '/Users/tlemaire/Documents/data/US_thermal_experiments'
+    logger.info(f'root data directory: "{dataroot}"')
+    return dataroot
 
 
 def parse_log_filename(fname):
@@ -94,25 +118,24 @@ def parse_log_filename(fname):
     fMHz = float(mo.group(4))
     rec_cond = mo.group(5)
     d = {
-        'specimen': specimen,
+        Label.SPECIMEN: specimen,
         'transducer ID': transducer,
         'calibration condition': calib_cond,
-        'f (MHz)': fMHz,
+        Label.FREQ_MHZ: fMHz,
     }
     if len(rec_cond) > 0:
         d['recording condition'] = rec_cond
     return d
 
 
-def load_experiment_log(folder):
-    '''
-    Load experiment log data from CSV file starting with 'thermal_experiment_log_' in folder.
-
+def find_log_file(folder):
+    ''' 
+    Find log file in experiment folder
+    
     :param folder: experiment data folder
-    :return: pandas DataFrame with log data, indexed by trial
+    :return: name of log file (if found and unique) in the folder
     '''
     # Search for CSV file starting with 'thermal_experiment_log_' in folder
-    logger.info(f'searching for experiment log in "{folder}"')
     items = os.listdir(folder)
     log_fnames = [item for item in items if re.search(LOG_FILEPATTERN, item)]
     log_fpaths = [os.path.join(folder, fname) for fname in log_fnames]
@@ -122,18 +145,32 @@ def load_experiment_log(folder):
         raise FileNotFoundError(f'No log file found in {folder} matching pattern {LOG_FILEPATTERN}')
     elif len(log_fpaths) > 1:
         raise FileExistsError(f'Multiple log files found in {folder} matching pattern {LOG_FILEPATTERN}: {log_fpaths}')
-    log_fpath = log_fpaths[0]
+
+    # Return log file name
+    return os.path.basename(log_fpaths[0])
+
+
+def load_experiment_log(folder):
+    '''
+    Load experiment log data from CSV file starting with 'thermal_experiment_log_' in folder.
+
+    :param folder: experiment data folder
+    :return: pandas DataFrame with log data, indexed by trial
+    '''
+    # Find log file in folder
+    log_fname = find_log_file(folder)
+    log_fpath = os.path.join(folder, log_fname)
 
     # Load log data from CSV file into pandas DataFrame, and set index name to 'trial'
-    logger.info(f'loading experiment log from "{log_fpath}"')
+    logger.info(f'loading experiment log from "{log_fname}"')
     data = pd.read_csv(log_fpath)
-    data.index.name = 'trial'
+    data.index.name = Label.TRIAL
 
     # Convert timestamp column to pandas datetime format, with microsecond precision
-    data['timestamp'] = pd.to_datetime(data['timestamp'], format='%Y-%m-%d %H:%M:%S.%f')
+    data[Label.TIMESTAMP] = pd.to_datetime(data[Label.TIMESTAMP], format='%Y-%m-%d %H:%M:%S.%f')
 
     # Compute and add elapsed time column (s) since first trial, in seconds
-    data['elapsed time (s)'] = (data['timestamp'] - data['timestamp'][0]).dt.total_seconds()
+    data[Label.ELAPSED_TIME] = (data[Label.TIMESTAMP] - data[Label.TIMESTAMP][0]).dt.total_seconds()
 
     # Parse log file name
     exp_info = parse_log_filename(os.path.basename(log_fpath))
@@ -141,9 +178,9 @@ def load_experiment_log(folder):
 
     # If specimen is a mouse (means no coverglass) and transducer calibration conditions are not free-field
     # adjust pressure values to free-field equivalent using the coverglass attenuation factor 
-    is_mouse = re.match(MOUSE_PATTERN, exp_info['specimen']) is not None
+    is_mouse = re.match(MOUSE_PATTERN, exp_info[Label.SPECIMEN]) is not None
     if is_mouse and exp_info['calibration condition'] != 'free-field':
-        logger.warning(f'"open craniotomy" mouse experiment but transducer calibrated in "{calib_cond}" -> adjusting pressure values to free-field equivalent using attenuation factor {COVERGLASS_ATTENUATION_FACTOR}')
+        logger.warning(f'"open craniotomy" mouse experiment but transducer calibrated in "{calib_cond}" conditions -> adjusting pressure values to free-field equivalent using attenuation factor {COVERGLASS_ATTENUATION_FACTOR}')
         data[Label.P] = (data[Label.P] / COVERGLASS_ATTENUATION_FACTOR).round(2)
 
     # Return log data
@@ -176,8 +213,7 @@ def get_intan_layout(folder):
     if not os.path.exists(info_fpath):
         raise FileNotFoundError(f'info.rhd file not found in "{folder}"')
 
-    # Load info.rhd header and extract sample rate
-    logger.info('getting sample rate from info.rhd header')
+    # Load info.rhd header and extract information
     with open(info_fpath, 'rb') as f:
         magic_number, = struct.unpack('<I', f.read(4))
         if magic_number != 0xc6912702:
@@ -186,11 +222,9 @@ def get_intan_layout(folder):
         # Get RHD version number
         major, minor = struct.unpack('<hh', f.read(4))
         rhd_version = float(f'{major}.{minor}')
-        logger.info(f'Intan RHD version: {rhd_version}')
 
         # Get sample rate (Hz) from header
         fs, = struct.unpack('<f', f.read(4))
-        logger.info(f'Intan RHD sample rate: {fs} Hz')
 
         # Skip over the rest of the header fields that are not needed
         f.seek(2, 1)       # DSP enabled: int16
@@ -206,10 +240,11 @@ def get_intan_layout(folder):
             board_mode, = struct.unpack('<h', f.read(2))
         else:
             board_mode = None
-        logger.info(f'Intan RHD board mode: {board_mode}')
+
+    # Log the extracted information
+    logger.info(f'Intan RHD info: version = {rhd_version}, board mode = {board_mode}, sample rate = {fs} Hz')
 
     # Get sample count and analog channel count from file sizes
-    logger.info('getting sample count and analog channel count from file sizes')
     time_bytes = os.path.getsize(os.path.join(folder, 'time.dat'))
     analog_bytes = os.path.getsize(os.path.join(folder, 'analogin.dat'))
     nsamples = time_bytes // 4
@@ -243,7 +278,7 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
         raise ValueError(f'{time_fpath} is not contiguous; sample times need reading in full')
 
     # Virtually load analogin file using memmap
-    logger.info('loading analogin.dat as memmap')
+    logger.info(f'loading analog input data, channel {channel}')
     analogin_fpath = os.path.join(folder, 'analogin.dat')
     analog = np.memmap(analogin_fpath, dtype=np.uint16, mode='r')
 
@@ -254,7 +289,7 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
 
     # Read and downsample the requested channel in chunks 
     # to avoid reading the whole file into memory
-    logger.info(f'downsampling channel {channel} from {raw_fs} Hz to {ds_fs:.3f} Hz')
+    logger.info(f'downsampling signal from {raw_fs} Hz to {ds_fs:.3f} Hz')
     analog_ds = np.empty(n_bins, dtype=np.float64)
     for start_bin in range(0, n_bins, chunk_bins):
         stop_bin = min(start_bin + chunk_bins, n_bins)
@@ -265,7 +300,7 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
         analog_ds[start_bin:stop_bin] = block.reshape(stop_bin - start_bin, ds_factor).mean(axis=1)
 
     # Convert downsampled ADC vector to volts
-    logger.info('converting downsampled ADC vector to volts')
+    logger.info('converting signal from ADC units to volts')
     if board_mode != 0:
         raise ValueError(f'board mode {board_mode} not supported for voltage conversion')
     v_intan_ds = analog_ds * ADC_TO_VOLTS
@@ -273,7 +308,6 @@ def load_analog_downsampled(folder, target_fs=TARGET_FS, channel=0, chunk_bins=1
     v_source_ds = v_intan_ds / k
 
     # Generate downsampled time vector (s)
-    logger.info('generating downsampled time vector')
     t_s = (np.arange(n_bins) + 0.5) / ds_fs
 
     # Return outputs
@@ -303,7 +337,7 @@ def get_active_digital_lines(words, chunk):
     return np.where(is_high)[0]
 
 
-def load_digital_rising_edges(folder, line=None, chunk=20_000_000):
+def load_digital_rising_edges(folder, line=None, chunk=20_000_000, verbose=True):
     '''
     Sample indices of every rising edge on one digitalin line, found in
     chunks off a memory map. Only the requested bit is ever unpacked.
@@ -315,21 +349,21 @@ def load_digital_rising_edges(folder, line=None, chunk=20_000_000):
     :return: array of sample indices where the specified digitalin line rises
     '''
     # Virtually load the digitalin file as memmap
-    logger.info('loading digitalin.dat as memmap')
+    if verbose:
+        logger.info('loading digital input data')
     digitalin_fpath = os.path.join(folder, 'digitalin.dat')
     words = np.memmap(digitalin_fpath, dtype=np.uint16, mode='r')
 
     # If no line is specified, find the first one with rising edges
     if line is None:
-        logger.info('no digitalin line specified, checking all lines for rising edges')
         active_lines = get_active_digital_lines(words, chunk)
-        logger.info(f'active digitalin lines: {active_lines}')
+        logger.info(f'active digital input lines: {active_lines}')
         for l in active_lines:
-            edges = load_digital_rising_edges(folder, line=l, chunk=chunk)
+            edges = load_digital_rising_edges(folder, line=l, chunk=chunk, verbose=False)
             if edges.size > 0:
                 logger.info(f'found rising edges on line {l}, returning them')
                 return edges
-        raise ValueError('no rising edges found on any digitalin line')
+        raise ValueError('no rising edges found on any digital input line')
 
     # Initialize list of rising edge indices and previous bit value
     edges = []
@@ -351,7 +385,7 @@ def volts_to_degc(v):
     Linear 4-20 mA current-loop scaling, matching the vendor's MATLAB:
         temp = Tzero + (V - Imin*RA) / (Imax*RA - Imin*RA) * Tspan
     '''
-    logger.info('converting Osensa probe voltage to °C')
+    logger.info('converting Osensa probe voltage signal to temprature (°C)')
     osensa_vrange = np.array(OSENSA_IRANGE) * OSENSA_RA  # V
     norm_v = (v - osensa_vrange[0]) / (osensa_vrange[1] - osensa_vrange[0])
     return OSENSA_TZERO + norm_v * OSENSA_TSPAN + OSENSA_PROBE_TOFFSET
@@ -365,7 +399,7 @@ def filter_temperature_recording(y, fs, fc=LOWPASS_FC):
     :param fs: sampling rate of the recording (Hz)
     :param fc: cutoff frequency for lowpass filter (Hz)
     '''
-    logger.info(f'Lowpass filtering temperature trace at {fc} Hz')    
+    logger.info(f'lowpass filtering temperature signal at {fc} Hz')    
 
     # Generate 2nd-order lowpass Butterworth filter coefficients
     sos = signal.butter(2, fc, btype='low', fs=fs, output='sos')
@@ -383,7 +417,7 @@ def plot_longitudinal_temperature_recording(recording, display_fs=OVERVIEW_FS, t
     :param title: optional title for the plot
     '''
     # Compute the sampling interval and sampling rate from the time vector
-    dt = recording[TIME_KEY][1] - recording[TIME_KEY][0]
+    dt = recording[Label.TIME][1] - recording[Label.TIME][0]
     fs = 1 / dt
 
     # Compute downsampling factor and downsample the recording for display purposes
@@ -392,37 +426,42 @@ def plot_longitudinal_temperature_recording(recording, display_fs=OVERVIEW_FS, t
     recording = recording.iloc[::ds_factor, :].copy()
 
     # Add minutes column
-    recording['time (min)'] = recording[TIME_KEY] / 60.0
+    recording[Label.TIME_MIN] = recording[Label.TIME] / MIN_TO_S
 
     # Plot the longitudinal temperature recording
-    logger.info(f'plotting longitudinal temperature recording at {effective_display_fs:.3f} Hz')
+    s = 'longitudinal temperature recording'
+    if title is not None:
+        s = f'{title} {s}'
+    logger.info(f'plotting {s}')
     fig, ax = plt.subplots(figsize=(10, 3))
     sns.despine(ax=ax)
     sns.lineplot(
         data=recording,
-        x='time (min)',
-        y=TEMP_KEY,
+        x=Label.TIME_MIN,
+        y=Label.TEMP,
         ax=ax
     )
 
     # Add horizontal lines for min and max temperature values
-    Tmin = recording[TEMP_KEY].min()
-    Tmax = recording[TEMP_KEY].max()
+    Tmin = recording[Label.TEMP].min()
+    Tmax = recording[Label.TEMP].max()
     for T in [Tmin, Tmax]:
         ax.axhline(T, color='k', linestyle='--', alpha=0.5)
-    Trange = Tmax - Tmin
 
-    # Add figure title
-    tit = f'longitudinal temperature recording (range = {Trange:.2f} °C)'
+    # Add text with temperature range
+    Trange = Tmax - Tmin
+    ax.text(
+        0.02, 0.9, f'Trange = {Trange:.2f} °C', transform=ax.transAxes, ha='left', va='top')
+
+    # Add figure title, if specified
     if title is not None:
-        tit += f' - {title}'
-    ax.set_title(tit)
+       ax.set_title(title)
 
     # Return figure
     return fig
 
 
-def load_thermal_experiment(folder, plot=False, figdict=None):
+def load_thermal_experiment(folder, plot=False, figdict=None, prefix=None):
     '''
     Load and pre-process thermal experiment data from a given folder, 
     including analog temperature recordings, digital trigger edges, 
@@ -447,14 +486,17 @@ def load_thermal_experiment(folder, plot=False, figdict=None):
     
     # Assemble a sample-indexed DataFrame
     recording = pd.DataFrame({
-        TIME_KEY: t_ds,
-        TEMP_KEY: temp_filtered,
+        Label.TIME: t_ds,
+        Label.TEMP: temp_filtered,
     })
-    recording.index.name = 'sample'
+    recording.index.name = Label.SAMPLE
 
     # Plot the longitudinal temperature recording if requested
     if plot:
-        fig = plot_longitudinal_temperature_recording(recording, title=os.path.basename(folder))
+        title = os.path.basename(folder)
+        if prefix is not None:
+            title = f'{prefix} - {title}'
+        fig = plot_longitudinal_temperature_recording(recording, title=title)
         if figdict is not None:
             figdict[f'{os.path.basename(folder)} recording'] = fig
 
@@ -480,12 +522,12 @@ def interpolate_trial_data(data, ykey, target_reltime):
     return pd.Series(
         np.interp(
             x=target_reltime,
-            xp=data[REL_TIME_KEY].values,
+            xp=data[Label.REL_TIME].values,
             fp=data[ykey].values,
             left=np.nan,
             right=np.nan
         ),
-        index=pd.Index(target_reltime, name=TIME_KEY),
+        index=pd.Index(target_reltime, name=Label.TIME),
         name=ykey
     )
 
@@ -500,29 +542,65 @@ def get_time_harmonized_data(data):
         indexed by trial and relative time
     '''
     # Compute common relative time range across all trials
-    groups = data.groupby('trial')[REL_TIME_KEY]
+    if isinstance(data.index, pd.MultiIndex):
+        gby = excluded(data.index, Label.TIME)
+    else:
+        gby = Label.TRIAL
+    groups = data.groupby(gby)[Label.REL_TIME]
     rel_tbounds = (groups.min().max(), groups.max().min())
     logger.info(f'harmonizing trial time traces along common [{rel_tbounds[0]:.3f}, {rel_tbounds[1]:.3f}] s time vector')
 
     # Define common relative time vector for all trials
     min_trial_duration = rel_tbounds[1] - rel_tbounds[0]
-    dt = data[REL_TIME_KEY].diff().median().round(6)
+    dt = data[Label.REL_TIME].diff().median().round(6)
     common_reltime = np.arange(0, min_trial_duration + dt / 2, dt) + rel_tbounds[0]
 
+    # Defien harmonizer function
+    def harmonizer(df):
+        # Compute new temperature
+        newtemp = (
+            interpolate_trial_data(df, Label.TEMP, common_reltime)
+            .rename(Label.TEMP)
+        )
+
+        # Cast as dataframe to avoid "smart-unstacking" by pandas
+        newdf = newtemp.to_frame()
+
+        # Check if there are other columns besides temperature and relative time 
+        othercols = [k for k in df.columns if k not in [Label.TEMP, Label.TIME, Label.REL_TIME, *as_iterable(gby)]]
+
+        # If so, verify that each other column contains a singleton 
+        # before broadcasting it on new time index
+        if len(othercols) > 0:
+            assign_dict = {}
+            for k in othercols:
+                if df[k].nunique() != 1:
+                    raise ValueError(f'column "{k}" contains multiple values for trial {df.name}')
+                assign_dict[k] = df[k].iloc[0]
+            newdf = newdf.assign(**assign_dict)
+
+        # Return 
+        return newdf
+
     # Interpolate all trials along the common relative time vector
-    temp_harmonized = (
+    harmonized_data = (
         data
-        .groupby('trial')
-        .apply(lambda df: interpolate_trial_data(df, TEMP_KEY, common_reltime))
-        .stack()
-        .rename(TEMP_KEY)
+        .groupby(gby)
+        .apply(harmonizer)
     )
 
     # Remove data preceding first trial onset
-    temp_harmonized = temp_harmonized.loc[0:]
+    if isinstance(harmonized_data.index, pd.MultiIndex):
+        harmonized_data = harmonized_data[harmonized_data.index.get_level_values(Label.TRIAL) >= 0]
+    else:
+        harmonized_data = harmonized_data.loc[0:]
 
-    # Return
-    return temp_harmonized
+    # If only 1 output columns, return series
+    if len(harmonized_data.columns) == 1:
+        return harmonized_data[harmonized_data.columns[0]]
+    # Otherwise, return dataframe
+    else:
+        return harmonized_data
 
 
 def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
@@ -541,6 +619,7 @@ def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
     burst_ids = np.concatenate(([0], np.cumsum(np.diff(edge_times) > min_gap)))
 
     # Identify the index (and time) of the first edge of each burst (trial)
+    logger.info(f'extracting stim onset times from {burst_ids.max() + 1} identified trigger bursts')
     i_newburst = np.concatenate(([0], np.where(np.diff(burst_ids) == 1)[0] + 1))
     stim_onset_times = edge_times[i_newburst]
     ntrials = stim_onset_times.size
@@ -563,21 +642,24 @@ def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
         logger.info(f'relative clock drift throughout experiment: {clock_drift:.2f} s')
 
     # Assign trial index to each sample in the temperature recording
+    logger.info(f'assigning trial indices in the temperature recording')
     trial_start_times = stim_onset_times - STIM_ONSET
-    itrial = trial_start_times.searchsorted(recording[TIME_KEY]) - 1
-    recording['trial'] = itrial 
+    itrial = trial_start_times.searchsorted(recording[Label.TIME]) - 1
+    recording[Label.TRIAL] = itrial 
 
     # Compute relative time of each sample with respect to the stim onset for each trial
-    reltime = recording[TIME_KEY] - trial_start_times[itrial] - STIM_ONSET
+    logger.info('computing relative time of each sample with respect to the stim onset for each trial')
+    reltime = recording[Label.TIME] - trial_start_times[itrial] - (STIM_ONSET + PROG_TRIGGER_DELAY)
     reltime[itrial < 0] = np.nan  # samples before first trial have no relative time
     reltime[reltime > min_interval] = np.nan  # samples after last trial have no relative time
-    recording[REL_TIME_KEY] = reltime
+    recording[Label.REL_TIME] = reltime
 
     # Harmonize relative time across trials and add trial information
+    logger.info('harmonizing relative time across trials')
     harmonized_recording = get_time_harmonized_data(recording)
 
     # Add trial information from the experiment log to the harmonized recording
-    logger.info('adding trial information to harmonized recording')
+    logger.info('adding trial information to recording')
     harmonized_recording = (
         harmonized_recording
         .to_frame()
@@ -588,15 +670,29 @@ def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
     return harmonized_recording
 
 
-def load_and_process_thermal_experiment(folder, allow_recursive=True, trial_offset=0, **kwargs):
+def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
     '''
     Load and process thermal experiment data from a given folder. If the folder
     does not contain an info.rhd file, the function will recursively search for 
     subfolders containing thermal experiment data, with max depth=1.
 
-    :param folder: path to the thermal experiment data folder
+    :param folder: path (or list of paths) to the thermal experiment data folder(s)
+    :param allow_recursive: if True, recursively search for subfolders containing thermal experiment data
     :return: trial and time indexed experiment data with log information
     '''
+    # If folder is a list of paths, call the function recursively on each path and concatenate the results
+    if isinstance(folder, list):
+        data = {}
+        for f in folder:
+            specimen = os.path.basename(f)
+            logger.info(f'loading data for specimen {specimen}'.center(100, '-'))
+            data[specimen] = load_and_process_thermal_experiment(
+                f, allow_recursive=allow_recursive, prefix=specimen, **kwargs)
+        data = pd.concat(data, names=[Label.SPECIMEN])
+        data[Label.REL_TIME] = data.index.get_level_values(Label.TIME)
+        data = get_time_harmonized_data(data)
+        return data
+
     # Look for the info.rhd file in the folder
     info_fpath = os.path.join(folder, 'info.rhd')
 
@@ -608,39 +704,48 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, trial_offs
 
         # Try to call function recursively on all subfolders
         data = {}
-        trial_offset = 0
         subitems = natsorted(os.listdir(folder))
         for item in subitems:
             sub_path = os.path.join(folder, item)
             if os.path.isdir(sub_path):
                 data[item] = load_and_process_thermal_experiment(
-                    sub_path, allow_recursive=False, trial_offset=trial_offset, **kwargs)
-                trial_offset = data[item].index.get_level_values('trial').max() + 1
+                    sub_path, allow_recursive=False, **kwargs)
 
         # If no subfolders contain thermal experiment data, raise an error
         if not data:
             raise FileNotFoundError(f'No thermal experiment data found in "{folder}" or its subfolders')
 
         # Concatenate all subfolder data into a single DataFrame, and return
-        return pd.concat(data, names=['condition'])
+        return pd.concat(data, names=[Label.CONDITION])
     
-    # Load the thermal experiment data
-    recording, edge_times, log_data = load_thermal_experiment(folder, **kwargs)
+    # Look for processed data file in the folder
+    log_fcode = os.path.splitext(find_log_file(folder))[0]
+    process_data_fname = log_fcode.replace('_log_', '_processed_data') + '.h5'
+    process_data_fpath = os.path.join(folder, process_data_fname)
 
-    # Assign trials to the recording based on the edge times and log data
-    data = assign_trials(recording, edge_times, log_data)
+    # If processed data file exists, load it and return
+    if os.path.exists(process_data_fpath):
+        logger.info(f'loading processed data from "{process_data_fname}"')
+        return pd.read_hdf(process_data_fpath, key='data')
+    
+    # Otherwise
+    else:
+        # Load the thermal experiment data
+        recording, edge_times, log_data = load_thermal_experiment(folder, **kwargs)
 
-    # If trial offset, apply it
-    if trial_offset != 0:
-        idx_names = data.index.names
-        df_reset = data.reset_index()
-        df_reset['trial'] = df_reset['trial'] + trial_offset
-        data = df_reset.set_index(idx_names)
+        # Assign trials to the recording based on the edge times and log data
+        data = assign_trials(recording, edge_times, log_data)
+
+        # Save processed data in dedicated file
+        logger.info(f'saving processed data to "{process_data_fname}"')
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=NaturalNameWarning)
+            data.to_hdf(process_data_fpath, key='data', mode='w')
 
     # If data contains "z (mm)" scanning column, add sensor tip offset to it
-    if Z_KEY in data.columns:
-        logger.info(f'adding sensor tip offset of {OSENSA_SENSOR_TIP_OFFSET*1e3:.1f} mm to "z (mm)" scanning column')
-        data[Z_KEY] += OSENSA_SENSOR_TIP_OFFSET * 1e3
+    if Label.Z_MM in data.columns:
+        logger.info(f'adding sensor tip offset of {OSENSA_SENSOR_TIP_OFFSET*1e3:.1f} mm to "{Label.Z_MM}" scanning column')
+        data[Label.Z_MM] += OSENSA_SENSOR_TIP_OFFSET * 1e3  # mm
 
     # Return the harmonized recording with trial information
     return data
@@ -654,7 +759,7 @@ def detrend_trial(y):
     :return: pandas Series with detrended trial temperature trace, indexed by relative time
     '''
     # Identify baseline mask
-    t = y.index.get_level_values(TIME_KEY)
+    t = y.index.get_level_values(Label.TIME)
     baseline_mask = ~np.logical_and(
         t > RESPONSE_WINDOW[0],
         t < RESPONSE_WINDOW[1]
@@ -685,7 +790,7 @@ def compute_deltaT(y, baseline_pre=BASELINE_PRE):
     :return: pandas series with relative temperature changes, indexed by relative time
     '''
     # Compute pre-stimulus baseline
-    t = y.index.get_level_values(TIME_KEY)
+    t = y.index.get_level_values(Label.TIME)
     baseline_mask = np.logical_and(t > -baseline_pre, t < 0)
     y0 = y[baseline_mask].mean()
 
@@ -718,7 +823,7 @@ def compute_trial_average(data):
     logger.info(f'computing trial-average data by {cond_keys}')
     return (
         data
-        .groupby([*cond_keys, TIME_KEY])
+        .groupby([*cond_keys, Label.TIME])
         [aggkeys]
         .mean()
     )
@@ -750,7 +855,7 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs)
     # Plot the evoked thermal response using seaborn lineplot
     sns.lineplot(
         data=data,
-        x=TIME_KEY,
+        x=Label.TIME,
         y=y,
         hue=hue,
         hue_norm=hue_norm,
@@ -761,8 +866,8 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs)
     ax.axhline(0, color='k', linestyle='--', linewidth=1)
 
     # If stim duration is available in the data, add a shaded region to indicate the stimulus period
-    if STIMDUR_KEY in data.columns:
-        tstim = data[STIMDUR_KEY].iloc[0]
+    if Label.DUR in data.columns:
+        tstim = data[Label.DUR].iloc[0]
         ax.axvspan(0., tstim, color='silver', alpha=0.5)
 
 
@@ -825,16 +930,16 @@ def fit_double_exp(y):
     :return: optimal parameters for the double_exp_peak fit, or None if the fit fails
     '''
     # Extract time vector from index
-    t = y.index.get_level_values(TIME_KEY).values
+    t = y.index.get_level_values(Label.TIME).values
 
     # Initialize output series
     sopt = pd.Series(
         index=pd.Index([
-            't0',
-            'peak',
-            'tau_rise',
-            'tau_decay',
-            'offset'
+            't_0 (s)',
+            'peak (°C)',
+            f'{Label.TAU}_rise (s)',
+            f'{Label.TAU}_decay (s)',
+            'offset (°C)'
         ], name='parameter'),
         dtype=float
     )
@@ -847,11 +952,11 @@ def fit_double_exp(y):
 
     # Set initial guess for the fit parameters
     p0 = [
-        0.1,  # onset time
-        ypeak,  # peak amplitude
-        0.1,  # rise time constant
-        0.3,  # decay time constant
-        0.0,   # baseline offset
+        0.1,  # onset time (s)
+        ypeak,  # peak amplitude (°C)
+        0.1,  # rise time constant (s)
+        0.3,  # decay time constant (s)
+        0.0,   # baseline offset (°C)
     ]
 
     # Set search bounds for the fit parameters
@@ -932,8 +1037,51 @@ def select_subset(data, trial_stats, cond):
     :return: 2-tuple with subset data and stats
     '''
     cond_stats = trial_stats.loc[cond]
-    cond_data = data.loc[cond_stats.index.get_level_values('trial')]
+    cond_data = data.loc[cond_stats.index.get_level_values(Label.TRIAL)]
     return cond_data, cond_stats 
+
+
+def plot_XZ_slice(M, ax=None, title=None, vcontour=None, **kwargs):
+    '''
+    Plot XZ slice of specific key 
+
+    :param M: dataframe representing (X, Z) matrix of output metric 
+    :param ax: axis object. If none, a new figure is created
+    :param title: optional axis title
+    :param vcontour: optional value at which to draw contours 
+    :return: figure object and quad mesh
+    '''
+    # Create/retrieve dfigure and axis
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.get_figure()
+
+    # Set up axis
+    ax.set_aspect('equal')
+    ax.set_xlabel(Label.X_MM)
+    ax.set_ylabel(Label.Z_MM)
+
+    # Add title if specified
+    if title is not None:
+        ax.set_title(title)
+
+    # Extract X and Z coordinates, and construct associated edges 
+    x, z = M.columns.values, M.index.values
+    xedges = (x[:-1] + x[1:]) / 2
+    xedges = np.array([2 * x[0] - xedges[0], *xedges, 2 * x[-1] - xedges[-1]])
+    zedges = (z[:-1] + z[1:]) / 2
+    zedges = np.array([2 * z[0] - zedges[0], *zedges, 2 * z[-1] - zedges[-1]])
+
+    # Plot heatmap
+    sm = ax.pcolormesh(xedges, zedges, M, **kwargs)
+
+    # If specified, add focus contours
+    if vcontour is not None:
+        ax.contour(x, z, M, levels=[vcontour], colors='w', linewidths=2)
+
+    # Return
+    return fig, sm
 
 
 def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
@@ -960,11 +1108,11 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
     # Plot ISPTA-dependent temperature traces
     logger.info(f'plotting ISPTA-dependent evoked temperature change traces')
     sns.despine(ax=ax)
-    for units in ['trial', None]:
+    for units in [Label.TRIAL, None]:
         plot_evoked_thermal_response(
             ax=ax,
             data=data.reset_index(),
-            y=REL_TEMP_KEY,
+            y=Label.REL_TEMP,
             hue=Label.ISPTA,
             palette='flare',
             estimator=None if units is not None else 'mean',
@@ -1000,7 +1148,7 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
         ax=inset_ax,
         data=max_ΔT.reset_index(),
         x=Label.ISPTA,
-        y=MAX_REL_TEMP_KEY,
+        y=Label.MAX_REL_TEMP,
         errorbar='sd',
         ls='',
         err_style='bars',
@@ -1028,3 +1176,52 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
         return fig, max_ΔT_pred
     else:
         return fig
+
+
+def plot_max_deltaT_per_location(max_ΔT, title):
+    '''
+    Plot bar graph of max ΔT across multiple dimensions
+
+    :param max_ΔT: 2D dataframe of maximal temprature elevation
+    :return: figure object
+    '''
+    # Extract x and hue keys
+    xkey = max_ΔT.index.name
+    hue = max_ΔT.columns.name
+    
+    # Plot bar graph of max ΔT
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.set_title(title)
+    sns.despine(ax=ax)
+    sns.barplot(
+        ax=ax,
+        data=max_ΔT.stack().rename(Label.MAX_REL_TEMP).reset_index(),
+        y=Label.MAX_REL_TEMP,
+        x=Label.LOCATION,
+        hue=Label.SPECIMEN,
+    )
+
+    # Add mean +/- std text for each x value
+    for iloc, xval in enumerate(max_ΔT.index):
+        xdata = max_ΔT.loc[xval]
+        text = f'{xdata.mean():.2f} ± {xdata.std():.2f}'
+        ax.text(
+            x=iloc,
+            y=xdata.max() + 0.02,
+            s=text,
+            ha='center',
+            va='bottom',
+            fontsize=10,
+            color='k'
+        )
+        ylims = ax.get_ylim()
+        ax.set_ylim(0, 1.05 * ylims[1])
+
+    # Rotate x-axis labels for better readability
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    
+    # Move legend
+    sns.move_legend(ax, 'center left', bbox_to_anchor=(1, 0.5), frameon=False)
+
+    # Return figure
+    return fig

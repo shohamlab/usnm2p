@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 09:33:04
+# @Last Modified time: 2026-09-18 12:41:49
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -18,8 +18,15 @@ ENV_NAME = 'usnm2p'
 
 class Label:
 
-    # Acquisition
     UNKNOWN = '???'  # unknown key
+
+    # Greek letters
+    ALPHA = '\u03B1'
+    BETA = '\u03B2'
+    PI = '\u03C0'
+    TAU = '\u03C4'
+
+    # Stimulation
     P = 'P (MPa)'
     DC = 'DC (%)'
     ISPPA = 'I_SPPA (W/cm2)'  # spatial peak, pulse average acoustic intensity
@@ -31,67 +38,90 @@ class Label:
     ISPTRMS = 'I_SPTRMS (W/cm2)'  # spatial peak, temporal RMS intensity
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
+    TSTIM = 'tstim (s)'
+
+    # Acquisition
     FPS = 'fps'
     LPF = 'lpf'  # lines per frame
-    PULSE = 'pulse'
-    PULSERELTIME = 'time w.r.t pulse onset (ms)'
-    RUNID = 'run ID'
-    LINE = 'line'
     NPERTRIAL = 'trial_length'
     NTRIALS = 'ntrials'
-    CYCLE = 'cycle'
     SUFFIX = 'suffix'
-    FRAME = 'frame'
-    COL = 'col'
-    ROW = 'row'
-    FRAMEROW = 'frame row'
-    STIMFRAME = 'stimulus frame'
-    CH = 'channel'
-    MOUSE = 'mouse'
-    DATE = 'date'
-    DATASET = 'dataset'
-    LAYER = 'layer'
     OFFSET = 'offset (mm)'
     TRIG = 'trigger'
     DELAY = 'delay'
 
+    # Dataset
+    LINE = 'line'
+    MOUSE = 'mouse'
+    DATE = 'date'
+    DATASET = 'dataset'
+    LAYER = 'layer'    
+    SPECIMEN = 'specimen'
+    LOCATION = 'location'
+    CONDITION = 'condition'
+
     # Frequency analysis
     FREQ = 'frequency (Hz)'
+    FREQ_MHZ = 'frequency (MHz)'
     PSPECTRUM = 'Power spectrum'
     PSPECTRUM_DB = 'Power spectrum (dB)'
 
     # Data indexes
-    ROI = 'ROI'
+    REC = 'recording'
     RUN = 'run'
+    RUNID = 'run ID'
     TRIAL = 'trial'
+    CH = 'channel'
+    CYCLE = 'cycle'
+    PULSE = 'pulse'
+    FRAME = 'frame'
+    COL = 'col'
+    ROW = 'row'
+    SAMPLE = 'sample'
+    FRAMEROW = 'frame row'
+    STIMFRAME = 'stimulus frame'
+    ROI = 'ROI'
     ISTART = 'istart'
     ITI = 'iti'  # inter-trial interval
 
-    # Time-varying signals
+    # Time signals
+    TIMESTAMP = 'timestamp'
     TIME = 'time (s)'
+    TIME_MIN = 'time (min)'
     ELAPSED_TIME = 'elapsed time (s)'
+    REL_TIME = 'relative time (s)'
+    PULSERELTIME = 'time w.r.t pulse onset (ms)'
     HOURS = 'hours'
     TRIALPHASE = 'trial phase (rad)'
     PHASE = 'phase (rad)'
     ANGLE = 'angle (rad)'  # i.e. unwrapped phase
     ITPC = 'ITPC'  # inter-trial phase coherence
+
+    # Fluorescence signals
     ENV = 'envelope'
     F_ROI = 'F_ROI (a.u.)'
     MAX_F_ROI = f'max {F_ROI}'
     F_NEU = 'F_neu (a.u.)'
-    ALPHA = 'alpha'
-    BETA = 'beta'
     F = 'F (a.u.)'
     F0 = 'F0 (a.u.)'
     F_DETRENDED = 'F_detrended (a.u.)'
     F0_DETRENDED = 'F0 detrended (a.u.)'
     DF = '\u0394F'
     DFF = '\u0394F/F0'
-    PI = '\u03C0'
     ZSCORE = f'Z({DFF})'
     REL_DFF = f'{DFF} - {DFF}_stim'
     REL_ZSCORE = f'{ZSCORE} - {ZSCORE}_stim'
     EVENT_RATE = 'event rate (Hz)'
+
+    # Temperature signals
+    TEMP = 'T (°C)'
+    REL_TEMP = f'Δ{TEMP}'
+    MAX_REL_TEMP = f'max {REL_TEMP}'
+
+    # Spatial coordinates
+    X_MM = 'x (mm)'
+    Y_MM = 'y (mm)'
+    Z_MM = 'z (mm)'
 
     # Displacement & velocities
     X_PX = 'x (pixels)'
@@ -245,6 +275,7 @@ UM2_TO_MM2 = 1e-6
 S_TO_MS = 1e3
 HZ_TO_KHZ = 1e-3
 HZ_TO_MHZ = 1e-6
+MIN_TO_S = 60.
 
 ###################################### PHYSICAL CONSTANTS ######################################
 
