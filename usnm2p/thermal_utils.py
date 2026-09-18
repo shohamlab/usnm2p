@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-18 15:39:45
+# @Last Modified time: 2026-09-18 15:41:14
 
 import os
 import struct
@@ -720,7 +720,7 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
     
     # Look for processed data file in the folder
     log_fcode = os.path.splitext(find_log_file(folder))[0]
-    process_data_fname = log_fcode.replace('_log_', '_processed_data') + '.h5'
+    process_data_fname = log_fcode.replace('_log_', '_processed_data_') + '.h5'
     process_data_fpath = os.path.join(folder, process_data_fname)
 
     # If processed data file exists, load it and return
