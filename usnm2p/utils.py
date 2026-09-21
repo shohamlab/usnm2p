@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-10-30 10:06:43
+# @Last Modified time: 2026-09-21 13:22:18
 
 ''' Collection of generic utilities. '''
 
@@ -703,7 +703,7 @@ def compute_radiation_force(f, I, c=C_BRAIN, **kwargs):
 
 def compute_heat_generation_rate(f, I, rho=RHO_BRAIN, C=CS_BRAIN, **kwargs):
     '''
-    Compute rate of heat generation per unit volume for a specific acoustic
+    Compute rate of local heat generation for a specific acoustic
     frequency and intensity
 
     :param f: frequency (MHz)

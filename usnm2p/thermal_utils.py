@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-18 15:45:19
+# @Last Modified time: 2026-09-21 15:22:31
 
 import os
 import struct
@@ -60,15 +60,17 @@ LOWPASS_FC = 30  # Hz, lowpass filter cutoff frequency for analog signal
 OVERVIEW_FS = 4   # sampling rate for longitudinal overview (Hz)
 GROUP_GAP = 1.0  # s, edges further apart than this start a new burst
 STIM_ONSET = 0.5  # s, window length before each trigger burst onset
-PROG_TRIGGER_DELAY = 0.15  # s, delay between trigger onset and actual stimulus onset (due to hardware limitations with programmatic trigger)
 RESPONSE_WINDOW = (0., 3.0)  # s, time window containing expected response after each trigger burst onset
 BASELINE_PRE = 0.4  # s, pre-onset span averaged and subtracted from each trial
 
 # Double-exponential fit bounds
-FIT_MIN_CELSIUS_AMPLITUDE = 0.01  # °C
-FIT_MAX_CELSIUS_AMPLITUDE = 10.0  # °C
-FIT_MAX_TAU_RISE = 1.0  # s
-FIT_MAX_TAU_DECAY = 5.0  # s
+DOUBLE_EXP_FIT_BOUNDS = {
+    't_0 (s)': (0.0, .5),  # start time (s)
+    'peak (°C)': (0.01, 10.0),  # peak (# °C)
+    f'{Label.TAU}_rise (s)': (1e-3, 1.0),  # rise time constant (s)
+    f'{Label.TAU}_decay (s)': (1e-2, 5.0),  # decay time constant (s) 
+    'offset (°C)': (-0.1, 0.1),  # offset
+}
 
 # Pressure-related constants
 P_RANGE = (0, 2.5)  # pressure range (MPA) used throughout experiments, for consistent color-coding
@@ -649,7 +651,7 @@ def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
 
     # Compute relative time of each sample with respect to the stim onset for each trial
     logger.info('computing relative time of each sample with respect to the stim onset for each trial')
-    reltime = recording[Label.TIME] - trial_start_times[itrial] - (STIM_ONSET + PROG_TRIGGER_DELAY)
+    reltime = recording[Label.TIME] - trial_start_times[itrial] - STIM_ONSET
     reltime[itrial < 0] = np.nan  # samples before first trial have no relative time
     reltime[reltime > min_interval] = np.nan  # samples after last trial have no relative time
     recording[Label.REL_TIME] = reltime
@@ -670,7 +672,7 @@ def assign_trials(recording, edge_times, log_data, min_gap=GROUP_GAP):
     return harmonized_recording
 
 
-def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
+def load_and_process_thermal_experiment(folder, allow_recursive=True, load_preprocessed=True, **kwargs):
     '''
     Load and process thermal experiment data from a given folder. If the folder
     does not contain an info.rhd file, the function will recursively search for 
@@ -678,6 +680,7 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
 
     :param folder: path (or list of paths) to the thermal experiment data folder(s)
     :param allow_recursive: if True, recursively search for subfolders containing thermal experiment data
+    :param load_preprocessed: if True, load preprocessed data from disk if available
     :return: trial and time indexed experiment data with log information
     '''
     # If folder is a list of paths, call the function recursively on each path and concatenate the results
@@ -687,7 +690,12 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
             specimen = os.path.basename(f)
             logger.info(f'loading data for specimen {specimen}'.center(100, '-'))
             data[specimen] = load_and_process_thermal_experiment(
-                f, allow_recursive=allow_recursive, prefix=specimen, **kwargs)
+                f,
+                allow_recursive=allow_recursive,
+                load_preprocessed=load_preprocessed,
+                prefix=specimen,
+                **kwargs
+            )
         data = pd.concat(data, names=[Label.SPECIMEN])
         data[Label.REL_TIME] = data.index.get_level_values(Label.TIME)
         data = get_time_harmonized_data(data)
@@ -709,7 +717,11 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
             sub_path = os.path.join(folder, item)
             if os.path.isdir(sub_path):
                 data[item] = load_and_process_thermal_experiment(
-                    sub_path, allow_recursive=False, **kwargs)
+                    sub_path,
+                    allow_recursive=False,
+                    load_preprocessed=load_preprocessed,
+                    **kwargs
+                )
 
         # If no subfolders contain thermal experiment data, raise an error
         if not data:
@@ -718,14 +730,14 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
         # Concatenate all subfolder data into a single DataFrame, and return
         return pd.concat(data, names=[Label.CONDITION])
     
-    # Look for processed data file in the folder
+    # Aseemble path to pre-processed data file
     log_fcode = os.path.splitext(find_log_file(folder))[0]
     process_data_fname = log_fcode.replace('_log_', '_processed_data_') + '.h5'
     process_data_fpath = os.path.join(folder, process_data_fname)
 
-    # If processed data file exists, load it
-    if os.path.exists(process_data_fpath):
-        logger.info(f'loading processed data from "{process_data_fname}"')
+    # If pre-processed data file exists and load_preprocessed is True, load it
+    if os.path.exists(process_data_fpath) and load_preprocessed:
+        logger.info(f'loading pre-processed data from "{process_data_fname}"')
         data = pd.read_hdf(process_data_fpath, key='data')
     
     # Otherwise
@@ -736,8 +748,11 @@ def load_and_process_thermal_experiment(folder, allow_recursive=True, **kwargs):
         # Assign trials to the recording based on the edge times and log data
         data = assign_trials(recording, edge_times, log_data)
 
-        # Save processed data in dedicated file
-        logger.info(f'saving processed data to "{process_data_fname}"')
+        # Save pre-processed data in dedicated file
+        if os.path.exists(process_data_fpath):
+            logger.warning(f'overwriting existing pre-processed data file "{process_data_fname}"')
+        else:
+            logger.info(f'saving pre-processed data to "{process_data_fname}"')
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', category=NaturalNameWarning)
             data.to_hdf(process_data_fpath, key='data', mode='w')
@@ -920,35 +935,29 @@ def fit_double_exp(y):
     Fit double_exp_peak to one mean transient, or return None if the
     transient is at the noise floor or the fit does not converge.
 
+    Notes:
     - tau_rise is not identifiable on this data: the probe rises almost linearly while the
-        0.2 s stimulus is on, which is the tau_rise -> infinity limit of the model,
-        so tau_rise sits on its FIT_MAX_TAU_RISE bound for most conditions. 
-    - t0 (~170 ms here) absorbs the probe's onset lag. Quote the peak, the time to
-        peak and tau_decay; treat a saturated tau_rise as a lower bound.
+        0.2 s stimulus is on, which is the tau_rise -> infinity limit of the model, so tau_rise sits
+        on its upper bound for most conditions (treat this sturated vaue as a lower bound). 
+    - t0 (~170 ms here) absorbs the probe's onset lag.
 
     :param y: time-indexed series of temperature trace
-    :return: optimal parameters for the double_exp_peak fit, or None if the fit fails
+    :return: pandas series with optimal parameters for the double_exp_peak fit (or NaNs if the fit fails)
     '''
     # Extract time vector from index
     t = y.index.get_level_values(Label.TIME).values
 
     # Initialize output series
-    sopt = pd.Series(
-        index=pd.Index([
-            't_0 (s)',
-            'peak (°C)',
-            f'{Label.TAU}_rise (s)',
-            f'{Label.TAU}_decay (s)',
-            'offset (°C)'
-        ], name='parameter'),
+    sout = pd.Series(
+        index=pd.Index(DOUBLE_EXP_FIT_BOUNDS.keys(), name='parameter'),
         dtype=float
     )
     
-    # Extract transient peak amplitude from the trace, and return None 
+    # Extract transient peak amplitude from the trace, and return empty 
     # if it is below the minimum threshold 
     ypeak = y[t >= 0].max()
-    if ypeak < FIT_MIN_CELSIUS_AMPLITUDE:
-        return sopt
+    if ypeak < DOUBLE_EXP_FIT_BOUNDS['peak (°C)'][0]:
+        return sout
 
     # Set initial guess for the fit parameters
     p0 = [
@@ -960,14 +969,10 @@ def fit_double_exp(y):
     ]
 
     # Set search bounds for the fit parameters
-    pbounds = [
-        (0.0, .5),  # t0 bounds
-        (0, min(5 * ypeak, FIT_MAX_CELSIUS_AMPLITUDE)),  # peak bounds
-        (1e-3, FIT_MAX_TAU_RISE),  # tau_rise bounds
-        (1e-2, FIT_MAX_TAU_DECAY),  # tau_decay bounds
-        (-0.05, 0.05),  # offset
-    ]
-    bounds = ([b[0] for b in pbounds], [b[1] for b in pbounds])
+    bounds = (
+        [b[0] for b in DOUBLE_EXP_FIT_BOUNDS.values()],
+        [b[1] for b in DOUBLE_EXP_FIT_BOUNDS.values()]
+    )
 
     # Attempt to fit the double_exp_peak function to the trace using curve_fit,
     # and return None if the fit does not converge
@@ -981,10 +986,24 @@ def fit_double_exp(y):
         )
     except RuntimeError as e:
         logger.warning(e)
-        return sopt
+        return sout
+
+    # If any parameter falls within less than 1% of its search bounds, log warning
+    rel_conv_margin = 0.01  # 1% of the search bounds
+    for param, (k, (lb, ub)) in zip(popt, DOUBLE_EXP_FIT_BOUNDS.items()):
+        lb_conv, ub_conv = lb + rel_conv_margin * (ub - lb), ub - rel_conv_margin * (ub - lb)
+        conv = True
+        if k == 'peak (°C)':
+            conv = param <= ub_conv
+        elif k == f'{Label.TAU}_rise (s)':
+            conv = param >= lb_conv
+        else:
+            conv = lb_conv <= param <= ub_conv
+        if not conv:
+            logger.warning(f'fit parameter {k} = {param:.3f} is within 1% of its bounds ({lb:.3f}, {ub:.3f})')
 
     # Return the optimal parameters for the double_exp_peak fit
-    return pd.Series(data=popt, index=sopt.index)
+    return pd.Series(data=popt, index=sout.index)
 
 
 def longest_common_substring(strs):
@@ -1041,7 +1060,7 @@ def select_subset(data, trial_stats, cond):
     return cond_data, cond_stats 
 
 
-def plot_XZ_slice(M, ax=None, title=None, vcontour=None, **kwargs):
+def plot_XZ_slice(M, ax=None, title=None, vcontour=None, cmap='viridis', **kwargs):
     '''
     Plot XZ slice of specific key 
 
@@ -1049,6 +1068,7 @@ def plot_XZ_slice(M, ax=None, title=None, vcontour=None, **kwargs):
     :param ax: axis object. If none, a new figure is created
     :param title: optional axis title
     :param vcontour: optional value at which to draw contours 
+    :param cmap: colormap (either string or colormap object) to use for the heatmap
     :return: figure object and quad mesh
     '''
     # Create/retrieve dfigure and axis
@@ -1066,6 +1086,11 @@ def plot_XZ_slice(M, ax=None, title=None, vcontour=None, **kwargs):
     if title is not None:
         ax.set_title(title)
 
+    # Set up colormap
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+    cmap.set_bad(color='lightgray')
+
     # Extract X and Z coordinates, and construct associated edges 
     x, z = M.columns.values, M.index.values
     xedges = (x[:-1] + x[1:]) / 2
@@ -1074,14 +1099,14 @@ def plot_XZ_slice(M, ax=None, title=None, vcontour=None, **kwargs):
     zedges = np.array([2 * z[0] - zedges[0], *zedges, 2 * z[-1] - zedges[-1]])
 
     # Plot heatmap
-    sm = ax.pcolormesh(xedges, zedges, M, **kwargs)
+    mesh = ax.pcolormesh(xedges, zedges, M, cmap=cmap, **kwargs)
 
     # If specified, add focus contours
     if vcontour is not None:
         ax.contour(x, z, M, levels=[vcontour], colors='w', linewidths=2)
 
     # Return
-    return fig, sm
+    return fig, mesh
 
 
 def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
@@ -1090,7 +1115,7 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
 
     :param data: pandas DataFrame with trial time traces, indexed by trial and relative time
     :param max_ΔT: pandas Series with max-evoked temperature change for each trial
-    :param Itarget: target ISPTA for which to compute the predicted max-evoked temperature change from the linear fit
+    :param Itarget: target ISPTA (float, list or array) for which to compute the predicted max-evoked temperature change from the linear fit
     :return: matplotlib Figure object containing the plot, and optionally the predicted max-evoked temperature change at target
     '''
     # Create/retrieve axis and figure
@@ -1161,13 +1186,15 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
 
     # If Itarget is specified, compute and plot the predicted max-evoked temperature change at that value
     if Itarget is not None:
+        Itarget = np.atleast_1d(Itarget)
         max_ΔT_pred = slope * Itarget
-        logger.info(f'predicted max-evoked temperature change at {Itarget} W/cm²: {max_ΔT_pred:.3f} °C')
-        inset_ax.plot([Itarget] * 2, [0, max_ΔT_pred], color='k', ls=':', lw=1.5)
-        inset_ax.plot([0, Itarget], [max_ΔT_pred] * 2, color='k', ls=':', lw=1.5)
-        if add_dt_text:
+        for It, mΔT in zip(Itarget, max_ΔT_pred):
+            logger.info(f'predicted max-evoked temperature change at {It} W/cm²: {mΔT:.3f} °C')
+            inset_ax.plot([It] * 2, [0, mΔT], color='k', ls=':', lw=1.5)
+            inset_ax.plot([0, It], [mΔT] * 2, color='k', ls=':', lw=1.5)
+        if add_dt_text and len(Itarget) == 1:
             inset_ax.text(
-                0., .95 * max_ΔT_pred, f'ΔT = {max_ΔT_pred:.2f} °C',
+                0., .95 * max_ΔT_pred[0], f'ΔT = {max_ΔT_pred[0]:.2f} °C',
                 ha='left', va='top', fontsize=8
             )
 

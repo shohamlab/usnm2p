@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-18 12:41:49
+# @Last Modified time: 2026-09-21 13:08:50
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -280,11 +280,16 @@ MIN_TO_S = 60.
 ###################################### PHYSICAL CONSTANTS ######################################
 
 # Extract from IT'IS database of tissue properties
+RHO_WATER = 994.04  # density of water (kg/m3)
 RHO_BRAIN = 1046.0  # density of brain tissue (kg/m3)
+C_WATER = 1482.3  # speed of sound in water (m/s)
 C_BRAIN = 1546.3  # speed of sound in brain tissue (m/s)
 ALPHA0_BRAIN = 6.8032  # Acoustic attenuation constant of brain tissue at 1 MHz (Np/m) 
+ALPHA0_WATER = 0.025328436  # Acoustic attenuation constant of water at 1 MHz (Np/m)
 B_BRAIN = 1.3  # Exponent of the frequency dependency of the attenuation constant of brain tissue (-)   
+B_WATER = 1.  # Exponent of the frequency dependency of the attenuation constant of water (-)
 CS_BRAIN = 3630.  # specific heat capacity per unit mass of brain tissue (J/kg/°C)
+CS_WATER = 4178.  # specific heat capacity per unit mass of water (J/kg/°C)
 
 
 ###################################### DATA ACQUISITION ######################################
