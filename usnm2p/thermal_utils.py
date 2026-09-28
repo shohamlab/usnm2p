@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-21 15:22:31
+# @Last Modified time: 2026-09-25 14:55:05
 
 import os
 import struct
@@ -1060,13 +1060,15 @@ def select_subset(data, trial_stats, cond):
     return cond_data, cond_stats 
 
 
-def plot_XZ_slice(M, ax=None, title=None, vcontour=None, cmap='viridis', **kwargs):
+
+def plot_XZ_slice(M, ax=None, title=None, kind='contourf', vcontour=None, cmap='viridis', vmin=None, vmax=None, **kwargs):
     '''
     Plot XZ slice of specific key 
 
     :param M: dataframe representing (X, Z) matrix of output metric 
     :param ax: axis object. If none, a new figure is created
     :param title: optional axis title
+    :param kind: either 'contourf' or 'pcolormesh' for the heatmap
     :param vcontour: optional value at which to draw contours 
     :param cmap: colormap (either string or colormap object) to use for the heatmap
     :return: figure object and quad mesh
@@ -1091,15 +1093,30 @@ def plot_XZ_slice(M, ax=None, title=None, vcontour=None, cmap='viridis', **kwarg
         cmap = plt.get_cmap(cmap)
     cmap.set_bad(color='lightgray')
 
-    # Extract X and Z coordinates, and construct associated edges 
+    # Extract X and Z coordinates from the DataFrame's columns and index
     x, z = M.columns.values, M.index.values
-    xedges = (x[:-1] + x[1:]) / 2
-    xedges = np.array([2 * x[0] - xedges[0], *xedges, 2 * x[-1] - xedges[-1]])
-    zedges = (z[:-1] + z[1:]) / 2
-    zedges = np.array([2 * z[0] - zedges[0], *zedges, 2 * z[-1] - zedges[-1]])
 
-    # Plot heatmap
-    mesh = ax.pcolormesh(xedges, zedges, M, cmap=cmap, **kwargs)
+    # If pcolormesh is requested, 
+    if kind == 'pcolormesh':
+        # Construct edges for the heatmap
+        xedges = (x[:-1] + x[1:]) / 2
+        xedges = np.array([2 * x[0] - xedges[0], *xedges, 2 * x[-1] - xedges[-1]])
+        zedges = (z[:-1] + z[1:]) / 2
+        zedges = np.array([2 * z[0] - zedges[0], *zedges, 2 * z[-1] - zedges[-1]])
+
+        # Plot quadmesh heatmap
+        mesh = ax.pcolormesh(xedges, zedges, M, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
+
+    # If contourf is requested,
+    elif kind == 'contourf':
+        # Plot interpolated contour heatmap with overlaid XZ grid
+        mesh = ax.contourf(x, z, M, cmap=cmap, vmin=vmin, vmax=vmax, levels=np.linspace(0, np.ceil(vmax * 1e1) / 1e1, 10), **kwargs)
+        X, Z = np.meshgrid(x, z)
+        ax.scatter(X.flatten(), Z.flatten(), c='w', s=5)
+
+    # Otherside, raise an error for unsupported kinds
+    else:
+        raise ValueError(f'Unsupported kind "{kind}". Must be either "contourf" or "pcolormesh".')
 
     # If specified, add focus contours
     if vcontour is not None:
@@ -1200,7 +1217,7 @@ def plot_ispta_dependence(data, max_ΔT, ax=None, title=None, Itarget=None):
 
     # Return output(s)
     if Itarget is not None:
-        return fig, max_ΔT_pred
+        return fig, np.squeeze(max_ΔT_pred)
     else:
         return fig
 
