@@ -3354,6 +3354,25 @@ def classify_ROIs(data, directional=False, return_nconds=False):
         return roistats
 
 
+def get_varying_params(data):
+    '''
+    Extract varying stimulation parameters from output tablea multi-index stats dataframe, excluding run ID
+    '''
+    nvals_per_col = data.nunique()
+    varying_params = nvals_per_col[nvals_per_col > 1].index.values
+    candidate_params = [
+        Label.P,
+        Label.DC,
+        Label.PRF,
+        Label.ISPPA,
+        Label.ISPTA, 
+        Label.DUR,
+        Label.FREQ,
+        Label.SUFFIX,
+    ]
+    return [k for k in candidate_params if k in varying_params]
+
+
 def get_params_by_run(data, extra_dims=None):
     ''' 
     Get parameters by run
@@ -3378,9 +3397,8 @@ def get_params_by_run(data, extra_dims=None):
         gby = gby + extra_dims
         gby = list(filter(lambda x: x in gby, data.index.names))
 
-    # Parameter keys to extract
-    inputkeys = [Label.P, Label.DC, Label.ISPTA]
-    inputkeys = [k for k in inputkeys if k in data]
+    # Extract varying parameters as input keys (besides run and extra dimensions)
+    inputkeys = get_varying_params(data)
     
     # Extract first value of each parameter for each group
     first_params_by_run = data[inputkeys].groupby(gby).first()
@@ -4178,6 +4196,7 @@ def get_fit_table(Pfit='poly2', exclude=None):
     # Determine non-pressure fit for each line
     fits_per_line = {
         'line3': 'corrected_sigmoid',
+        'theo_line3': 'corrected_sigmoid',
         'sarah_line3': 'corrected_sigmoid',
         'sst': 'corrected_sigmoid_decay',
         'pv':  'threshold_linear',  # 'sigmoid',
@@ -4408,14 +4427,23 @@ def extract_run_index(table, P=P_REF, DC=DC_REF):
     '''
     # Extract parameters by run from info table
     pbyrun = get_params_by_run(table)
+    
     # Identify target condition in info table
-    iscond = (pbyrun[Label.P] == P) & (pbyrun[Label.DC] == DC) 
-    # If no run found for target condition, raise error
-    if iscond.sum() == 0:
-        raise ValueError(f'no run found for P = {P}, DC = {DC}')
-    # Return run index for target condition
-    return pbyrun[iscond].index[0]
+    if Label.P in pbyrun.columns and Label.DC in pbyrun.columns:
+        iscond = (pbyrun[Label.P] == P) & (pbyrun[Label.DC] == DC) 
+        # If no run found for target condition, raise error
+        if iscond.sum() == 0:
+            raise ValueError(f'no run found for P = {P}, DC = {DC}')
+        return pbyrun[iscond].index[0]
 
+    # Otherwise, if ISPTA column present, identify target condition 
+    # in info table as the one with the highest ISPTA value
+    elif Label.ISPTA in pbyrun.columns:
+        logger.info(f'extracting run index based on highest ISPTA value')
+        return pbyrun[Label.ISPTA].idxmax()
+    else:
+        raise ValueError(f'no valid condition columns found in info table')
+    
 
 def compute_covariance_matrix(y):
     '''

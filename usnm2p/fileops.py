@@ -299,19 +299,24 @@ def get_data_folders(basedir, recursive=True, exclude_patterns=[], include_patte
 
     # Filter out excluded folders
     for k in exclude_patterns:
+        logger.debug(f'excluding folders containing "{k}"')
         datafolders = list(filter(lambda x: k not in os.path.basename(x), datafolders))
+        logger.debug(f'filtered list: {datafolders}')
 
     # Restrict to included patterns
     for k in include_patterns:
+        logger.debug(f'including only folders containing "{k}"')
         datafolders = list(filter(lambda x: k in os.path.basename(x), datafolders))
-
+        logger.debug(f'filtered list: {datafolders}')
+    
     # Log filtered list
-    logger.debug(f'filtered list: {datafolders}')
     if not rec_call and len(datafolders) != nfolders:
         logger.info(f'{len(datafolders)} folders remain after filtering')
 
-    # If sorting key specified, sort output according to it
-    if sortby is not None:
+    logger.debug(f'final list: {datafolders}')
+
+    # If sorting key specified, sort output (if any) according to it
+    if len(datafolders) > 0 and sortby is not None:
         params_by_folder = [parse_experiment_parameters(os.path.basename(f)) for f in datafolders]
         if any(sortby not in p for p in params_by_folder):
             raise ValueError(f'"{sortby}" is not a valid input sorting key')
@@ -1383,4 +1388,3 @@ def load_post_window_size(dirpath):
     # Load window size
     with open(fpath, 'r') as file:
         return int(file.read())
-

@@ -29,7 +29,7 @@ if __name__ == '__main__':
     input_nbpath, outdir, mpi, ask_confirm, proc_queue = parse_notebook_exec_args(args)
 
     # Get mouselines input directories
-    mouselines = ['line3', 'sst', 'pv', 'sarah_line3']
+    mouselines = ['line3', 'sst', 'pv', 'sarah_line3', 'theo_line3']
     if args['mouseline'] is not None:
         mouselines = [mouselines[mouselines.index(args['mouseline'])]]
     trialavg_dirs = {}

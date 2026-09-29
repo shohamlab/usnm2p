@@ -38,6 +38,7 @@ class Label:
     ISPTRMS = 'I_SPTRMS (W/cm2)'  # spatial peak, temporal RMS intensity
     PRF = 'PRF (Hz)'
     DUR = 'duration (s)'
+    DUR_MS = 'duration (ms)'
     TSTIM = 'tstim (s)'
 
     # Acquisition
@@ -340,6 +341,7 @@ GLOBAL_CORRECTION = {
     'sst': None,
     'pv': 'linreg_robust',
     'sarah_line3': None,
+    'theo_line3': None,
     'cre_sst': None, #'linreg_robust', 'linreg_nointercept_refch2'
     'cre_ndnf': None,
     'cre_vip': None,
@@ -454,7 +456,7 @@ class Pattern:
 
     LINE = '([A-z][A-z0-9_]*)'
     DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
-    MOUSE = '[A-z][a-z]*[1-9][0-9]*'
+    MOUSE = '[a-zA-Z]+[1-9][0-9]*'
     REGION = 'region[1-9][0-9]*[a-zA-Z]?'
     LAYER = 'layer[1-5]-?[1-5]*'
     TRIAL_LENGTH = '([0-9]+)frames'
@@ -491,6 +493,7 @@ class Palette:
     }
     LINE = {  # mouse line (categorical)
         'line3': 'C0',
+        'theo_line3': 'C0',
         'sarah_line3': 'b',
         'pv': 'C1',
         'sst': 'r',
@@ -525,6 +528,7 @@ sweep_markers = {
 # Minimum cell density (cells/mm2) per cell line
 MIN_CELL_DENSITY = {
     'line3': 1400.,
+    'theo_line3': None,
     'sarah_line3': None,
     'sst': None,
     'pv': None,
