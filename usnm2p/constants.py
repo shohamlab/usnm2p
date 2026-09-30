@@ -203,6 +203,28 @@ class Label:
     UNSTABLEFO = 'large variation in fluorescence baseline'
 
 
+# List of direct stimulation parameters
+DIRECT_STIM_PARAMS = [
+    Label.P,
+    Label.DC,
+    Label.PRF,
+    Label.DUR,
+    Label.FREQ,
+    Label.SUFFIX,
+]
+
+# List of indirect stimulation parameters (derived from direct stimulation parameters)
+INDIRECT_STIM_PARAMS = [
+    Label.ISPPA,
+    Label.ISPTA,
+    Label.PSPTA,
+    Label.PSPPRMS,
+    Label.PSPTRMS,
+    Label.ISPPRMS,
+    Label.ISPTRMS,
+]
+
+
 # Names used for intermediate data directories along the analysis pipeline
 class DataRoot:
     
@@ -370,6 +392,7 @@ def get_gcamp_key(line):
     else:
         return '6s'
 
+
 ###################################### SIGNAL CONDITIONING ######################################
 
 NPIX_RATIO_THR = None  # threshold (# pixels ROI) / (# pixels soma) ratio (cells above that ratio get discarded) 
@@ -396,8 +419,8 @@ MIN_EVENTS_DISTANCE = 2.  # minimum temporal interval between activity peaks (s)
 EVENTS_BIN_INTERVAL = 1.4  # binning interval for events density quantification (s)
 
 # Artifacts
-VDISP_PEAK_THR = 10.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
-VDISP_AVG_THR = 2.  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
+VDISP_PEAK_THR = 20.  # threshold peak displacement velocity (um/s). Trials with peak velocities higher than this value get discarded 
+VDISP_AVG_THR = 5.  # threshold average displacement velocity (um/s). Trials with average velocities higher than this value get discarded 
 PCT_PREACTIVE_THR = 50.  # threshold percentage of pre-active cells for each trial. Trials with higher percentages get discarded  
 NSTD_DEV_THR = 5  # number of standard deviations from timeseries distribution median outside which a trial is considered an outlier 
 MIN_VALID_TRIALS = 5  # minimum of avaliable valid trials to average from for the ROI-condition to be valid 

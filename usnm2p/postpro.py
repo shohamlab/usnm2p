@@ -3354,23 +3354,28 @@ def classify_ROIs(data, directional=False, return_nconds=False):
         return roistats
 
 
-def get_varying_params(data):
+def get_varying_params(data, add_indirect=False):
     '''
-    Extract varying stimulation parameters from output tablea multi-index stats dataframe, excluding run ID
+    Extract varying stimulation parameters from multi-index stats dataframe
+
+    :param data: multi-index stats dataframe
+    :param add_indirect: whether to add indirect parameters (e.g., ISPPA, ISPTA) to the list of varying parameters
+    :return: list of varying stimulation parameters
     '''
-    nvals_per_col = data.nunique()
+    # Extract candidate parameters
+    candidate_params = DIRECT_STIM_PARAMS.copy()
+    if add_indirect:
+        candidate_params = candidate_params + INDIRECT_STIM_PARAMS.copy()
+
+    # Restrict to those that are present in the dataset
+    candidate_params = [k for k in candidate_params if k in data.columns]
+
+    # Extract parameters that vary across the dataset
+    nvals_per_col = data[candidate_params].nunique()
     varying_params = nvals_per_col[nvals_per_col > 1].index.values
-    candidate_params = [
-        Label.P,
-        Label.DC,
-        Label.PRF,
-        Label.ISPPA,
-        Label.ISPTA, 
-        Label.DUR,
-        Label.FREQ,
-        Label.SUFFIX,
-    ]
-    return [k for k in candidate_params if k in varying_params]
+
+    # Return list of varying parameters that are present in the dataset
+    return varying_params
 
 
 def get_params_by_run(data, extra_dims=None):
@@ -3398,13 +3403,56 @@ def get_params_by_run(data, extra_dims=None):
         gby = list(filter(lambda x: x in gby, data.index.names))
 
     # Extract varying parameters as input keys (besides run and extra dimensions)
-    inputkeys = get_varying_params(data)
+    inputkeys = get_varying_params(data, add_indirect=True)
     
     # Extract first value of each parameter for each group
     first_params_by_run = data[inputkeys].groupby(gby).first()
 
     # Return
     return first_params_by_run
+
+
+def get_unified_condition_key(data):
+    '''
+    Get a single string representation of all the keys in a dataframe.
+
+    :param data: a pandas DataFrame object representing the info table
+    :return: a single string representation of all the keys in the dataframe
+    '''
+    repr = []
+    for k in data.columns:
+        try:
+            name, _ = parse_label(k)
+        except ValueError:
+            name = k
+        repr.append(name)
+    return ', '.join(repr)
+
+
+def get_unified_condition_value(s):
+    ''' 
+    Get a single string representation of all the values in a series.
+    
+    :param s: a pandas Series object representing a row of the info table
+    :return: a single string representation of all the values in the series
+    '''
+    repr = []
+    for k, v in s.items():
+        try:
+            _, unit = parse_label(k)
+        except ValueError:
+            unit = ''
+        repr.append(f'{v}{unit}')
+    return ', '.join(repr)
+
+
+def get_unified_condition_values(data):
+    '''
+    Get a single string representation of all the values in a dataframe.
+    :param data: a pandas DataFrame object representing the info table
+    :return: a single string representation of all the values in the dataframe
+    '''
+    return data.apply(get_unified_condition_value, axis=1)
 
 
 def find_in_dataframe(df, key):
