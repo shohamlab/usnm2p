@@ -1234,10 +1234,11 @@ def plot_suite2p_registration_images(ops, title=None, cmap='viridis', um_per_px=
     }
     imgs_dict = {label: ops.get(key, None) for label, key in imkeys_dict.items()}
     imgs_dict = {k: v for k, v in imgs_dict.items() if v is not None}
-    
+
     # Create figure
     nimgs = len(imgs_dict)
     fig, axes = plt.subplots(1, nimgs, figsize=(4 * nimgs, 4))
+    axes = np.atleast_1d(axes)
     if title is not None:
         fig.suptitle(title)
     
@@ -1457,6 +1458,9 @@ def plot_suite2p_sparse_maps(ops, um_per_px=None):
     logger.info('plotting suite2p sparse projection maps...')
     
     # Extract maps
+    if 'Vmap' not in ops:
+        logger.warning('looks like sparse mode maps were not computed -> ignoring')
+        return None
     Vcorr, Vmaps = ops['Vcorr'], ops['Vmap']
     
     # Compute ratios

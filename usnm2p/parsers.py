@@ -32,6 +32,20 @@ P_RUNFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{fps}Hz_\6MPa_\7DC_run\8\9.tif'
 P_TRIALFILE_SUB = r'\1_{nframes}frames_\3Hz_\4ms_{fps}Hz_\6MPa_\7DC_run\8_\9.tif'
 
 
+def parse_pressure(s):
+    ''' Parse pressure string (from filename, missing dot character) into float value (in MPa) '''
+    # If string has 3 or more characters, insert the decimal point before the last 2 digits
+    if len(s) >= 3:
+        return float(s[:-2] + '.' + s[-2:])
+    
+    # If string has 2 characters, insert a dot before the last character
+    if len(s) == 2:
+        return float(s[:-1] + '.' + s[-1:])
+
+    # Default: convert string to float
+    return float(s)
+
+
 def parse_experiment_parameters(name):
     '''
     Parse experiment parameters from a file/folder name.
@@ -74,10 +88,11 @@ def parse_experiment_parameters(name):
     if len(mo.group(8)) > 0:
         params[Label.SUFFIX] = mo.group(8)
 
-    # Fix for pressure (replacing first zero by decimal dot)
+    # Fix for pressure: if starts by two zeros, assume 2nd one is a decimal point
     if '.' not in params[Label.P]:
-        params[Label.P] = f'.{params[Label.P][1:]}'
-    params[Label.P] = float(params[Label.P])
+        params[Label.P] = parse_pressure(params[Label.P])
+    else:
+        params[Label.P] = float(params[Label.P])
 
     # If file pattern detected, add file-level parameters
     if k == 'trial file':
