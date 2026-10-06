@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 14:58:15
+# @Last Modified time: 2026-09-30 21:53:48
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2112,11 +2112,13 @@ def get_reference_stats_per_run(dfs):
 
 def get_param_code(data):
     ''' Get a code string from stimulation parameters column '''
-    # Parse P and DC columns to strings
-    P_str = data[Label.P].map('{:01.2f}MPa'.format)
-    DC_str = data[Label.DC].map('{:02.0f}%DC'.format)
-    # Generate new column from concatenated (P, DC) combination 
-    return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
+    # Get unique string representation from all varying parameters columns
+    varying_params = get_varying_params(data)
+    return get_unified_condition_values(data[varying_params], sep='_')
+    # P_str = data[Label.P].map('{:01.2f}MPa'.format)
+    # DC_str = data[Label.DC].map('{:02.0f}%DC'.format)
+    # # Generate new column from concatenated (P, DC) combination 
+    # return pd.concat([P_str, DC_str], axis=1).agg('_'.join, axis=1)
 
 
 def process_runids(s):
@@ -2345,12 +2347,11 @@ def get_detailed_ROI_count(data, style=False):
         lambda gdata: len(gdata.index.unique(Label.ROI)))
     ROI_detailed_count = ROI_detailed_count.unstack()
     # Add parametric references
-    params_per_run = data[[Label.P, Label.DC]].groupby(
+    varying_params = get_varying_params(data)
+    params_per_run = data[varying_params].groupby(
         [Label.DATASET, Label.RUN]).first().groupby(Label.RUN).max()
-    params_per_run[Label.P] = params_per_run[Label.P].map('{:01.2f}'.format)
-    params_per_run[Label.DC] = params_per_run[Label.DC].map('{:02.0f}'.format)
     ROI_detailed_count.columns = pd.MultiIndex.from_arrays(
-        [ROI_detailed_count.columns, params_per_run[Label.P], params_per_run[Label.DC]])
+        [ROI_detailed_count.columns, *[params_per_run[col].map('{:02.2f}'.format) for col in params_per_run.columns]])
     # Format if specified
     if style:
         ROI_detailed_count = ROI_detailed_count.style.apply(
@@ -3372,7 +3373,7 @@ def get_varying_params(data, add_indirect=False):
 
     # Extract parameters that vary across the dataset
     nvals_per_col = data[candidate_params].nunique()
-    varying_params = nvals_per_col[nvals_per_col > 1].index.values
+    varying_params = nvals_per_col[nvals_per_col > 1].index.values.tolist()
 
     # Return list of varying parameters that are present in the dataset
     return varying_params
@@ -3429,7 +3430,7 @@ def get_unified_condition_key(data):
     return ', '.join(repr)
 
 
-def get_unified_condition_value(s):
+def get_unified_condition_value(s, sep=', '):
     ''' 
     Get a single string representation of all the values in a series.
     
@@ -3443,16 +3444,16 @@ def get_unified_condition_value(s):
         except ValueError:
             unit = ''
         repr.append(f'{v}{unit}')
-    return ', '.join(repr)
+    return sep.join(repr)
 
 
-def get_unified_condition_values(data):
+def get_unified_condition_values(data, **kwargs):
     '''
     Get a single string representation of all the values in a dataframe.
     :param data: a pandas DataFrame object representing the info table
     :return: a single string representation of all the values in the dataframe
     '''
-    return data.apply(get_unified_condition_value, axis=1)
+    return data.apply(lambda df: get_unified_condition_value(df, **kwargs), axis=1)
 
 
 def find_in_dataframe(df, key):

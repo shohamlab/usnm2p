@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2022-10-07 20:43:12
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2025-09-08 13:29:26
+# @Last Modified time: 2026-09-30 21:30:48
 
 from .constants import *
 from .fileops import get_data_root
@@ -199,7 +199,12 @@ def get_batch_settings(analysis_type, mouseline, layer, global_correction, kalma
     # Infer GCaMP decay time from mouseline
     gcamp_key = get_gcamp_key(mouseline)
     tau = GCAMP_DECAY_TAU[gcamp_key]
-    fs = BERGAMO_RESAMPLED_SR if (isinstance(mouseline, str) and mouseline.startswith('cre')) else BRUKER_SR
+    fs = BRUKER_SR
+    if isinstance(mouseline, str):
+        if mouseline.startswith('cre'):
+            fs = BERGAMO_RESAMPLED_SR
+        elif mouseline == 'theo_line3':
+            fs = BRUKER_SR_2026
 
     # Get suite2p ID
     s2pid = get_s2p_id(fs, tau, nchannels=nchannels)

@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:13:26
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-25 14:22:11
+# @Last Modified time: 2026-10-02 15:00:04
 
 ''' Collection of constants used throughout the code base. '''
 
@@ -169,6 +169,7 @@ class Label:
         DUR,
         P, 
         DC, 
+        PRF,
         ISPTA
     ]
 
@@ -323,6 +324,7 @@ DEFAULT_LAYER = 'layer2-3'
 BERGAMO_SR = 30.00  # data sampling rate on Bergamo resonant scanning system (Hz)
 BERGAMO_RESAMPLED_SR = 5.0  # data sampling rate on Bergamo system after resampling (Hz)
 BRUKER_SR = 3.56    # data sampling rate on Bruker galvo scanning system (Hz)
+BRUKER_SR_2026 = 3.58  # data sampling rate on Bruker galvo scanning system (Hz) for data acquired in 2026 (slightly different from previous years)
 FUNC_CHANNEL = 1  # index of functional channel in multi-channel Bergamo recordings
 REF_NFRAMES = 1600  # reference number of frames in any given experimental run (used to check integrity of input stacks)
 NFRAMES_PER_TRIAL = 100  # default number of frames per trial
@@ -476,7 +478,8 @@ MAX_F0_REL_DEV = .5  # max relative deviation of baseline fluorescence from its 
 ###################################### PARSING ######################################
 
 class Pattern:
-
+    INT = '\d+'
+    FLOAT = '[+-]?\d*[.]?\d+'
     LINE = '([A-z][A-z0-9_]*)'
     DATE = '(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])'
     MOUSE = '[a-zA-Z]+[1-9][0-9]*'
