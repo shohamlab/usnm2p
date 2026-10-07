@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# @Author: Theo Lemaire
+# @Date:   2026-09-30 16:32:33
+# @Last Modified by:   Theo Lemaire
+# @Last Modified time: 2026-10-06 23:02:14
 from usnm2p.bruker_utils import *
 from usnm2p.constants import *
 from usnm2p.logger import logger
@@ -10,7 +15,7 @@ them compatible with the rest of the analysis pipeline.
 '''
 
 # Constant parameters
-analysis = 'main'  # analysis type
+analysis = 'PRF'  # analysis type
 mouseline = 'theo_line3'  # mouse line
 fs = 3.58  # acquisition frame rate (Hz)
 npertrial = 100  # number of frames per trial
@@ -19,6 +24,12 @@ dataroot = get_data_root(kind=DataRoot.RAW_BRUKER)  # root directory for raw Bru
 
 # Main script
 if __name__ == '__main__':
+    # Ask user for analysis type
+    analysis = input(f'enter analysis type (default: "{analysis}"): ') or analysis
+
+    # Ask user for mouse line
+    mouseline = input(f'enter mouse line (default: "{mouseline}"): ') or mouseline
+
     # Ask user for dataset directory name
     dataset_id = input('enter dataset directory (usually a "<date>_<mouse>_<region>[_<layer>]" pattern): ')
     
