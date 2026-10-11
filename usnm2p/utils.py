@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-11 15:53:03
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-21 13:22:18
+# @Last Modified time: 2026-10-08 15:20:40
 
 ''' Collection of generic utilities. '''
 
@@ -32,7 +32,7 @@ def check_conda_env():
 
 def is_iterable(x):
     ''' Check if an object is iterbale (i.e. a list, tuple or numpy array) '''
-    for t in [list, tuple, np.ndarray, pd.Series]:
+    for t in [list, tuple, np.ndarray, pd.Series, pd.Index, pd.MultiIndex]:
         if isinstance(x, t):
             return True
     return False

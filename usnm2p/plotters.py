@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 11:14:45
+# @Last Modified time: 2026-10-11 00:59:00
 
 ''' Collection of plotting utilities. '''
 
@@ -3586,7 +3586,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
         # If hue is not per dataset, call adapted function
         if hue != Label.DATASET:
             return plot_parameter_dependency_across_datasets(
-                data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, ax=ax, legend=legend,
+                data, xkey=xkey, ykey=ykey, yref=yref, hue=hue, palette=palette, ax=ax, legend=legend,
                 add_leg_numbers=add_leg_numbers, marker=marker, avg_color=avg_color, 
                 fit=fit, fit_ci=fit_ci, err_style=err_style, lw=lw, **kwargs)
         # Otherwise, make copy and offset values per dataset if specified
@@ -3594,6 +3594,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
             if stacked:
                 data = data.copy()
                 data[ykey] = offset_per_dataset(data[ykey])
+    
     # Set plotting parameters
     hue_order = kwargs.pop('hue_order', None)
     hueplt = False
@@ -3639,6 +3640,7 @@ def plot_parameter_dependency(data, xkey=Label.P, ykey=None, yref=0., ax=None, h
     if hue_alpha == 0.:
         pltkwargs['errorbar'] = None
 
+    # Plot dependency curves for each hue level (if any)
     fig = plot_from_data(
         data, xkey, ykey, hue=hue, hue_order=hue_order, alpha=hue_alpha,
         err_style=hueerr_style, legend=legend, lw=lw, **pltkwargs)
@@ -3845,7 +3847,7 @@ def compute_and_add_fit(ax, xdata, ydata, fit, add_text=True,
     return xdense, yfitdense
 
 
-def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue=None, ax=None,
+def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue=None, palette=None, ax=None,
                                               yref=None, title=None, legend=True, add_leg_numbers=True,
                                               marker='o', markersize=6, ls='-', lw=1, avg_color='k',
                                               weighted=True, err_style='band', errprop='inter',
@@ -3932,6 +3934,12 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
 
     # Otherwise
     else:
+        if palette is None:
+            palette = 'tab10'
+        if isinstance(palette, str):
+            palette = plt.get_cmap(palette)
+        colors = palette.colors
+
         # For each hue value
         for ihue, (htype, rdata) in enumerate(data.groupby(hue)):
             # Aggregate data with cell-count weighting
@@ -3940,17 +3948,19 @@ def plot_parameter_dependency_across_datasets(data, xkey=Label.P, ykey=None, hue
             if hue == Label.ROI_RESP_TYPE:
                 color = Palette.RTYPE[htype]
             else:
-                color = plt.get_cmap('tab10').colors[ihue]
+                color = colors[ihue]
             if err_style == 'bars':
                 ax.errorbar(
                     aggdata[xkey], aggdata[mu_key], yerr=aggdata[sem_key],
                     marker=marker, ls=ls, label=htype, color=color, 
-                    linewidth=0 if fit else None, elinewidth=2 if fit else None)
+                    linewidth=0 if fit else lw, elinewidth=2 if fit else None,
+                    markersize=markersize)
             else:
                 ax.plot(
                     aggdata[xkey], aggdata[mu_key],
                     marker=marker, ls=ls, label=htype, color=color, 
-                    linewidth=0 if fit else None)
+                    linewidth=0 if fit else lw,
+                    markersize=markersize)
                 if err_style == 'band':
                     ax.fill_between(
                         aggdata[xkey], 
@@ -4152,7 +4162,7 @@ def plot_cellcounts(data, hue=Label.ROI_RESP_TYPE, count='pie', title=None, deta
     # If details not requested, plot histogram distribution of cell counts per hue
     if not details:
         gby = [Label.DATASET]
-        if hue is not None:
+        if hue is not None and hue != Label.DATASET:
             gby.append(hue)
         nROIs = (celltypes
             .groupby(gby)

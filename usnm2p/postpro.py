@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-15 10:13:54
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-30 21:53:48
+# @Last Modified time: 2026-10-08 20:35:14
 
 ''' Collection of utilities to process fluorescence signals outputed by suite2p. '''
 
@@ -2073,6 +2073,37 @@ def filter_datasets(*dfs, exclude=None):
     return dfs_out if len(dfs_out) > 1 else dfs_out[0]
 
 
+def filter_multilevel(df, selection):
+    ''' 
+    Filter a multi-index dataframe to keep only the values specified in an input multi-index.
+    
+    :param df: Multi-index dataframe containing all the levels in "selection"
+    :param selection: multi-index containing index values to keep
+    :return: filtered dataframe containing only the specified selection
+    '''
+    # If input is a list, apply function recursively 
+    if isinstance(df, list):
+        return [filter_multilevel(x, selection) for x in df]
+
+    # Infer index levels to filter from selection mux
+    if not isinstance(selection, pd.MultiIndex):
+        raise ValueError(f'invalid selection type: {type(selection)} (must be a pandas MultiIndex)')
+    levels = selection.names
+
+    # Make sure input dataframe multi-index contains these levels
+    for l in levels:
+        if l not in df.index.names:
+            raise ValueError(f'selection level "{l}" not found in input dataframe with dimensions {df.index.names}')
+    
+    # Keep only the selection dimensions
+    drop = [name for name in df.index.names if name not in levels]
+    keys = df.index.droplevel(drop) if drop else df.index
+    keys = keys.reorder_levels(levels)
+
+    # Filter based on these
+    return df.loc[keys.isin(selection)]
+
+
 def get_reference_stats_per_run(dfs):
     '''
     Extract reference stats-per-run dataframe from a list of multi-indexed experiment dataframes
@@ -2354,7 +2385,7 @@ def get_detailed_ROI_count(data, style=False):
         [ROI_detailed_count.columns, *[params_per_run[col].map('{:02.2f}'.format) for col in params_per_run.columns]])
     # Format if specified
     if style:
-        ROI_detailed_count = ROI_detailed_count.style.apply(
+        ROI_detailed_count = ROI_detailed_count.T.style.apply(
             highlight_incomplete, axis=1).format('{:.0f}')
     return ROI_detailed_count
 
