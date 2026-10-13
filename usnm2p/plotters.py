@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-10-11 00:59:00
+# @Last Modified time: 2026-10-12 09:36:47
 
 ''' Collection of plotting utilities. '''
 
@@ -3504,11 +3504,15 @@ def add_numbers_on_legend_labels(leg, data, xkey, ykey, hue):
     :param hue: hue parameter on the graph from which legend was created
     '''
     logger.info(f'adding sample counts per {hue} on legend labels...')
-
+    
     # Count number of samples per hue and x-axis value
     counts_data = data
-    if Label.ROI in data.index.names:
-        counts_data = data.groupby([hue, xkey, Label.ROI]).first()
+    extra_gby = []
+    for k in [Label.DATASET, Label.ROI]:
+        if hue != k and k in data.index.names:
+            extra_gby.append(k)
+    if len(extra_gby) > 0:
+        counts_data = data.groupby([hue, xkey, *extra_gby]).first()
     counts_by_hue = counts_data.groupby([hue, xkey]).count().loc[:, ykey].unstack()
 
     # Keep only the max across all x-levels for each hue
