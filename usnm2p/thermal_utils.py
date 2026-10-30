@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2026-09-11 13:44:14
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-09-25 14:55:05
+# @Last Modified time: 2026-10-27 16:32:13
 
 import os
 import struct
@@ -73,8 +73,8 @@ DOUBLE_EXP_FIT_BOUNDS = {
 }
 
 # Pressure-related constants
-P_RANGE = (0, 2.5)  # pressure range (MPA) used throughout experiments, for consistent color-coding
-ISPTA_RANGE = (0, 130)  # ISPTA range (W/cm2) used throughout experiments, for consistent color-coding
+P_RANGE = (0, 1.2)  # pressure range (MPA) used throughout experiments, for consistent color-coding
+ISPTA_RANGE = (0, 35)  # ISPTA range (W/cm2) used throughout experiments, for consistent color-coding
 COVERGLASS_ATTENUATION_FACTOR = 0.70  # pressure attenuation factor between measurements in free-field and 2x150um coverglass (average of 2 transducers, measured by Theo)
 
 # Regexp patterns
@@ -861,11 +861,11 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs)
     kwargs['ax'] = ax
     sns.despine(ax=ax)
 
-    # Determine the hue normalization range based on the hue variable
-    hue_norm = {
-        Label.P: P_RANGE,
-        Label.ISPTA: ISPTA_RANGE,
-    }.get(hue, None)
+    # # Determine the hue normalization range based on the hue variable
+    # hue_norm = {
+    #     Label.P: P_RANGE,
+    #     Label.ISPTA: ISPTA_RANGE,
+    # }.get(hue, None)
 
     # Plot the evoked thermal response using seaborn lineplot
     sns.lineplot(
@@ -873,7 +873,7 @@ def plot_evoked_thermal_response(ax=None, data=None, y=None, hue=None, **kwargs)
         x=Label.TIME,
         y=y,
         hue=hue,
-        hue_norm=hue_norm,
+        # hue_norm=hue_norm,
         **kwargs
     )
 
