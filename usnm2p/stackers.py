@@ -14,7 +14,7 @@ import pandas as pd
 
 from .constants import *
 from .logger import logger
-from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence
+from .fileops import loadtif, savetif, get_sorted_filelist, get_output_equivalent, check_for_existence, load_tif_nframes
 from .parsers import P_TIFFILE, parse_experiment_parameters
 
 
@@ -198,9 +198,15 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
             raise ValueError(f'Inconsistent number of frames per trial: {npertrial}')
         npertrial = npertrial[0]
         # If only one frame per cycle is detected, issue a warning and move to "stack" mode
+        # and update the number of frames per trial from the actual number of frames in each tif file
         if pbyfile[Label.FRAME].max() == 1:
             logger.warning('only one frame per cycle detected (probably multi-page TIFs) -> switching to "stack" input type')
             input_type = 'stack'
+            pbyfile['nframes'] = [load_tif_nframes(fpath) for fpath in fpaths]
+            npertrial = pbyfile.groupby(Label.TRIAL)['nframes'].sum()
+            if npertrial.nunique() > 1:
+                raise ValueError(f'Inconsistent number of frames per trial: {npertrial}')
+            npertrial = npertrial.iloc[0]
         else:
             input_type = 'image'
     out = TifStacker(input_type=input_type, verbose=verbose).stack(fpaths, output_fpath, **kwargs)
