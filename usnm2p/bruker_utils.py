@@ -220,7 +220,12 @@ def simplify_bruker_settings(settings):
     settings['preampFilter (MHz)'] = filtval * 1e-6
 
     # Curate Pockels power
-    settings['Pockels power'] = settings.pop('laserPower')[0]
+    laserpower = settings.pop('laserPower')
+    if isinstance(laserpower, dict):
+        laserpower = laserpower['Pockels']
+    else:
+        laserpower = laserpower[0]    
+    settings['Pockels power'] = laserpower
 
     # Simplify complex settings
     curated_settings = {}

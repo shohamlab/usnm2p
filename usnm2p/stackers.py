@@ -74,7 +74,7 @@ class ImageStacker(metaclass=abc.ABCMeta):
         
     def stack(self, input_fpaths, output_fpath, overwrite='?', full_output=False, **kwargs):
         '''
-        Merge individual image files into an image stack.
+        Merge individual image files (or small stacks of images) into an full image stack.
 
         :param input_fpaths: list of absolute paths to the input image files list
         :param output_fpath: absolute path to output image stack file
@@ -109,10 +109,15 @@ class ImageStacker(metaclass=abc.ABCMeta):
             # Assign reference shape or ensure match of current input with reference
             if refshape is None:
                 refshape = stack_input.shape
+                if self.input_type == 'stack':
+                    refshape = refshape[1:]
             else:
-                if stack_input.shape != refshape:
+                current_shape = stack_input.shape
+                if self.input_type == 'stack':
+                    current_shape = current_shape[1:]
+                if current_shape != refshape:
                     raise ValueError(
-                        f'{self.input_type} {i} shape {stack_input.shape} does not match reference {refshape}')
+                        f'{self.input_type} {i} shape {current_shape} does not match reference {refshape}')
 
             # Append input to stack
             stack.append(stack_input)
@@ -181,6 +186,7 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
         fnames = get_sorted_filelist(inputdir, pattern=pattern)
     except ValueError:
         return None
+    fpaths = [os.path.join(inputdir, fname) for fname in fnames]
     if full_output:
         # Exract parameters from each file
         pbyfile = pd.DataFrame([pd.Series(parse_experiment_parameters(fname)) for fname in fnames])
@@ -191,8 +197,13 @@ def stack_tifs(inputdir, input_key, output_key, pattern=P_TIFFILE, verbose=True,
         if npertrial.size > 1:
             raise ValueError(f'Inconsistent number of frames per trial: {npertrial}')
         npertrial = npertrial[0]
-    fpaths = [os.path.join(inputdir, fname) for fname in fnames]
-    out = TifStacker(verbose=verbose).stack(fpaths, output_fpath, **kwargs)
+        # If only one frame per cycle is detected, issue a warning and move to "stack" mode
+        if pbyfile[Label.FRAME].max() == 1:
+            logger.warning('only one frame per cycle detected (probably multi-page TIFs) -> switching to "stack" input type')
+            input_type = 'stack'
+        else:
+            input_type = 'image'
+    out = TifStacker(input_type=input_type, verbose=verbose).stack(fpaths, output_fpath, **kwargs)
     if full_output:
         return output_fpath, ntrials, npertrial
     else:
