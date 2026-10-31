@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-10-12 09:36:47
+# @Last Modified time: 2026-10-31 11:14:21
 
 ''' Collection of plotting utilities. '''
 
@@ -5422,7 +5422,7 @@ def plot_responder_fraction(data, xkey, hue=Label.DATASET, xref=None, kind='line
     return fig
 
 
-def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
+def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True, **kwargs):
     ''' 
     Plot details of cells classification as function of their response distribution
     for the current ensemble of datasets
@@ -5448,6 +5448,7 @@ def plot_classification_details(data, pthr=None, hue=None, avg_overlay=True):
         kind='ecdf',
         hue=hue,
         height=4,
+        **kwargs,
         **pltkwargs
     )
     fig = fg.figure
