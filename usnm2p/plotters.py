@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-13 11:41:52
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-10-31 11:14:21
+# @Last Modified time: 2026-11-01 11:42:47
 
 ''' Collection of plotting utilities. '''
 
@@ -2793,6 +2793,10 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
         col_order = np.arange(len(groups))
     else:
         col_order = np.asarray(col_order)
+    
+    # Assign axes per column
+    iax = np.arange(len(groups))
+    sorted_iax = iax[np.argsort(col_order)]
 
     # Log
     logger.info(f'plotting {key} trial heatmap{"s" if naxes > 1 else ""}...')
@@ -2807,13 +2811,9 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
     with tqdm(total=naxes - 1, position=0, leave=True) as pbar:
         # For data group
         for i, (glabel, gdata) in enumerate(groups):
-            # If group is not in specified columns, move to next group 
-            if i not in col_order:
-                logger.warning(f'skipping {col} {glabel}')
-                continue
             
             # Find axis index and axis object
-            iax = np.where(col_order == i)[0][0]
+            iax = sorted_iax[i]
             ax = axes.ravel()[iax]
 
             # Generate 2D table of average traces over time per ROI
@@ -2885,7 +2885,8 @@ def plot_activity_heatmap(data, key, fidx, fps, irun=None, itrial=None, title=No
             if glabel != 'all':
                 coltitle = f'{col} {glabel}'
                 if col_labels is not None:
-                    coltitle = f'{coltitle} ({col_labels[iax]})'
+                    # coltitle = f'{coltitle} ({col_labels[iax]})'
+                    coltitle = col_labels[iax]
                 ax.set_title(coltitle)
             
             # Add stimulus onset line, if specified
