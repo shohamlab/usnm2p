@@ -2,7 +2,7 @@
 # @Author: Theo Lemaire
 # @Date:   2021-10-14 18:28:46
 # @Last Modified by:   Theo Lemaire
-# @Last Modified time: 2026-08-19 15:04:53
+# @Last Modified time: 2026-11-03 22:45:13
 
 ''' Collection of utilities for operations on files and directories. '''
 
@@ -989,7 +989,8 @@ def load_conditioned_dataset(fpath):
     return timeseries, popagg_timeseries, info_table, ROI_masks, isch2ROI
 
 
-def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats, triagg_stats, ROI_masks, map_ops):
+
+def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats, triagg_stats, ROI_masks, map_ops, daq_settings=None):
     '''
     Save processed dataset to a HDF5 file
     
@@ -1000,6 +1001,7 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
     :param triagg_stats: multi-indexed (ROI, run) trial-aggregated stats dataframe
     :param ROI_masks: ROI-indexed dataframe of (x, y) coordinates and weights
     :param map_ops: dictionary containing the necessary fields to plot cell maps
+    :param daq_settings: (optional) dictionary containing acquisition settings
     '''
     # Remove output file if it exists
     if os.path.isfile(fpath):
@@ -1025,6 +1027,10 @@ def save_processed_dataset(fpath, trialagg_timeseries, popagg_timeseries, stats,
         # Save map_ops in the same object
         logger.info('saving mapping options...')
         store['map_ops'] = pd.Series(map_ops)
+        # Save acquisition settings if provided
+        if daq_settings is not None:
+            logger.info('saving acquisition settings...')
+            store['daq_settings'] = pd.Series(daq_settings)
     logger.info(f'all data fields saved to "{fpath}"')
 
 
@@ -1047,7 +1053,8 @@ def load_processed_dataset(fpath, keys=None):
         'stats',
         'triagg_stats',
         'ROI_masks',
-        'map_ops'
+        'map_ops',
+        'daq_settings'        
     ]
     if keys is None:
         keys = allkeys
@@ -1063,8 +1070,11 @@ def load_processed_dataset(fpath, keys=None):
     with pd.HDFStore(fpath) as store:
         logger.info(f'loading mouse-region data from {os.path.basename(fpath)}')
         for k in keys:
-            out[k] = store[k]
-            if k == 'map_ops':
+            try:
+                out[k] = store[k]
+            except KeyError:
+                logger.warning(f'key "{k}" not found in data file')
+            if k in ('map_ops', 'daq_settings') and k in out:
                 out[k] = out[k].to_dict()
     # Return dictionary
     return out
